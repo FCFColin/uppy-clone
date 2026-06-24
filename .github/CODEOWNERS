@@ -1,0 +1,22 @@
+# Enterprise: CODEOWNERS ensures sensitive directories require specific reviewer approval.
+# This prevents unauthorized changes to infrastructure, security, and authentication code.
+
+# Infrastructure changes require owner review
+/infra/ @project-owners
+
+# Security-sensitive code requires security review
+/backend/internal/auth/ @security-reviewers
+/backend/internal/rbac/ @security-reviewers
+/backend/internal/crypto/ @security-reviewers
+/backend/internal/middleware/security.go @security-reviewers
+
+# CI/CD changes require DevOps review
+/.github/workflows/ @devops-reviewers
+/Dockerfile @devops-reviewers
+/docker-compose.yml @devops-reviewers
+
+# Database migrations require DB review
+/backend/migrations/ @db-reviewers
+
+# Documentation
+/docs/ @project-owners

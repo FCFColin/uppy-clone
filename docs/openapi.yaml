@@ -1,0 +1,1047 @@
+openapi: "3.0.3"
+
+info:
+  title: 多人网页气球飞行对战游戏 API
+  description: |
+    多人网页气球飞行对战游戏的后端 REST API 与 WebSocket 接口文档。
+    认证方式为 HttpOnly Cookie（quickplay / session），管理接口使用 admin_token Cookie。
+    错误响应遵循 RFC 7807 ProblemDetails 格式。
+  version: "1.0.0"
+  contact:
+    name: Development Team
+
+servers:
+  - url: http://localhost:8080
+    description: 本地开发环境
+  - url: https://balloon-game.example.com
+    description: 生产环境
+
+security: []
+
+tags:
+  - name: Auth
+    description: 用户认证（快速游戏、Magic Link、Token 刷新、登出）
+  - name: User
+    description: 用户数据管理（GDPR 数据导出与删除）
+  - name: Registry
+    description: 房间创建与查询
+  - name: Admin
+    description: 管理员配置管理
+  - name: Health
+    description: 存活与就绪探针
+  - name: WebSocket
+    description: 游戏实时通信
+
+paths:
+  # ─── Auth ──────────────────────────────────────────────────────────
+  /api/v1/auth/quickplay:
+    post:
+      operationId: authQuickplay
+      summary: 快速游戏（无需注册）
+      description: |
+        创建临时用户并返回 JWT Cookie（quickplay）+ 刷新令牌。
+        如果请求已携带有效的 quickplay 或 session Cookie，则复用现有用户并刷新令牌。
+        昵称可选，不提供则自动生成 "PlayerXXXX"。
+      tags: [Auth]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nickname:
+                  type: string
+                  maxLength: 12
+                  description: 可选昵称，超长部分截断，空值自动生成
+              example:
+                nickname: "SkyRider"
+      responses:
+        "200":
+          description: 快速游戏登录成功
+          headers:
+            Set-Cookie:
+              description: "quickplay HttpOnly Cookie，包含 JWT access token，Max-Age=900（15分钟）"
+              schema:
+                type: string
+                example: "quickplay=eyJhbG...; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=900"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickPlayResponse"
+        "500":
+          description: 内部服务器错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/auth/request:
+    post:
+      operationId: authRequestMagicLink
+      summary: 请求 Magic Link 登录邮件
+      description: |
+        向指定邮箱发送包含 Magic Link 的邮件。限速 5 次/分钟。
+        Magic Link 一次性使用，验证后立即删除。
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: 接收 Magic Link 的邮箱地址
+              example:
+                email: "player@example.com"
+      responses:
+        "202":
+          description: Magic Link 已发送（请求已接受，邮件异步发送）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Magic link sent"
+        "400":
+          description: 请求无效（缺少邮箱或邮箱格式错误）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: 请求过于频繁
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: 内部服务器错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/auth/verify:
+    get:
+      operationId: authVerifyMagicLink
+      summary: 验证 Magic Link
+      description: |
+        验证 Magic Link token，成功后设置 session Cookie 并返回用户信息。
+        token 一次性使用，验证后立即从 Redis 删除。
+      tags: [Auth]
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: Magic Link 中的验证令牌
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 验证成功
+          headers:
+            Set-Cookie:
+              description: "session HttpOnly Cookie，包含 JWT access token"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MagicLinkVerifyResponse"
+        "400":
+          description: 缺少 token 参数
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: token 无效或已过期
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/auth/check:
+    get:
+      operationId: authCheck
+      summary: 检查当前认证状态
+      description: 根据 quickplay 或 session Cookie 判断用户是否已认证。
+      tags: [Auth]
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 已认证
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated:
+                    type: boolean
+                    example: true
+                  userId:
+                    type: string
+                    example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        "401":
+          description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/auth/refresh:
+    post:
+      operationId: authRefreshToken
+      summary: 刷新 access token
+      description: |
+        使用 refresh_token 换取新的 access token 和轮换后的 refresh token。
+        旧 refresh token 在轮换后立即失效。
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  description: 之前获取的刷新令牌
+      responses:
+        "200":
+          description: 刷新成功
+          headers:
+            Set-Cookie:
+              description: "quickplay HttpOnly Cookie，包含新 JWT access token"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                    description: 新的 JWT access token
+                  refresh_token:
+                    type: string
+                    description: 轮换后的新 refresh token
+        "400":
+          description: 请求无效（缺少 refresh_token）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: refresh_token 无效或已过期 / 用户不存在
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: 内部服务器错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/auth/logout:
+    post:
+      operationId: authLogout
+      summary: 登出
+      description: |
+        吊销 refresh token 并清除 access token Cookie。
+        即使 refresh_token 未提供也会清除 Cookie。
+      tags: [Auth]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+                  description: 可选，提供则吊销该 refresh token
+      responses:
+        "200":
+          description: 登出成功
+          headers:
+            Set-Cookie:
+              description: "清除 quickplay 和 session Cookie（Max-Age=-1）"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logged out"
+        "400":
+          description: 请求体无效
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  # ─── User Data (GDPR) ─────────────────────────────────────────────
+  /api/v1/user/data:
+    get:
+      operationId: userExportData
+      summary: 导出用户数据（GDPR Article 20 数据可携带权）
+      description: |
+        导出当前认证用户的全部个人数据（JSON 格式）。
+        需要 user_data:read 权限（RBAC），由 auth 中间件注入 role=user。
+      tags: [User]
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 用户数据导出成功
+          content:
+            application/json:
+              schema:
+                type: object
+                description: 用户个人数据（结构依实现而定）
+        "401":
+          description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: 内部服务器错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      operationId: userDeleteData
+      summary: 删除用户数据（GDPR Article 17 被遗忘权）
+      description: |
+        软删除当前认证用户的全部个人数据。
+        异步处理：请求被接受后立即返回 202，实际删除由后台任务完成。
+        需要 user_data:delete 权限（RBAC）。
+      tags: [User]
+      security:
+        - cookieAuth: []
+      responses:
+        "202":
+          description: 删除请求已接受，异步处理中
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Deletion accepted"
+        "401":
+          description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: 内部服务器错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  # ─── Registry ──────────────────────────────────────────────────────
+  /api/v1/registry/create:
+    post:
+      operationId: registryCreateRoom
+      summary: 创建房间
+      description: |
+        创建新的游戏房间并返回房间代码。需要认证。
+        限速 5 次/分钟。
+        支持幂等性：提供 Idempotency-Key 请求头可在网络重试时防止重复创建房间。
+      tags: [Registry]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          description: |
+            幂等性键。相同的键在 24 小时内只会创建一次房间，
+            后续请求返回缓存的响应（带 X-Idempotent-Replayed: true 头）。
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 房间创建成功
+          headers:
+            X-Idempotent-Replayed:
+              description: "如果为 true，表示此响应是之前请求的缓存重放"
+              schema:
+                type: string
+                example: "true"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    description: 6 位房间代码
+                    example: "A1B2C3"
+        "401":
+          description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: 房间代码冲突（重复代码，请重试）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: 内部服务器错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/registry/match:
+    post:
+      operationId: registryMatchRoom
+      summary: 匹配房间（未实现，已弃用）
+      description: |
+        未实现：此端点尚未实现，仅作为接口预留，不应在生产环境中调用。
+        原计划匹配一个可用房间，当前实现与 create 相同。
+        待实现后移除 deprecated 标记并补全响应定义。
+      deprecated: true
+      tags: [Registry]
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 匹配成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: "A1B2C3"
+        "401":
+          description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/registry/check/{code}:
+    get:
+      operationId: registryCheckRoom
+      summary: 检查房间是否存在
+      description: 根据房间代码查询房间状态信息。无需认证。
+      tags: [Registry]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: 6 位房间代码
+          schema:
+            type: string
+            minLength: 6
+            maxLength: 6
+      responses:
+        "200":
+          description: 房间存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomInfo"
+        "400":
+          description: 缺少房间代码
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: 房间不存在
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: 内部服务器错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/registry/lobbies:
+    get:
+      operationId: registryListLobbies
+      summary: 列出活跃房间
+      description: |
+        Cursor 分页查询所有活跃房间。无需认证。
+        默认 limit=50，最大 100。
+        企业为何需要：Offset 分页在深页（大 offset）时性能差，需扫描并丢弃前 N 行。
+        Cursor 分页利用索引直接定位，性能恒定。这是"offset 分页有什么问题"的标准面试答案。
+      tags: [Registry]
+      parameters:
+        - name: limit
+          in: query
+          description: 每页数量（1-100，默认 50）
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          description: |
+            分页游标，格式为 "updated_at|code"。
+            首次请求不传 cursor，后续请求使用响应中的 next_cursor 值。
+            向后兼容：不传 cursor 时行为等同于首页。
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 房间列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lobbies:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LobbyState"
+                  total:
+                    type: integer
+                    description: 符合条件的房间总数
+                    example: 42
+                  has_more:
+                    type: boolean
+                    description: 是否还有更多数据
+                    example: true
+                  next_cursor:
+                    type: string
+                    description: 下一页游标（格式 "updated_at|code"），无更多数据时为空字符串
+                    example: "1719123456789|A1B2C3"
+        "500":
+          description: 内部服务器错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  # ─── Admin ─────────────────────────────────────────────────────────
+  /api/v1/admin/login:
+    post:
+      operationId: adminLogin
+      summary: 管理员登录
+      description: |
+        使用管理员密码登录，成功后设置 admin_token Cookie（24h 有效期）。
+        限速 10 次/5分钟。
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+                  description: 管理员密码
+      responses:
+        "200":
+          description: 登录成功
+          headers:
+            Set-Cookie:
+              description: "admin_token HttpOnly Cookie，24h 有效期"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: Admin JWT token
+        "400":
+          description: 请求体无效
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: 密码错误
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: 管理员未配置或密码未设置
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/admin/logout:
+    post:
+      operationId: adminLogout
+      summary: 管理员登出
+      description: |
+        吊销当前 admin_token（按 jti 撤销），并清除 admin_token Cookie。
+        需要管理员认证（任何已认证的管理员均可登出，无需 RBAC 校验）。
+      tags: [Admin]
+      security:
+        - adminAuth: []
+      responses:
+        "200":
+          description: 登出成功
+          headers:
+            Set-Cookie:
+              description: "清除 admin_token Cookie（Max-Age=-1）"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logged out"
+        "401":
+          description: 未认证（缺少或无效的 admin_token）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /api/v1/admin/config:
+    get:
+      operationId: adminGetConfig
+      summary: 获取配置
+      description: 获取全局配置。敏感字段（Resend API Key）已脱敏。需要管理员认证。
+      tags: [Admin]
+      security:
+        - adminAuth: []
+      responses:
+        "200":
+          description: 配置信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminConfigResponse"
+        "401":
+          description: 未认证（缺少或无效的 admin_token）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: 配置不存在
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      operationId: adminUpdateConfig
+      summary: 更新配置
+      description: |
+        部分更新全局配置。仅提供的字段会被更新。
+        Resend API Key 使用 AES-256-GCM 加密存储。
+        管理员密码使用 bcrypt 哈希存储。
+        需要管理员认证。
+      tags: [Admin]
+      security:
+        - adminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminConfigUpdate"
+      responses:
+        "200":
+          description: 配置更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Config updated"
+        "400":
+          description: 请求体无效
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: 配置不存在
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: 内部服务器错误（加密/哈希失败等）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    put:
+      operationId: adminUpdateConfigDeprecated
+      summary: 更新配置（已弃用，请使用 PATCH）
+      deprecated: true
+      description: |
+        已弃用：请使用 PATCH /api/v1/admin/config 代替。
+        PUT 语义为全量替换，但实际行为为部分更新，不符合 RFC 规范。
+        此端点将在 2027-01-01 后移除。
+      tags: [Admin]
+      security:
+        - adminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminConfigUpdate"
+      responses:
+        "200":
+          description: 配置更新成功
+          headers:
+            Deprecation:
+              description: "标记此端点已弃用"
+              schema:
+                type: string
+                example: "true"
+            Sunset:
+              description: "端点移除日期"
+              schema:
+                type: string
+                example: "Sat, 01 Jan 2027 00:00:00 GMT"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Config updated"
+        "400":
+          description: 请求体无效
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: 配置不存在
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: 内部服务器错误（加密/哈希失败等）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  # ─── Health ────────────────────────────────────────────────────────
+  /health/live:
+    get:
+      operationId: healthLive
+      summary: 存活探针
+      description: |
+        Kubernetes 存活探针。如果此端点返回 200，说明进程存活。
+        失败时 K8s 将重启 Pod。
+      tags: [Health]
+      responses:
+        "200":
+          description: 进程存活
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "alive"
+
+  /health/ready:
+    get:
+      operationId: healthReady
+      summary: 就绪探针
+      description: |
+        Kubernetes 就绪探针。检查 PostgreSQL 和 Redis 连通性。
+        全部正常返回 200，任一不可用返回 503。
+        失败时 K8s 将 Pod 从 Service Endpoints 移除。
+      tags: [Health]
+      responses:
+        "200":
+          description: 服务就绪
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: 服务未就绪
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+
+  # ─── WebSocket ─────────────────────────────────────────────────────
+  /api/v1/lobby/{code}/ws:
+    get:
+      operationId: lobbyWebSocket
+      summary: WebSocket 连接
+      description: |
+        升级为 WebSocket 连接以参与游戏实时通信。
+        需要认证（quickplay 或 session Cookie）。
+        Origin 头必须与 Host 匹配（CSWSH 防护）。
+        连接后使用二进制协议通信（见 protocol 包）。
+        读取限制 4096 字节，支持 Ping/Pong 心跳。
+      tags: [WebSocket]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: 6 位房间代码
+          schema:
+            type: string
+      responses:
+        "101":
+          description: WebSocket 握手成功，协议升级
+        "400":
+          description: 缺少房间代码
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Origin 不匹配（CSWSH 防护）
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: 房间不存在
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: quickplay
+      description: "用户 JWT access token Cookie（quickplay 或 session）"
+    adminAuth:
+      type: apiKey
+      in: cookie
+      name: admin_token
+      description: "管理员 JWT Cookie，24h 有效期，role=admin"
+
+  schemas:
+    # ─── Problem Details (RFC 7807) ──────────────────────────────────
+    ProblemDetails:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: "错误类型标识 URI（RFC 7807）"
+          example: "https://httpstatuses.com/400"
+        title:
+          type: string
+          description: "人类可读的错误标题"
+          example: "Bad Request"
+        status:
+          type: integer
+          description: "HTTP 状态码"
+          example: 400
+        detail:
+          type: string
+          description: "具体错误详情"
+          example: "Email is required"
+        instance:
+          type: string
+          description: "出现问题的具体请求实例"
+
+    # ─── Auth Schemas ────────────────────────────────────────────────
+    QuickPlayResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          description: "用户唯一 ID（UUID v4）"
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        nickname:
+          type: string
+          description: "用户昵称"
+          example: "SkyRider"
+        refreshToken:
+          type: string
+          description: "刷新令牌（用于获取新 access token）"
+          example: "rt_abc123..."
+
+    MagicLinkVerifyResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          description: "用户唯一 ID"
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        nickname:
+          type: string
+          description: "用户昵称"
+          example: "Player42"
+        refreshToken:
+          type: string
+          description: "刷新令牌"
+
+    # ─── Registry Schemas ────────────────────────────────────────────
+    RoomInfo:
+      type: object
+      properties:
+        code:
+          type: string
+          description: "6 位房间代码"
+          example: "A1B2C3"
+        phase:
+          type: string
+          description: "游戏阶段"
+          enum: [waiting, countdown, playing, ended]
+          example: "waiting"
+        playerCount:
+          type: integer
+          description: "当前玩家数量"
+          example: 2
+        createdAt:
+          type: integer
+          format: int64
+          description: "创建时间（Unix 毫秒时间戳）"
+          example: 1719123456789
+
+    LobbyState:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "房间记录 ID"
+        code:
+          type: string
+          description: "6 位房间代码"
+          example: "A1B2C3"
+        state:
+          type: string
+          description: "序列化的游戏状态 JSON"
+        updated_at:
+          type: integer
+          format: int64
+          description: "最后更新时间（Unix 毫秒时间戳）"
+        created_at:
+          type: integer
+          format: int64
+          description: "创建时间（Unix 毫秒时间戳）"
+
+    # ─── Admin Schemas ───────────────────────────────────────────────
+    AdminConfigResponse:
+      type: object
+      properties:
+        emailEnabled:
+          type: boolean
+          description: "是否启用邮件功能"
+          example: true
+        resendApiKey:
+          type: string
+          description: "Resend API Key（已脱敏）"
+          example: "••••••••"
+        emailFrom:
+          type: string
+          description: "发件人邮箱地址"
+          example: "noreply@example.com"
+
+    AdminConfigUpdate:
+      type: object
+      description: "部分更新配置，仅提供的字段会被更新"
+      properties:
+        emailEnabled:
+          type: boolean
+          description: "是否启用邮件功能"
+        resendApiKey:
+          type: string
+          description: "Resend API Key（明文，服务端自动 AES-256-GCM 加密存储；传 •••••••• 则不更新）"
+        emailFrom:
+          type: string
+          description: "发件人邮箱地址"
+        adminPassword:
+          type: string
+          format: password
+          description: "新管理员密码（明文，服务端自动 bcrypt 哈希存储）"
+        oldPassword:
+          type: string
+          format: password
+          description: "当前管理员密码（修改 adminPassword 时必填，用于二次验证）"
+
+    # ─── Health Schemas ──────────────────────────────────────────────
+    ReadyResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: "就绪状态"
+          enum: [ready, "not ready"]
+          example: "ready"
+        checks:
+          type: object
+          description: "各依赖组件状态"
+          additionalProperties:
+            type: string
+            enum: [ok, unavailable]
+          example:
+            postgres: "ok"
+            redis: "ok"

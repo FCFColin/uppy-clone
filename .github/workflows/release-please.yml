@@ -1,0 +1,21 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: go
+          # Uses .github/release-please-config.json and .github/release-please-manifest.json
+          # 企业为何需要：release-please 自动从 Conventional Commits 生成版本号、
+          # CHANGELOG 和 Release Notes，三者自动联动，避免人工维护遗漏。

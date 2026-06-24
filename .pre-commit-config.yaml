@@ -1,0 +1,44 @@
+# Enterprise rationale: Pre-commit hooks enforce code quality before code
+# enters the repository. This catches issues early (shift-left) and reduces
+# CI failures. Without this, developers rely on remembering to run lint/tests.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+        # Enterprise rationale: Prevents accidental commit of private keys
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.59.0
+    hooks:
+      - id: golangci-lint
+        args: [--new-from-rev=HEAD]
+        # Only lint new changes, not entire codebase
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        # Enterprise rationale: Enforces Conventional Commits at commit time
+
+  - repo: local
+    hooks:
+      - id: go-test
+        name: go test
+        entry: bash -c 'cd backend && go test ./... -timeout 30s -short'
+        language: system
+        types: [go]
+        pass_filenames: false

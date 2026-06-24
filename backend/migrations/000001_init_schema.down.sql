@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS admin_config;
+DROP TABLE IF EXISTS lobby_states;
+DROP TABLE IF EXISTS game_results;
+DROP TABLE IF EXISTS game_sessions;
+DROP TABLE IF EXISTS users;

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Uppy - 合作气球游戏</title>
+  <link rel="stylesheet" href="/src/style.css">
+  <style>
+    /* Loading 指示器：首屏加载遮罩，收到首条快照后由 game.js 隐藏 */
+    #loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #loading-overlay .loading-spinner {
+      width: 60px;
+      height: 60px;
+      border: 6px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    #loading-overlay .loading-text {
+      margin-top: 20px;
+      color: #fff;
+      font-size: 18px;
+      font-family: sans-serif;
+    }
+
+    /* 重连 Banner：网络断开时半透明遮罩 */
+    .reconnect-banner {
+      position: fixed;
+      inset: 0;
+      z-index: 9989;
+      background: rgba(0, 0, 0, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn .3s ease;
+    }
+    .reconnect-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 24px 32px;
+      background: rgba(22, 33, 62, 0.9);
+      border-radius: 12px;
+    }
+    .reconnect-spinner {
+      width: 44px;
+      height: 44px;
+      border: 5px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #e94560;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    .reconnect-content #reconnect-text {
+      color: #fff;
+      font-size: 16px;
+      font-family: sans-serif;
+      text-align: center;
+    }
+  </style>
+</head>
+<body class="game-page">
+  <!-- 倒计时覆盖层（3-2-1 游戏开始倒计时） -->
+  <div id="countdown-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:100; justify-content:center; align-items:center;">
+    <div class="countdown-number" style="font-size:120px; color:white; font-weight:bold; text-shadow:0 0 20px rgba(255,255,255,0.5);">3</div>
+  </div>
+
+  <!-- Loading 指示器（首屏加载，收到首条快照后由 game.js 隐藏） -->
+  <div id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">加载中…</div>
+  </div>
+
+  <!-- 重连 Banner（网络断开时显示，重连成功后隐藏） -->
+  <div id="reconnect-banner" class="reconnect-banner hidden">
+    <div class="reconnect-content">
+      <div class="reconnect-spinner"></div>
+      <div id="reconnect-text">网络断开，正在重连…</div>
+    </div>
+  </div>
+
+  <!-- 竖屏旋转提示 -->
+  <div id="rotate-hint" class="rotate-hint hidden">
+    <div class="rotate-hint-content">
+      <div class="rotate-icon">📱↔️</div>
+      <p>请旋转手机至横屏模式</p>
+    </div>
+  </div>
+
+  <!-- 昵称设置界面（进入游戏前） -->
+  <div id="nickname-setup-screen" class="overlay hidden">
+    <div class="overlay-content">
+      <h2>设置你的昵称</h2>
+      <div class="nickname-setup">
+        <input id="setup-nickname-input" type="text" maxlength="12" placeholder="输入昵称...">
+        <button id="random-nickname-btn" class="btn-small">随机一个</button>
+      </div>
+      <button id="enter-game-btn" class="btn-primary">进入游戏</button>
+    </div>
+  </div>
+
+  <!-- 等待状态 -->
+  <div id="waiting-screen" class="overlay hidden">
+    <div class="overlay-content">
+      <h2>等待玩家加入...</h2>
+      <div class="lobby-code-display">
+        <span>房间码:</span>
+        <span id="lobby-code" class="code">-----</span>
+        <button id="copy-code-btn" class="btn-small">复制</button>
+      </div>
+      <div id="player-list-waiting" class="player-list"></div>
+      <p class="hint">分享房间码给朋友一起玩！</p>
+    </div>
+  </div>
+
+  <!-- 昵称输入 (inline in HUD, not blocking) -->
+  <div id="nickname-inline" class="nickname-inline">
+    <input id="nickname-input" type="text" maxlength="12" placeholder="昵称...">
+    <button id="nickname-btn" class="btn-small">OK</button>
+  </div>
+
+  <!-- 游戏结束状态 -->
+  <div id="ended-screen" class="overlay hidden">
+    <div class="overlay-content">
+      <h2>游戏结束！</h2>
+      <div id="final-score" class="big-score">0</div>
+      <div id="end-player-list" class="player-list"></div>
+      <button id="restart-btn" class="btn-primary">重新开始</button>
+      <div id="restart-progress" class="restart-progress"></div>
+      <div id="restart-countdown" class="restart-countdown"></div>
+    </div>
+  </div>
+
+  <!-- 游戏 HUD -->
+  <div id="game-hud" class="hud hidden">
+    <div class="hud-top">
+      <div class="hud-left">
+        <span class="hud-label">房间</span>
+        <span id="hud-code" class="hud-value">-----</span>
+        <button id="hud-copy-btn" class="btn-icon" title="复制房间码">📋</button>
+      </div>
+      <div class="hud-center">
+        <span id="hud-score" class="hud-score">0</span>
+      </div>
+      <div class="hud-right">
+        <span class="hud-label">玩家</span>
+        <span id="hud-players" class="hud-value">0</span>
+        <span id="ping-display" class="ping-display"></span>
+      </div>
+    </div>
+    <div class="hud-bottom">
+      <div id="hud-player-list" class="hud-player-list"></div>
+    </div>
+  </div>
+
+  <!-- 冷却指示器 -->
+  <div id="cooldown-indicator" class="cooldown-indicator hidden">
+    <div class="cooldown-track">
+      <div id="cooldown-bar" class="cooldown-bar"></div>
+    </div>
+    <div id="cooldown-text" class="cooldown-text">Ready!</div>
+  </div>
+
+  <!-- Canvas -->
+  <canvas id="game-canvas"></canvas>
+
+  <script type="module" src="/src/game/main.ts"></script>
+</body>
+</html>

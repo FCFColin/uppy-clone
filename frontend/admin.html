@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Uppy - 管理后台</title>
+  <link rel="stylesheet" href="/src/style.css">
+  <link rel="stylesheet" href="/src/admin.css">
+</head>
+<body>
+  <!-- Login Section -->
+  <div id="login-section" class="admin-container">
+    <div class="admin-card login-section">
+      <h1>管理后台</h1>
+      <p>请输入管理员密码</p>
+      <div class="form-group">
+        <input type="password" id="admin-password" placeholder="管理员密码" autocomplete="current-password">
+      </div>
+      <button class="btn-save" id="login-btn">登录</button>
+      <p id="login-error" style="color:#e94560;margin-top:1rem;display:none"></p>
+    </div>
+  </div>
+
+  <!-- Config Section (hidden until login) -->
+  <div id="config-section" class="admin-container hidden">
+    <div class="admin-card">
+      <h2>邮件服务配置</h2>
+      <div class="form-group toggle-row">
+        <span>邮件登录功能</span>
+        <div class="toggle">
+          <input type="checkbox" id="email-enabled">
+          <span class="toggle-slider"></span>
+        </div>
+      </div>
+      <div id="email-status" style="margin-bottom:1rem">
+        <span class="status-badge status-off">已禁用</span>
+      </div>
+      <div class="form-group">
+        <label>Resend API Key</label>
+        <input type="text" id="resend-key" placeholder="re_xxxxxxxx">
+      </div>
+      <div class="form-group">
+        <label>发件人地址</label>
+        <input type="text" id="email-from" placeholder="Uppy <onboarding@resend.dev>">
+      </div>
+    </div>
+
+    <div class="admin-card">
+      <h2>管理员设置</h2>
+      <div class="form-group">
+        <label>修改管理员密码</label>
+        <input type="password" id="new-admin-password" placeholder="留空则不修改">
+      </div>
+    </div>
+
+    <button class="btn-save" id="save-btn">保存配置</button>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script type="module" src="/src/admin.ts"></script>
+</body>
+</html>

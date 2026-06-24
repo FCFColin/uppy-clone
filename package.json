@@ -1,0 +1,29 @@
+{
+  "name": "uppy-clone",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && go run ./cmd/server",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && go build ./cmd/server",
+    "test:backend": "cd backend && go test ./...",
+    "docker:up": "docker-compose up --build",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.0",
+    "@vitest/coverage-v8": "^4.1.9",
+    "concurrently": "^9.0.0",
+    "eslint": "^10.5.0",
+    "puppeteer": "^25.1.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.9"
+  }
+}

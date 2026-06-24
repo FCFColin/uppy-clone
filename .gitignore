@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.wrangler/
+
+# Environment & secrets
+.dev.vars
+.env
+.env.*
+!.env.example
+
+# IDE working data (但保留 specs 需求文档)
+.trae/
+!.trae/specs/
+.superpowers/
+
+# Coverage & test output
+coverage/
+test-results/
+playwright-report/
+backend/coverage.out
+backend/coverage.html
+backend/coverage.txt
+backend/coverage
+backend/coverage_*
+backend/cov_*
+
+# Build artifacts
+backend/server
+backend/server.exe
+
+# Lint output
+lint-*.txt
+lint-output.txt
+lint-all.txt
+lint-detailed.txt
+lint-full.txt
+lint-json.txt
+
+# Profiling output
+*.prof
+*.pprof
+
+# Legacy & temp files
+*.legacy
+*.tmp
+*.bak
+
+# Logs
+*.log

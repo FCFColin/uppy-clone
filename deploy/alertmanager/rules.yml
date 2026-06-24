@@ -1,0 +1,79 @@
+# Prometheus Alerting Rules — SLO Burn Rate 多窗口告警
+#
+# 企业为何需要：SLO 仅定义目标不够，必须通过 Burn Rate（错误预算燃烧速率）告警实现
+# 自动化监控。多窗口告警是 Google SRE 推荐实践：
+#   - 快速燃烧（1h 窗口 × 14.4 倍率）：2% 月预算在 1 小时内耗尽，立即告警防止事故扩大
+#   - 慢速燃烧（6h 窗口 × 6 倍率）：10% 月预算在 6 小时内耗尽，捕捉慢性退化
+# 详见 docs/slo.md 的 Error Budget 与 Burn Rate 章节。
+#
+# 依赖指标：backend/internal/metrics/metrics.go 中定义的 SLO metrics
+# Runbook：docs/runbook.md
+
+groups:
+  - name: slo-burn-rate
+    rules:
+      # 快速燃烧 — 1h window × 14.4 (2% budget in 1h)
+      - alert: AuthSLOBurnRateFast
+        expr: |
+          (
+            sum(rate(auth_requests_total{status!="success"}[1h]))
+            /
+            sum(rate(auth_requests_total[1h]))
+          ) > 0.0144
+        for: 2m
+        labels:
+          severity: critical
+          slo: auth
+        annotations:
+          summary: "Auth SLO fast burn rate"
+          description: "Auth error rate is burning 14.4x the monthly budget"
+          runbook: "docs/runbook.md#postgresql-不可用"
+
+      # 慢速燃烧 — 6h window × 6
+      - alert: AuthSLOBurnRateSlow
+        expr: |
+          (
+            sum(rate(auth_requests_total{status!="success"}[6h]))
+            /
+            sum(rate(auth_requests_total[6h]))
+          ) > 0.006
+        for: 15m
+        labels:
+          severity: warning
+          slo: auth
+        annotations:
+          summary: "Auth SLO slow burn rate"
+          description: "Auth error rate is burning 6x the monthly budget"
+          runbook: "docs/runbook.md#postgresql-不可用"
+
+      # WebSocket 快速燃烧
+      - alert: WSSLOBurnRateFast
+        expr: |
+          (
+            sum(rate(ws_connection_total{status!="success"}[1h]))
+            /
+            sum(rate(ws_connection_total[1h]))
+          ) > 0.0144
+        for: 2m
+        labels:
+          severity: critical
+          slo: websocket
+        annotations:
+          summary: "WebSocket SLO fast burn rate"
+          runbook: "docs/runbook.md#websocket-连接洪水"
+
+      # WebSocket 慢速燃烧
+      - alert: WSSLOBurnRateSlow
+        expr: |
+          (
+            sum(rate(ws_connection_total{status!="success"}[6h]))
+            /
+            sum(rate(ws_connection_total[6h]))
+          ) > 0.006
+        for: 15m
+        labels:
+          severity: warning
+          slo: websocket
+        annotations:
+          summary: "WebSocket SLO slow burn rate"
+          runbook: "docs/runbook.md#websocket-连接洪水"

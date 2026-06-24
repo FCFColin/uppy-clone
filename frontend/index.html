@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>气球大作战 - 多人合作气球游戏</title>
+  <link rel="stylesheet" href="/src/style.css">
+  <link rel="stylesheet" href="/src/index.css">
+</head>
+<body>
+  <div class="hero">
+    <h1>🎈 Uppy</h1>
+    <p class="subtitle">合作气球游戏</p>
+    <p class="description">
+      点击保持气球不掉落！人多时冷却更长，需要真正的团队合作才能生存。
+      和陌生人一起，或者分享房间码给朋友。
+    </p>
+
+    <div class="auth-section">
+      <button id="quickplay-btn" class="btn-play" style="margin-bottom:1rem">快速开始</button>
+      <div style="color:#555;font-size:0.85rem;margin-bottom:0.5rem">— 或 —</div>
+      <input type="email" id="email-input" placeholder="输入邮箱登录" autocomplete="email">
+      <button id="login-btn" class="btn-play" style="font-size:1rem;padding:0.7rem 2rem;background:#0f3460">发送登录链接</button>
+      <p id="success-msg" class="success-msg">✉️ 登录链接已发送，请查收邮件！</p>
+      <p id="error-msg" class="error-msg"></p>
+    </div>
+
+    <!-- 房间号加入 -->
+    <div class="join-code-section">
+      <div class="join-code-input-group">
+        <input id="join-code-input" type="text" maxlength="5" placeholder="输入房间号" autocomplete="off" style="text-transform:uppercase">
+        <button id="join-code-btn" class="btn-secondary">加入</button>
+      </div>
+      <div id="join-code-error" class="error-msg hidden"></div>
+    </div>
+
+    <div class="rules">
+      <h3>怎么玩</h3>
+      <ul>
+        <li>点击屏幕让气球上升</li>
+        <li>每次点击后有冷却时间</li>
+        <li>人越多，冷却越长</li>
+        <li>小心幽灵来撞破气球！</li>
+        <li>保持气球不掉落，坚持越久分越高</li>
+      </ul>
+    </div>
+  </div>
+
+  <script type="module" src="/src/index.ts"></script>
+</body>
+</html>

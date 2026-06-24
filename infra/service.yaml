@@ -1,0 +1,44 @@
+# Enterprise rationale: Resource limits prevent noisy neighbor problems
+# and ensure predictable performance. Cloud Run uses these to configure
+# auto-scaling and billing.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: balloon-game
+spec:
+  template:
+    spec:
+      containerConcurrency: 100
+      timeoutSeconds: 300
+      containers:
+      - image: gcr.io/PROJECT_ID/balloon-game
+        # 企业为何需要：无 requests 时 K8s 调度器无法合理调度 Pod，可能被驱逐到资源不足的节点。
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "128Mi"
+          limits:
+            cpu: "1"
+            memory: "512Mi"
+        ports:
+        - containerPort: 8080
+        # 企业为何需要：startup probe 区分'启动慢'与'死锁'。无 startup probe 时，
+        # liveness probe 在慢启动期间会反复杀进程。
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          failureThreshold: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10

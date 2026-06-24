@@ -1,0 +1,60 @@
+# Enterprise rationale: .dockerignore prevents sensitive files (.git, .env)
+# and unnecessary files (docs, tests) from entering the Docker build context.
+# This reduces build time, context size, and attack surface.
+
+# Version control
+.git
+.gitignore
+
+# Dependencies (installed via npm ci / go mod download in Dockerfile)
+node_modules
+frontend/node_modules
+
+# Documentation
+*.md
+docs/
+!backend/migrations/README.md
+
+# Test files
+**/*_test.go
+playwright/
+playwright-report/
+test-results/
+coverage/
+vitest.config.ts
+vitest.workers.config.mts
+playwright.config.ts
+playwright.prod.config.ts
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+.trae/
+
+# Build artifacts (rebuilt in Dockerfile)
+frontend/dist/
+public/
+
+# Scripts
+scripts/
+
+# Infrastructure
+infra/
+.terraform/
+
+# CI
+.github/
+
+# Other
+*.log
+tmp/
+.superpowers/
+audit-report.md

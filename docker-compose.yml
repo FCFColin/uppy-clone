@@ -1,0 +1,56 @@
+name: uppy-clone
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Production: use app_user instead of uppy for least privilege
+      # DATABASE_URL=postgres://app_user:password@postgres:5432/uppy?sslmode=disable
+      - DATABASE_URL=postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable
+      - REDIS_URL=redis:6379
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD required}
+      - FRONTEND_DIR=/app/dist
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+  postgres:
+    image: postgres:16.4-alpine3.20
+    environment:
+      POSTGRES_USER: uppy
+      POSTGRES_PASSWORD: uppy
+      POSTGRES_DB: uppy
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-scripts:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7.4.0-alpine3.20  # Production: pin with @sha256:<digest>
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+volumes:
+  pgdata:

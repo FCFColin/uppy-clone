@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "_comment": "企业为何需要：Changelog 自动生成避免手工遗漏。release-please 遵循 Conventional Commits 规范，自动生成版本号和变更日志。",
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "package-name": "balloon-game",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "draft": false,
+      "prerelease": false
+    }
+  }
+}

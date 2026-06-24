@@ -1,0 +1,73 @@
+# Enterprise rationale: Automated code quality gate ensures consistent style
+# and catches common bugs across team members. Without this, code quality
+# relies solely on manual review which is error-prone and inconsistent.
+
+version: "2"
+
+run:
+  timeout: 5m
+  go: '1.26'
+
+linters:
+  enable:
+    - errcheck       # Check for unchecked errors (Go classic)
+    - govet          # Report suspicious constructs
+    - staticcheck    # Advanced Go static analysis
+    - revive         # Drop-in replacement for golint
+    - gosec          # Security issues (G101-G404)
+    - ineffassign    # Detect ineffectual assignments
+    - unused         # Find unused code
+    - misspell       # Find misspelled words
+    - gocritic       # Go critic checker
+    - bodyclose      # Check HTTP response body is closed
+    # 以下 linter 为 Task P1-11 新增 — 企业为何需要：复杂度与重复代码是技术债的两大来源，
+    # 通过 linter 自动化门控防止代码质量退化。现有告警应在后续任务（P1-12 ~ P1-15）中修复。
+    - gocyclo        # 圈复杂度检测（max 15）
+    - funlen         # 函数行数检测（max 50 行）
+    - gocognit       # 认知复杂度检测（max 20）
+    - goconst        # 重复字符串/数字提取为常量
+    - dupl           # 重复代码块检测（threshold 150）
+
+formatters:
+  enable:
+    - gofmt          # 强制标准格式化
+    - goimports      # 强制标准 import 排序
+
+linters-settings:
+  gosec:
+    excludes:
+      - G104 # Audit errors not checked (handled by errcheck)
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - "checkPrivateReceivers"
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+  # Task P1-11 新增 linter 配置
+  gocyclo:
+    min-complexity: 15
+  funlen:
+    lines: 50
+    statements: 40
+  gocognit:
+    min-complexity: 20
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  dupl:
+    threshold: 150
+
+issues:
+  exclude-rules:
+    # Test files may have longer functions and unchecked errors
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gocritic
+    # Generated protocol files
+    - path: "protocol/encode.go"
+      linters:
+        - gocritic

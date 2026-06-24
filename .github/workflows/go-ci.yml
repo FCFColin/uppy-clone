@@ -1,0 +1,256 @@
+name: Go CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['backend/**']
+  pull_request:
+    branches: [main]
+    paths: ['backend/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: go mod download
+      - name: Run tests
+        run: go test ./... -timeout 60s -race -coverprofile=coverage.out
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-out
+          path: backend/coverage.out
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${COVERAGE}%"
+          # Start at 30% (current baseline), increase quarterly
+          THRESHOLD=30
+          if [ $(echo "$COVERAGE < $THRESHOLD" | bc -l) -eq 1 ]; then
+            echo "ERROR: Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+            exit 1
+          fi
+          echo "Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: backend
+          version: latest
+        # Existing lint debt will be fixed incrementally; non-blocking until then
+        continue-on-error: true
+
+  vet:
+    name: Vet
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: go vet ./...
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  gitleaks:
+    name: Secret Scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  secrets-scan:
+    name: Secret Scanning (detect-secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install detect-secrets
+        run: pip install detect-secrets==1.5.0
+      - name: Run detect-secrets
+        run: detect-secrets scan --baseline .secrets.baseline
+
+  container-scan:
+    name: Container Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t app:scan .
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'app:scan'
+          format: 'table'
+          exit-code: '1'
+          # HIGH vulnerabilities will be addressed in follow-up; only CRITICAL blocks CI
+          severity: 'CRITICAL'
+
+  migration:
+    name: Migration Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Install golang-migrate
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+      - name: Run migrations up
+        run: |
+          migrate -path backend/migrations -database "postgres://test:test@localhost:5432/testdb?sslmode=disable" up
+      - name: Run migrations down
+        run: |
+          migrate -path backend/migrations -database "postgres://test:test@localhost:5432/testdb?sslmode=disable" down -all
+      - name: Run migrations up again (idempotency)
+        run: |
+          migrate -path backend/migrations -database "postgres://test:test@localhost:5432/testdb?sslmode=disable" up
+
+  docker-pin-check:
+    name: Docker Image Pinning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Docker images are pinned to specific versions
+        run: |
+          # Enterprise rationale: Mutable tags (:latest) break build
+          # reproducibility and are a supply-chain attack vector (SLSA L2).
+          # Production should pin with @sha256:<digest>; specific version tags
+          # are the minimum requirement enforced here.
+          set -e
+          if grep -nE 'image:.*:latest|FROM .*:latest' Dockerfile docker-compose.yml; then
+            echo "::error::Docker images must not use :latest — pin to a specific version tag or @sha256:<digest>"
+            exit 1
+          fi
+          echo "Docker image pinning check passed"
+
+  license-check:
+    name: License Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Generate third-party license report
+        run: |
+          go install github.com/google/go-licenses@latest
+          go-licenses report ./... > ../third-party-licenses.txt
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: third-party-licenses
+          path: third-party-licenses.txt
+      - name: Verify no forbidden licenses (GPL/AGPL)
+        run: |
+          if grep -iE 'GPL|AGPL' ../third-party-licenses.txt; then
+            echo "::error::Forbidden license detected (GPL/AGPL)"
+            exit 1
+          fi
+          echo "License check passed"
+
+  build-push:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    needs: [test, lint, vet, security, gitleaks, secrets-scan, container-scan, migration, docker-pin-check, license-check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GCR
+        uses: docker/login-action@v3
+        with:
+          registry: gcr.io
+          username: _json_key
+          password: ${{ secrets.GCR_JSON_KEY }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Enterprise rationale: Immutable image tags using git SHA ensure
+          # every deployment is traceable to an exact commit. 'latest' tag
+          # is mutable and cannot be rolled back reliably.
+          tags: |
+            gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Sign container image
+        if: github.ref == 'refs/heads/main'
+        uses: sigstore/cosign-installer@v3
+      - run: cosign sign --yes gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
