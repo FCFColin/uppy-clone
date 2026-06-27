@@ -140,19 +140,17 @@ func TestQuickPlay_DuplicateUser(t *testing.T) {
 		}
 	})
 
-	t.Run("GetAuthenticatedUser returns true for authenticated request", func(t *testing.T) {
+	t.Run("AuthenticatedUserFromRequest reads quickplay cookie", func(t *testing.T) {
+		jwtMgr := NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+		token, err := jwtMgr.SignToken("user-cookie", "Nick")
+		if err != nil {
+			t.Fatalf("SignToken() error = %v", err)
+		}
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		ctx := WithAuthenticatedUser(req.Context(), "user-123", "TestPlayer")
-		req = req.WithContext(ctx)
-		uid, nick, ok := GetAuthenticatedUser(req)
-		if !ok {
-			t.Error("GetAuthenticatedUser should return true for authenticated request")
-		}
-		if uid != "user-123" {
-			t.Errorf("userId = %q, want %q", uid, "user-123")
-		}
-		if nick != "TestPlayer" {
-			t.Errorf("nickname = %q, want %q", nick, "TestPlayer")
+		req.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
+		uid, nick, ok := AuthenticatedUserFromRequest(req, jwtMgr)
+		if !ok || uid != "user-cookie" || nick != "Nick" {
+			t.Fatalf("AuthenticatedUserFromRequest = (%q, %q, %v), want (user-cookie, Nick, true)", uid, nick, ok)
 		}
 	})
 }

@@ -9,6 +9,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/game"
+	"github.com/uppy-clone/backend/internal/store"
 )
 
 // --- WriteDegradedJSON 写入正确的 JSON 结构 ---
@@ -214,6 +219,124 @@ func TestWriteDegradedJSON_DataAlwaysPresent(t *testing.T) {
 		}
 		if len(dataSlice) != 2 || dataSlice[0] != "a" || dataSlice[1] != "b" {
 			t.Errorf("data = %v, want [a, b]", dataSlice)
+		}
+	})
+}
+
+// --- Require* 降级守卫函数 ---
+
+func TestRequireDB_ReturnsTrueWhenNotNil(t *testing.T) {
+	t.Parallel()
+
+	// We can't call CreateUser/GetUserByID without a real DB, but we test
+	// the nil guard (always reachable) and the non-nil path (always true).
+	t.Run("nil db returns false", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		result := RequireDB(nil, w)
+		if result {
+			t.Error("RequireDB(nil) = true, want false")
+		}
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+		}
+	})
+
+	t.Run("non-nil db returns true", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		// Use a non-nil *PostgresStore pointer (zero value)
+		var zeroStore store.PostgresStore
+		result := RequireDB(&zeroStore, w)
+		if !result {
+			t.Error("RequireDB(non-nil) = false, want true")
+		}
+	})
+}
+
+func TestRequireRedis_ReturnsTrueWhenNotNil(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil redis returns false", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		result := RequireRedis(nil, w)
+		if result {
+			t.Error("RequireRedis(nil) = true, want false")
+		}
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+		}
+	})
+
+	t.Run("non-nil redis returns true", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		var zeroStore store.RedisStore
+		result := RequireRedis(&zeroStore, w)
+		if !result {
+			t.Error("RequireRedis(non-nil) = false, want true")
+		}
+	})
+}
+
+func TestRequireHub_ReturnsTrueWhenNotNil(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil hub returns false", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		result := RequireHub(nil, w)
+		if result {
+			t.Error("RequireHub(nil) = true, want false")
+		}
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+		}
+
+		var resp apierror.ProblemDetails
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("failed to decode error response: %v", err)
+		}
+		if resp.Status != http.StatusServiceUnavailable {
+			t.Errorf("error status = %d, want %d", resp.Status, http.StatusServiceUnavailable)
+		}
+	})
+
+	t.Run("non-nil hub returns true", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+		result := RequireHub(hub, w)
+		if !result {
+			t.Error("RequireHub(non-nil) = false, want true")
+		}
+	})
+}
+
+func TestRequireHubDegraded_ReturnsTrueWhenNotNil(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil hub returns false with degraded JSON", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		payload := map[string]string{"status": "degraded"}
+		result := RequireHubDegraded(nil, w, http.StatusOK, payload, "Hub unavailable")
+		if result {
+			t.Error("RequireHubDegraded(nil) = true, want false")
+		}
+
+		var resp DegradedResponse
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("failed to decode: %v", err)
+		}
+		if !resp.Degraded {
+			t.Error("degraded = false, want true")
+		}
+		if resp.Message != "Hub unavailable" {
+			t.Errorf("message = %q, want %q", resp.Message, "Hub unavailable")
+		}
+	})
+
+	t.Run("non-nil hub returns true", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+		result := RequireHubDegraded(hub, w, http.StatusOK, nil, "")
+		if !result {
+			t.Error("RequireHubDegraded(non-nil) = false, want true")
 		}
 	})
 }

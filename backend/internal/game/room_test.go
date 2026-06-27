@@ -84,9 +84,9 @@ func TestRoom_CleanupDisconnected_RemovesExpired(t *testing.T) {
 	disconnectedAt := time.Now().UnixMilli() - protocol.ReconnectGraceMs - 1000 // expired
 	r.mu.Lock()
 	r.state.Players["p1"] = &domain.PlayerState{
-		ID:            "p1",
-		Nickname:      "ExpiredPlayer",
-		Disconnected:  true,
+		ID:             "p1",
+		Nickname:       "ExpiredPlayer",
+		Disconnected:   true,
 		DisconnectedAt: &disconnectedAt,
 	}
 	r.usedNames["ExpiredPlayer"] = true
@@ -114,9 +114,9 @@ func TestRoom_CleanupDisconnected_KeepsGracePeriod(t *testing.T) {
 	disconnectedAt := time.Now().UnixMilli() - 1000 // still in grace period
 	r.mu.Lock()
 	r.state.Players["p1"] = &domain.PlayerState{
-		ID:            "p1",
-		Nickname:      "GracePlayer",
-		Disconnected:  true,
+		ID:             "p1",
+		Nickname:       "GracePlayer",
+		Disconnected:   true,
 		DisconnectedAt: &disconnectedAt,
 	}
 	r.usedNames["GracePlayer"] = true
@@ -375,6 +375,28 @@ func TestRoom_EndGame_NoPlayers(t *testing.T) {
 	// No connections → should reset to waiting
 	if phase != domain.PhaseWaiting {
 		t.Fatalf("expected phase waiting when no players, got %q", phase)
+	}
+}
+
+func TestRoom_EndGame_ClampsBalloonY(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+
+	r.mu.Lock()
+	r.state.Phase = domain.PhasePlaying
+	r.state.Balloon.Y = -0.2
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 64)}
+	r.mu.Unlock()
+
+	if err := r.EndGame(); err != nil {
+		t.Fatalf("EndGame failed: %v", err)
+	}
+
+	r.mu.RLock()
+	y := r.state.Balloon.Y
+	r.mu.RUnlock()
+	if y < 0 {
+		t.Fatalf("expected balloon Y clamped to >= 0, got %v", y)
 	}
 }
 
@@ -656,6 +678,47 @@ func TestHandleRestartVote_NewVote(t *testing.T) {
 	}
 }
 
+func TestHandleRestartVote_DuplicateRetriesConsensus(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+
+	p1 := &domain.PlayerState{ID: "p1", Disconnected: false}
+	r.mu.Lock()
+	r.state.Phase = domain.PhaseEnded
+	r.state.Players["p1"] = p1
+	r.state.RestartVotes["p1"] = true
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 64)}
+	r.mu.Unlock()
+
+	err := HandleRestartVote(r, p1)
+	if err != nil {
+		t.Fatalf("duplicate vote should retry consensus, got %v", err)
+	}
+
+	r.mu.RLock()
+	phase := r.state.Phase
+	r.mu.RUnlock()
+	if phase != domain.PhaseCountdown {
+		t.Fatalf("expected countdown after duplicate vote retry, got %q", phase)
+	}
+}
+
+func TestRoom_NormalizePhaseForNicknameGate(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+	addConnectedPlayer(r, "p1")
+
+	r.mu.Lock()
+	r.state.Phase = domain.PhaseCountdown
+	r.normalizePhaseForNicknameGate()
+	phase := r.state.Phase
+	r.mu.Unlock()
+
+	if phase != domain.PhaseWaiting {
+		t.Fatalf("expected waiting when countdown without nickname confirm, got %q", phase)
+	}
+}
+
 // ─── RestartAndStart ─────────────────────────────────────────────────
 
 func TestRestartAndStart_NotEndedPhase(t *testing.T) {
@@ -731,10 +794,10 @@ func BenchmarkRoom_BuildSnapshot(b *testing.B) {
 	for i := 0; i < 10; i++ {
 		pid := "p" + string(rune('0'+i))
 		r.state.Players[pid] = &domain.PlayerState{
-			ID:            pid,
-			PlayerIndex:   i,
-			Nickname:      "Player",
-			Palette:       i % 10,
+			ID:              pid,
+			PlayerIndex:     i,
+			Nickname:        "Player",
+			Palette:         i % 10,
 			CooldownEndTime: 0,
 		}
 	}
@@ -756,9 +819,9 @@ func BenchmarkRoom_CleanupDisconnected(b *testing.B) {
 		pid := "p" + string(rune('0'+i%10)) + string(rune('0'+i/10))
 		disconnectedAt := now - protocol.ReconnectGraceMs - 1000
 		r.state.Players[pid] = &domain.PlayerState{
-			ID:            pid,
-			Nickname:      "Player",
-			Disconnected:  true,
+			ID:             pid,
+			Nickname:       "Player",
+			Disconnected:   true,
 			DisconnectedAt: &disconnectedAt,
 		}
 	}
@@ -767,5 +830,129 @@ func BenchmarkRoom_CleanupDisconnected(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		r.cleanupDisconnected(now)
+	}
+}
+
+// ─── Nickname ready flow ─────────────────────────────────────────────
+
+func addConnectedPlayer(r *Room, playerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.state.Players[playerID] = &domain.PlayerState{
+		ID:          playerID,
+		PlayerIndex: len(r.state.Players),
+		Nickname:    "Player" + playerID,
+	}
+	r.connections[playerID] = &PlayerConn{PlayerID: playerID, Send: make(chan []byte, 64)}
+	r.usedNames["Player"+playerID] = true
+}
+
+func TestRoom_JoinDoesNotStartCountdown(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+	addConnectedPlayer(r, "p1")
+
+	r.mu.RLock()
+	phase := r.state.Phase
+	r.mu.RUnlock()
+
+	if phase != domain.PhaseWaiting {
+		t.Fatalf("expected waiting after join without nickname confirm, got %q", phase)
+	}
+}
+
+func TestRoom_SetNicknameStartsCountdownWhenAllReady(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+	addConnectedPlayer(r, "p1")
+
+	payload := append([]byte{byte(len("Alice"))}, []byte("Alice")...)
+	r.mu.Lock()
+	player := r.state.Players["p1"]
+	r.handleSetNicknameMsg(player, payload)
+	phase := r.state.Phase
+	r.mu.Unlock()
+
+	if phase != domain.PhaseCountdown {
+		t.Fatalf("expected countdown after single player confirms nickname, got %q", phase)
+	}
+}
+
+func TestRoom_SetNicknameChineseUTF8StartsCountdown(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+	addConnectedPlayer(r, "p1")
+
+	nick := "好奇的中子"
+	payload := append([]byte{byte(len(nick))}, []byte(nick)...)
+	if len(nick) <= config.MaxNicknameLen {
+		t.Fatalf("test nickname byte length = %d, want > %d to reproduce the bug", len(nick), config.MaxNicknameLen)
+	}
+
+	r.mu.Lock()
+	player := r.state.Players["p1"]
+	r.handleSetNicknameMsg(player, payload)
+	confirmed := player.NicknameConfirmed
+	phase := r.state.Phase
+	gotNick := player.Nickname
+	r.mu.Unlock()
+
+	if !confirmed {
+		t.Fatal("expected NicknameConfirmed for UTF-8 Chinese nickname")
+	}
+	if phase != domain.PhaseCountdown {
+		t.Fatalf("expected countdown after Chinese nickname confirm, got %q", phase)
+	}
+	if gotNick != nick {
+		t.Fatalf("nickname = %q, want %q", gotNick, nick)
+	}
+}
+
+func TestRoom_SetNicknameWaitsForAllPlayers(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+	addConnectedPlayer(r, "p1")
+	addConnectedPlayer(r, "p2")
+
+	payload := append([]byte{byte(len("Alice"))}, []byte("Alice")...)
+	r.mu.Lock()
+	r.handleSetNicknameMsg(r.state.Players["p1"], payload)
+	phaseAfterOne := r.state.Phase
+	r.mu.Unlock()
+
+	if phaseAfterOne != domain.PhaseWaiting {
+		t.Fatalf("expected waiting after one of two confirms, got %q", phaseAfterOne)
+	}
+
+	payload2 := append([]byte{byte(len("Bob"))}, []byte("Bob")...)
+	r.mu.Lock()
+	r.handleSetNicknameMsg(r.state.Players["p2"], payload2)
+	phaseAfterBoth := r.state.Phase
+	r.mu.Unlock()
+
+	if phaseAfterBoth != domain.PhaseCountdown {
+		t.Fatalf("expected countdown after both confirm, got %q", phaseAfterBoth)
+	}
+}
+
+func TestRoom_SetNicknameSameNameStillConfirms(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+	addConnectedPlayer(r, "p1")
+
+	r.mu.Lock()
+	player := r.state.Players["p1"]
+	currentName := player.Nickname
+	payload := append([]byte{byte(len(currentName))}, []byte(currentName)...)
+	r.handleSetNicknameMsg(player, payload)
+	confirmed := player.NicknameConfirmed
+	phase := r.state.Phase
+	r.mu.Unlock()
+
+	if !confirmed {
+		t.Fatal("expected NicknameConfirmed when submitting unchanged nickname")
+	}
+	if phase != domain.PhaseCountdown {
+		t.Fatalf("expected countdown after confirming unchanged nickname, got %q", phase)
 	}
 }

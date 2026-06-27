@@ -5,6 +5,7 @@ import (
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
+	"github.com/uppy-clone/backend/internal/validate"
 )
 
 // HandleSetNickname 处理设置昵称请求
@@ -51,15 +52,7 @@ func HandleSetNickname(_ *domain.GameState, player *domain.PlayerState, nickname
 	return true
 }
 
-// sanitizeNickname 清理昵称输入（对应 TS handleSetNickname 中的过滤逻辑）
+// sanitizeNickname delegates to validate.Nickname for unified sanitization.
 func sanitizeNickname(raw string) string {
-	// 控制字符 U+0000-U+001F, U+007F-U+009F
-	re1 := controlCharsRegex.ReplaceAllString(raw, "")
-	// 零宽字符
-	re2 := zeroWidthCharsRegex.ReplaceAllString(re1, "")
-	// HTML 特殊字符
-	re3 := htmlCharsRegex.ReplaceAllString(re2, "")
-	// trim
-	result := trimSpace(re3)
-	return result
+	return validate.Nickname(raw)
 }

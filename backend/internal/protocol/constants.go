@@ -204,4 +204,3 @@ var PaletteColors = [10][3]uint8{
 	{7, 59, 76},     // #073b4c dark
 	{247, 140, 107}, // #f78c6b orange
 }
-

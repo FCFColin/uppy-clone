@@ -1,8 +1,5 @@
 // Command migrate-passwords is a one-time migration script that converts any
-// legacy plaintext admin passwords stored in app_config to bcrypt hashes.
-//
-// 企业为何需要：移除明文密码回退分支后，历史明文密码必须迁移为 bcrypt 哈希，
-// 否则管理员将无法登录。此脚本应在部署 P0-2 修复后立即执行一次。
+// legacy plaintext admin passwords stored in admin_config to bcrypt hashes.
 //
 // Usage:
 //
@@ -23,9 +20,16 @@ import (
 )
 
 // isBcryptHash checks if a string looks like a bcrypt hash.
-// Mirrors the logic in backend/internal/handler/admin_password.go.
 func isBcryptHash(s string) bool {
 	return len(s) == 60 && (s[:4] == "$2a$" || s[:4] == "$2b$" || s[:4] == "$2y$")
+}
+
+// migrationStatusAfterLoad reports whether migration can be skipped after loading config.
+func migrationStatusAfterLoad(adminPwd string) (status string, done bool) {
+	if isBcryptHash(adminPwd) {
+		return "already bcrypt", true
+	}
+	return "", false
 }
 
 func main() {
@@ -33,62 +37,61 @@ func main() {
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL environment variable is required")
 	}
+	status, err := runMigrate(databaseURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(status)
+}
 
+func runMigrate(databaseURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	db, err := connectDB(ctx, databaseURL)
 	if err != nil {
-		cancel()
-		log.Fatalf("%v", err)
+		return "", err
 	}
 	defer func() { _ = db.Close() }()
 
 	storedConfig, adminPwd, err := loadStoredConfig(ctx, db)
 	if err != nil {
-		log.Fatalf("%v", err)
+		return "", err
 	}
-
-	if isBcryptHash(adminPwd) {
-		fmt.Println("already bcrypt")
-		return
+	if status, done := migrationStatusAfterLoad(adminPwd); done {
+		return status, nil
 	}
-
 	if err := migratePasswords(ctx, db, storedConfig, adminPwd); err != nil {
-		log.Fatalf("%v", err)
+		return "", err
 	}
-
-	fmt.Println("migrated")
+	return "migrated", nil
 }
 
-// connectDB opens the PostgreSQL connection and verifies it with a ping.
 func connectDB(ctx context.Context, databaseURL string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 	if err := db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
 	return db, nil
 }
 
-// loadStoredConfig reads the app_config row and returns the parsed config
-// along with the current admin_password value.
 func loadStoredConfig(ctx context.Context, db *sql.DB) (map[string]interface{}, string, error) {
 	var configJSON string
 	err := db.QueryRowContext(ctx,
-		`SELECT config FROM app_config WHERE id = 'global'`).
+		`SELECT config FROM admin_config WHERE id = 'global'`).
 		Scan(&configJSON)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, "", fmt.Errorf("no app_config row with id='global' found — nothing to migrate")
+			return nil, "", fmt.Errorf("no admin_config row with id='global' found — nothing to migrate")
 		}
-		return nil, "", fmt.Errorf("failed to query app_config: %w", err)
+		return nil, "", fmt.Errorf("failed to query admin_config: %w", err)
 	}
 
 	var storedConfig map[string]interface{}
-	if err := json.Unmarshal([]byte(configJSON), &storedConfig); err != nil {
+	if err = json.Unmarshal([]byte(configJSON), &storedConfig); err != nil {
 		return nil, "", fmt.Errorf("failed to parse config JSON: %w", err)
 	}
 
@@ -99,8 +102,6 @@ func loadStoredConfig(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	return storedConfig, adminPwd, nil
 }
 
-// migratePasswords bcrypt-hashes the plaintext admin password and persists
-// the updated config back to app_config.
 func migratePasswords(ctx context.Context, db *sql.DB, storedConfig map[string]interface{}, adminPwd string) error {
 	hashed, err := bcrypt.GenerateFromPassword([]byte(adminPwd), bcrypt.DefaultCost)
 	if err != nil {
@@ -114,15 +115,15 @@ func migratePasswords(ctx context.Context, db *sql.DB, storedConfig map[string]i
 	}
 
 	result, err := db.ExecContext(ctx,
-		`UPDATE app_config SET config = $1, updated_at = $2 WHERE id = 'global'`,
+		`UPDATE admin_config SET config = $1, updated_at = $2 WHERE id = 'global'`,
 		string(updatedJSON), time.Now().UnixMilli())
 	if err != nil {
-		return fmt.Errorf("failed to update app_config: %w", err)
+		return fmt.Errorf("failed to update admin_config: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		return fmt.Errorf("no rows updated — app_config row with id='global' not found")
+		return fmt.Errorf("no rows updated — admin_config row with id='global' not found")
 	}
 	return nil
 }

@@ -113,6 +113,24 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 	}
 }
 
+// AuthenticatedUserFromRequest returns user info from request context (AuthMiddleware)
+// or from valid session/quickplay JWT cookies on routes without that middleware.
+func AuthenticatedUserFromRequest(r *http.Request, jwtMgr *JWTManager) (userID, nickname string, ok bool) {
+	if uid, nick, ctxOK := GetAuthenticatedUser(r); ctxOK {
+		return uid, nick, true
+	}
+	if jwtMgr == nil {
+		return "", "", false
+	}
+	for _, cookieName := range []string{"session", "quickplay"} {
+		uid, nick, _ := tryCookie(r, jwtMgr, cookieName)
+		if uid != "" {
+			return uid, nick, true
+		}
+	}
+	return "", "", false
+}
+
 // GetAuthenticatedUser extracts user info from request context (set by AuthMiddleware).
 // Returns userId, nickname, and ok=true if authenticated.
 func GetAuthenticatedUser(r *http.Request) (userId, nickname string, ok bool) {

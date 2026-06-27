@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
 const testPlayerNickname = "TestPlayer"
@@ -81,6 +83,7 @@ func TestGetOrigin(t *testing.T) {
 		{
 			name: "X-Forwarded-Proto and X-Forwarded-Host",
 			setup: func(r *http.Request) {
+				*r = *r.WithContext(requestctx.WithTrustedProxy(r.Context(), true))
 				r.Host = "internal-host"
 				r.Header.Set("X-Forwarded-Proto", "https")
 				r.Header.Set("X-Forwarded-Host", "public.example.com")
@@ -90,10 +93,19 @@ func TestGetOrigin(t *testing.T) {
 		{
 			name: "X-Forwarded-Proto only",
 			setup: func(r *http.Request) {
+				*r = *r.WithContext(requestctx.WithTrustedProxy(r.Context(), true))
 				r.Host = "myhost"
 				r.Header.Set("X-Forwarded-Proto", "https")
 			},
 			want: "https://myhost",
+		},
+		{
+			name: "spoofed X-Forwarded-Proto ignored when untrusted",
+			setup: func(r *http.Request) {
+				r.Host = "myhost"
+				r.Header.Set("X-Forwarded-Proto", "https")
+			},
+			want: "http://myhost",
 		},
 	}
 

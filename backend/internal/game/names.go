@@ -5,21 +5,11 @@ import (
 	"math/big"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/uppy-clone/backend/internal/validate"
 )
 
-// ─── 共享正则表达式 ──────────────────────────────────────────────────
-
-var (
-	controlCharsRegex   = regexp.MustCompile(`[\x00-\x1F\x7F-\x9F]`)
-	zeroWidthCharsRegex = regexp.MustCompile(`[\x{200B}-\x{200F}\x{FEFF}\x{2028}-\x{202F}\x{2060}-\x{206F}]`)
-	htmlCharsRegex      = regexp.MustCompile(`[<>"'\x60&]`)
-	dangerousCharsRegex = regexp.MustCompile(`[\x00-\x1f<>"'&]`)
-)
-
-func trimSpace(s string) string { return strings.TrimSpace(s) }
+var dangerousCharsRegex = regexp.MustCompile(`[\x00-\x1f<>"'&]`)
 
 var NicknameAdjectives = []string{
 	"快乐的", "勇敢的", "神秘的", "聪明的", "幸运的", "飞翔的", "闪耀的", "敏捷的",

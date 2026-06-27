@@ -239,7 +239,7 @@ func TestHub_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-		_, _ = h.CreateRoom(context.Background())
+			_, _ = h.CreateRoom(context.Background())
 		}()
 	}
 

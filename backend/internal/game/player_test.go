@@ -170,8 +170,10 @@ func TestHandleSetNickname_UpdatesLastNicknameChange(t *testing.T) {
 
 func TestSanitizeNickname_ControlChars(t *testing.T) {
 	result := sanitizeNickname("hello\x00world\x01test")
-	if result != "helloworldtest" {
-		t.Errorf("sanitizeNickname = %q, want %q", result, "helloworldtest")
+	// validate.Nickname truncates to protocol.MaxNicknameLen (12 runes).
+	want := "helloworldte"
+	if result != want {
+		t.Errorf("sanitizeNickname = %q, want %q", result, want)
 	}
 }
 

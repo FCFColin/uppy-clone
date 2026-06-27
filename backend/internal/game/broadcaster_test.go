@@ -130,6 +130,24 @@ func TestRoom_BroadcastLocal_ExcludePlayer(t *testing.T) {
 	}
 }
 
+func TestRoom_BroadcastLocal_NilConnDoesNotPanic(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+
+	ch := make(chan []byte, 64)
+	r.mu.Lock()
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch, Conn: nil}
+	r.mu.Unlock()
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			t.Fatalf("broadcastLocal panicked with nil Conn: %v", rec)
+		}
+	}()
+
+	r.broadcastLocal([]byte{0x01}, "")
+}
+
 func TestRoom_Broadcast_PublishesExcludePlayer(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	b := newMockBroadcaster()

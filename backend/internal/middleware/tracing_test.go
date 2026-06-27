@@ -1,9 +1,11 @@
 package middleware
 
 import (
+	"bufio"
 	"context"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -134,3 +136,38 @@ func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &captureHandler{attrs: h.attrs, ownAttrs: newOwnAttrs}
 }
 func (h *captureHandler) WithGroup(_ string) slog.Handler { return h }
+
+func TestTracingMiddleware_ResponseWriterSupportsHijack(t *testing.T) {
+	hijackable := &hijackableResponseWriter{ResponseRecorder: httptest.NewRecorder()}
+
+	r := chi.NewRouter()
+	r.Use(TracingMiddleware)
+	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "not hijacker", http.StatusInternalServerError)
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = conn.Close()
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	r.ServeHTTP(hijackable, req)
+
+	if hijackable.Code != 0 && hijackable.Code != http.StatusOK {
+		t.Fatalf("expected successful hijack, got status %d body %q", hijackable.Code, hijackable.Body.String())
+	}
+}
+
+type hijackableResponseWriter struct {
+	*httptest.ResponseRecorder
+}
+
+func (h *hijackableResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return &net.TCPConn{}, bufio.NewReadWriter(bufio.NewReader(nil), bufio.NewWriter(nil)), nil
+}

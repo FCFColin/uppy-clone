@@ -19,8 +19,11 @@ func HandleRestartVote(room *Room, player *domain.PlayerState) error {
 		return nil
 	}
 
-	// 重复投票检查
+	// 重复投票：若仍在 ended 且已达共识，允许重试（上次 RestartAndStart 可能失败）
 	if _, ok := room.state.RestartVotes[player.ID]; ok {
+		if room.state.Phase == domain.PhaseEnded {
+			return CheckRestartConsensus(room)
+		}
 		return nil
 	}
 
@@ -69,9 +72,6 @@ func CheckRestartConsensus(room *Room) error {
 
 	// 全部同意 → 立即重启
 	if yesVotes >= connectedCount && connectedCount > 0 {
-		if room.state.Phase != domain.PhaseEnded {
-			return nil
-		}
 		return RestartAndStart(room)
 	}
 
@@ -121,10 +121,11 @@ func RestartAndStart(room *Room) error {
 	oldState := room.state
 
 	room.state = buildRestartState(room.state.LobbyCode, players, nextPlayerIndex)
+	ResetGameEntities(room.state, RandomSpawnTimer())
 	room.countdownStart = time.Now().UnixMilli()
 
-	countdown := time.Duration(protocol.CountdownTicks) * time.Millisecond * 1000 / time.Duration(protocol.TickRate)
-	room.setEndGameAlarm(time.Now().Add(countdown))
+	countdownMs := int64(protocol.CountdownTicks) * 1000 / int64(protocol.TickRate)
+	room.setEndGameAlarm(time.Now().Add(time.Duration(countdownMs) * time.Millisecond))
 
 	// 先持久化，成功后再广播。持久化失败时回滚内存状态，不广播不一致的状态。
 	if err := room.saveStateWithError(); err != nil {
@@ -133,7 +134,8 @@ func RestartAndStart(room *Room) error {
 		return err
 	}
 
-	room.broadcastCritical(protocol.EncodeGameStateChange(protocol.PhaseCountdown))
+	countdownMsU32 := uint32(protocol.CountdownTicks) * 1000 / uint32(protocol.TickRate)
+	room.broadcastCritical(protocol.EncodeGameStateChange(protocol.PhaseCountdown, countdownMsU32))
 	room.broadcast(room.buildSnapshot(), "")
 
 	return nil

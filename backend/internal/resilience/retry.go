@@ -41,7 +41,7 @@ func ExternalAPIRetry() retry.Backoff {
 // JitteredBackoff returns a backoff duration with random jitter to prevent
 // thundering herd effect. This is a standalone helper for manual retry loops.
 func JitteredBackoff(base time.Duration, attempt int) time.Duration {
-	backoff := base * time.Duration(1<<uint(attempt)) //nolint:gosec // attempt is bounded by maxRetries
+	backoff := base * time.Duration(1<<uint(attempt))        //nolint:gosec // attempt is bounded by maxRetries
 	jitter := time.Duration(rand.Int64N(int64(backoff) / 2)) //nolint:gosec // jitter uses math/rand intentionally, not security-sensitive
 	return backoff + jitter
 }

@@ -3,6 +3,8 @@ package game
 import (
 	"strings"
 	"testing"
+
+	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 // ─── GenerateRandomNickname ──────────────────────────────────────────
@@ -119,8 +121,8 @@ func TestSanitizePlayerName_ScriptTag(t *testing.T) {
 func TestSanitizePlayerName_Truncate(t *testing.T) {
 	long := strings.Repeat("a", 1000)
 	result := SanitizePlayerName(long)
-	if len([]rune(result)) != 20 {
-		t.Fatalf("超长名字应截断至 20 字符，got len=%d", len([]rune(result)))
+	if len([]rune(result)) != protocol.MaxNicknameLen {
+		t.Fatalf("超长名字应截断至 %d 字符，got len=%d", protocol.MaxNicknameLen, len([]rune(result)))
 	}
 }
 
@@ -199,17 +201,6 @@ func TestRandomIndex(t *testing.T) {
 	idx = randomIndex(-1)
 	if idx != 0 {
 		t.Fatalf("randomIndex(-1) = %d, want 0", idx)
-	}
-}
-
-// ─── trimSpace ───────────────────────────────────────────────────────
-
-func TestTrimSpace(t *testing.T) {
-	if trimSpace("  hello  ") != "hello" {
-		t.Fatal("trimSpace should trim spaces")
-	}
-	if trimSpace("hello") != "hello" {
-		t.Fatal("trimSpace should not modify already trimmed strings")
 	}
 }
 

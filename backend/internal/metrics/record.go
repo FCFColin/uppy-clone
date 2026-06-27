@@ -1,0 +1,90 @@
+package metrics
+
+import (
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/uppy-clone/backend/internal/protocol"
+)
+
+// statusWriter captures the HTTP status code written by handlers.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func NewStatusWriter(w http.ResponseWriter) *statusWriter {
+	return &statusWriter{ResponseWriter: w}
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.status = code
+	sw.ResponseWriter.WriteHeader(code)
+}
+
+func (sw *statusWriter) Status() int {
+	if sw.status == 0 {
+		return http.StatusOK
+	}
+	return sw.status
+}
+
+func statusLabel(code int) string {
+	return strconv.Itoa(code)
+}
+
+// RecordAuth records auth SLO counters and latency histogram.
+func RecordAuth(endpoint string, statusCode int, start time.Time) {
+	status := statusLabel(statusCode)
+	AuthRequestTotal.WithLabelValues(endpoint, status).Inc()
+	AuthRequestDuration.WithLabelValues(endpoint).Observe(time.Since(start).Seconds())
+}
+
+// AuthRecorder wraps a ResponseWriter and records metrics on End().
+type AuthRecorder struct {
+	sw       *statusWriter
+	endpoint string
+	start    time.Time
+}
+
+func BeginAuth(endpoint string, w http.ResponseWriter) (*AuthRecorder, *statusWriter) {
+	sw := NewStatusWriter(w)
+	return &AuthRecorder{sw: sw, endpoint: endpoint, start: time.Now()}, sw
+}
+
+func (r *AuthRecorder) End() {
+	RecordAuth(r.endpoint, r.sw.Status(), r.start)
+}
+
+// RecordRoomCreation records room creation outcomes.
+func RecordRoomCreation(status string, start time.Time) {
+	RoomCreationTotal.WithLabelValues(status).Inc()
+	RoomCreationDuration.WithLabelValues().Observe(time.Since(start).Seconds())
+}
+
+// RecordWSConnection records WebSocket upgrade/join outcomes.
+func RecordWSConnection(status string) {
+	WSConnectionTotal.WithLabelValues(status).Inc()
+}
+
+// RecordWSMessage records WebSocket message handler latency.
+func RecordWSMessage(msgType string, d time.Duration) {
+	WSMessageDuration.WithLabelValues(msgType).Observe(d.Seconds())
+}
+
+// WSMessageTypeName maps protocol message type bytes to metric labels.
+func WSMessageTypeName(msgType byte) string {
+	switch msgType {
+	case protocol.MsgTap:
+		return "tap"
+	case protocol.MsgSetNickname:
+		return "set_nickname"
+	case protocol.MsgRestartVote:
+		return "restart_vote"
+	case protocol.MsgPing:
+		return "ping"
+	default:
+		return "unknown"
+	}
+}

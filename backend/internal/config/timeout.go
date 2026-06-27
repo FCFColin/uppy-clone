@@ -40,9 +40,9 @@ type TimeoutConfig struct {
 // DefaultTimeoutConfig returns production-ready defaults.
 func DefaultTimeoutConfig() TimeoutConfig {
 	return TimeoutConfig{
-		PGConnectTimeout:  getDurationEnv("PG_CONNECT_TIMEOUT", 5*time.Second),
-		PGQueryTimeout:    getDurationEnv("PG_QUERY_TIMEOUT", 10*time.Second),
-		PGRequestTimeout:  getDurationEnv("PG_REQUEST_TIMEOUT", 30*time.Second),
+		PGConnectTimeout: getDurationEnv("PG_CONNECT_TIMEOUT", 5*time.Second),
+		PGQueryTimeout:   getDurationEnv("PG_QUERY_TIMEOUT", 10*time.Second),
+		PGRequestTimeout: getDurationEnv("PG_REQUEST_TIMEOUT", 30*time.Second),
 
 		RedisConnectTimeout: getDurationEnv("REDIS_CONNECT_TIMEOUT", 3*time.Second),
 		RedisReadTimeout:    getDurationEnv("REDIS_READ_TIMEOUT", 3*time.Second),

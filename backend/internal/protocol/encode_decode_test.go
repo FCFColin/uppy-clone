@@ -94,7 +94,7 @@ func TestEncodeTapRejected(t *testing.T) {
 // ─── EncodeGameStateChange ───────────────────────────────────────────
 
 func TestEncodeGameStateChange_AllPhases(t *testing.T) {
-	phases := []GamePhase{PhaseWaiting, PhaseCountdown, PhasePlaying, PhaseEnded}
+	phases := []GamePhase{PhaseWaiting, PhasePlaying, PhaseEnded}
 	for _, phase := range phases {
 		data := EncodeGameStateChange(phase)
 		if len(data) != 2 {
@@ -106,6 +106,20 @@ func TestEncodeGameStateChange_AllPhases(t *testing.T) {
 		if data[1] != PhaseToCode(phase) {
 			t.Fatalf("phaseCode 不匹配: got=%d, want=%d", data[1], PhaseToCode(phase))
 		}
+	}
+}
+
+func TestEncodeGameStateChange_CountdownWithRemaining(t *testing.T) {
+	data := EncodeGameStateChange(PhaseCountdown, 3000)
+	if len(data) != 6 {
+		t.Fatalf("countdown EncodeGameStateChange 应为 6 字节，got=%d", len(data))
+	}
+	if data[0] != MsgGameStateChange || data[1] != PhaseCodeCountdown {
+		t.Fatalf("unexpected header: %v", data[:2])
+	}
+	remaining := binary.LittleEndian.Uint32(data[2:6])
+	if remaining != 3000 {
+		t.Fatalf("countdownRemainingMs 不匹配: got=%d, want=3000", remaining)
 	}
 }
 

@@ -149,7 +149,7 @@ var (
 	})
 
 	// SLO metrics — 企业为何需要：SLI 指标是 SLO 监控的基础，用于计算 Error Budget 和 Burn Rate。
-	// 详见 docs/slo.md。这些指标配合 deploy/alertmanager/rules.yml 的多窗口告警实现 SLO 自动化。
+	// 详见 docs/operations/slo.md。这些指标配合 deploy/alertmanager/rules.yml 的多窗口告警实现 SLO 自动化。
 	AuthRequestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "auth_requests_total",
 		Help: "Total auth requests by endpoint and status",
@@ -193,4 +193,16 @@ var (
 		Name: "email_queue_stream_length",
 		Help: "Number of pending messages in email:queue Redis Stream",
 	})
+
+	// NicknameConfirmTotal tracks SET_NICKNAME outcomes (accepted vs silently rejected).
+	NicknameConfirmTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "nickname_confirm_total",
+		Help: "Total SET_NICKNAME messages by outcome",
+	}, []string{"result"})
+
+	// RoomsByPhase tracks how many rooms are in each game phase (polled from Hub).
+	RoomsByPhase = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "rooms_by_phase",
+		Help: "Number of active rooms grouped by game phase",
+	}, []string{"phase"})
 )

@@ -275,14 +275,20 @@ func makeGameResultPayload(gameID string, finalScore int, results []PlayerGameRe
 	return string(b)
 }
 
+// ensureResultWorkerGroup creates the game:results consumer group when missing.
+func ensureResultWorkerGroup(t *testing.T, rdb *redis.Client) {
+	t.Helper()
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "$").Err()
+}
+
 // addAndReadMessages adds messages to the game:results stream, reads them via
 // XReadGroup (so they enter the PEL), and returns the messages.
 func addAndReadMessages(t *testing.T, rdb *redis.Client, payloads []string) []redis.XMessage {
 	t.Helper()
 	ctx := context.Background()
 
-	// Ensure consumer group exists
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "$").Err()
+	ensureResultWorkerGroup(t, rdb)
 
 	for _, p := range payloads {
 		if err := rdb.XAdd(ctx, &redis.XAddArgs{
@@ -315,6 +321,7 @@ func addAndReadMessages(t *testing.T, rdb *redis.Client, payloads []string) []re
 func getPendingCount(t *testing.T, rdb *redis.Client) int64 {
 	t.Helper()
 	ctx := context.Background()
+	ensureResultWorkerGroup(t, rdb)
 	result, err := rdb.XPending(ctx, "game:results", "result-workers").Result()
 	if err != nil {
 		t.Fatalf("XPending: %v", err)

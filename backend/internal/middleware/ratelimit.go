@@ -51,13 +51,15 @@ type EndpointRateLimitConfig struct {
 // Security-critical endpoints (auth:quickplay, admin:login) use FailClosed=true
 // so that Redis unavailability blocks requests rather than allowing unbounded access.
 var DefaultEndpointRateLimits = map[string]EndpointRateLimitConfig{
-	"auth:quickplay":  {Requests: 10, Window: time.Minute, FailClosed: true},
-	"auth:request":    {Requests: 5, Window: time.Minute},
-	"auth:verify":     {Requests: 10, Window: time.Minute},
-	"registry:create": {Requests: 5, Window: time.Minute},
-	"registry:match":  {Requests: 10, Window: time.Minute},
-	"admin:login":     {Requests: 5, Window: time.Minute, FailClosed: true},
-	"default":         {Requests: 60, Window: time.Minute},
+	"auth:quickplay":   {Requests: 10, Window: time.Minute, FailClosed: true},
+	"auth:request":     {Requests: 5, Window: time.Minute},
+	"auth:verify":      {Requests: 10, Window: time.Minute},
+	"registry:create":  {Requests: 5, Window: time.Minute},
+	"registry:check":   {Requests: 30, Window: time.Minute},
+	"registry:lobbies": {Requests: 30, Window: time.Minute},
+	"registry:match":   {Requests: 10, Window: time.Minute},
+	"admin:login":      {Requests: 5, Window: time.Minute, FailClosed: true},
+	"default":          {Requests: 60, Window: time.Minute},
 }
 
 // RateLimit returns middleware that checks Redis-based rate limits.
@@ -180,7 +182,15 @@ func extractClientIP(r *http.Request) string {
 // 恒为代理 IP，所有攻击者共享同一锁定 key，导致 DoS（单攻击者锁全部用户）
 // 或暴力破解成功（锁定永不触发）。必须从 X-Forwarded-For 提取真实客户端 IP。
 func ExtractClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header first (reverse proxy)
+	// Only trust X-Forwarded-For from configured reverse proxies.
+	if !IsTrustedProxy(r) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			return r.RemoteAddr
+		}
+		return ip
+	}
+
 	xff := r.Header.Get("X-Forwarded-For")
 	if xff != "" {
 		// X-Forwarded-For may contain multiple IPs; use the first one

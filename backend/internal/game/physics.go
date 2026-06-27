@@ -222,42 +222,12 @@ func UpdateGhostAI(state *domain.GameState) {
 
 	// 驱离倒计时
 	if ghost.RepelTimer > 0 {
-		ghost.RepelTimer--
-		dx := ghost.X - state.Balloon.X
-		dy := ghost.Y - state.Balloon.Y
-		dist := sqrt(dx*dx + dy*dy)
-		if dist == 0 {
-			dist = 1
-		}
-		ghost.VX += (dx / dist) * protocol.GhostRepelForce
-		ghost.VY += (dy / dist) * protocol.GhostRepelForce
+		applyGhostRepel(ghost, state)
 	} else {
-		dx := state.Balloon.X - ghost.X
-		dy := state.Balloon.Y - ghost.Y
-		dist := sqrt(dx*dx + dy*dy)
-
-		if dist < protocol.GhostAttractRadius {
-			// 在吸引半径内，朝气球加速
-			attractStrength := 0.5
-			ghost.VX += (dx / dist) * protocol.GhostSpeed * attractStrength
-			ghost.VY += (dy / dist) * protocol.GhostSpeed * attractStrength
-		} else {
-			// 随机漫步
-			if state.TickCount%protocol.GhostWanderChangeInterval == 0 {
-				angle := randFloat64() * 2 * pi
-				ghost.VX = cos(angle) * protocol.GhostSpeed
-				ghost.VY = sin(angle) * protocol.GhostSpeed
-			}
-		}
+		applyGhostAttractOrWander(ghost, state)
 	}
 
-	// 限制最大速度
-	maxSpeed := protocol.GhostSpeed * 4
-	speed := sqrt(ghost.VX*ghost.VX + ghost.VY*ghost.VY)
-	if speed > maxSpeed {
-		ghost.VX = (ghost.VX / speed) * maxSpeed
-		ghost.VY = (ghost.VY / speed) * maxSpeed
-	}
+	clampGhostVelocity(ghost)
 
 	// 移动
 	ghost.X += ghost.VX
@@ -267,6 +237,46 @@ func UpdateGhostAI(state *domain.GameState) {
 	if ghost.X < -0.15 || ghost.X > 1.15 || ghost.Y < -0.15 || ghost.Y > 1.15 {
 		ghost.Active = false
 		ghost.SpawnTimer = int(protocol.GhostSpawnMin + randFloat64()*float64(protocol.GhostSpawnMax-protocol.GhostSpawnMin))
+	}
+}
+
+func applyGhostRepel(ghost *domain.GhostState, state *domain.GameState) {
+	ghost.RepelTimer--
+	dx := ghost.X - state.Balloon.X
+	dy := ghost.Y - state.Balloon.Y
+	dist := sqrt(dx*dx + dy*dy)
+	if dist == 0 {
+		dist = 1
+	}
+	ghost.VX += (dx / dist) * protocol.GhostRepelForce
+	ghost.VY += (dy / dist) * protocol.GhostRepelForce
+}
+
+func applyGhostAttractOrWander(ghost *domain.GhostState, state *domain.GameState) {
+	dx := state.Balloon.X - ghost.X
+	dy := state.Balloon.Y - ghost.Y
+	dist := sqrt(dx*dx + dy*dy)
+
+	if dist < protocol.GhostAttractRadius {
+		attractStrength := 0.5
+		ghost.VX += (dx / dist) * protocol.GhostSpeed * attractStrength
+		ghost.VY += (dy / dist) * protocol.GhostSpeed * attractStrength
+		return
+	}
+
+	if state.TickCount%protocol.GhostWanderChangeInterval == 0 {
+		angle := randFloat64() * 2 * pi
+		ghost.VX = cos(angle) * protocol.GhostSpeed
+		ghost.VY = sin(angle) * protocol.GhostSpeed
+	}
+}
+
+func clampGhostVelocity(ghost *domain.GhostState) {
+	maxSpeed := protocol.GhostSpeed * 4
+	speed := sqrt(ghost.VX*ghost.VX + ghost.VY*ghost.VY)
+	if speed > maxSpeed {
+		ghost.VX = (ghost.VX / speed) * maxSpeed
+		ghost.VY = (ghost.VY / speed) * maxSpeed
 	}
 }
 

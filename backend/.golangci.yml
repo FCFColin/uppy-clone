@@ -67,6 +67,10 @@ issues:
       linters:
         - errcheck
         - gocritic
+        - funlen
+        - gocognit
+        - dupl
+        - gocyclo
     # Generated protocol files
     - path: "protocol/encode.go"
       linters:

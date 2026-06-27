@@ -102,7 +102,7 @@ func IdempotencyMiddleware(rdb *redis.Client) func(http.Handler) http.Handler {
 					w.Header().Set("Content-Type", "application/json")
 					w.Header().Set("X-Idempotent-Replayed", "true")
 					w.WriteHeader(cached.StatusCode)
-				_, _ = w.Write([]byte(cached.Body))
+					_, _ = w.Write([]byte(cached.Body))
 					return
 				}
 			}

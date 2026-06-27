@@ -87,6 +87,36 @@ func TestCheckAuth_Unauthenticated(t *testing.T) {
 	}
 }
 
+func TestCheckAuth_AuthenticatedViaCookieWithoutMiddleware(t *testing.T) {
+	t.Parallel()
+
+	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	token, err := jwtMgr.SignToken("user-456", "CookiePlayer")
+	if err != nil {
+		t.Fatalf("SignToken() error = %v", err)
+	}
+
+	h := &AuthHandler{
+		jwtMgr:     jwtMgr,
+		refreshMgr: nil,
+		db:         nil,
+		redis:      nil,
+		config:     &Config{},
+		magicLink:  nil,
+		timeouts:   config.DefaultTimeoutConfig(),
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
+	r.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
+
+	h.CheckAuth(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
 func TestCheckAuth_Authenticated(t *testing.T) {
 	t.Parallel()
 
@@ -159,6 +189,39 @@ func TestRefreshToken_EmptyToken(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d; body = %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+// --- QuickPlay ---
+
+func TestQuickPlay_NilDB(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAuthHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", strings.NewReader(`{"nickname":"Test"}`))
+	r.Header.Set("Content-Type", "application/json")
+
+	h.QuickPlay(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("QuickPlay with nil db: status = %d, want %d; body = %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+	}
+}
+
+func TestQuickPlay_MissingBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAuthHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", nil)
+
+	h.QuickPlay(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("QuickPlay with nil body: status = %d, want %d", w.Code, http.StatusServiceUnavailable)
 	}
 }
 

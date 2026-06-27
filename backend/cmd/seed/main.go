@@ -1,7 +1,4 @@
 // Package seed inserts test data for development environments.
-//
-// 企业为何需要：开发环境需要可重复的测试数据，手动创建易出错且耗时。
-// 安全：仅在 sslmode=disable（开发标识）时执行，防止误操作生产数据库。
 package main
 
 import (
@@ -19,32 +16,33 @@ import (
 )
 
 func main() {
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL required")
+	if err := runSeed(os.Getenv("DATABASE_URL")); err != nil {
+		log.Fatal(err)
 	}
+	log.Println("Seed completed: 3 users, 5 game sessions, 10 game results")
+}
 
-	// Safety check: only run in dev (sslmode=disable).
-	// 企业为何需要：防止 seed 脚本误操作生产数据库，造成测试数据污染。
+func runSeed(dbURL string) error {
+	if dbURL == "" {
+		return fmt.Errorf("DATABASE_URL required")
+	}
 	if !strings.Contains(dbURL, "sslmode=disable") {
-		log.Fatal("SEED ABORTED: DATABASE_URL must contain sslmode=disable (dev only)")
+		return fmt.Errorf("SEED ABORTED: DATABASE_URL must contain sslmode=disable (dev only)")
 	}
 
 	timeouts := config.DefaultTimeoutConfig()
 	db, err := store.NewPostgresStore(dbURL, timeouts)
 	if err != nil {
-		log.Fatalf("connect DB: %v", err)
+		return fmt.Errorf("connect DB: %w", err)
 	}
 	defer db.Close()
 
 	ctx := context.Background()
 	now := time.Now().Unix()
-
 	users := seedUsers(ctx, db, now)
 	sessionIDs := seedSessions(ctx, db, now)
 	seedResults(ctx, db, now, users, sessionIDs)
-
-	log.Println("Seed completed: 3 users, 5 game sessions, 10 game results")
+	return nil
 }
 
 // seedUsers inserts 3 test users and returns them for use by other seed helpers.
@@ -91,8 +89,6 @@ func seedResults(ctx context.Context, db *store.PostgresStore, now int64, users 
 	for i := 0; i < 10; i++ {
 		sessionIdx := i / 2
 		userIdx := i % len(users)
-		// Bounds checks (defensive): sessionIdx and userIdx are derived from
-		// fixed ranges, but guard against slice out-of-range to satisfy gosec.
 		if sessionIdx >= len(sessionIDs) {
 			sessionIdx = 0
 		}

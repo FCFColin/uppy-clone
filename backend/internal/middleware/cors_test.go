@@ -114,7 +114,12 @@ func TestAllowedOriginsFromEnv(t *testing.T) {
 		input string
 		want  []string
 	}{
-		{"empty string returns nil", "", nil},
+		{"empty string returns dev defaults", "", []string{
+			"http://localhost:3000",
+			"http://localhost:5173",
+			"http://127.0.0.1:3000",
+			"http://127.0.0.1:5173",
+		}},
 		{"single origin", "https://example.com", []string{"https://example.com"}},
 		{"multiple origins", "https://a.com, https://b.com", []string{"https://a.com", "https://b.com"}},
 		{"trims whitespace", " https://a.com , https://b.com ", []string{"https://a.com", "https://b.com"}},

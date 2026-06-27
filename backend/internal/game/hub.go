@@ -4,9 +4,7 @@ package game
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,7 +34,7 @@ type RoomInfo struct {
 type Hub struct {
 	mu                sync.RWMutex
 	rooms             map[string]*Room // lobbyCode → Room
-	store             *store.PostgresStore
+	store             RoomRepository
 	redis             *store.RedisStore
 	timeouts          config.TimeoutConfig
 	logger            *slog.Logger
@@ -54,7 +52,7 @@ type Hub struct {
 
 // NewHub 创建房间注册中心
 // broadcaster 可为 nil（单实例模式/测试场景）。
-func NewHub(pgStore *store.PostgresStore, redisStore *store.RedisStore, timeouts config.TimeoutConfig, maxWSConnections, maxPlayersPerRoom int, broadcaster Broadcaster) *Hub {
+func NewHub(pgStore RoomRepository, redisStore *store.RedisStore, timeouts config.TimeoutConfig, maxWSConnections, maxPlayersPerRoom int, broadcaster Broadcaster) *Hub {
 	if maxWSConnections <= 0 {
 		maxWSConnections = config.MaxWSConnections
 	}
@@ -103,6 +101,7 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 
 	// Register room in Redis for multi-instance discovery (ADR-005)
 	h.registerRoomInRedis(code)
+	h.invalidateLobbyReadCaches(code)
 
 	// Audit: room creation
 	audit.Log(ctx, audit.AuditEntry{
@@ -141,12 +140,7 @@ func (h *Hub) GetRoom(code string) *Room {
 			return nil
 		}
 
-		room := NewRoom(code, h, h.store, h.timeouts, h.maxPlayersPerRoom)
-		room.state = state
-		// 重建 usedNames
-		for _, p := range state.Players {
-			room.usedNames[p.Nickname] = true
-		}
+		room := h.materializeRoom(code, state)
 
 		h.mu.Lock()
 		// 双重检查
@@ -196,6 +190,7 @@ func (h *Hub) RemoveRoom(ctx context.Context, code string) {
 
 	// 从 Redis 注销房间（多实例发现 + 缓存）
 	h.unregisterRoomFromRedis(code)
+	h.invalidateLobbyReadCaches(code)
 }
 
 // CloseAllRooms closes all active rooms, ensuring state is persisted.
@@ -260,11 +255,7 @@ func (h *Hub) RestoreRooms() error {
 			continue
 		}
 
-		room := NewRoom(ls.Code, h, h.store, h.timeouts, h.maxPlayersPerRoom)
-		room.state = state
-		for _, p := range state.Players {
-			room.usedNames[p.Nickname] = true
-		}
+		room := h.materializeRoom(ls.Code, state)
 
 		h.rooms[ls.Code] = room
 		h.subscribeRoom(ls.Code)
@@ -273,6 +264,16 @@ func (h *Hub) RestoreRooms() error {
 
 	h.logger.Info("rooms restored", "count", len(h.rooms))
 	return nil
+}
+
+// materializeRoom creates a Room from deserialized state (caller handles map registration).
+func (h *Hub) materializeRoom(code string, state *domain.GameState) *Room {
+	room := NewRoom(code, h, h.store, h.timeouts, h.maxPlayersPerRoom)
+	room.state = state
+	for _, p := range state.Players {
+		room.usedNames[p.Nickname] = true
+	}
+	return room
 }
 
 // CleanupLoop 定期清理空房间
@@ -412,21 +413,24 @@ func (h *Hub) PlayerCount() int {
 	return total
 }
 
-// DB returns the underlying PostgreSQL store.
-//
-// Deprecated: Use specific Hub methods instead of accessing the store directly.
-// This will be removed once all handlers are migrated to service-layer methods.
-func (h *Hub) DB() *store.PostgresStore {
-	return h.store
+// PhaseCounts returns the number of rooms in each game phase.
+func (h *Hub) PhaseCounts() map[string]int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	counts := make(map[string]int)
+	for _, room := range h.rooms {
+		room.mu.RLock()
+		phase := string(room.state.Phase)
+		room.mu.RUnlock()
+		counts[phase]++
+	}
+	return counts
 }
 
 // ListLobbies returns active lobbies with cursor-based pagination.
 // 企业为何需要（T24）：封装 DB 访问，handler 不再直接依赖 store 层。
 func (h *Hub) ListLobbies(ctx context.Context, limit int, cursor string) (*store.LobbyListResult, error) {
-	if h.store == nil {
-		return nil, fmt.Errorf("store not available")
-	}
-	return h.store.LoadAllActiveLobbies(ctx, limit, cursor)
+	return h.ListLobbiesCached(ctx, limit, cursor)
 }
 
 // Timeouts returns the timeout configuration.
@@ -447,10 +451,11 @@ func (h *Hub) registerRoomInRedis(code string) {
 	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.RedisConnectTimeout)
 	defer cancel()
 
-	data, _ := json.Marshal(map[string]interface{}{
-		"code":       code,
-		"created_at": time.Now().UnixMilli(),
-		"instance":   os.Getenv("INSTANCE_ID"),
+	data, _ := json.Marshal(store.RoomRegistryInfo{
+		Code:      code,
+		Instance:  h.instanceID,
+		Address:   instanceAddress(),
+		CreatedAt: time.Now().UnixMilli(),
 	})
 	_ = h.redis.RegisterRoom(ctx, code, data, 24*time.Hour)
 }

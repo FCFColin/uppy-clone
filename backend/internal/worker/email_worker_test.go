@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker/v2"
-	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go"
+	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/uppy-clone/backend/internal/config"
 )
@@ -25,7 +26,12 @@ import (
 func setupRedis(t *testing.T) *redis.Client {
 	t.Helper()
 	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+		mr, err := miniredis.Run()
+		if err != nil {
+			t.Fatalf("miniredis: %v", err)
+		}
+		t.Cleanup(mr.Close)
+		return redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	}
 
 	ctx := context.Background()
@@ -313,8 +319,8 @@ func TestProcessMessage_DeadLetterQueue(t *testing.T) {
 	msg := redis.XMessage{
 		ID: "deadletter-0",
 		Values: map[string]interface{}{
-			"payload":      makePayload("user@test.com", "Test", "body"),
-			"retry_count":  strconv.Itoa(w.maxRetries), // at max retries
+			"payload":     makePayload("user@test.com", "Test", "body"),
+			"retry_count": strconv.Itoa(w.maxRetries), // at max retries
 		},
 	}
 	w.processMessage(ctx, msg)

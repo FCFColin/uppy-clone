@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/store"
 )
 
 // --- Mock RoomRepository ---
@@ -73,6 +74,25 @@ func (m *mockRoomRepository) DeleteLobbyState(ctx context.Context, code string) 
 		return fmt.Errorf("lobby state not found: %s", code)
 	}
 	delete(m.lobbyStates, code)
+	return nil
+}
+
+func (m *mockRoomRepository) LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*store.LobbyListResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var lobbies []domain.LobbyState
+	for _, ls := range m.lobbyStates {
+		copied := *ls
+		lobbies = append(lobbies, copied)
+	}
+	return &store.LobbyListResult{Lobbies: lobbies, Total: len(lobbies)}, nil
+}
+
+func (m *mockRoomRepository) CreateGameSession(_ context.Context, _ *domain.GameSession) error {
+	return nil
+}
+
+func (m *mockRoomRepository) InsertOutboxEvent(_ context.Context, _, _ string, _ []byte) error {
 	return nil
 }
 
@@ -457,11 +477,11 @@ func TestRoomRepository_MethodCount(t *testing.T) {
 	// We can't easily count interface methods at runtime in Go,
 	// but we can verify all expected methods exist by calling them.
 	// If a method is missing, the code won't compile.
-	var _ RoomRepository = RoomRepository(nil)
+	var _ = RoomRepository(nil)
 	// The fact that this compiles verifies the interface exists.
 }
 
 // TestSnapshotEncoder_MethodCount verifies the interface has exactly 1 method.
 func TestSnapshotEncoder_MethodCount(t *testing.T) {
-	var _ SnapshotEncoder = SnapshotEncoder(nil)
+	var _ = SnapshotEncoder(nil)
 }

@@ -174,8 +174,15 @@ func EncodeTapRejected() []byte {
 
 // EncodeGameStateChange encodes a game state change notification.
 //
-// Binary layout: msgType(1) + phaseCode(uint8)
-func EncodeGameStateChange(phase GamePhase) []byte {
+// Binary layout: msgType(1) + phaseCode(uint8) [+ countdownRemainingMs(uint32 LE) when phase=countdown]
+func EncodeGameStateChange(phase GamePhase, countdownRemainingMs ...uint32) []byte {
+	if phase == PhaseCountdown && len(countdownRemainingMs) > 0 {
+		var buf bytes.Buffer
+		buf.WriteByte(MsgGameStateChange)
+		buf.WriteByte(PhaseToCode(phase))
+		_ = binary.Write(&buf, le, countdownRemainingMs[0])
+		return buf.Bytes()
+	}
 	return []byte{MsgGameStateChange, PhaseToCode(phase)}
 }
 
@@ -221,4 +228,3 @@ func EncodePlayerLeave(playerIndex uint16) []byte {
 func EncodePong() []byte {
 	return []byte{MsgPong}
 }
-

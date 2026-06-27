@@ -115,3 +115,26 @@ func TestCheckRoom_MissingCode(t *testing.T) {
 		t.Errorf("status = %d, want %d; body = %s", w.Code, http.StatusBadRequest, w.Body.String())
 	}
 }
+
+func TestMatchRoom(t *testing.T) {
+	t.Parallel()
+
+	h := newTestLobbyHandler()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/registry/match", nil)
+
+	h.MatchRoom(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["lobbyCode"] == "" {
+		t.Error("expected non-empty lobbyCode")
+	}
+}

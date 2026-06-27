@@ -63,8 +63,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 func generateNonce() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback: should never happen with crypto/rand
-		return "fallback-nonce"
+		panic("crypto/rand failed: " + err.Error())
 	}
 	return hex.EncodeToString(b)
 }

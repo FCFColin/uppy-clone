@@ -41,7 +41,7 @@ func TestRevokeAllTokens_NoCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 
 	// 不应 panic
-	RevokeAllTokens(context.Background(), mgr, nil, req)
+	RevokeAllTokens(context.Background(), mgr, nil, nil, req)
 }
 
 // --- cookie 存在但 token 无效：不应 panic，不调用 RevokeJWT ---
@@ -55,7 +55,7 @@ func TestRevokeAllTokens_InvalidToken(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: "also.invalid"})
 
 	// 不应 panic
-	RevokeAllTokens(context.Background(), mgr, redisStore, req)
+	RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
 }
 
 // --- cookie 值为空字符串：不应 panic ---
@@ -68,7 +68,7 @@ func TestRevokeAllTokens_EmptyCookieValue(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: ""})
 
 	// 不应 panic
-	RevokeAllTokens(context.Background(), mgr, nil, req)
+	RevokeAllTokens(context.Background(), mgr, nil, nil, req)
 }
 
 // --- redis 为 nil：有效 token 也不应 panic ---
@@ -85,7 +85,7 @@ func TestRevokeAllTokens_NilRedis(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
 
 	// 不应 panic — redis 为 nil 时跳过 RevokeJWT
-	RevokeAllTokens(context.Background(), mgr, nil, req)
+	RevokeAllTokens(context.Background(), mgr, nil, nil, req)
 }
 
 // --- jti 为空：VerifyToken 成功但 jti==""，不调用 RevokeJWT ---
@@ -123,7 +123,7 @@ func TestRevokeAllTokens_EmptyJTI(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: tokenString})
 
 	// 不应 panic，也不应调用 RevokeJWT（jti 为空）
-	RevokeAllTokens(context.Background(), mgr, redisStore, req)
+	RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
 }
 
 // --- session cookie：有效 token + 真实 Redis → jti 被撤销 ---
@@ -155,7 +155,7 @@ func TestRevokeAllTokens_SessionCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
 
-	RevokeAllTokens(ctx, mgr, redisStore, req)
+	RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
 	// 撤销后 jti 应在撤销列表中
 	revoked, err = redisStore.IsJWTRevoked(ctx, jti)
@@ -187,7 +187,7 @@ func TestRevokeAllTokens_QuickPlayCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
 
-	RevokeAllTokens(ctx, mgr, redisStore, req)
+	RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
 	revoked, err := redisStore.IsJWTRevoked(ctx, jti)
 	if err != nil {
@@ -221,7 +221,7 @@ func TestRevokeAllTokens_BothCookies(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: sessionToken})
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: quickplayToken})
 
-	RevokeAllTokens(ctx, mgr, redisStore, req)
+	RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
 	// 两个 jti 都应被撤销
 	sessionRevoked, err := redisStore.IsJWTRevoked(ctx, sessionJTI)
@@ -258,7 +258,7 @@ func TestRevokeAllTokens_OneValidOneInvalid(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: "invalid.token.value"})
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: validToken})
 
-	RevokeAllTokens(ctx, mgr, redisStore, req)
+	RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
 	// 有效的 quickplay token 应被撤销
 	revoked, err := redisStore.IsJWTRevoked(ctx, validJTI)
@@ -283,7 +283,7 @@ func TestRevokeAllTokens_Concurrent(t *testing.T) {
 			token, _ := mgr.SignToken("user-concurrent", "Concurrent")
 			req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 			req.AddCookie(&http.Cookie{Name: "session", Value: token})
-			RevokeAllTokens(context.Background(), mgr, redisStore, req)
+			RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
 		}()
 	}
 	for i := 0; i < 5; i++ {

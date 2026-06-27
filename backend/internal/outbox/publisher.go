@@ -60,7 +60,7 @@ func (p *Publisher) publishBatch(ctx context.Context) {
 			Stream: stream,
 			Values: map[string]interface{}{
 				"aggregate_id": aggID,
-				"payload":       string(payload),
+				"payload":      string(payload),
 			},
 		}).Err()
 		if err != nil {

@@ -214,8 +214,8 @@ func TestGetSampleRatio_Default(t *testing.T) {
 // TestGetSampleRatio_ValidValues verifies valid ratio values are parsed correctly.
 func TestGetSampleRatio_ValidValues(t *testing.T) {
 	tests := []struct {
-		env   string
-		want  float64
+		env  string
+		want float64
 	}{
 		{"0.0", 0.0},
 		{"0.1", 0.1},

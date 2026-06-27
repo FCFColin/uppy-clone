@@ -15,6 +15,7 @@ import (
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/idgen"
+	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
@@ -33,15 +34,19 @@ var (
 // the user's browser.
 func getOrigin(r *http.Request) string {
 	scheme := "https"
-	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
+	if r.TLS == nil && (!requestctx.IsTrustedProxy(r.Context()) || r.Header.Get("X-Forwarded-Proto") == "") {
 		scheme = "http"
 	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = proto
+	if requestctx.IsTrustedProxy(r.Context()) {
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+			scheme = proto
+		}
 	}
 	host := r.Host
-	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
-		host = fwdHost
+	if requestctx.IsTrustedProxy(r.Context()) {
+		if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+			host = fwdHost
+		}
 	}
 	return scheme + "://" + host
 }
@@ -72,14 +77,32 @@ func NewMagicLinkService() *MagicLinkService {
 // RequestMagicLink sends a magic link email to the user.
 // Flow: validate email → rate limit → generate token → hash → store in Redis → send email.
 func (s *MagicLinkService) RequestMagicLink(redis *store.RedisStore, db *store.PostgresStore, resendAPIKey, emailFrom, email string, r *http.Request, timeouts config.TimeoutConfig) error {
-	ctx := r.Context()
-
-	// 1. Validate email format
 	if !isValidEmail(email) {
 		return ErrInvalidEmail
 	}
 
-	// 2. Rate limit check via Redis (5 requests per 15 minutes per email)
+	ctx := r.Context()
+	if err := checkMagicLinkRateLimit(ctx, redis, email); err != nil {
+		return err
+	}
+
+	token, hashedToken, err := generateMagicLinkToken()
+	if err != nil {
+		return err
+	}
+
+	if err := storeMagicLinkToken(ctx, redis, hashedToken, email); err != nil {
+		return err
+	}
+
+	if err := enqueueMagicLinkEmail(ctx, redis, r, email, token, hashedToken); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func checkMagicLinkRateLimit(ctx context.Context, redis *store.RedisStore, email string) error {
 	allowed, err := redis.CheckRateLimit(ctx, "ml:"+email, 5, config.MagicLinkTTL)
 	if err != nil {
 		return fmt.Errorf("rate limit check: %w", err)
@@ -87,19 +110,19 @@ func (s *MagicLinkService) RequestMagicLink(redis *store.RedisStore, db *store.P
 	if !allowed {
 		return ErrTooManyRequests
 	}
+	return nil
+}
 
-	// 3. Generate random token (32 bytes hex)
+func generateMagicLinkToken() (token, hashedToken string, err error) {
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		return fmt.Errorf("generate token: %w", err)
+		return "", "", fmt.Errorf("generate token: %w", err)
 	}
-	token := hex.EncodeToString(tokenBytes)
+	token = hex.EncodeToString(tokenBytes)
+	return token, HashToken(token), nil
+}
 
-	// 4. Hash token with SHA-256
-	hashedToken := HashToken(token)
-
-	// 5. Store {email, createdAt} in Redis with 15min TTL
-	// 企业为何需要：email 是 PII，Redis 数据库泄露即暴露用户邮箱。字段级加密提供纵深防御。
+func storeMagicLinkToken(ctx context.Context, redis *store.RedisStore, hashedToken, email string) error {
 	encryptedEmail, encErr := crypto.Encrypt(email)
 	if encErr != nil {
 		return fmt.Errorf("encrypt email: %w", encErr)
@@ -115,10 +138,10 @@ func (s *MagicLinkService) RequestMagicLink(redis *store.RedisStore, db *store.P
 	if err := redis.StoreMagicToken(ctx, hashedToken, dataBytes, config.MagicLinkTTL); err != nil {
 		return fmt.Errorf("store magic token: %w", err)
 	}
+	return nil
+}
 
-	// 6. Enqueue email for async sending via Redis Stream
-	// 企业为何需要：异步邮件发送避免 SMTP/HTTP 延迟阻塞请求（100ms-5s），Redis Stream 提供持久化与重试。
-	// Worker 消费 email:queue 并调用 Resend API，失败重试 5 次后进入死信队列。
+func enqueueMagicLinkEmail(ctx context.Context, redis *store.RedisStore, r *http.Request, email, token, hashedToken string) error {
 	origin := getOrigin(r)
 	magicLinkURL := origin + "/api/v1/auth/verify?token=" + token
 
@@ -138,7 +161,6 @@ func (s *MagicLinkService) RequestMagicLink(redis *store.RedisStore, db *store.P
 		_ = redis.DeleteMagicToken(ctx, hashedToken)
 		return fmt.Errorf("enqueue email: %w", err)
 	}
-
 	return nil
 }
 

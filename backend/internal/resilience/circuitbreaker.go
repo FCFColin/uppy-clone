@@ -49,7 +49,7 @@ func onStateChange(name string, from gobreaker.State, to gobreaker.State) {
 func NewPostgresBreaker() *gobreaker.CircuitBreaker[any] {
 	return gobreaker.NewCircuitBreaker[any](gobreaker.Settings{
 		Name:        "postgres",
-		MaxRequests: 3, // Half-open: allow 3 probe requests
+		MaxRequests: 3,                // Half-open: allow 3 probe requests
 		Interval:    60 * time.Second, // Closed: count failures within this window
 		Timeout:     30 * time.Second, // Open→Half-open: wait before probing
 		ReadyToTrip: func(counts gobreaker.Counts) bool {

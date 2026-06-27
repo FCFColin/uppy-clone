@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
@@ -29,8 +29,8 @@ type QuickPlayResponse struct {
 func QuickPlay(db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, nickname string, r *http.Request) (*http.Cookie, *QuickPlayResponse, error) {
 	ctx := r.Context()
 
-	// Check if already authenticated — reuse existing user
-	if uid, nick, ok := GetAuthenticatedUser(r); ok {
+	// Check if already authenticated — reuse existing user (cookie or middleware context)
+	if uid, nick, ok := AuthenticatedUserFromRequest(r, jwtMgr); ok {
 		user, err := db.GetUserByID(ctx, uid)
 		if err != nil {
 			return nil, nil, fmt.Errorf("lookup existing user: %w", err)

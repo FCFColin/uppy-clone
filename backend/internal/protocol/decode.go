@@ -56,4 +56,3 @@ func DecodeRestartVote(data []byte) bool {
 func DecodePing(data []byte) bool {
 	return len(data) >= 1 && data[0] == MsgPing
 }
-

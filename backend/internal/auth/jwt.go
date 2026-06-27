@@ -70,41 +70,6 @@ func (m *JWTManager) SignToken(userId, nickname string) (string, error) {
 	return token.SignedString(m.primarySecret)
 }
 
-// VerifyToken validates a JWT and returns userId, nickname, and jti.
-// 支持密钥轮换：先尝试主密钥，失败后尝试旧密钥（若设置）。
-func (m *JWTManager) VerifyToken(tokenStr string) (userID, nickname, jti string, err error) {
-	// Try primary key
-	userID, nickname, jti, err = m.verifyWithKey(tokenStr, m.primarySecret)
-	if err == nil {
-		return
-	}
-	// Try previous key (if set, for rotation)
-	if m.previousSecret != nil {
-		return m.verifyWithKey(tokenStr, m.previousSecret)
-	}
-	return
-}
-
-// verifyWithKey validates a JWT using the given key and returns userId, nickname, and jti.
-func (m *JWTManager) verifyWithKey(tokenStr string, key []byte) (userID, nickname, jti string, err error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &customClaims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return key, nil
-	})
-	if err != nil {
-		return "", "", "", fmt.Errorf("verify token: %w", err)
-	}
-
-	claims, ok := token.Claims.(*customClaims)
-	if !ok || !token.Valid {
-		return "", "", "", fmt.Errorf("invalid token claims")
-	}
-
-	return claims.Subject, claims.Nickname, claims.ID, nil
-}
-
 // Secret returns the JWT signing secret (for admin token operations).
 func (m *JWTManager) Secret() []byte {
 	return m.primarySecret
