@@ -11,6 +11,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  repo-layout:
+    name: Repo layout (ADR-021)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify canonical directory layout
+        run: bash scripts/ci/check-repo-layout.sh
+
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
@@ -32,7 +40,7 @@ jobs:
       - name: Frontend Unit Tests
         run: cd frontend && npm run test:frontend
       - name: Frontend coverage governance
-        run: bash scripts/check-coverage.sh frontend
+        run: bash scripts/ci/check-coverage.sh frontend
 
   backend-test:
     name: Backend Test
@@ -48,7 +56,7 @@ jobs:
           PKGS=$(go list ./... | grep -v /tests/integration)
           go test $PKGS -timeout 120s -race -short -coverprofile=unit.out -covermode=atomic
       - name: Unit coverage governance
-        run: bash scripts/check-coverage.sh unit backend/unit.out
+        run: bash scripts/ci/check-coverage.sh unit backend/unit.out
 
   dependency-review:
     name: Dependency Review
@@ -149,7 +157,7 @@ jobs:
 
       - name: Pin image tag for region
         run: |
-          cd "infra/overlays/${{ matrix.region }}"
+          cd "infra/k8s/overlays/${{ matrix.region }}"
           kubectl kustomize . | sed "s/PROJECT_ID/${{ secrets.GCP_PROJECT_ID }}/g" | kubectl apply --server-side -f -
           kubectl -n balloon-game set image statefulset/balloon-game \
             balloon-game="gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}"

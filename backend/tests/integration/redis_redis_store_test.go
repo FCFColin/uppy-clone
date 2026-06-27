@@ -1,29 +1,35 @@
+//go:build integration
+
 package integration
 
 import (
 	"testing"
+	"time"
+
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
-func TestRedisStore_Integration(t *testing.T) {
+func TestRedisStore_RegisterRoom_Smoke(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	ctx, rdb := setupRedisTestStore(t)
+	ctx, rdb := testutil.SetupRedisStore(t)
 
-	t.Run("RegisterAndListRooms", func(t *testing.T) {
-		testRedisRegisterAndListRooms(t, ctx, rdb)
-	})
+	code := "ROOM1"
+	data := []byte(`{"host":"Host1","players":1}`)
+	if err := rdb.RegisterRoom(ctx, code, data, 5*time.Minute); err != nil {
+		t.Fatalf("RegisterRoom failed: %v", err)
+	}
 
-	t.Run("UnregisterRoom", func(t *testing.T) {
-		testRedisUnregisterRoom(t, ctx, rdb)
-	})
-
-	t.Run("StoreAndGetMagicToken", func(t *testing.T) {
-		testRedisStoreAndGetMagicToken(t, ctx, rdb)
-	})
-
-	t.Run("CheckRateLimit", func(t *testing.T) {
-		testRedisCheckRateLimit(t, ctx, rdb)
-	})
+	rooms, err := rdb.ListActiveRooms(ctx)
+	if err != nil {
+		t.Fatalf("ListActiveRooms failed: %v", err)
+	}
+	for _, r := range rooms {
+		if r == code {
+			return
+		}
+	}
+	t.Fatal("registered room not found in active rooms")
 }

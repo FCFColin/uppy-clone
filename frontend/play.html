@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Uppy - 合作气球游戏</title>
   <link rel="stylesheet" href="/src/style.css">
-  <link rel="stylesheet" href="/play.css">
+  <link rel="stylesheet" href="/src/styles/play.css">
 </head>
 <body class="game-page">
   <div id="countdown-overlay" class="hidden">
@@ -15,6 +15,16 @@
   <div id="loading-overlay">
     <div class="loading-spinner"></div>
     <div class="loading-text">加载中…</div>
+    <div id="loading-error-panel" class="hidden">
+      <div class="overlay-content loading-error-card">
+        <h2 id="loading-error-title">无法进入房间</h2>
+        <p id="loading-error-text"></p>
+        <div id="loading-error-actions" class="loading-error-actions hidden">
+          <button id="loading-back-btn" class="btn-primary" type="button">返回大厅</button>
+          <button id="loading-match-btn" class="btn-small" type="button">匹配新房间</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="reconnect-banner" class="reconnect-banner hidden">
@@ -84,6 +94,17 @@
       <div class="hud-right">
         <span class="hud-label">玩家</span>
         <span id="hud-players" class="hud-value">0</span>
+        <div id="wind-indicator" class="wind-indicator hidden">
+          <span class="hud-label">风</span>
+          <span id="wind-direction" class="wind-direction" aria-hidden="true">→</span>
+          <div class="wind-meter" aria-hidden="true">
+            <div class="wind-meter-track">
+              <div id="wind-meter-fill" class="wind-meter-fill"></div>
+              <div class="wind-meter-center"></div>
+            </div>
+          </div>
+          <span id="wind-strength" class="wind-strength">0%</span>
+        </div>
         <span id="ping-display" class="ping-display"></span>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import { $canvas, ctx } from './renderer_canvas.js';
 import { gameImages } from './renderer_background.js';
-import { state, getInterpolatedBalloon, getInterpolatedGhost } from './state.js';
+import { state, getInterpolatedBalloon, getInterpolatedGhost, getInterpolatedBird } from './state.js';
 
 export function drawBalloon(): void {
   const interp = getInterpolatedBalloon();
@@ -41,8 +41,10 @@ export function drawBalloon(): void {
 }
 
 export function drawBird(): void {
-  const bx: number = state.bird.x * $canvas.width;
-  const by: number = (1 - state.bird.y) * $canvas.height;
+  const bird = getInterpolatedBird();
+  if (!bird || !bird.active) return;
+  const bx: number = bird.x * $canvas.width;
+  const by: number = (1 - bird.y) * $canvas.height;
   const size: number = Math.min($canvas.width, $canvas.height) * 0.03;
 
   ctx.beginPath();

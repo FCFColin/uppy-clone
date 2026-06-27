@@ -1,5 +1,5 @@
 # Stage 1: Build frontend
-# SLSA L2: all base images pinned by digest (see scripts/pin-digests.sh).
+# SLSA L2: all base images pinned by digest (see scripts/ci/pin-digests.sh).
 FROM node:20.18.0-alpine3.20@sha256:b1e0880c3af955867bc2f1944b49d20187beb7afa3f30173e15a97149ab7f5f1 AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./

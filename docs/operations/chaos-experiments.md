@@ -24,7 +24,7 @@
 ### 实验结果
 - 日期: 2026-06-25（审计实施 — 待在 staging 执行）
 - 结果: 待执行 — 使用 Chaos Mesh / toxiproxy 按上述方法在 staging 运行
-- 发现: 代码层已具备熔断（`resilience/circuitbreaker.go`）、降级响应（`handler/degradation.go`）、graceful shutdown（`cmd/server/main.go:551-576`）
+- 发现: 代码层已具备熔断（`resilience/circuitbreaker.go`）、降级响应（`handler/degradation.go`）、graceful shutdown（`internal/server/server_lifecycle.go`）
 - **下次执行:** 每月第一个周二 staging，前置条件见 [`slo.md`](./slo.md) Burn Rate 告警已部署
 
 ---

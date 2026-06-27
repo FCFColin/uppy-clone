@@ -1,7 +1,7 @@
 export {};
 
 import { establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/session.js';
-import { fetchWithRetry } from './index_fetch.js';
+import { fetchWithRetry } from './shared/fetch.js';
 
 normalizeAuthHost();
 

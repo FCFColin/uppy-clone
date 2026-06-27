@@ -8,14 +8,14 @@
 | Backend integration | `go test ./tests/integration/... -coverprofile=int.out -covermode=atomic` | **lines ≥ 80%** |
 | Frontend Vitest | `cd frontend && npm run test:frontend` | **lines/branches/functions/statements ≥ 100%** |
 
-Governance script: [`scripts/check-coverage.sh`](../../scripts/check-coverage.sh)
+Governance script: [`scripts/ci/check-coverage.sh`](../../scripts/ci/check-coverage.sh)
 
 ```bash
 make test-cover          # unit + integration + frontend profiles
-bash scripts/check-coverage.sh unit
-bash scripts/check-coverage.sh integration
-bash scripts/check-coverage.sh frontend
-bash scripts/check-coverage.sh all
+bash scripts/ci/check-coverage.sh unit
+bash scripts/ci/check-coverage.sh integration
+bash scripts/ci/check-coverage.sh frontend
+bash scripts/ci/check-coverage.sh all
 ```
 
 ## Exclusion rules (automated, pattern-based)

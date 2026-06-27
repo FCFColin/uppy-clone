@@ -28,7 +28,7 @@
 - 区域内 owner 反向代理 + 租约接管（ADR-005）
 - 弹性栈：熔断 / 隔板 / 幂等 / 限流；可观测：OTel + Prometheus + Pyroscope
 - 合规：审计日志防篡改、GDPR 硬删除 Worker；事务性 Outbox + Redis Stream
-- 部署：GKE StatefulSet + HPA（`infra/base` + `infra/overlays/<region>`）
+- 部署：GKE StatefulSet + HPA（`infra/k8s/base` + `infra/k8s/overlays/<region>`）
 
 ## 应用分层（当前实际架构）
 

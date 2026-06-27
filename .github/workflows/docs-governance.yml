@@ -5,16 +5,24 @@ name: Docs Governance
 on:
   push:
     branches: [main, develop]
-    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', '.github/workflows/docs-governance.yml']
+    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', 'scripts/ci/check-repo-layout.sh', '.github/workflows/docs-governance.yml']
   pull_request:
     branches: [main]
-    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', '.github/workflows/docs-governance.yml']
+    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', 'scripts/ci/check-repo-layout.sh', '.github/workflows/docs-governance.yml']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  repo-layout:
+    name: Repo layout (ADR-021)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify canonical directory layout
+        run: bash scripts/ci/check-repo-layout.sh
+
   adr-index-consistency:
     name: ADR index consistency
     runs-on: ubuntu-latest
@@ -93,5 +101,5 @@ jobs:
       - name: lychee link check
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --no-progress --offline docs/ README.md
+          args: --no-progress --offline docs/ README.md CONTRIBUTING.md CHANGELOG.md scripts/README.md
           fail: true

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,9 +68,14 @@ func (w *GameResultWorker) Start(ctx context.Context) {
 		default:
 		}
 
-		streams, err := w.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+	consumer := "result-worker-" + os.Getenv("HOSTNAME")
+	if consumer == "result-worker-" {
+		consumer = "result-worker-1"
+	}
+
+	streams, err := w.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    "result-workers",
-			Consumer: "result-worker-1",
+			Consumer: consumer,
 			Streams:  []string{"game:results", ">"},
 			Count:    100,
 			Block:    100 * time.Millisecond,
@@ -111,18 +117,16 @@ func (w *GameResultWorker) processBatch(ctx context.Context, messages []redis.XM
 			continue
 		}
 
-		// Update game session status to 'ended'
 		if _, err := tx.Exec(ctx,
 			`UPDATE game_sessions SET status = 'ended', ended_at = $1, final_score = $2 WHERE id = $3`,
 			payload.EndedAt, payload.FinalScore, payload.GameID); err != nil {
 			slog.Error("game result worker: update session", "error", err, "game_id", payload.GameID)
-			return // rollback entire batch
+			w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
+			continue
 		}
 
-		// Insert player results with deterministic UUID for idempotency.
-		// ON CONFLICT (id) DO NOTHING ensures retries don't create duplicates.
+		failed := false
 		for _, r := range payload.Results {
-			// Deterministic UUID v5 from session_id + user_id — retries produce the same ID.
 			resultID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(payload.GameID+r.UserID)).String()
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at)
@@ -130,8 +134,13 @@ func (w *GameResultWorker) processBatch(ctx context.Context, messages []redis.XM
 				 ON CONFLICT (id) DO NOTHING`,
 				resultID, payload.GameID, r.UserID, r.ScoreContribution, r.TapsCount, payload.EndedAt); err != nil {
 				slog.Error("game result worker: insert result", "error", err)
-				return // rollback entire batch
+				w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
+				failed = true
+				break
 			}
+		}
+		if failed {
+			continue
 		}
 	}
 

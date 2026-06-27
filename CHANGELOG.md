@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `POST /api/v1/admin/logout` endpoint for admin session termination
 - Admin password change auto-revokes current admin token
 - `.secrets.baseline` for detect-secrets pre-commit hook (T5)
-- `scripts/check-docker-digests.sh` CI gate for digest pinning enforcement (T12)
+- `scripts/ci/check-docker-digests.sh` CI gate for digest pinning enforcement (T12)
 - ADR index consistency CI check script (T14)
 
 ### Fixed

@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: balloon-game
+  labels:
+    app: balloon-game
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: balloon-game

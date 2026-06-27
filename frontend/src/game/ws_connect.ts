@@ -1,15 +1,22 @@
-import { CLIENT_MSG } from './constants.js';
+import { CLIENT_MSG, MSG_TYPE } from './constants.js';
 import { state, resetInterpolation, seenSeqs, pendingQueue } from './state.js';
 import { establishGameSession, sessionErrorMessage } from '../shared/session.js';
 import { hideLoadingOverlay, $lobbyCode, $hudCode } from './ui.js';
 import { resolveLobbyCode } from './ws_connect_lobby.js';
 import {
+  getLobbyCodeFromUrl,
+  validateRoomCode,
+  roomErrorMessage,
+} from './room_validate.js';
+import {
   setWs, getWsEverOpened, setWsEverOpened,
   resetReconnectAttempts, setReconnectTimer,
   startWsHeartbeat, stopHeartbeat, sendOrQueue, flushPendingQueue,
   hideReconnectBanner, scheduleReconnect, showConnectionError,
+  wasRoomPreChecked, setRoomPreChecked,
 } from './ws_connection.js';
-import { handleBinaryMessage } from './ws_handlers.js';
+import { enqueueBinaryMessage } from './ws_message_queue.js';
+import { handleSnapshot } from './ws_handlers_snapshot.js';
 
 export { showConnectionError } from './ws_connection.js';
 
@@ -21,9 +28,22 @@ export async function connectWebSocket(): Promise<void> {
   }
   const savedPlayerId: string | null = localStorage.getItem('uppy-player-id');
 
+  const urlCode = getLobbyCodeFromUrl();
+  if (urlCode) {
+    const check = await validateRoomCode(urlCode);
+    if (!check.ok) {
+      showConnectionError(roomErrorMessage(check.reason), {
+        showActions: true,
+        title: check.reason === 'ended' ? '房间已结束' : '无法进入房间',
+      });
+      return;
+    }
+    setRoomPreChecked(true);
+  }
+
   const lobbyCode: string | null = await resolveLobbyCode();
   if (!lobbyCode) {
-    showConnectionError('无法连接到游戏服务器，请稍后重试');
+    showConnectionError('无法连接到游戏服务器，请稍后重试', { showActions: true });
     return;
   }
 
@@ -60,15 +80,22 @@ export async function connectWebSocket(): Promise<void> {
   };
 
   socket.onmessage = (event: MessageEvent) => {
-    if (event.data instanceof ArrayBuffer) {
-      handleBinaryMessage(event.data);
+    if (!(event.data instanceof ArrayBuffer)) return;
+    const view = new DataView(event.data);
+    if (view.byteLength > 0 && view.getUint8(0) === MSG_TYPE.SNAPSHOT) {
+      handleSnapshot(view);
+      return;
     }
+    enqueueBinaryMessage(event.data);
   };
 
   socket.onclose = () => {
     stopHeartbeat();
     if (!getWsEverOpened()) {
-      showConnectionError('连接失败，请重新进入');
+      const message = wasRoomPreChecked()
+        ? '无法连接房间，请稍后重试'
+        : '连接失败，请检查网络后重试';
+      showConnectionError(message, { showActions: true });
       return;
     }
     scheduleReconnect();

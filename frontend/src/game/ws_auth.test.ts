@@ -21,7 +21,7 @@ describe('ensureAuth', () => {
   });
 
   it('returns false when establishGameSession fails', async () => {
-    sessionMocks.establishGameSession.mockResolvedValue({ ok: false, reason: 'server' });
+    sessionMocks.establishGameSession.mockResolvedValue({ ok: false, reason: 'server' } as import('../shared/session.js').SessionResult);
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(ensureAuth()).resolves.toBe(false);
     err.mockRestore();

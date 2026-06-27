@@ -1,0 +1,96 @@
+# Generated from deploy/alertmanager/rules.yml — run: make sync-alert-rules
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-rules
+  labels:
+    app: prometheus
+data:
+  rules.yml: |
+    # Prometheus Alerting Rules — SLO Burn Rate 多窗口告警
+    # Labels match backend/internal/metrics/record.go instrumentation.
+    
+    groups:
+      - name: slo-burn-rate
+        rules:
+          - alert: AuthSLOBurnRateFast
+            expr: |
+              (
+                sum(rate(auth_requests_total{status=~"4..|5.."}[1h]))
+                /
+                sum(rate(auth_requests_total[1h]))
+              ) > 0.0144
+            for: 2m
+            labels:
+              severity: critical
+              slo: auth
+            annotations:
+              summary: "Auth SLO fast burn rate"
+              description: "Auth 4xx/5xx rate is burning error budget quickly"
+              runbook: "docs/operations/runbook.md"
+    
+          - alert: AuthSLOBurnRateSlow
+            expr: |
+              (
+                sum(rate(auth_requests_total{status=~"4..|5.."}[6h]))
+                /
+                sum(rate(auth_requests_total[6h]))
+              ) > 0.006
+            for: 15m
+            labels:
+              severity: warning
+              slo: auth
+            annotations:
+              summary: "Auth SLO slow burn rate"
+              runbook: "docs/operations/runbook.md"
+    
+          - alert: WSSLOBurnRateFast
+            expr: |
+              (
+                sum(rate(ws_connection_total{status="rejected"}[1h]))
+                /
+                sum(rate(ws_connection_total[1h]))
+              ) > 0.0144
+            for: 2m
+            labels:
+              severity: critical
+              slo: websocket
+            annotations:
+              summary: "WebSocket SLO fast burn rate"
+              runbook: "docs/operations/runbook.md#websocket-连接洪水"
+    
+          - alert: WSSLOBurnRateSlow
+            expr: |
+              (
+                sum(rate(ws_connection_total{status="rejected"}[6h]))
+                /
+                sum(rate(ws_connection_total[6h]))
+              ) > 0.006
+            for: 15m
+            labels:
+              severity: warning
+              slo: websocket
+            annotations:
+              summary: "WebSocket SLO slow burn rate"
+              runbook: "docs/operations/runbook.md#websocket-连接洪水"
+    
+      - name: game-health
+        rules:
+          - alert: NicknameConfirmRejectedSpike
+            expr: rate(nickname_confirm_total{result="rejected"}[5m]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "SET_NICKNAME messages being rejected"
+              description: "Players may be stuck on nickname screen — check UTF-8 vs rune validation"
+              runbook: "docs/operations/runbook.md"
+    
+          - alert: RoomsStuckWaiting
+            expr: rooms_by_phase{phase="waiting"} > 0 and rate(game_sessions_total[30m]) == 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Rooms in waiting phase with no recent game starts"
+              description: "Possible nickname gate or matchmaking stall"

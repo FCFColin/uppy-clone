@@ -36,9 +36,7 @@ func (r *Room) saveStateWithError() error {
 	return nil
 }
 
-// saveState 持久化到 PostgreSQL
+// saveState 持久化到 PostgreSQL（异步 debounced）。
 func (r *Room) saveState() {
-	if err := r.saveStateWithError(); err != nil {
-		r.logger.Error("save state", "error", err)
-	}
+	r.requestPersist()
 }

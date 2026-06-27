@@ -2,12 +2,16 @@ package game
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
@@ -289,18 +293,6 @@ func TestHub_ErrRoomCodeConflict(t *testing.T) {
 	}
 }
 
-// ─── RestoreRooms (nil store) ────────────────────────────────────────
-
-func TestHub_RestoreRooms_NilStore(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0, nil)
-
-	// With nil store, RestoreRooms should return nil
-	if err := h.RestoreRooms(); err != nil {
-		t.Fatalf("expected nil error with nil store, got %v", err)
-	}
-}
-
 // ─── Concurrent CreateRoom + RemoveRoom ──────────────────────────────
 
 func TestHub_ConcurrentCreateRemove(t *testing.T) {
@@ -347,6 +339,158 @@ func TestHub_UnregisterRoomFromRedis_NilRedis(t *testing.T) {
 
 	// Should not panic with nil redis
 	h.unregisterRoomFromRedis("TEST1")
+}
+
+// ─── Benchmarks ──────────────────────────────────────────────────────
+
+func BenchmarkHub_CreateRoom(b *testing.B) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		h.CreateRoom(context.Background())
+	}
+}
+
+func BenchmarkHub_GetRoom(b *testing.B) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+	code, _ := h.CreateRoom(context.Background())
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		h.GetRoom(code)
+	}
+}
+
+func BenchmarkHub_RoomCount(b *testing.B) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+	for i := 0; i < 100; i++ {
+		h.CreateRoom(context.Background())
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = h.RoomCount()
+	}
+}
+
+func BenchmarkHub_WSConnCount(b *testing.B) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = h.WSConnCount()
+	}
+}
+
+func BenchmarkHub_CanAcceptWSConnection(b *testing.B) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 1000, 50, nil)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = h.CanAcceptWSConnection()
+	}
+}
+
+// ─── writePump backpressure: broadcast drops on full channel ─────────
+//
+// TestRoom_Broadcast_Backpressure verifies that Room.broadcast handles
+// backpressure gracefully when a player's Send channel is full. The broadcast
+// method uses a non-blocking select with a default case that drops the message
+// and increments the ws_messages_dropped_total metric.
+//
+// This test ensures that a slow client (full Send buffer) does not block the
+// broadcast path, which would stall the game tick for all other players.
+
+func TestRoom_Broadcast_Backpressure(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 100, 50, nil)
+	code, _ := h.CreateRoom(context.Background())
+	room := h.GetRoom(code)
+	room.syncOutbound = true
+
+	// Create a PlayerConn with a buffered Send channel (capacity = WSChannelBuffer).
+	pc := &PlayerConn{
+		PlayerID: "player1",
+		Send:     make(chan []byte, config.WSChannelBuffer),
+	}
+	room.mu.Lock()
+	room.connections["player1"] = pc
+	room.mu.Unlock()
+
+	// Fill the Send channel to capacity.
+	for i := 0; i < config.WSChannelBuffer; i++ {
+		pc.Send <- []byte{protocol.MsgSnapshot}
+	}
+
+	// broadcast should return immediately (non-blocking send drops the message).
+	done := make(chan struct{})
+	go func() {
+		room.mu.Lock()
+		room.broadcast([]byte{protocol.MsgSnapshot}, "")
+		room.mu.Unlock()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success: broadcast returned without blocking.
+	case <-time.After(1 * time.Second):
+		t.Fatal("broadcast blocked when Send channel was full")
+	}
+
+	// Verify the channel is still at capacity (message was dropped, not enqueued).
+	if len(pc.Send) != config.WSChannelBuffer {
+		t.Fatalf("expected Send channel to remain full (len=%d), got len=%d",
+			config.WSChannelBuffer, len(pc.Send))
+	}
+}
+
+// ─── writePump backpressure: broadcastCritical uses timeout ──────────
+//
+// TestRoom_BroadcastCritical_Backpressure verifies that broadcastCritical
+// (used for phase-change messages) does not block forever when the Send channel
+// is full. It uses a blocking send with a 100ms timeout per connection.
+
+func TestRoom_BroadcastCritical_Backpressure(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 100, 50, nil)
+	code, _ := h.CreateRoom(context.Background())
+	room := h.GetRoom(code)
+	room.syncOutbound = true
+
+	pc := &PlayerConn{
+		PlayerID: "player1",
+		Send:     make(chan []byte, config.WSChannelBuffer),
+	}
+	room.mu.Lock()
+	room.connections["player1"] = pc
+	room.mu.Unlock()
+
+	// Fill the Send channel to capacity.
+	for i := 0; i < config.WSChannelBuffer; i++ {
+		pc.Send <- []byte{protocol.MsgSnapshot}
+	}
+
+	// broadcastCritical should block for at most ~100ms (timeout per connection),
+	// then return without enqueuing the message.
+	start := time.Now()
+	room.mu.Lock()
+	room.broadcastCritical([]byte{protocol.MsgGameStateChange})
+	room.mu.Unlock()
+	elapsed := time.Since(start)
+	if elapsed < 10*time.Millisecond {
+		t.Fatalf("broadcastCritical returned too quickly (%v), expected to wait for timeout", elapsed)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("broadcastCritical blocked too long (%v)", elapsed)
+	}
+
+	// Verify the channel is still at capacity (message was not enqueued).
+	if len(pc.Send) != config.WSChannelBuffer {
+		t.Fatalf("expected Send channel to remain full (len=%d), got len=%d",
+			config.WSChannelBuffer, len(pc.Send))
+	}
 }
 
 // ─── Bulkhead: WS Connection Limit ──────────────────────────────────
@@ -557,59 +701,17 @@ func TestRoom_MaxPlayers_DefaultValue(t *testing.T) {
 	}
 }
 
-// ─── Benchmarks ──────────────────────────────────────────────────────
+// ─── RestoreRooms (nil store) ────────────────────────────────────────
 
-func BenchmarkHub_CreateRoom(b *testing.B) {
+func TestHub_RestoreRooms_NilStore(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	h := NewHub(nil, nil, timeouts, 0, 0, nil)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		h.CreateRoom(context.Background())
+
+	// With nil store, RestoreRooms should return nil
+	if err := h.RestoreRooms(); err != nil {
+		t.Fatalf("expected nil error with nil store, got %v", err)
 	}
 }
-
-func BenchmarkHub_GetRoom(b *testing.B) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0, nil)
-	code, _ := h.CreateRoom(context.Background())
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		h.GetRoom(code)
-	}
-}
-
-func BenchmarkHub_RoomCount(b *testing.B) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0, nil)
-	for i := 0; i < 100; i++ {
-		h.CreateRoom(context.Background())
-	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = h.RoomCount()
-	}
-}
-
-func BenchmarkHub_WSConnCount(b *testing.B) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0, nil)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = h.WSConnCount()
-	}
-}
-
-func BenchmarkHub_CanAcceptWSConnection(b *testing.B) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 1000, 50, nil)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = h.CanAcceptWSConnection()
-	}
-}
-
-// ─── used for concurrent test ────────────────────────────────────────
-var _ = fmt.Sprintf
 
 // ─── RestoreRooms (with DB) ──────────────────────────────────────────
 //
@@ -710,112 +812,222 @@ func TestHub_RestoreRooms_WithDB(t *testing.T) {
 	}
 }
 
-// ─── writePump backpressure: broadcast drops on full channel ─────────
-//
-// TestRoom_Broadcast_Backpressure verifies that Room.broadcast handles
-// backpressure gracefully when a player's Send channel is full. The broadcast
-// method uses a non-blocking select with a default case that drops the message
-// and increments the ws_messages_dropped_total metric.
-//
-// This test ensures that a slow client (full Send buffer) does not block the
-// broadcast path, which would stall the game tick for all other players.
-
-func TestRoom_Broadcast_Backpressure(t *testing.T) {
+func TestMatchRoom_NoRooms(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 100, 50, nil)
-	code, _ := h.CreateRoom(context.Background())
-	room := h.GetRoom(code)
+	h := NewHub(nil, nil, timeouts, 2, 4, nil)
 
-	// Create a PlayerConn with a buffered Send channel (capacity = WSChannelBuffer).
-	pc := &PlayerConn{
-		PlayerID: "player1",
-		Send:     make(chan []byte, config.WSChannelBuffer),
+	code, err := h.MatchRoom(context.Background())
+	if err != nil {
+		t.Fatalf("MatchRoom on empty hub: %v", err)
 	}
-	room.mu.Lock()
-	room.connections["player1"] = pc
-	room.mu.Unlock()
-
-	// Fill the Send channel to capacity.
-	for i := 0; i < config.WSChannelBuffer; i++ {
-		pc.Send <- []byte{protocol.MsgSnapshot}
-	}
-
-	// broadcast should return immediately (non-blocking send drops the message).
-	done := make(chan struct{})
-	go func() {
-		room.mu.Lock()
-		room.broadcast([]byte{protocol.MsgSnapshot}, "")
-		room.mu.Unlock()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Success: broadcast returned without blocking.
-	case <-time.After(1 * time.Second):
-		t.Fatal("broadcast blocked when Send channel was full")
-	}
-
-	// Verify the channel is still at capacity (message was dropped, not enqueued).
-	if len(pc.Send) != config.WSChannelBuffer {
-		t.Fatalf("expected Send channel to remain full (len=%d), got len=%d",
-			config.WSChannelBuffer, len(pc.Send))
+	if code == "" {
+		t.Fatal("MatchRoom returned empty code")
 	}
 }
 
-// ─── writePump backpressure: broadcastCritical uses timeout ──────────
-//
-// TestRoom_BroadcastCritical_Backpressure verifies that broadcastCritical
-// (used for phase-change messages) does not block forever when the Send channel
-// is full. It uses a blocking send with a 100ms timeout per connection.
-
-func TestRoom_BroadcastCritical_Backpressure(t *testing.T) {
+func TestMatchRoom_FindsJoinableRoom(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 100, 50, nil)
-	code, _ := h.CreateRoom(context.Background())
-	room := h.GetRoom(code)
+	h := NewHub(nil, nil, timeouts, 2, 4, nil)
 
-	pc := &PlayerConn{
-		PlayerID: "player1",
-		Send:     make(chan []byte, config.WSChannelBuffer),
+	code1, _ := h.CreateRoom(context.Background())
+
+	// Join first player
+	room1 := h.GetRoom(code1)
+	if room1 == nil {
+		t.Fatal("room should exist")
 	}
-	room.mu.Lock()
-	room.connections["player1"] = pc
-	room.mu.Unlock()
+	room1.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
 
-	// Fill the Send channel to capacity.
-	for i := 0; i < config.WSChannelBuffer; i++ {
-		pc.Send <- []byte{protocol.MsgSnapshot}
+	code2, err := h.MatchRoom(context.Background())
+	if err != nil {
+		t.Fatalf("MatchRoom: %v", err)
 	}
+	// Should return the same room since it has space
+	if code2 != code1 {
+		t.Errorf("MatchRoom = %q, want %q (existing joinable room)", code2, code1)
+	}
+}
 
-	// broadcastCritical should block for at most ~100ms (timeout per connection),
-	// then return without enqueuing the message.
-	start := time.Now()
-	done := make(chan struct{})
-	go func() {
-		room.mu.Lock()
-		room.broadcastCritical([]byte{protocol.MsgGameStateChange})
-		room.mu.Unlock()
-		close(done)
-	}()
+func TestMatchRoom_FullRoomsCreateNew(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 2, 1, nil)
 
-	select {
-	case <-done:
-		elapsed := time.Since(start)
-		// Should have waited at least ~100ms (the timeout) but not more than 2s.
-		if elapsed < 50*time.Millisecond {
-			t.Fatalf("broadcastCritical returned too quickly (%v), expected to wait for timeout", elapsed)
+	code1, _ := h.CreateRoom(context.Background())
+	room1 := h.GetRoom(code1)
+
+	// Fill the room
+	room1.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
+	room1.state.Phase = domain.PhasePlaying
+
+	code2, err := h.MatchRoom(context.Background())
+	if err != nil {
+		t.Fatalf("MatchRoom: %v", err)
+	}
+	if code2 == code1 {
+		t.Error("MatchRoom should create a new room when all rooms are full")
+	}
+}
+
+func TestMatchRoom_ReturnsPlayingRoom(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 2, 4, nil)
+
+	code1, _ := h.CreateRoom(context.Background())
+	room1 := h.GetRoom(code1)
+	room1.state.Phase = domain.PhasePlaying
+
+	code2, err := h.MatchRoom(context.Background())
+	if err != nil {
+		t.Fatalf("MatchRoom: %v", err)
+	}
+	if code2 == code1 {
+		t.Error("MatchRoom should not return playing rooms")
+	}
+}
+
+func TestInstanceAddress(t *testing.T) {
+	t.Run("uses INSTANCE_ADDR when set", func(t *testing.T) {
+		os.Setenv("INSTANCE_ADDR", "10.0.0.1:9000")
+		defer os.Unsetenv("INSTANCE_ADDR")
+		addr := instanceAddress()
+		if addr != "10.0.0.1:9000" {
+			t.Errorf("instanceAddress = %q, want %q", addr, "10.0.0.1:9000")
 		}
-		if elapsed > 2*time.Second {
-			t.Fatalf("broadcastCritical blocked too long (%v)", elapsed)
+	})
+
+	t.Run("falls back to PORT when INSTANCE_ADDR empty", func(t *testing.T) {
+		os.Unsetenv("INSTANCE_ADDR")
+		os.Setenv("PORT", "3000")
+		defer os.Unsetenv("PORT")
+		addr := instanceAddress()
+		if addr != "127.0.0.1:3000" {
+			t.Errorf("instanceAddress = %q, want %q", addr, "127.0.0.1:3000")
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("broadcastCritical blocked forever when Send channel was full")
+	})
+
+	t.Run("defaults to 8080 when nothing set", func(t *testing.T) {
+		os.Unsetenv("INSTANCE_ADDR")
+		os.Unsetenv("PORT")
+		addr := instanceAddress()
+		if addr != "127.0.0.1:8080" {
+			t.Errorf("instanceAddress = %q, want %q", addr, "127.0.0.1:8080")
+		}
+	})
+
+	t.Run("returns address starting with 127.0.0.1", func(t *testing.T) {
+		os.Unsetenv("INSTANCE_ADDR")
+		os.Unsetenv("PORT")
+		addr := instanceAddress()
+		if !strings.HasPrefix(addr, "127.0.0.1:") {
+			t.Errorf("instanceAddress = %q, want 127.0.0.1:… prefix", addr)
+		}
+	})
+}
+
+func TestResolveRoom_NilRedis(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+	if h.redis != nil {
+		t.Fatal("expected nil redis")
 	}
 
-	// Verify the channel is still at capacity (message was not enqueued).
-	if len(pc.Send) != config.WSChannelBuffer {
-		t.Fatalf("expected Send channel to remain full (len=%d), got len=%d",
-			config.WSChannelBuffer, len(pc.Send))
+	decision, err := h.ResolveRoom(context.Background(), "ABCD1")
+	if err != nil {
+		t.Fatalf("ResolveRoom error: %v", err)
+	}
+	if decision.Route != RouteLocal {
+		t.Errorf("Route = %d, want RouteLocal", decision.Route)
+	}
+}
+
+func TestInvalidateLobbyReadCaches_NilRedis(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+
+	// Should not panic when redis is nil
+	h.invalidateLobbyReadCaches("ABCD1")
+	h.invalidateLobbyReadCaches("")
+}
+
+func TestHub_ResolveRoom_LocalWhenOwnerMatches(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("NewRedisStore: %v", err)
+	}
+
+	t.Setenv("INSTANCE_ID", "instance-a")
+	h := NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
+
+	ctx := context.Background()
+	code := "ABCDE"
+	info, _ := json.Marshal(store.RoomRegistryInfo{
+		Code:      code,
+		Instance:  "instance-a",
+		Address:   "10.0.0.1:8080",
+		CreatedAt: time.Now().UnixMilli(),
+	})
+	if err := redisStore.RegisterRoom(ctx, code, info, time.Hour); err != nil {
+		t.Fatalf("RegisterRoom: %v", err)
+	}
+
+	decision, err := h.ResolveRoom(ctx, code)
+	if err != nil {
+		t.Fatalf("ResolveRoom: %v", err)
+	}
+	if decision.Route != RouteLocal {
+		t.Fatalf("Route = %v, want RouteLocal", decision.Route)
+	}
+}
+
+func TestHub_ResolveRoom_ProxyWhenOwnerDiffers(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("NewRedisStore: %v", err)
+	}
+
+	t.Setenv("INSTANCE_ID", "instance-b")
+	h := NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
+
+	ctx := context.Background()
+	code := "FGHIJ"
+	info, _ := json.Marshal(store.RoomRegistryInfo{
+		Code:      code,
+		Instance:  "instance-a",
+		Address:   "10.0.0.2:8080",
+		CreatedAt: time.Now().UnixMilli(),
+	})
+	if err := redisStore.RegisterRoom(ctx, code, info, time.Hour); err != nil {
+		t.Fatalf("RegisterRoom: %v", err)
+	}
+
+	decision, err := h.ResolveRoom(ctx, code)
+	if err != nil {
+		t.Fatalf("ResolveRoom: %v", err)
+	}
+	if decision.Route != RouteProxy {
+		t.Fatalf("Route = %v, want RouteProxy", decision.Route)
+	}
+	if decision.Address != "10.0.0.2:8080" {
+		t.Fatalf("Address = %q", decision.Address)
+	}
+}
+
+func TestInstanceAddress_DefaultsToLocalhostPort(t *testing.T) {
+	os.Unsetenv("INSTANCE_ADDR")
+	os.Unsetenv("PORT")
+	if got := instanceAddress(); got != "127.0.0.1:8080" {
+		t.Fatalf("instanceAddress() = %q", got)
 	}
 }

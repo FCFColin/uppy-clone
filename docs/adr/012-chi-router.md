@@ -30,4 +30,4 @@ Go 后端需要轻量 HTTP 路由、中间件链与 REST API 服务。
 ## 权衡
 
 - 无内置 OpenAPI 生成，需维护独立 [`../api/openapi.yaml`](../api/openapi.yaml)
-- 大型 monolith 路由注册集中在 `cmd/server/main.go`，需 smoke test 保障
+- 大型 monolith 路由注册集中在 `internal/server`，需 smoke test 保障

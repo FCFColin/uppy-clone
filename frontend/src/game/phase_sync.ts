@@ -6,6 +6,7 @@ import {
 import {
   updateUI, startCountdownTimer,
   hideCountdownOverlay, showCountdownOverlay,
+  startCooldownUpdater, stopCooldownUpdater,
 } from './ui.js';
 
 /**
@@ -100,7 +101,9 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
     }
     hideNicknameUI();
     resetInterpolation();
+    startCooldownUpdater();
   } else if (nextPhase === 'countdown') {
+    stopCooldownUpdater();
     resetRoundClientState();
     seenSeqs.clear();
     hideNicknameUI();
@@ -108,11 +111,13 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
     showCountdownOverlay();
     startCountdownTimer(countdownSeconds);
   } else if (nextPhase === 'ended') {
+    stopCooldownUpdater();
     hideCountdownOverlay();
     hideNicknameUI();
     freezeInterpolation();
     state.restartVotes = { yes: 0, total: state.players.length, countdownMs: 0 };
   } else if (nextPhase === 'waiting') {
+    stopCooldownUpdater();
     hideCountdownOverlay();
   }
 

@@ -1,0 +1,13 @@
+# Observability stack (Prometheus + Alertmanager + Grafana datasource + Thanos Query).
+# Local dev uses docker-compose observability profile with deploy/local/* configs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - prometheus/prometheus.yml
+  - prometheus/deployment.yaml
+  - alertmanager/config.yaml
+  - alertmanager/deployment.yaml
+  - alertmanager/rules-configmap.yaml
+  - grafana/datasource.yaml
+  - thanos/querier.yaml

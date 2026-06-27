@@ -1,9 +1,7 @@
 import { state } from './state.js';
-import { calculateCooldown } from './protocol.js';
 import {
   $waitingScreen, $endedScreen, $gameHud,
-  $cooldownIndicator, $cooldownBar, $cooldownText,
-  $rotateHint,
+  $cooldownIndicator, $rotateHint,
   pickRandomNickname,
 } from './ui_elements.js';
 
@@ -15,22 +13,7 @@ export {
 } from './ui_elements.js';
 
 export { updateUI } from './ui_update.js';
-
-export function updateCooldownBar(): void {
-  const now: number = Date.now();
-  if (now < state.myCooldownEnd) {
-    const remaining: number = state.myCooldownEnd - now;
-    const total: number = calculateCooldown(state.players.length);
-    const pct: number = Math.min(100, (remaining / total) * 100);
-    $cooldownBar.style.width = pct + '%';
-    $cooldownBar.classList.remove('ready');
-    $cooldownText.textContent = (remaining / 1000).toFixed(1) + 's';
-  } else {
-    $cooldownBar.style.width = '0%';
-    $cooldownBar.classList.add('ready');
-    $cooldownText.textContent = 'Tap!';
-  }
-}
+export { startCooldownUpdater, stopCooldownUpdater, updateCooldownBar } from './ui_cooldown.js';
 
 export function startCountdownTimer(seconds: number): void {
   if (state.countdownTimerInterval !== null) {

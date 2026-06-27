@@ -15,18 +15,14 @@ import (
 	"os"
 	"time"
 
+	"github.com/uppy-clone/backend/internal/crypto"
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// isBcryptHash checks if a string looks like a bcrypt hash.
-func isBcryptHash(s string) bool {
-	return len(s) == 60 && (s[:4] == "$2a$" || s[:4] == "$2b$" || s[:4] == "$2y$")
-}
-
 // migrationStatusAfterLoad reports whether migration can be skipped after loading config.
 func migrationStatusAfterLoad(adminPwd string) (status string, done bool) {
-	if isBcryptHash(adminPwd) {
+	if crypto.IsBcryptHash(adminPwd) {
 		return "already bcrypt", true
 	}
 	return "", false

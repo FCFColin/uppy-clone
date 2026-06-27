@@ -205,4 +205,36 @@ var (
 		Name: "rooms_by_phase",
 		Help: "Number of active rooms grouped by game phase",
 	}, []string{"phase"})
+
+	// RoomLockHoldSeconds measures time spent holding Room.mu by operation type.
+	RoomLockHoldSeconds = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "room_lock_hold_seconds",
+		Help:    "Duration Room.mu was held by operation",
+		Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+	}, []string{"operation"})
+
+	// RoomOutboundQueueDepth is the number of pending outbound broadcast messages per room.
+	RoomOutboundQueueDepth = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "room_outbound_queue_depth",
+		Help: "Pending outbound broadcast messages awaiting delivery",
+	}, []string{"room_code"})
+
+	// RoomPersistLagSeconds is time since the last successful persist for a room.
+	RoomPersistLagSeconds = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "room_persist_lag_seconds",
+		Help: "Seconds since last successful lobby state persist",
+	}, []string{"room_code"})
+
+	// OutboxLagSeconds is the age of the oldest unprocessed outbox event.
+	OutboxLagSeconds = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "outbox_lag_seconds",
+		Help: "Age in seconds of the oldest unprocessed outbox event",
+	})
+
+	// OutboxBatchSize records the number of events processed per outbox poll cycle.
+	OutboxBatchSize = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "outbox_batch_size",
+		Help:    "Number of outbox events processed per batch",
+		Buckets: []float64{1, 5, 10, 25, 50, 100},
+	})
 )

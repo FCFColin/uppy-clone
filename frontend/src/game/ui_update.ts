@@ -7,6 +7,7 @@ import {
   $endPlayerList, $playerListWaiting,
   $nicknameSetupScreen, $nicknameInline,
 } from './ui_elements.js';
+import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
 
 let lastPhase: GamePhase | null = null;
 let lastPlayerListKey = '';
@@ -30,6 +31,11 @@ function setOverlayVisibility(): void {
   $endedScreen.classList.toggle('hidden', state.phase !== 'ended');
   $gameHud.classList.toggle('hidden', state.phase !== 'playing');
   $cooldownIndicator.classList.toggle('hidden', state.phase !== 'playing');
+  if (state.phase === 'playing') {
+    updateWindIndicator(state.wind);
+  } else {
+    hideWindIndicator();
+  }
 
   if (state.phase === 'waiting') {
     const waitingTitle: HTMLElement | null = document.getElementById('waiting-title');

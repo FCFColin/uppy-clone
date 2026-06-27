@@ -1,4 +1,4 @@
-import { encodeSetNickname } from './protocol.js';
+import { encodeSetNickname } from './message_codec.js';
 import { state, seenSeqs, getInterpState } from './state.js';
 import { normalizeAuthHost } from '../shared/session.js';
 import { resizeCanvas, gameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
@@ -154,6 +154,6 @@ requestAnimationFrame(gameLoop);
 setTimeout(() => {
   const overlay: HTMLElement | null = document.getElementById('loading-overlay');
   if (overlay && overlay.style.display !== 'none' && !overlay.dataset.error && !getWsEverOpened()) {
-    showConnectionError('加载超时，请检查网络或稍后重试');
+    showConnectionError('加载超时，请检查网络或稍后重试', { showActions: true });
   }
 }, 8000);

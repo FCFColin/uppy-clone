@@ -1,5 +1,5 @@
 import { CLIENT_MSG } from './constants.js';
-import { calculateCooldown } from './protocol.js';
+import { calculateCooldown } from './message_codec.js';
 import { state } from './state.js';
 import { sendOrQueue, getWs } from './websocket.js';
 import { $canvas } from './renderer.js';

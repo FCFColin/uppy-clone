@@ -51,7 +51,7 @@ services:
       - "5434:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./docker/init-scripts:/docker-entrypoint-initdb.d:ro
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U uppy"]
       interval: 5s
@@ -73,7 +73,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./deploy/prometheus/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/local/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/alertmanager/rules.yml:/etc/prometheus/rules/rules.yml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -83,7 +83,7 @@ services:
     ports:
       - "9093:9093"
     volumes:
-      - ./deploy/alertmanager/config.local.yaml:/etc/alertmanager/alertmanager.yml:ro
+      - ./deploy/local/alertmanager.local.yaml:/etc/alertmanager/alertmanager.yml:ro
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
   grafana:

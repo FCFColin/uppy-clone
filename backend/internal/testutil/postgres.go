@@ -148,6 +148,21 @@ func SetupPostgresPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// SetupPostgresPoolMigrated returns a connected pool with schema migrations applied.
+// Skips migration 000009 (database roles require superuser).
+func SetupPostgresPoolMigrated(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	conn, connStr := SetupPostgresConn(t)
+	RunMigrationsPGX(t, conn, BackendMigrationsDir(t), "000009")
+
+	pool, err := pgxpool.New(context.Background(), connStr)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
 // SetupPostgresStore starts PostgreSQL, runs migrations, and returns a PostgresStore.
 func SetupPostgresStore(t *testing.T) *store.PostgresStore {
 	t.Helper()

@@ -155,13 +155,16 @@ const (
 	GhostWanderChangeInterval = 30
 	GhostDamage               = 0.015
 
-	WindMax            = 0.0006
+	WindMax            = 0.0002
 	WindLerpRate       = 0.012
 	WindChangeInterval = 225
-	WindJitter         = 0.00005
+	WindJitter         = 0.000025
 	WindMicroInterval  = 10
 	WindMidInterval    = 75
-	WindMidMagnitude   = 0.0006
+	WindMidMagnitude   = 0.0002
+	WindClamp          = 0.65
+	WindTargetSpan     = 1.0
+	WindEdgeSoftZone   = 0.12
 
 	HorizontalDrag = 0.98
 )

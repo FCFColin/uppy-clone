@@ -48,11 +48,25 @@ make test-integration
 make lint-all
 ```
 
+## 目录结构
+
+仓库布局见 [ADR-021 Monorepo 结构](docs/adr/021-monorepo-structure.md)。要点：
+
+- **后端**：`backend/cmd/server` 为薄入口；路由与生命周期在 `backend/internal/server`
+- **前端**：wire 常量在 `frontend/src/shared/protocol.ts`；客户端编解码在 `frontend/src/game/message_codec.ts`
+- **文档**：仅 `docs/{adr,architecture,operations,development,security,data,api,templates}/`
+- **基础设施**：应用清单 `infra/k8s/`，GCP `infra/terraform/`；可观测性 `deploy/`（见各目录 `README.md`）
+- **脚本**：CI `scripts/ci/`，负载 `scripts/load/`；布局校验 `make check-repo-layout`
+- **E2E**：`make e2e` 或 `npm run test:e2e`（Playwright，`tests/e2e/`）
+
 ## 测试约定
 
 - 优先每包 1–3 个 `*_test.go`，使用 `t.Run` 表驱动子测试
 - 禁止为通过 `funlen` 将单函数拆成 `{funcName}_test.go` 机械碎片
 - 共享 testcontainers 辅助代码放在 `backend/internal/testutil/`
+- **单元测试**（`make test`，带 `-short`）：使用 miniredis，无需 Docker
+- **集成测试**（`make test-integration`，带 `-tags=integration`）：使用 testcontainers，需要 Docker
+- Redis 策略：单元 → miniredis；集成 → testcontainers（`testutil.SetupRedisStore` / `SetupRedisClient`）
 - 本地与 CI 一致：`make check`
 
 Install [air](https://github.com/air-verse/air) for live reload during development:

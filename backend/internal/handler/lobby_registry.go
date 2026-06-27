@@ -129,7 +129,7 @@ func (h *LobbyHandler) ListLobbies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := h.hub.ListLobbies(r.Context(), limit, cursor)
+	result, err := h.hub.ListLobbiesCached(r.Context(), limit, cursor)
 	if err != nil {
 		slog.Warn("degraded: returning empty lobby list", "error", err)
 		writeDegradedLobbyList(w)

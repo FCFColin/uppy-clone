@@ -26,21 +26,29 @@ func DecodeTap(data []byte) (tapX float32, tapY float32, ok bool) {
 	return tapX, tapY, true
 }
 
+// DecodeNicknamePayload decodes a set-nickname payload (without msgType prefix).
+func DecodeNicknamePayload(data []byte) (nickname string, ok bool) {
+	if len(data) < 1 {
+		return "", false
+	}
+	nickLen := int(data[0])
+	if nickLen <= 0 || nickLen > 255 {
+		return "", false
+	}
+	if len(data) < 1+nickLen {
+		return "", false
+	}
+	return string(data[1 : 1+nickLen]), true
+}
+
 // DecodeSetNickname decodes a set-nickname message from the client.
 //
 // Expected layout: msgType(1) + nickLen(uint8) + nickname(bytes) = 2+ bytes.
 func DecodeSetNickname(data []byte) (nickname string, ok bool) {
-	if len(data) < 2 {
+	if len(data) < 2 || data[0] != MsgSetNickname {
 		return "", false
 	}
-	if data[0] != MsgSetNickname {
-		return "", false
-	}
-	nickLen := int(data[1])
-	if len(data) < 2+nickLen {
-		return "", false
-	}
-	return string(data[2 : 2+nickLen]), true
+	return DecodeNicknamePayload(data[1:])
 }
 
 // DecodeRestartVote decodes a restart-vote message from the client.

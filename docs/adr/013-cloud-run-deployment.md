@@ -36,10 +36,10 @@ ADR-005 最终采用 **owner 反向代理** 实现多实例水平扩展：非 ow
 
 | 维度 | 方案 |
 |------|------|
-| 计算 | 每区域 GKE StatefulSet（`infra/base/service.yaml`）+ HPA（`infra/base/hpa.yaml`） |
-| 入口 | 全局 Multi-Cluster Ingress / Anycast（`infra/global/multicluster-ingress.yaml`） |
-| 多区域 | 每区域 overlay（`infra/overlays/<region>/`）注入 region 配置 + Workload Identity |
-| 身份 | GKE Workload Identity GSA（`infra/main.tf`），免长期密钥 |
+| 计算 | 每区域 GKE StatefulSet（`infra/k8s/base/service.yaml`）+ HPA（`infra/k8s/base/hpa.yaml`） |
+| 入口 | 全局 Multi-Cluster Ingress / Anycast（`infra/k8s/global/multicluster-ingress.yaml`） |
+| 多区域 | 每区域 overlay（`infra/k8s/overlays/<region>/`）注入 region 配置 + Workload Identity |
+| 身份 | GKE Workload Identity GSA（`infra/terraform/main.tf`），免长期密钥 |
 | 实例寻址 | downward API 注入 `POD_IP`/`INSTANCE_ID`，owner 反向代理（ADR-005） |
 | 镜像 | GCR 不可变 git SHA tag + Cosign 签名（CI build-push 不变） |
 

@@ -33,7 +33,7 @@ flowchart TB
 
 ## 关键路径
 
-1. **就近接入**：客户端连 Anycast VIP，GCLB 路由到最近健康区域（`infra/global/multicluster-ingress.yaml`）。
+1. **就近接入**：客户端连 Anycast VIP，GCLB 路由到最近健康区域（`infra/k8s/global/multicluster-ingress.yaml`）。
 2. **建房**：`Hub.CreateRoom` 在本区域落地，写 CRDB `room_directory`（GLOBAL）登记
    `code→region/endpoint` 并保证跨区域唯一（撞码重试）。
 3. **加房/连接**：前端先调 `GET /api/v1/lobby/{code}/resolve` 拿到房间 home region 的
@@ -49,16 +49,16 @@ flowchart TB
   [`../data/cockroachdb-migration.md`](../data/cockroachdb-migration.md)。
 - **可观测性聚合**：Thanos/Mimir 跨区域查询走 mTLS（见 [`../operations/slo.md`](../operations/slo.md) / P4）。
 - **区域内 internal 反向代理**：`INTERNAL_PROXY_SECRET` + `NetworkPolicy`
-  （`infra/global/network-policy.yaml`）限制为同命名空间，杜绝跨区直达。
+  （`infra/k8s/global/network-policy.yaml`）限制为同命名空间，杜绝跨区直达。
 
 ## 部署
 
 ```bash
 # 每区域集群分别 apply 对应 overlay
-kubectl --context us-east1   apply -k infra/overlays/us-east1
-kubectl --context europe-west1 apply -k infra/overlays/europe-west1
-kubectl --context asia-southeast1 apply -k infra/overlays/asia-southeast1
+kubectl --context us-east1   apply -k infra/k8s/overlays/us-east1
+kubectl --context europe-west1 apply -k infra/k8s/overlays/europe-west1
+kubectl --context asia-southeast1 apply -k infra/k8s/overlays/asia-southeast1
 
 # 在 config cluster 上 apply 全局入口与策略
-kubectl --context config-cluster apply -f infra/global/
+kubectl --context config-cluster apply -f infra/k8s/global/
 ```

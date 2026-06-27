@@ -30,12 +30,13 @@
 | 018 | 前端采用 Vanilla TypeScript 多页应用（MPA） | 提议中 | 2026-06 |
 | 019 | 持久化使用 raw SQL + pgx，不引入 ORM | 提议中 | 2026-06 |
 | 020 | 前端 dist 嵌入 Go 二进制单镜像部署 | 提议中 | 2026-06 |
-| 021 | Monorepo 结构（Go + TS + infra + docs 同仓） | 提议中 | 2026-06 |
+| 021 | Monorepo 结构（Go + TS + infra + docs 同仓） | 已接受 | 2026-06 |
 | 022 | 字段级 AES-256-GCM 加密 + HMAC email_hash 索引 | 提议中 | 2026-06 |
 | 023 | 混合测试策略 — testcontainers + miniredis | 提议中 | 2026-06 |
 | 024 | Application Service 层状态与裁决需求 | 已接受 | 2026-06 |
 | 025 | 前端可变单例状态管理 | 提议中 | 2026-06 |
 | 026 | 移除 Casbin，采用轻量 RBAC 策略表 | 已接受 | 2026-06-26 |
+| 027 | Room 出站管道（锁外广播与异步持久化） | 已接受 | 2026-06 |
 
 ## ADR 流程
 

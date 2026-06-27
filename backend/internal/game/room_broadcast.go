@@ -1,12 +1,9 @@
 package game
 
 import (
-	"context"
-	"log/slog"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
@@ -14,99 +11,24 @@ import (
 //
 // P4-5: 发送缓冲区满时记录 ws_messages_dropped_total 指标，并跟踪连续丢弃次数。
 // 连续 3 次丢弃记录 WARN 日志，连续 10 次丢弃强制断开慢客户端。
-// 调用方必须持有 r.mu 锁。
+// 调用方必须持有 r.mu 锁。实际投递在 outbound goroutine 中完成（不持锁）。
 func (r *Room) broadcast(data []byte, excludePlayerID string) {
-	r.broadcastLocal(data, excludePlayerID)
-	r.publishBroadcast(data, excludePlayerID, false)
+	r.enqueueOutbound(data, excludePlayerID, false, false)
 }
 
 // broadcastLocal 仅向本地连接投递数据，不发布到 Redis。
 // 由 Hub 在收到 Redis Pub/Sub 远程消息时调用，避免回环。
-// 调用方必须持有 r.mu 锁。
 func (r *Room) broadcastLocal(data []byte, excludePlayerID string) {
-	for pid, pc := range r.connections {
-		if pid == excludePlayerID {
-			continue
-		}
-		if pc == nil || pc.Send == nil {
-			continue
-		}
-		select {
-		case pc.Send <- data:
-			pc.consecutiveDrops = 0
-		default:
-			metrics.WSMessagesDroppedTotal.WithLabelValues(r.state.LobbyCode).Inc()
-			pc.consecutiveDrops++
-			drops := pc.consecutiveDrops
-
-			if drops >= 3 {
-				slog.Warn("slow client: messages being dropped",
-					"user_id", pc.PlayerID,
-					"drops", drops,
-					"room_code", r.state.LobbyCode)
-			}
-			if drops >= 10 {
-				slog.Warn("disconnecting slow client",
-					"user_id", pc.PlayerID,
-					"drops", drops,
-					"room_code", r.state.LobbyCode)
-				if pc.Conn != nil {
-					_ = pc.Conn.Close()
-				}
-				delete(r.connections, pid)
-			}
-		}
-	}
+	r.enqueueOutbound(data, excludePlayerID, false, true)
 }
 
-// publishBroadcast 将消息发布到 Redis Pub/Sub 供其他实例投递。
-// 使用短超时避免阻塞游戏 tick；发布失败仅记录 WARN（本地投递已完成）。
-// 调用方必须持有 r.mu 锁。
-func (r *Room) publishBroadcast(data []byte, excludePlayerID string, critical bool) {
-	if r.broadcaster == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	msg := BroadcastMessage{
-		RoomCode:        r.state.LobbyCode,
-		ExcludePlayer:   excludePlayerID,
-		ExcludeInstance: r.instanceID,
-		Payload:         data,
-		Critical:        critical,
-	}
-	if err := r.broadcaster.Publish(ctx, r.state.LobbyCode, msg); err != nil {
-		r.logger.Warn("redis publish failed, local-only delivery",
-			"error", err,
-			"room", r.state.LobbyCode)
-	}
-}
-
-// broadcastCritical sends a message to all connections with a blocking send
-// and timeout. Used for critical phase messages (PhaseEnded, PhaseCountdown)
-// that must reach clients even if their buffer is full.
-// 同时发布到 Redis（Critical: true）供跨实例投递。
-//
-// P4-5: 关键消息（阶段转换）不能被静默丢弃，使用带超时的阻塞发送。
+// broadcastCritical sends a critical phase message with blocking delivery per client.
 // 调用方必须持有 r.mu 锁。
 func (r *Room) broadcastCritical(message []byte) {
-	for _, pc := range r.connections {
-		if pc == nil {
-			continue
-		}
-		select {
-		case pc.Send <- message:
-			pc.consecutiveDrops = 0
-		case <-time.After(100 * time.Millisecond):
-			slog.Error("critical message send timeout",
-				"user_id", pc.PlayerID,
-				"room_code", r.state.LobbyCode)
-		}
-	}
-	r.publishBroadcast(message, "", true)
+	r.enqueueOutbound(message, "", true, false)
 }
 
-// sendToPlayer 发送数据给指定玩家
+// sendToPlayer 发送数据给指定玩家（同步非阻塞，单玩家路径足够快）。
 func (r *Room) sendToPlayer(playerID string, data []byte) {
 	if pc, ok := r.connections[playerID]; ok {
 		select {

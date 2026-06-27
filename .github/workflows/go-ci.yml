@@ -34,7 +34,7 @@ jobs:
           name: coverage-out
           path: backend/unit.out
       - name: Check unit coverage governance
-        run: bash ../scripts/check-coverage.sh unit unit.out
+        run: bash ../scripts/ci/check-coverage.sh unit unit.out
 
   lint:
     name: Lint
@@ -78,11 +78,11 @@ jobs:
         with:
           go-version: '1.26'
       - name: Run benchmarks
-        run: go test -bench=. -benchmem -run=^$ ./internal/protocol/ ./internal/game/ -count=1 | tee ../docs/development/benchmarks.md
+        run: go test -bench=. -benchmem -run=^$ ./internal/protocol/ ./internal/game/ -count=1 | tee ../docs/development/benchmarks-go-microbench.md
       - uses: actions/upload-artifact@v4
         with:
           name: benchmarks
-          path: docs/development/benchmarks.md
+          path: docs/development/benchmarks-go-microbench.md
 
   security:
     name: Security Scan
@@ -179,7 +179,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Dockerfile uses @sha256 digests (SLSA L2)
-        run: bash scripts/check-docker-digests.sh Dockerfile
+        run: bash scripts/ci/check-docker-digests.sh Dockerfile
       - name: Reject :latest tags in compose
         run: |
           set -e
@@ -243,7 +243,7 @@ jobs:
           go test ./tests/integration/... -race -timeout 180s -coverprofile=int.out -covermode=atomic
           go test ./internal/outbox/... ./internal/worker/... ./cmd/migrate-passwords/... ./cmd/backfill-emails/... -race -timeout 180s
       - name: Integration coverage governance
-        run: bash ../scripts/check-coverage.sh integration int.out
+        run: bash ../scripts/ci/check-coverage.sh integration int.out
 
   build-push:
     name: Build & Push

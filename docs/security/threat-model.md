@@ -69,7 +69,7 @@
 | 威胁 | 影响 | 缓解措施 |
 |------|------|---------|
 | 普通用户访问管理接口 | 管理员功能滥用 | adminAuthMiddleware 验证 admin JWT（role=admin） |
-| 用户越权访问他人资源 | 权限提升 | RBAC（Casbin）已应用于 user/lobby/registry 路由（T18）：user_data 读写、lobby 创建/加入/读取均经 `rbacEnforcer.Middleware` 校验，策略见 `backend/internal/rbac/policy.csv` |
+| 用户越权访问他人资源 | 权限提升 | 轻量 RBAC（ADR-026）已应用于 user/lobby/registry 路由（T18）：user_data 读写、lobby 创建/加入/读取均经 `rbacEnforcer.Middleware` 校验，策略见 `backend/internal/rbac/permissions.go` |
 | 容器逃逸获取 root | 主机被控制 | 容器以 appuser（非 root）运行 |
 | SQL 注入获取数据 | 数据泄露 | 使用参数化查询（pgx），无字符串拼接 |
 

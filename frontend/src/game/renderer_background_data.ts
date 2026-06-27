@@ -16,15 +16,43 @@ export const gameImages: Record<string, ImageEntry> = {
   explosion: { img: new Image(), loaded: false, url: '/assets/explosion.webp',   fallback: '/assets/fallback/explosion.svg' },
 };
 
-for (const key in gameImages) {
-  const entry: ImageEntry = gameImages[key]!;
-  entry.img.onload = () => { entry.loaded = true; };
+export const cloudImages: ImageEntry[] = [
+  { img: new Image(), loaded: false, url: '/assets/cloud-1.webp', fallback: '/assets/fallback/cloud-1.svg' },
+  { img: new Image(), loaded: false, url: '/assets/cloud-2.webp', fallback: '/assets/fallback/cloud-2.svg' },
+  { img: new Image(), loaded: false, url: '/assets/cloud-3.webp', fallback: '/assets/fallback/cloud-3.svg' },
+];
+
+type StaticCacheInvalidateFn = () => void;
+let staticCacheInvalidateFn: StaticCacheInvalidateFn | null = null;
+
+export function registerStaticCacheInvalidate(fn: StaticCacheInvalidateFn): void {
+  staticCacheInvalidateFn = fn;
+}
+
+function loadImageEntry(entry: ImageEntry, cacheKey: string): void {
+  entry.img.onload = () => {
+    entry.loaded = true;
+    if ((cacheKey === 'sky' || cacheKey === 'mountains') && staticCacheInvalidateFn) {
+      staticCacheInvalidateFn();
+    }
+  };
   entry.img.onerror = () => {
     entry.img.onerror = null;
     entry.img.src = entry.fallback;
   };
   entry.img.src = entry.url;
 }
+
+for (const key in gameImages) {
+  loadImageEntry(gameImages[key]!, key);
+}
+for (const entry of cloudImages) {
+  loadImageEntry(entry);
+}
+
+/** Normalized vertical band where clouds may appear (above mountains). */
+export const CLOUD_Y_MIN = 0.06;
+export const CLOUD_Y_MAX = 0.52;
 
 export interface Star {
   x: number;
@@ -40,6 +68,8 @@ export interface Cloud {
   speed: number;
   opacity: number;
   layer: number;
+  variant: number;
+  bobPhase: number;
 }
 
 export interface Mountain {
@@ -71,48 +101,65 @@ export const bgState: BackgroundState = {
   particles: [],
 };
 
+interface CloudLayerConfig {
+  count: number;
+  yMin: number;
+  yRange: number;
+  widthMin: number;
+  widthRange: number;
+  speedMin: number;
+  speedRange: number;
+  opacityMin: number;
+  opacityRange: number;
+  layer: number;
+}
+
+const CLOUD_LAYERS: CloudLayerConfig[] = [
+  { count: 5, yMin: 0.08, yRange: 0.14, widthMin: 0.14, widthRange: 0.08, speedMin: 0.00008, speedRange: 0.00004, opacityMin: 0.28, opacityRange: 0.1, layer: 0 },
+  { count: 4, yMin: 0.18, yRange: 0.16, widthMin: 0.11, widthRange: 0.07, speedMin: 0.00012, speedRange: 0.00006, opacityMin: 0.38, opacityRange: 0.1, layer: 1 },
+  { count: 3, yMin: 0.28, yRange: 0.14, widthMin: 0.08, widthRange: 0.05, speedMin: 0.00018, speedRange: 0.00008, opacityMin: 0.48, opacityRange: 0.1, layer: 2 },
+];
+
+export function randomCloudY(): number {
+  return CLOUD_Y_MIN + Math.random() * (CLOUD_Y_MAX - CLOUD_Y_MIN);
+}
+
+export function spawnCloud(layerCfg: CloudLayerConfig, x?: number): Cloud {
+  return {
+    x: x ?? Math.random(),
+    y: layerCfg.yMin + Math.random() * layerCfg.yRange,
+    width: layerCfg.widthMin + Math.random() * layerCfg.widthRange,
+    speed: layerCfg.speedMin + Math.random() * layerCfg.speedRange,
+    opacity: layerCfg.opacityMin + Math.random() * layerCfg.opacityRange,
+    layer: layerCfg.layer,
+    variant: Math.floor(Math.random() * cloudImages.length),
+    bobPhase: Math.random() * Math.PI * 2,
+  };
+}
+
 export function initBackground(): void {
   bgState.stars = [];
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 60; i++) {
     bgState.stars.push({
       x: Math.random(),
-      y: Math.random() * 0.7,
-      size: Math.random() * 1.5 + 0.5,
+      y: Math.random() * 0.55,
+      size: Math.random() * 2 + 1.2,
       twinkle: Math.random() * Math.PI * 2,
     });
   }
 
   bgState.clouds = [];
-  for (let i = 0; i < 4; i++) {
-    bgState.clouds.push({
-      x: Math.random(), y: 0.1 + Math.random() * 0.2,
-      width: 0.2 + Math.random() * 0.1,
-      speed: 0.000015 + Math.random() * 0.00001,
-      opacity: 0.04 + Math.random() * 0.04, layer: 0,
-    });
-  }
-  for (let i = 0; i < 3; i++) {
-    bgState.clouds.push({
-      x: Math.random(), y: 0.25 + Math.random() * 0.2,
-      width: 0.15 + Math.random() * 0.08,
-      speed: 0.00003 + Math.random() * 0.00002,
-      opacity: 0.06 + Math.random() * 0.06, layer: 1,
-    });
-  }
-  for (let i = 0; i < 2; i++) {
-    bgState.clouds.push({
-      x: Math.random(), y: 0.4 + Math.random() * 0.15,
-      width: 0.1 + Math.random() * 0.05,
-      speed: 0.00005 + Math.random() * 0.00003,
-      opacity: 0.08 + Math.random() * 0.08, layer: 2,
-    });
+  for (const cfg of CLOUD_LAYERS) {
+    for (let i = 0; i < cfg.count; i++) {
+      bgState.clouds.push(spawnCloud(cfg));
+    }
   }
 
   bgState.mountains = [];
   for (let i = 0; i < 5; i++) {
     bgState.mountains.push({
       x: i * 0.25 - 0.05,
-      height: 0.08 + Math.random() * 0.06,
+      height: 0.15 + Math.random() * 0.1,
       width: 0.3,
     });
   }
@@ -138,4 +185,10 @@ export function refreshBackgroundGradient(): void {
   bgState.gradient.addColorStop(0, '#0f1729');
   bgState.gradient.addColorStop(0.5, '#16213e');
   bgState.gradient.addColorStop(1, '#1a1a2e');
+}
+
+export function ensureBackgroundInitialized(): void {
+  if (bgState.clouds.length === 0 || bgState.stars.length === 0 || !bgState.gradient) {
+    initBackground();
+  }
 }

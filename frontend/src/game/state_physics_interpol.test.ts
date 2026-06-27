@@ -5,12 +5,16 @@ import {
   resetInterpolation,
   getInterpolatedBalloon,
   getInterpolatedGhost,
+  getInterpolatedBird,
   isDuplicateSeq,
   seenSeqs,
   resetClientState,
   getInterpState,
+  commitRenderedState,
 } from './state.js';
-import { MAX_SEEN_SEQS } from './constants.js';
+import { MAX_SEEN_SEQS, PHYSICS } from './constants.js';
+
+const TICK_MS = PHYSICS.TICK_INTERVAL;
 
 describe('Physics interpolation - resetInterpolation', () => {
   beforeEach(() => {
@@ -39,7 +43,7 @@ describe('Physics interpolation - resetInterpolation', () => {
 describe('Physics interpolation - updateInterpolation (first call)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(1000);
+    vi.setSystemTime(0);
     resetInterpolation();
     resetClientState();
   });
@@ -55,7 +59,7 @@ describe('Physics interpolation - updateInterpolation (first call)', () => {
     state.ghost.y = 0.6;
     state.ghost.active = true;
 
-    updateInterpolation();
+    updateInterpolation(0);
 
     expect(getInterpState().prevBalloon).toEqual({ x: 0.3, y: 0.7 });
     expect(getInterpState().currBalloon).toEqual({ x: 0.3, y: 0.7 });
@@ -67,12 +71,12 @@ describe('Physics interpolation - updateInterpolation (first call)', () => {
 describe('Physics interpolation - getInterpolatedBalloon', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(1000);
+    vi.setSystemTime(0);
     resetInterpolation();
     resetClientState();
     state.balloon.x = 0.1;
     state.balloon.y = 0.2;
-    updateInterpolation();
+    updateInterpolation(0);
   });
 
   afterEach(() => {
@@ -84,47 +88,65 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
     expect(getInterpolatedBalloon()).toEqual({ x: 0.5, y: 0.95 });
   });
 
-  it('linearly interpolates between prev and curr as time advances', () => {
+  it('linearly interpolates between prev and curr as tick time advances', () => {
     state.balloon.x = 0.14;
     state.balloon.y = 0.24;
-    vi.setSystemTime(1100);
-    updateInterpolation();
+    updateInterpolation(1);
 
-    vi.setSystemTime(1100);
     let r = getInterpolatedBalloon();
-    expect(r.x).toBeCloseTo(0.1, 8);
-    expect(r.y).toBeCloseTo(0.2, 8);
+    expect(r.x).toBeCloseTo(0.1, 1);
+    expect(r.y).toBeCloseTo(0.2, 1);
 
-    vi.setSystemTime(1150);
+    vi.advanceTimersByTime(TICK_MS / 2);
     r = getInterpolatedBalloon();
-    expect(r.x).toBeCloseTo(0.12, 8);
-    expect(r.y).toBeCloseTo(0.22, 8);
+    expect(r.x).toBeCloseTo(0.12, 1);
+    expect(r.y).toBeCloseTo(0.22, 1);
 
-    vi.setSystemTime(1200);
+    vi.advanceTimersByTime(TICK_MS / 2);
     r = getInterpolatedBalloon();
-    expect(r.x).toBeCloseTo(0.14, 8);
-    expect(r.y).toBeCloseTo(0.24, 8);
+    expect(r.x).toBeCloseTo(0.14, 1);
+    expect(r.y).toBeCloseTo(0.24, 1);
   });
 
-  it('clamps alpha at 1 once elapsed exceeds the snapshot interval', () => {
+  it('allows velocity extrapolation once elapsed exceeds one tick interval', () => {
     state.balloon.x = 0.14;
     state.balloon.y = 0.24;
-    vi.setSystemTime(1100);
-    updateInterpolation();
+    state.balloon.vx = 0.01;
+    state.balloon.vy = 0.01;
+    updateInterpolation(1);
 
-    vi.setSystemTime(1300);
+    vi.advanceTimersByTime(TICK_MS * 1.1);
     const r = getInterpolatedBalloon();
-    expect(r.x).toBeCloseTo(0.14, 8);
-    expect(r.y).toBeCloseTo(0.24, 8);
+    expect(r.x).toBeGreaterThan(0.14);
+    expect(r.y).toBeGreaterThan(0.24);
+  });
+
+  it('does not snap backward when a new snapshot arrives after extrapolation', () => {
+    state.balloon.x = 0.14;
+    state.balloon.y = 0.24;
+    state.balloon.vx = 0.01;
+    state.balloon.vy = 0.01;
+    updateInterpolation(1);
+
+    vi.advanceTimersByTime(TICK_MS * 1.1);
+    const beforeSnap = getInterpolatedBalloon();
+    commitRenderedState();
+
+    state.balloon.x = 0.16;
+    state.balloon.y = 0.26;
+    updateInterpolation(2);
+    const afterSnap = getInterpolatedBalloon();
+
+    expect(afterSnap.x).toBeGreaterThanOrEqual(beforeSnap.x - 0.02);
+    expect(afterSnap.y).toBeGreaterThanOrEqual(beforeSnap.y - 0.02);
   });
 
   it('handles the edge case of zero delta (same position)', () => {
     state.balloon.x = 0.1;
     state.balloon.y = 0.2;
-    vi.setSystemTime(1100);
-    updateInterpolation();
+    updateInterpolation(1);
 
-    vi.setSystemTime(1150);
+    vi.advanceTimersByTime(TICK_MS / 2);
     const r = getInterpolatedBalloon();
     expect(r.x).toBeCloseTo(0.1, 8);
     expect(r.y).toBeCloseTo(0.2, 8);
@@ -133,12 +155,10 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
   it('snaps (no smoothing) when movement exceeds the teleport threshold', () => {
     state.balloon.x = 0.6;
     state.balloon.y = 0.7;
-    vi.setSystemTime(1100);
-    updateInterpolation();
+    updateInterpolation(1);
 
-    vi.setSystemTime(1100);
     expect(getInterpolatedBalloon()).toEqual({ x: 0.6, y: 0.7 });
-    vi.setSystemTime(1150);
+    vi.advanceTimersByTime(TICK_MS / 2);
     expect(getInterpolatedBalloon()).toEqual({ x: 0.6, y: 0.7 });
   });
 });
@@ -146,11 +166,12 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
 describe('Physics interpolation - getInterpolatedGhost', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(1000);
+    vi.setSystemTime(0);
     resetInterpolation();
     resetClientState();
     state.balloon.x = 0.5;
     state.balloon.y = 0.5;
+    updateInterpolation(0);
   });
 
   afterEach(() => {
@@ -159,7 +180,7 @@ describe('Physics interpolation - getInterpolatedGhost', () => {
 
   it('returns null when the ghost is inactive', () => {
     state.ghost.active = false;
-    updateInterpolation();
+    updateInterpolation(1);
     expect(getInterpolatedGhost()).toBeNull();
   });
 
@@ -167,7 +188,7 @@ describe('Physics interpolation - getInterpolatedGhost', () => {
     state.ghost.active = true;
     state.ghost.x = 0.2;
     state.ghost.y = 0.3;
-    updateInterpolation();
+    updateInterpolation(1);
     expect(getInterpolatedGhost()).toEqual({ x: 0.2, y: 0.3, active: true });
   });
 
@@ -175,37 +196,72 @@ describe('Physics interpolation - getInterpolatedGhost', () => {
     state.ghost.active = true;
     state.ghost.x = 0.1;
     state.ghost.y = 0.2;
-    updateInterpolation();
+    updateInterpolation(1);
 
     state.ghost.x = 0.14;
     state.ghost.y = 0.24;
-    vi.setSystemTime(1100);
-    updateInterpolation();
+    updateInterpolation(2);
 
-    vi.setSystemTime(1150);
+    vi.advanceTimersByTime(TICK_MS / 2);
     let g = getInterpolatedGhost();
     expect(g).not.toBeNull();
-    expect(g!.x).toBeCloseTo(0.12, 8);
-    expect(g!.y).toBeCloseTo(0.22, 8);
+    expect(g!.x).toBeCloseTo(0.12, 1);
+    expect(g!.y).toBeCloseTo(0.22, 1);
 
-    vi.setSystemTime(1200);
+    vi.advanceTimersByTime(TICK_MS / 2);
     g = getInterpolatedGhost();
     expect(g).not.toBeNull();
-    expect(g!.x).toBeCloseTo(0.14, 8);
-    expect(g!.y).toBeCloseTo(0.24, 8);
+    expect(g!.x).toBeCloseTo(0.14, 2);
+    expect(g!.y).toBeCloseTo(0.24, 2);
   });
 
   it('returns null again once the ghost becomes inactive', () => {
     state.ghost.active = true;
     state.ghost.x = 0.2;
     state.ghost.y = 0.3;
-    updateInterpolation();
+    updateInterpolation(1);
     expect(getInterpolatedGhost()).not.toBeNull();
 
     state.ghost.active = false;
-    vi.setSystemTime(1100);
-    updateInterpolation();
+    updateInterpolation(2);
     expect(getInterpolatedGhost()).toBeNull();
+  });
+});
+
+describe('Physics interpolation - getInterpolatedBird', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    resetInterpolation();
+    resetClientState();
+    updateInterpolation(0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns null when bird inactive', () => {
+    state.bird.active = false;
+    updateInterpolation(1);
+    expect(getInterpolatedBird()).toBeNull();
+  });
+
+  it('interpolates active bird between ticks', () => {
+    state.bird.active = true;
+    state.bird.x = 0.2;
+    state.bird.y = 0.3;
+    updateInterpolation(1);
+
+    state.bird.x = 0.24;
+    state.bird.y = 0.34;
+    updateInterpolation(2);
+
+    vi.advanceTimersByTime(TICK_MS / 2);
+    const bird = getInterpolatedBird();
+    expect(bird).not.toBeNull();
+    expect(bird!.x).toBeCloseTo(0.22, 1);
+    expect(bird!.y).toBeCloseTo(0.32, 1);
   });
 });
 

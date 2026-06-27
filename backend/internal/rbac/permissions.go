@@ -1,6 +1,6 @@
 package rbac
 
-// permissions mirrors internal/rbac/policy.csv (ADR-026 lightweight RBAC).
+// permissions holds the in-memory RBAC policy (ADR-026 lightweight RBAC).
 var permissions = map[string]map[string][]string{
 	RoleAdmin: {
 		"config":    {"read", "write"},

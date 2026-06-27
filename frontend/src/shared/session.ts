@@ -1,7 +1,7 @@
 import {
   storeRefreshToken, getRefreshToken, refreshAccessToken, clearRefreshToken,
 } from './auth.js';
-import { fetchWithRetry } from '../index_fetch.js';
+import { fetchWithRetry } from './fetch.js';
 
 export type SessionResult =
   | { ok: true }

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Env holds server environment configuration loaded from process env.
@@ -33,7 +34,7 @@ func Load() *Env {
 	return &Env{
 		JWTSecret:         os.Getenv("JWT_SECRET"),
 		DatabaseURL:       os.Getenv("DATABASE_URL"),
-		RedisURL:          getEnv("REDIS_URL", "localhost:6379"),
+		RedisURL:          GetEnv("REDIS_URL", "localhost:6379"),
 		EncryptionKey:     os.Getenv("ENCRYPTION_KEY"),
 		ResendAPIKey:      os.Getenv("RESEND_API_KEY"),
 		EmailFrom:         os.Getenv("EMAIL_FROM"),
@@ -41,11 +42,11 @@ func Load() *Env {
 		AuditSecret:       os.Getenv("AUDIT_SECRET"),
 		TrustedProxyCIDRs: os.Getenv("TRUSTED_PROXY_CIDRS"),
 		AllowedOrigins:    os.Getenv("ALLOWED_ORIGINS"),
-		Port:              getEnv("PORT", "8080"),
+		Port:              GetEnv("PORT", "8080"),
 		FrontendDir:       os.Getenv("FRONTEND_DIR"),
 		EnableHSTS:        os.Getenv("ENABLE_HSTS") != "false",
-		MaxWSConnections:  getEnvInt("MAX_WS_CONNECTIONS", MaxWSConnections),
-		MaxPlayersPerRoom: getEnvInt("MAX_PLAYERS_PER_ROOM", MaxPlayersPerRoom),
+		MaxWSConnections:  GetEnvInt("MAX_WS_CONNECTIONS", MaxWSConnections),
+		MaxPlayersPerRoom: GetEnvInt("MAX_PLAYERS_PER_ROOM", MaxPlayersPerRoom),
 		MetricsUser:       os.Getenv("METRICS_USER"),
 		MetricsPassword:   os.Getenv("METRICS_PASSWORD"),
 	}
@@ -81,14 +82,16 @@ func (e *Env) AuditSecretOrJWT() string {
 	return e.JWTSecret
 }
 
-func getEnv(key, defaultVal string) string {
+// GetEnv returns the environment variable value or a default.
+func GetEnv(key, defaultVal string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
 	}
 	return defaultVal
 }
 
-func getEnvInt(key string, defaultVal int) int {
+// GetEnvInt returns the environment variable value as int, or a default.
+func GetEnvInt(key string, defaultVal int) int {
 	val := os.Getenv(key)
 	if val == "" {
 		return defaultVal
@@ -98,4 +101,23 @@ func getEnvInt(key string, defaultVal int) int {
 		return defaultVal
 	}
 	return n
+}
+
+// GetEnvIntPositive returns GetEnvInt but falls back to defaultVal when the value is <= 0.
+func GetEnvIntPositive(key string, defaultVal int) int {
+	n := GetEnvInt(key, defaultVal)
+	if n <= 0 {
+		return defaultVal
+	}
+	return n
+}
+
+// GetEnvDuration returns the environment variable value as duration, or a default.
+func GetEnvDuration(key string, defaultVal time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultVal
 }

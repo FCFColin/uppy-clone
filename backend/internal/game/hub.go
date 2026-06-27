@@ -74,13 +74,9 @@ func NewHub(pgStore RoomRepository, redisStore *store.RedisStore, timeouts confi
 }
 
 // CreateRoom 创建新房间，返回房间码
-// 企业为何需要：传入请求 context 以便审计日志关联 trace_id/request_id，
-// 满足 SOC2 审计追溯要求。原 context.Background() 丢失了请求链路信息。
 func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
-	// 生成唯一房间码（最多重试 10 次）
 	var code string
 	for i := 0; i < 10; i++ {
 		code = GenerateRoomCode()
@@ -90,20 +86,18 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 		code = ""
 	}
 	if code == "" {
+		h.mu.Unlock()
 		return "", ErrRoomCodeConflict
 	}
 
 	room := NewRoom(code, h, h.store, h.timeouts, h.maxPlayersPerRoom)
 	h.rooms[code] = room
+	h.mu.Unlock()
 
-	// 订阅跨实例广播频道（ADR-005）
 	h.subscribeRoom(code)
-
-	// Register room in Redis for multi-instance discovery (ADR-005)
 	h.registerRoomInRedis(code)
 	h.invalidateLobbyReadCaches(code)
 
-	// Audit: room creation
 	audit.Log(ctx, audit.AuditEntry{
 		Action:   "room.create",
 		ActorID:  "system",
@@ -123,72 +117,39 @@ func (h *Hub) GetRoom(code string) *Room {
 	if ok {
 		return room
 	}
-
-	// 尝试从数据库加载
-	if h.store != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.PGQueryTimeout)
-		defer cancel()
-
-		ls, err := h.store.LoadLobbyState(ctx, code)
-		if err != nil || ls == nil {
-			return nil
-		}
-
-		state, err := DeserializeState([]byte(ls.State))
-		if err != nil {
-			h.logger.Error("deserialize lobby state", "code", code, "error", err)
-			return nil
-		}
-
-		room := h.materializeRoom(code, state)
-
-		h.mu.Lock()
-		// 双重检查
-		if existing, ok := h.rooms[code]; ok {
-			h.mu.Unlock()
-			return existing
-		}
-		h.rooms[code] = room
-		h.subscribeRoom(code)
-		h.mu.Unlock()
-
-		return room
-	}
-
-	return nil
+	return h.loadOrMaterializeRoom(code)
 }
 
 // RemoveRoom 移除房间
 // 企业为何需要：传入请求 context 以便审计日志关联 trace_id/request_id，
 // 满足 SOC2 审计追溯要求。原 context.Background() 丢失了请求链路信息。
 func (h *Hub) RemoveRoom(ctx context.Context, code string) {
+	var room *Room
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if room, ok := h.rooms[code]; ok {
-		room.Close()
+	if r, ok := h.rooms[code]; ok {
+		room = r
 		delete(h.rooms, code)
-		h.unsubscribeRoom(code)
-
-		// Audit: room deletion
+		h.unsubscribeRoomLocked(code)
 		audit.Log(ctx, audit.AuditEntry{
 			Action:   "room.delete",
 			ActorID:  "system",
 			Resource: "room/" + code,
 			Before:   map[string]interface{}{"code": code},
 		})
-
 		h.logger.Info("room removed", "code", code)
 	}
+	h.mu.Unlock()
 
-	// 从数据库也删除
-	if h.store != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.PGQueryTimeout)
-		defer cancel()
-		_ = h.store.DeleteLobbyState(ctx, code)
+	if room != nil {
+		room.Close()
 	}
 
-	// 从 Redis 注销房间（多实例发现 + 缓存）
+	if h.store != nil {
+		pctx, cancel := context.WithTimeout(context.Background(), h.timeouts.PGQueryTimeout)
+		defer cancel()
+		_ = h.store.DeleteLobbyState(pctx, code)
+	}
+
 	h.unregisterRoomFromRedis(code)
 	h.invalidateLobbyReadCaches(code)
 }
@@ -203,7 +164,7 @@ func (h *Hub) CloseAllRooms() {
 	for code, room := range h.rooms {
 		room.Close()
 		delete(h.rooms, code)
-		h.unsubscribeRoom(code)
+		h.unsubscribeRoomLocked(code)
 		h.logger.Info("room closed on shutdown", "code", code)
 	}
 }
@@ -235,34 +196,48 @@ func (h *Hub) RestoreRooms() error {
 	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.PGRequestTimeout)
 	defer cancel()
 
-	// Load all lobbies using cursor-based pagination (no cursor = first page)
-	result, err := h.store.LoadAllActiveLobbies(ctx, 100, "")
-	if err != nil {
-		return err
-	}
+	cursor := ""
+	const pageSize = 100
+	restored := 0
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for _, ls := range result.Lobbies {
-		if _, ok := h.rooms[ls.Code]; ok {
-			continue
-		}
-
-		state, err := DeserializeState([]byte(ls.State))
+	for {
+		result, err := h.store.LoadAllActiveLobbies(ctx, pageSize, cursor)
 		if err != nil {
-			h.logger.Error("deserialize lobby state on restore", "code", ls.Code, "error", err)
-			continue
+			return err
+		}
+		if len(result.Lobbies) == 0 {
+			break
 		}
 
-		room := h.materializeRoom(ls.Code, state)
+		var toSubscribe []string
+		h.mu.Lock()
+		for _, ls := range result.Lobbies {
+			if _, ok := h.rooms[ls.Code]; ok {
+				continue
+			}
+			room, err := h.deserializeAndMaterialize(ls.Code, []byte(ls.State))
+			if err != nil {
+				h.logger.Error("deserialize lobby state on restore", "code", ls.Code, "error", err)
+				continue
+			}
+			h.rooms[ls.Code] = room
+			toSubscribe = append(toSubscribe, ls.Code)
+			restored++
+			h.logger.Info("restored room", "code", ls.Code, "phase", room.state.Phase)
+		}
+		h.mu.Unlock()
 
-		h.rooms[ls.Code] = room
-		h.subscribeRoom(ls.Code)
-		h.logger.Info("restored room", "code", ls.Code, "phase", state.Phase)
+		for _, code := range toSubscribe {
+			h.subscribeRoom(code)
+		}
+
+		if len(result.Lobbies) < pageSize {
+			break
+		}
+		cursor = result.Lobbies[len(result.Lobbies)-1].Code
 	}
 
-	h.logger.Info("rooms restored", "count", len(h.rooms))
+	h.logger.Info("rooms restored", "count", restored)
 	return nil
 }
 
@@ -273,6 +248,51 @@ func (h *Hub) materializeRoom(code string, state *domain.GameState) *Room {
 	for _, p := range state.Players {
 		room.usedNames[p.Nickname] = true
 	}
+	return room
+}
+
+// deserializeAndMaterialize deserializes lobby state JSON into a Room without registering it.
+func (h *Hub) deserializeAndMaterialize(code string, stateJSON []byte) (*Room, error) {
+	state, err := DeserializeState(stateJSON)
+	if err != nil {
+		return nil, err
+	}
+	return h.materializeRoom(code, state), nil
+}
+
+// registerRoomLocked registers a room under h.mu (caller must hold the lock).
+func (h *Hub) registerRoomLocked(code string, room *Room) *Room {
+	if existing, ok := h.rooms[code]; ok {
+		return existing
+	}
+	h.rooms[code] = room
+	return room
+}
+
+// loadOrMaterializeRoom loads a room from the store if not already in memory.
+func (h *Hub) loadOrMaterializeRoom(code string) *Room {
+	if h.store == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.PGQueryTimeout)
+	defer cancel()
+
+	ls, err := h.store.LoadLobbyState(ctx, code)
+	if err != nil || ls == nil {
+		return nil
+	}
+
+	room, err := h.deserializeAndMaterialize(code, []byte(ls.State))
+	if err != nil {
+		h.logger.Error("deserialize lobby state", "code", code, "error", err)
+		return nil
+	}
+
+	h.mu.Lock()
+	room = h.registerRoomLocked(code, room)
+	h.mu.Unlock()
+	h.subscribeRoom(code)
 	return room
 }
 
@@ -380,17 +400,24 @@ func (h *Hub) deleteRooms(codes []string) {
 	if len(codes) == 0 {
 		return
 	}
+	var toClose []*Room
 	h.mu.Lock()
 	for _, code := range codes {
 		if room, ok := h.rooms[code]; ok {
-			room.Close()
+			toClose = append(toClose, room)
 			delete(h.rooms, code)
-			h.unsubscribeRoom(code)
-			h.unregisterRoomFromRedis(code)
+			h.unsubscribeRoomLocked(code)
 			h.logger.Info("cleaned up empty room", "code", code)
 		}
 	}
 	h.mu.Unlock()
+
+	for _, room := range toClose {
+		room.Close()
+	}
+	for _, code := range codes {
+		h.unregisterRoomFromRedis(code)
+	}
 }
 
 // RoomCount 返回当前房间数量
@@ -425,12 +452,6 @@ func (h *Hub) PhaseCounts() map[string]int {
 		counts[phase]++
 	}
 	return counts
-}
-
-// ListLobbies returns active lobbies with cursor-based pagination.
-// 企业为何需要（T24）：封装 DB 访问，handler 不再直接依赖 store 层。
-func (h *Hub) ListLobbies(ctx context.Context, limit int, cursor string) (*store.LobbyListResult, error) {
-	return h.ListLobbiesCached(ctx, limit, cursor)
 }
 
 // Timeouts returns the timeout configuration.
@@ -470,12 +491,13 @@ func (h *Hub) unregisterRoomFromRedis(code string) {
 	_ = h.redis.UnregisterRoom(ctx, code)
 }
 
-// subscribeRoom 订阅房间的跨实例广播频道。
-// 调用方必须持有 h.mu 锁。broadcaster 为 nil 时为空操作。
+// subscribeRoom 订阅房间的跨实例广播频道。broadcaster 为 nil 时为空操作。
 func (h *Hub) subscribeRoom(code string) {
 	if h.broadcaster == nil {
 		return
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if _, exists := h.subscriptions[code]; exists {
 		return
 	}
@@ -490,8 +512,13 @@ func (h *Hub) subscribeRoom(code string) {
 }
 
 // unsubscribeRoom 取消房间的跨实例广播订阅。
-// 调用方必须持有 h.mu 锁。
 func (h *Hub) unsubscribeRoom(code string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.unsubscribeRoomLocked(code)
+}
+
+func (h *Hub) unsubscribeRoomLocked(code string) {
 	if unsub, ok := h.subscriptions[code]; ok {
 		unsub()
 		delete(h.subscriptions, code)
@@ -499,7 +526,6 @@ func (h *Hub) unsubscribeRoom(code string) {
 }
 
 // handleRemoteBroadcast 处理来自其他实例的 Redis Pub/Sub 广播消息。
-// 跳过由本实例发出的消息（ExcludeInstance 匹配），避免回环。
 func (h *Hub) handleRemoteBroadcast(roomCode string, msg BroadcastMessage) {
 	if msg.ExcludeInstance == h.instanceID {
 		return
@@ -531,10 +557,30 @@ type wsConnectionLimitError struct{}
 func (e *wsConnectionLimitError) Error() string { return "websocket connection limit reached" }
 
 // CanAcceptWSConnection 检查是否可以接受新的 WebSocket 连接
-// 企业为何需要：舱壁隔离（Bulkhead）防止单类资源耗尽拖垮整体。WebSocket 连接洪水可耗尽文件描述符和内存，
-// 导致 REST API 也无法响应。连接上限是 DoS 防御的基本措施。
 func (h *Hub) CanAcceptWSConnection() bool {
 	return atomic.LoadInt64(&h.wsConnCount) < int64(h.maxWSConnections)
+}
+
+// ReserveWSConnection atomically reserves a WS slot before upgrade.
+// Call release() if join fails or connection closes without increment path.
+func (h *Hub) ReserveWSConnection() (release func(), ok bool) {
+	for {
+		cur := atomic.LoadInt64(&h.wsConnCount)
+		if cur >= int64(h.maxWSConnections) {
+			return nil, false
+		}
+		if atomic.CompareAndSwapInt64(&h.wsConnCount, cur, cur+1) {
+			metrics.WSConnections.Set(float64(cur + 1))
+			released := false
+			return func() {
+				if released {
+					return
+				}
+				released = true
+				h.DecrementWSConnection()
+			}, true
+		}
+	}
 }
 
 // IncrementWSConnection 原子递增 WebSocket 连接计数

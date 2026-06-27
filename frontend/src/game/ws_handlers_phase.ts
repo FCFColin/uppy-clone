@@ -1,4 +1,4 @@
-import { codeToPhase } from './protocol.js';
+import { codeToPhase } from './message_codec.js';
 import { state } from './state.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateUI } from './ui.js';

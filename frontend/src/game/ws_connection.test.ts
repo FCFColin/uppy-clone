@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   stopHeartbeat,
+  startWsHeartbeat,
   handlePong,
   sendOrQueue,
   flushPendingQueue,
   setWs,
-  getWs,
   resetReconnectAttempts,
   scheduleReconnect,
   waitForWebSocket,
 } from './ws_connection.js';
 import { pendingQueue } from './state.js';
-import { MAX_PENDING_QUEUE } from './constants.js';
+import { MAX_PENDING_QUEUE, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS } from './constants.js';
 
 class MockWebSocket {
   static OPEN = 1;
@@ -23,10 +23,6 @@ class MockWebSocket {
   close(): void {}
 }
 
-vi.mock('./ws_connection.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./ws_connection.js')>();
-  return { ...actual, showConnectionError: vi.fn() };
-});
 vi.mock('./ws_connect.js', () => ({ connectWebSocket: vi.fn() }));
 
 describe('ws_connection', () => {
@@ -40,6 +36,7 @@ describe('ws_connection', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    stopHeartbeat();
   });
 
   it('sendOrQueue sends when socket open', () => {
@@ -56,7 +53,6 @@ describe('ws_connection', () => {
     expect(pendingQueue.length).toBe(1);
   });
 
-  // Adversarial: queue overflow drops oldest messages (memory DoS protection).
   it('sendOrQueue drops oldest when queue full', () => {
     for (let i = 0; i < MAX_PENDING_QUEUE + 2; i++) {
       sendOrQueue(new ArrayBuffer(1));
@@ -73,9 +69,14 @@ describe('ws_connection', () => {
     expect((socket as unknown as MockWebSocket).sent.length).toBe(1);
   });
 
-  it('handlePong clears heartbeat timeout', () => {
+  it('handlePong clears heartbeat timeout without closing socket', () => {
+    const socket = new MockWebSocket() as unknown as WebSocket;
+    setWs(socket);
+    startWsHeartbeat();
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
     handlePong();
-    expect(getWs()).toBeNull();
+    vi.advanceTimersByTime(HEARTBEAT_TIMEOUT_MS - 1);
+    expect((socket as unknown as MockWebSocket).sent.length).toBeGreaterThan(0);
   });
 
   it('scheduleReconnect stops after max attempts', () => {

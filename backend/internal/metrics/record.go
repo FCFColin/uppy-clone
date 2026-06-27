@@ -73,6 +73,21 @@ func RecordWSMessage(msgType string, d time.Duration) {
 	WSMessageDuration.WithLabelValues(msgType).Observe(d.Seconds())
 }
 
+// RecordRoomLockHold records how long Room.mu was held for an operation.
+func RecordRoomLockHold(operation string, d time.Duration) {
+	RoomLockHoldSeconds.WithLabelValues(operation).Observe(d.Seconds())
+}
+
+// SetRoomOutboundQueueDepth updates the outbound queue depth gauge for a room.
+func SetRoomOutboundQueueDepth(roomCode string, depth int) {
+	RoomOutboundQueueDepth.WithLabelValues(roomCode).Set(float64(depth))
+}
+
+// SetRoomPersistLag updates persist lag for a room.
+func SetRoomPersistLag(roomCode string, lag time.Duration) {
+	RoomPersistLagSeconds.WithLabelValues(roomCode).Set(lag.Seconds())
+}
+
 // WSMessageTypeName maps protocol message type bytes to metric labels.
 func WSMessageTypeName(msgType byte) string {
 	switch msgType {

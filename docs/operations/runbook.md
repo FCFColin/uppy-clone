@@ -195,11 +195,11 @@ curl -s localhost:8080/metrics | grep ws_connection_total
 1. 启用/收紧 WebSocket 连接级速率限制（`CheckRateLimit` 已实现）
 2. 封禁高频 IP：在 WAF 或 iptables 层 `iptables -A INPUT -s <ip> -j DROP`
 3. 临时降低 `MaxWSConnections` 上限，拒绝新连接保护存量用户
-4. 水平扩容应用实例（HPA 自动扩缩，`infra/base/hpa.yaml`），分散连接压力
+4. 水平扩容应用实例（HPA 自动扩缩，`infra/k8s/base/hpa.yaml`），分散连接压力
 
 **根治方案**
 - 部署 WAF（Cloudflare / AWS WAF）拦截恶意流量，配置 Bot 防护规则
-- GKE HPA 按 CPU 与 `game_active_ws_connections` 自动扩缩（见 `infra/base/hpa.yaml`）
+- GKE HPA 按 CPU 与 `game_active_ws_connections` 自动扩缩（见 `infra/k8s/base/hpa.yaml`）
 - 客户端实现指数退避重连（exponential backoff + jitter）
 - 按 IP 限流 + 按用户限流双层防护
 - 监控 `ws_connections` 增长速率，异常突增触发告警
@@ -398,6 +398,38 @@ psql $DATABASE_URL -c "SELECT count(*) FROM audit_logs"
 2. 重新加密敏感配置字段：用新密钥通过 admin 配置接口重新写入 `resend_api_key` 等字段（先恢复旧密钥解密读出明文，再用新密钥加密写入）
 3. 若旧密钥已丢失：需在 Resend 控制台重新生成 API Key，再通过 admin 接口写入
 4. 密钥轮换流程固化：轮换前先解密所有字段 → 换密钥 → 重新加密写入，避免直接替换密钥导致密文失效
+
+## 6. Room 热路径性能（ADR-027）
+
+**症状**
+- 玩家报告输入延迟、周期性卡顿或 mass disconnect
+- `room_lock_hold_seconds{operation="tick"}` P95 > 25ms
+- `room_outbound_queue_depth` 持续 > 200
+- `room_persist_lag_seconds` > 2s
+
+**可能原因**
+- PostgreSQL 或 Redis 延迟升高，异步 worker backlog 堆积
+- 单房间玩家过多，出站队列丢弃 snapshot（非 critical）
+- 慢客户端未断开，占用 outbound worker 时间
+
+**排查命令**
+
+```bash
+curl -s localhost:8080/metrics | grep -E 'room_lock_hold|room_outbound|room_persist|outbox_lag'
+```
+
+**缓解步骤**
+
+1. 确认 PG/Redis 健康（见故障 1/2）；恢复依赖后 backlog 应回落
+2. 若 `room_outbound_queue_depth` 高：检查慢客户端 disconnect 率
+3. 若 `room_persist_lag_seconds` 高：检查 PG 连接池 `db_pool_*`
+4. 若 `outbox_lag_seconds` 高：确认 outbox publisher batch 运行中
+
+**根治**
+
+- 水平扩展 Hub 实例分散房间（ADR-005）
+- 调优 `PG_POOL_MAX_CONNS` / `REDIS_POOL_SIZE`（见 `.env.example`）
+- 参考 [benchmarks-k6-room-slo.md](../development/benchmarks-k6-room-slo.md) 与 [capacity-planning.md](capacity-planning.md)
 
 ## 7. 多区域事件（ADR-014/016）
 

@@ -3,28 +3,43 @@ package outbox
 import (
 	"context"
 	"log/slog"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/uppy-clone/backend/internal/metrics"
 )
 
 // Publisher polls outbox_events and publishes to Redis Streams.
-// 企业为何需要：跨数据源（PG+Redis）的原子性无法用分布式事务保证。Outbox 模式将事件与业务数据
-// 写入同一个 PG 事务，后台 publisher 轮询发布到 Redis Stream，保证 at-least-once 语义。
 type Publisher struct {
-	db  *pgxpool.Pool
-	rdb *redis.Client
+	db        *pgxpool.Pool
+	rdb       *redis.Client
+	batchSize int
+	interval  time.Duration
 }
 
 // NewPublisher creates a new Outbox Publisher.
 func NewPublisher(db *pgxpool.Pool, rdb *redis.Client) *Publisher {
-	return &Publisher{db: db, rdb: rdb}
+	batch := 100
+	if v := os.Getenv("OUTBOX_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			batch = n
+		}
+	}
+	interval := time.Second
+	if v := os.Getenv("OUTBOX_POLL_INTERVAL_MS"); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
+			interval = time.Duration(ms) * time.Millisecond
+		}
+	}
+	return &Publisher{db: db, rdb: rdb, batchSize: batch, interval: interval}
 }
 
 // Start begins polling outbox_events. Blocks until ctx is canceled.
 func (p *Publisher) Start(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 
 	for {
@@ -38,42 +53,81 @@ func (p *Publisher) Start(ctx context.Context) {
 }
 
 func (p *Publisher) publishBatch(ctx context.Context) {
-	rows, err := p.db.Query(ctx,
-		`SELECT id, aggregate_type, aggregate_id, payload FROM outbox_events WHERE processed_at IS NULL ORDER BY id LIMIT 100`)
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		slog.Error("outbox publisher: begin tx", "error", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx,
+		`SELECT id, aggregate_type, aggregate_id, payload, created_at
+		 FROM outbox_events
+		 WHERE processed_at IS NULL
+		 ORDER BY id
+		 LIMIT $1
+		 FOR UPDATE SKIP LOCKED`, p.batchSize)
 	if err != nil {
 		slog.Error("outbox publisher: query", "error", err)
 		return
 	}
-	defer rows.Close()
 
+	type row struct {
+		id        int64
+		aggType   string
+		aggID     string
+		payload   []byte
+		createdAt int64
+	}
+	var batch []row
+	var oldest int64
 	for rows.Next() {
-		var id int64
-		var aggType, aggID string
-		var payload []byte
-		if err := rows.Scan(&id, &aggType, &aggID, &payload); err != nil {
+		var r row
+		if err := rows.Scan(&r.id, &r.aggType, &r.aggID, &r.payload, &r.createdAt); err != nil {
 			slog.Error("outbox publisher: scan", "error", err)
 			continue
 		}
+		if oldest == 0 || r.createdAt < oldest {
+			oldest = r.createdAt
+		}
+		batch = append(batch, r)
+	}
+	rows.Close()
 
-		stream := aggType + ".events"
-		err := p.rdb.XAdd(ctx, &redis.XAddArgs{
+	if len(batch) == 0 {
+		return
+	}
+
+	pipe := p.rdb.Pipeline()
+	for _, item := range batch {
+		stream := item.aggType + ".events"
+		pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: stream,
 			Values: map[string]interface{}{
-				"aggregate_id": aggID,
-				"payload":      string(payload),
+				"aggregate_id": item.aggID,
+				"payload":      string(item.payload),
 			},
-		}).Err()
-		if err != nil {
-			slog.Error("outbox publisher: XAdd", "error", err, "id", id)
-			// Leave unprocessed — will be retried on next poll cycle.
-			continue
-		}
+		})
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		slog.Error("outbox publisher: pipeline XAdd", "error", err)
+		return
+	}
 
-		// Mark as processed.
-		// 企业为何需要：processed_at 标记确保已发布事件不会被重复发布。失败时事件保留，下次轮询重试。
-		_, err = p.db.Exec(ctx, `UPDATE outbox_events SET processed_at = $1 WHERE id = $2`, time.Now().UnixMilli(), id)
-		if err != nil {
-			slog.Error("outbox publisher: mark processed", "error", err, "id", id)
+	now := time.Now().UnixMilli()
+	for _, item := range batch {
+		if _, err := tx.Exec(ctx, `UPDATE outbox_events SET processed_at = $1 WHERE id = $2`, now, item.id); err != nil {
+			slog.Error("outbox publisher: mark processed", "error", err, "id", item.id)
+			return
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("outbox publisher: commit", "error", err)
+		return
+	}
+
+	metrics.OutboxBatchSize.Observe(float64(len(batch)))
+	if oldest > 0 {
+		metrics.OutboxLagSeconds.Set(float64(now-oldest) / 1000)
 	}
 }

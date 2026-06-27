@@ -1,11 +1,12 @@
 import { textDecoder } from './constants.js';
-import { codeToPhase } from './protocol.js';
+import { codeToPhase } from './message_codec.js';
 import {
   state, updateInterpolation, freezeInterpolation,
   isDuplicateSeq,
 } from './state.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateScoresOnly } from './ui_update.js';
+import { updateWindIndicator } from './ui_wind.js';
 
 export { shouldApplySnapshotPhase } from './phase_sync.js';
 
@@ -78,6 +79,7 @@ export function handleSnapshot(view: DataView): void {
 
     if (o < view.byteLength) {
       state.wind = view.getFloat32(o, true); o += 4;
+      updateWindIndicator(state.wind);
     }
 
     updateScoresOnly();
@@ -88,7 +90,7 @@ export function handleSnapshot(view: DataView): void {
     if (state.phase === 'ended') {
       freezeInterpolation();
     } else {
-      updateInterpolation();
+      updateInterpolation(timestamp);
     }
     state.hasReceivedFirstSnapshot = true;
   } catch (e: unknown) {

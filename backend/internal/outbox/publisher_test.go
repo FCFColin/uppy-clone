@@ -1,24 +1,17 @@
+//go:build integration
+
 package outbox
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
-	"github.com/testcontainers/testcontainers-go/wait"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
-
-// ─── Test helpers ────────────────────────────────────────────────────
 
 // testEnv holds testcontainers resources for a single test.
 type testEnv struct {
@@ -28,104 +21,9 @@ type testEnv struct {
 
 func setupTestEnv(t *testing.T) *testEnv {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	pool := startTestPostgres(t, ctx)
-	rdb := startTestRedis(t, ctx)
-
+	pool := testutil.SetupPostgresPoolMigrated(t)
+	rdb, _ := testutil.SetupRedisClient(t)
 	return &testEnv{pool: pool, rdb: rdb}
-}
-
-// startTestPostgres starts a PostgreSQL testcontainer, creates a connection pool,
-// and applies the outbox_events migration.
-func startTestPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
-	t.Helper()
-	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("test"),
-		postgres.WithPassword("test"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second)),
-	)
-	if err != nil {
-		t.Skipf("skipping: postgres container unavailable (Docker not running?): %v", err)
-	}
-	t.Cleanup(func() { pgContainer.Terminate(ctx) })
-
-	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
-	}
-
-	pool, err := pgxpool.New(ctx, connStr)
-	if err != nil {
-		t.Fatalf("failed to create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	// Apply outbox_events migration
-	migPath := filepath.Join(migrationsDir(t), "000007_create_outbox_events.up.sql")
-	sql, err := os.ReadFile(migPath) //nolint:gosec // test path is controlled
-	if err != nil {
-		t.Fatalf("read migration: %v", err)
-	}
-	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		t.Fatalf("apply migration: %v", err)
-	}
-
-	return pool
-}
-
-// startTestRedis starts a Redis testcontainer and returns a connected client.
-func startTestRedis(t *testing.T, ctx context.Context) *redis.Client {
-	t.Helper()
-	redisContainer, err := tcredis.Run(ctx,
-		"redis:7-alpine",
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("Ready to accept connections").
-				WithStartupTimeout(10*time.Second)),
-	)
-	if err != nil {
-		t.Skipf("skipping: redis container unavailable (Docker not running?): %v", err)
-	}
-	t.Cleanup(func() { _ = redisContainer.Terminate(ctx) })
-
-	addr, err := redisContainer.Endpoint(ctx, "")
-	if err != nil {
-		t.Fatalf("failed to get redis endpoint: %v", err)
-	}
-
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
-	t.Cleanup(func() { rdb.Close() })
-
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		t.Fatalf("redis ping: %v", err)
-	}
-
-	return rdb
-}
-
-// migrationsDir resolves the absolute path to backend/migrations.
-func migrationsDir(t *testing.T) string {
-	t.Helper()
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("could not determine test file path")
-	}
-	// This file is at backend/internal/outbox/publisher_test.go
-	// migrations are at backend/migrations/
-	dir := filepath.Join(filepath.Dir(filename), "..", "..", "migrations")
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatalf("resolve migrations path: %v", err)
-	}
-	return abs
 }
 
 // insertOutboxEvent inserts a test event into outbox_events.

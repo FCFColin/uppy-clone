@@ -59,7 +59,7 @@
 - 章程**不**为真正的技术债背书。以下仍属应清理的债务，与"刻意复杂"无关：
   - 早期平台遗存（Cloudflare `.wrangler/`、孤儿 wrangler 依赖、过时 Cloud Run 措辞）。
   - 文档与现实脱节（把"目标态"写成"已完成终态"）。
-  - 仓库卫生（ADR 编号重复、大批改动长期未提交）。
+  - 仓库卫生（ADR 编号重复、大批改动长期未提交）→ **目录布局**已于 2026-06-27 收敛至 ADR-021（`make check-repo-layout` 门禁）。
 
 ---
 
@@ -79,7 +79,7 @@
 - **多区域 + CockroachDB**（ADR-014/015/016）→ 保留为**目标态**，状态如实标注"提议/部分落地"。
 - **合规三件套**（GDPR 硬删除、审计防篡改、威胁模型）→ 保留：明确为学习目标，必须存在。
 - **可观测 / 弹性栈**（OTel、Pyroscope、熔断/隔板/幂等/限流）→ 保留。
-- **多路径认证**（QuickPlay + Magic Link + JWT + Refresh + bcrypt Admin + Casbin RBAC）
+- **多路径认证**（QuickPlay + Magic Link + JWT + Refresh + bcrypt Admin + 轻量 RBAC，见 ADR-026）
   → 保留。可选未来简化点：若仅作演示可合并为 QuickPlay + Magic Link，但默认不动。
 
 ### 清理 (Cleanup — 与目标无关的真实债务)

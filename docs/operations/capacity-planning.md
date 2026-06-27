@@ -6,7 +6,8 @@
 
 | 参数 | 值 | 来源 |
 |------|-----|------|
-| PG `MaxConns` | 25 | `store/postgres.go` 默认 |
+| PG `MaxConns` | 25 | `PG_POOL_MAX_CONNS` / `store/postgres.go` |
+| Redis `PoolSize` | 20 | `REDIS_POOL_SIZE` / `store/redis.go` |
 | `MAX_WS_CONNECTIONS` | 10000 | `config/constants.go` |
 | `MAX_PLAYERS_PER_ROOM` | 50 | 默认 |
 | 单用户 WS 消息 | ~15 Hz tap + snapshot | 游戏 tick |
@@ -30,12 +31,12 @@
 |------|------|
 | PG 池等待 >50ms P95 | 读副本 + CQRS 读路径（CRDB follower reads，见 P2） |
 | WS 拒绝率 >1% | HPA 扩 Hub 实例（owner 反向代理，区域内寻址 ADR-005） |
-| 单实例 CPU >65% 持续 | HPA on CPU（`infra/base/hpa.yaml`） |
-| 单实例 WS 连接 >6000 | HPA on `game_active_ws_connections`（`infra/base/hpa.yaml`） |
+| 单实例 CPU >65% 持续 | HPA on CPU（`infra/k8s/base/hpa.yaml`） |
+| 单实例 WS 连接 >6000 | HPA on `game_active_ws_connections`（`infra/k8s/base/hpa.yaml`） |
 
 ## 水平扩展机制（生产级，P1 落地）
 
-- **HPA**：`infra/base/hpa.yaml` 同时按 CPU(65%) 与每实例 WS 连接数(6000) 扩缩，
+- **HPA**：`infra/k8s/base/hpa.yaml` 同时按 CPU(65%) 与每实例 WS 连接数(6000) 扩缩，
   minReplicas=3、maxReplicas=100；scaleDown 稳定窗口 300s 避免抖动式排空长连接。
 - **优雅排空**：SIGTERM → readiness 立即返回 503（`health.Checker.SetDraining`），
   LB 在 `DRAIN_DELAY`(默认 5s) 内移出该 Pod，存量对局在 `terminationGracePeriodSeconds`(60s)
@@ -49,6 +50,8 @@
 - **REST**：`k6 run scripts/load/k6-smoke.js -e BASE_URL=...`，记录 `http_req_duration` P95。
 - **WebSocket/房间**：`k6 run scripts/load/k6-ws-soak.js -e BASE_URL=... -e WS_URL=ws://... -e VUS=2000`
   - 阈值：`ws_connect_time` p95<1s、`ws_first_snapshot_ms` p99<500ms、checks>95%。
+- **单房间高密度**：`k6 run scripts/load/k6-single-room.js -e BASE_URL=... -e PLAYERS=50`
+  - 阈值：`ws_unexpected_disconnects` count<1、checks>95%。
   - 扩容判据：实例数翻倍时，达到上述阈值前的"最大稳定并发 WS / 活跃房间"应近似线性增长
     （受单房间 tick 不可分片限制，扩展维度是"房间总数"而非"单房间算力"，见 ADR-016）。
 - 每季度运行并回填下表（示例结构，数据由实际压测填充）：

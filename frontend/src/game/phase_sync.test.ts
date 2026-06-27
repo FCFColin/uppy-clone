@@ -40,6 +40,8 @@ vi.mock('./ui.js', () => ({
   startCountdownTimer: mocks.startCountdownTimer,
   hideCountdownOverlay: mocks.hideCountdownOverlay,
   showCountdownOverlay: mocks.showCountdownOverlay,
+  startCooldownUpdater: vi.fn(),
+  stopCooldownUpdater: vi.fn(),
 }));
 
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';

@@ -16,7 +16,8 @@
 | [测试覆盖率策略](development/coverage-policy.md) | 单元/集成/前端覆盖率门禁 |
 | [日志策略](security/logging-policy.md) | 日志级别、结构化字段、PII 禁止项 |
 | [环境配置](operations/environments.md) | 本地 / staging / 生产配置矩阵 |
-| [性能基准](development/benchmarks.md) | CI 生成的 benchmark 输出（勿手改） |
+| [Go microbench 基准](development/benchmarks-go-microbench.md) | CI 生成的 `go test -bench` 输出（勿手改） |
+| [k6 / Room SLO 基准](development/benchmarks-k6-room-slo.md) | 负载测试与 Room Prometheus SLO 基线 |
 
 ## 运维
 
@@ -61,3 +62,28 @@
 | 文档 | 说明 |
 |------|------|
 | [Postmortem 模板](templates/postmortem.md) | P0/P1 事故复盘模板 |
+
+## 路径变更说明（旧 flat 路径 → 当前位置）
+
+| 旧路径 | 当前路径 |
+|--------|----------|
+| `docs/architecture.md` | `architecture/architecture.md` |
+| `docs/runbook.md` | `operations/runbook.md` |
+| `docs/slo.md` | `operations/slo.md` |
+| `docs/chaos-experiments.md` | `operations/chaos-experiments.md` |
+| `docs/coverage-policy.md` | `development/coverage-policy.md` |
+| `docs/benchmarks-v2.md` | `development/benchmarks-k6-room-slo.md` |
+| `docs/benchmarks.md`（flat） | `development/benchmarks-go-microbench.md` |
+| `infra/base/`、`infra/main.tf` | `infra/k8s/`、`infra/terraform/` |
+| `scripts/check-*.sh`、`scripts/pin-digests.sh` | `scripts/ci/` |
+| `scripts/k6/` | `scripts/load/` |
+| `docker/init-scripts/` | `docker/postgres/init/` |
+| `docs/environments.md` | `operations/environments.md` |
+| `docs/logging-policy.md` | `security/logging-policy.md` |
+| `docs/threat-model.md` | `security/threat-model.md` |
+| `docs/ws-protocol.md` | `api/ws-protocol.md` |
+| `docs/multi-region-topology.md` | `architecture/multi-region-topology.md` |
+| `docs/cockroachdb-migration.md` | `data/cockroachdb-migration.md` |
+| `docs/db-query-analysis.md` | `data/db-query-analysis.md` |
+| `docs/capacity-planning.md` | `operations/capacity-planning.md` |
+| `docs/continuous-profiling.md` | `operations/continuous-profiling.md` |

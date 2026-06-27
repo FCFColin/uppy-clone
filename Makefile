@@ -1,4 +1,4 @@
-.PHONY: help dev observability-up test test-all test-cover test-integration test-containers lint lint-all build run migrate seed bench audit clean generate simplify deadcode check check-fast ci
+.PHONY: help dev observability-up test test-all test-cover test-integration test-containers lint lint-all build run migrate seed bench audit clean generate simplify deadcode check check-fast ci e2e sync-alert-rules check-repo-layout
 
 help:
 	@echo "Targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  check-fast       lint-all + unit tests (-short)"
 	@echo "  check            lint-all + test-cover"
 	@echo "  ci               check + test-containers + audit"
+	@echo "  e2e              Playwright E2E (tests/e2e)"
 	@echo "  build run migrate seed bench audit clean generate simplify deadcode"
 
 TOOL_BUILD = cd backend && go build -o bin
@@ -31,22 +32,22 @@ test:
 	cd backend && go test ./... -race -short -timeout 60s
 
 test-integration:
-	cd backend && go test ./tests/integration/... -race -timeout 180s -v
+	cd backend && go test -tags=integration ./tests/integration/... -timeout 180s -v
 
 test-containers:
-	cd backend && go test ./tests/integration/... ./internal/outbox/... ./internal/worker/... ./cmd/migrate-passwords/... ./cmd/backfill-emails/... -race -timeout 180s
+	cd backend && go test -tags=integration ./tests/integration/... ./internal/outbox/... ./internal/worker/... ./cmd/migrate-passwords/... ./cmd/backfill-emails/... -timeout 180s
 
 test-all: test test-integration
 	cd frontend && npm test
 
 test-cover:
-	cd backend && go test $$(go list ./... | grep -v /tests/integration) -short -p 1 -race -coverprofile=unit.out -covermode=atomic -timeout 180s
-	cd backend && go test ./tests/integration/... -p 1 -coverprofile=int.out -covermode=atomic -timeout 180s
+	cd backend && go test $$(go list ./... | grep -v /tests/integration) -short -p 1 -coverprofile=unit.out -covermode=atomic -timeout 180s
+	cd backend && go test -tags=integration ./tests/integration/... -p 1 -coverprofile=int.out -covermode=atomic -timeout 180s
 	cd backend && go tool cover -func unit.out
-	bash scripts/check-coverage.sh unit backend/unit.out
-	bash scripts/check-coverage.sh integration backend/int.out
+	bash scripts/ci/check-coverage.sh unit backend/unit.out
+	bash scripts/ci/check-coverage.sh integration backend/int.out
 	cd frontend && npm run test:frontend
-	bash scripts/check-coverage.sh frontend
+	bash scripts/ci/check-coverage.sh frontend
 
 lint:
 	cd backend && golangci-lint run --allow-parallel-runners=false
@@ -59,7 +60,16 @@ check: lint-all test-cover
 
 check-fast: lint-all test
 
-ci: check test-containers audit
+ci: check test-containers audit check-repo-layout
+
+sync-alert-rules:
+	bash scripts/ci/sync-alert-rules.sh
+
+check-repo-layout:
+	bash scripts/ci/check-repo-layout.sh
+
+e2e:
+	npx playwright test
 
 build:
 	cd backend && go build -o bin/server ./cmd/server
@@ -75,7 +85,7 @@ seed:
 	cd backend && go run ./cmd/seed
 
 bench:
-	cd backend && go test -bench=. -benchmem -run=^$$ ./... | tee ../docs/development/benchmarks.md
+	cd backend && go test -bench=. -benchmem -run=^$$ ./... | tee ../docs/development/benchmarks-go-microbench.md
 
 audit:
 	$(TOOL_BUILD)/govulncheck golang.org/x/vuln/cmd/govulncheck

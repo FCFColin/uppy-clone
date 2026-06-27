@@ -35,7 +35,7 @@ func FileSourceURL(dir string) (string, error) {
 }
 
 // EnsureDBRoles creates roles required by migration 000009 when missing.
-// Production Docker runs docker/init-scripts/01-create-roles.sql at init time.
+// Production Docker runs docker/postgres/init/01-create-roles.sql at init time.
 func EnsureDBRoles(ctx context.Context, connString string) error {
 	conn, err := pgx.Connect(ctx, connString)
 	if err != nil {

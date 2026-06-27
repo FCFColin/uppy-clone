@@ -17,7 +17,7 @@
 2. Stage 2：Go 编译 `cmd/server` 静态二进制
 3. Stage 3：distroless 镜像包含 `/server` + `/dist` + `/migrations`
 
-Go server 在运行时通过 `http.FileServer` 或等效机制服务 `dist/` 中的静态文件（`cmd/server/main.go` 静态路由段）。
+Go server 在运行时通过 `http.FileServer` 或等效机制服务 `dist/` 中的静态文件（`internal/server` 静态路由段）。
 
 开发模式保持分离：Vite `:5173` proxy `/api` 和 `/lobby` 到 Go `:8080`（`vite.config.ts:4-37`）。
 

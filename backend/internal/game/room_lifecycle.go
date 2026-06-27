@@ -1,12 +1,9 @@
 package game
 
 import (
-	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/idgen"
@@ -18,8 +15,12 @@ import (
 // 企业为何需要：舱壁隔离（Bulkhead）防止单类资源耗尽拖垮整体。WebSocket 连接洪水可耗尽文件描述符和内存，
 // 导致 REST API 也无法响应。连接上限是 DoS 防御的基本措施。
 func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
+	start := time.Now()
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	defer func() {
+		recordRoomLock("join", start)
+		r.mu.Unlock()
+	}()
 
 	player := r.state.Players[playerID]
 	isReconnect := player != nil
@@ -243,7 +244,7 @@ func (r *Room) EndGame() error {
 		r.state.Balloon.Y = 0
 	}
 
-	r.enqueueGameResult()
+	r.enqueueGameResultAsync()
 	r.broadcastGameEnded()
 
 	if len(r.connections) > 0 {
@@ -256,51 +257,6 @@ func (r *Room) EndGame() error {
 	return nil
 }
 
-func (r *Room) enqueueGameResult() {
-	if r.hub == nil || r.hub.redis == nil || r.state.SessionID == "" {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
-	defer cancel()
-
-	endedAt := time.Now().UnixMilli()
-	results := make([]map[string]interface{}, 0, len(r.state.Players))
-	for _, p := range r.state.Players {
-		results = append(results, map[string]interface{}{
-			"user_id":            p.ID,
-			"score_contribution": p.ScoreContribution,
-			"taps_count":         p.TapsCount,
-		})
-	}
-
-	payload := map[string]interface{}{
-		"game_id":     r.state.SessionID,
-		"room_code":   r.state.LobbyCode,
-		"final_score": r.state.Balloon.Score,
-		"results":     results,
-		"ended_at":    endedAt,
-	}
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		r.logger.Error("marshal game result payload", "error", err)
-		return
-	}
-	if err := r.hub.redis.EnqueueGameResult(ctx, payloadJSON); err != nil {
-		r.logger.Error("enqueue game result", "error", err)
-	}
-	if r.store == nil {
-		return
-	}
-	outboxPayload, oErr := auth.GameEndedOutboxPayload(payload)
-	if oErr != nil {
-		r.logger.Error("marshal game ended outbox payload", "error", oErr)
-		return
-	}
-	if err := r.store.InsertOutboxEvent(ctx, "game", r.state.SessionID, outboxPayload); err != nil {
-		r.logger.Error("insert game ended outbox event", "error", err)
-	}
-}
 
 func (r *Room) broadcastGameEnded() {
 	r.broadcast(r.buildSnapshot(), "")
@@ -358,18 +314,12 @@ func (r *Room) handleCountdownEnd() {
 	metrics.GameSessionsTotal.Inc()
 
 	if r.store != nil && r.state.SessionID != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
-		defer cancel()
-		if err := r.store.CreateGameSession(ctx, &domain.GameSession{
+		r.createGameSessionAsync(&domain.GameSession{
 			ID:        r.state.SessionID,
 			LobbyCode: r.state.LobbyCode,
 			Status:    "playing",
 			StartedAt: &r.state.StartedAt,
-		}); err != nil {
-			r.logger.Warn("create game session failed, will retry",
-				"error", err,
-				"room_code", r.state.LobbyCode)
-		}
+		})
 	}
 	r.saveState()
 }

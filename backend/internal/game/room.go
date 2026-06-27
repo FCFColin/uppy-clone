@@ -20,6 +20,8 @@ type PlayerConn struct {
 	// consecutiveDrops tracks consecutive message drops for slow client detection.
 	// P4-5: 连续丢弃计数，达到阈值后告警/断开慢客户端。访问由 Room.mu 保护。
 	consecutiveDrops int
+	// pendingDisconnect marks a slow client for removal after outbound delivery.
+	pendingDisconnect bool
 }
 
 // Room 表示一个游戏房间。
@@ -59,6 +61,22 @@ type Room struct {
 	// wg tracks tick goroutines so Close() can wait for them to exit
 	// before persisting state (P2-24: graceful shutdown).
 	wg sync.WaitGroup
+
+	// asyncWg tracks outbound/persist worker goroutines.
+	asyncWg sync.WaitGroup
+
+	// outboundCh delivers broadcasts outside Room.mu (see room_outbound.go).
+	outboundCh   chan outboundMsg
+	outboundOnce sync.Once
+
+	// persistCh debounces PostgreSQL writes (see room_persist_async.go).
+	persistCh     chan persistJob
+	persistOnce   sync.Once
+	persistMu     sync.RWMutex
+	lastPersistAt time.Time
+
+	// syncOutbound delivers immediately (unit tests).
+	syncOutbound bool
 
 	// broadcaster 用于跨实例广播。nil 表示单实例模式（仅本地投递）。
 	broadcaster Broadcaster
@@ -112,18 +130,22 @@ func (r *Room) Close() {
 	r.wg.Wait()
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if r.endGameTimer != nil {
 		r.endGameTimer.Stop()
 	}
 	for _, pc := range r.connections {
-		_ = pc.Conn.Close()
+		if pc.Conn != nil {
+			_ = pc.Conn.Close()
+		}
 		close(pc.Send)
 	}
 	r.connections = make(map[string]*PlayerConn)
+	r.mu.Unlock()
 
-	r.saveState()
+	r.stopOutbound()
+	r.flushPersistSync()
+	r.stopPersist()
+	r.asyncWg.Wait()
 }
 
 // ErrRoomFull 房间玩家已满

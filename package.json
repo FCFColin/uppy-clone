@@ -10,6 +10,7 @@
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && go build ./cmd/server",
     "test:backend": "cd backend && go test ./...",
+    "test:e2e": "playwright test",
     "docker:up": "docker-compose up --build",
     "docker:down": "docker-compose down"
   },
@@ -18,11 +19,9 @@
     "@commitlint/config-conventional": "^19.0.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.0",
-    "@vitest/coverage-v8": "^4.1.9",
     "concurrently": "^9.0.0",
     "eslint": "^10.5.0",
     "typescript": "^5.6.0",
-    "typescript-eslint": "^8.61.1",
-    "vitest": "^4.1.9"
+    "typescript-eslint": "^8.61.1"
   }
 }

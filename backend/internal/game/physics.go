@@ -122,7 +122,7 @@ func UpdateWind(state *domain.GameState) {
 	// === 大变化 ===
 	state.WindChangeCountdown--
 	if state.WindChangeCountdown <= 0 {
-		state.WindTarget = (randFloat64() - 0.5) * 2 // -1 到 1
+		state.WindTarget = (randFloat64() - 0.5) * protocol.WindTargetSpan
 		state.WindChangeCountdown = int(float64(protocol.WindChangeInterval) * (0.5 + randFloat64()))
 	}
 
@@ -130,16 +130,24 @@ func UpdateWind(state *domain.GameState) {
 	effectiveTarget := state.WindTarget + state.WindMidOffset
 	state.Wind += (effectiveTarget - state.Wind) * protocol.WindLerpRate
 
-	// 限制 wind 在 [-1, 1] 范围
-	if state.Wind > 1 {
-		state.Wind = 1
+	if state.Wind > protocol.WindClamp {
+		state.Wind = protocol.WindClamp
 	}
-	if state.Wind < -1 {
-		state.Wind = -1
+	if state.Wind < -protocol.WindClamp {
+		state.Wind = -protocol.WindClamp
 	}
 
-	// 风力影响气球水平速度
-	state.Balloon.VX += state.Wind * protocol.WindMax
+	windScale := 1.0
+	edgeDist := state.Balloon.X
+	if rightDist := 1 - state.Balloon.X; rightDist < edgeDist {
+		edgeDist = rightDist
+	}
+	if edgeDist < protocol.WindEdgeSoftZone {
+		windScale = edgeDist / protocol.WindEdgeSoftZone
+	}
+
+	// 风力影响气球水平速度（靠边时减弱，避免被风压在边界）
+	state.Balloon.VX += state.Wind * protocol.WindMax * windScale
 }
 
 // ─── 鸟 AI ───────────────────────────────────────────────────────────

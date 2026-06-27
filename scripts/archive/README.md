@@ -4,9 +4,7 @@
 
 | 脚本 | 用途 |
 |------|------|
-| `merge_go_tests.py` | 合并 Go 测试文件 |
-| `merge-package-tests.py` | 按包合并测试 |
-| `fix_imports.py` | 批量修正 import |
-| `cleanup-old-code.ps1` | 本地清理旧代码（Windows） |
+| `merge_go_tests.py` | 合并同一 Go 包内碎片 `*_test.go` |
+| `merge-package-tests.py` | 合并前端 Vitest 测试文件 |
 
-负载测试请使用 [`../load/`](../load/)（`k6-smoke.js`、`k6-ws-soak.js`）。
+负载测试请使用 [`../load/`](../load/)（`k6-smoke.js`、`k6-ws-soak.js`、`k6-single-room.js`）。

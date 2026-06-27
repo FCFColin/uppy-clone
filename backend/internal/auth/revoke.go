@@ -12,6 +12,9 @@ import (
 // RevokeAllTokens revokes all tokens (refresh + access) for the current user.
 // Extracted to eliminate duplication between Logout and DeleteUserData handlers.
 func RevokeAllTokens(ctx context.Context, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, redis *store.RedisStore, r *http.Request) {
+	if r == nil {
+		return
+	}
 	var userID string
 
 	for _, cookieName := range []string{"session", "quickplay"} {

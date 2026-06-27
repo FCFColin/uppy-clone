@@ -13,8 +13,12 @@ import (
 
 // HandleMessage 处理客户端消息
 func (r *Room) HandleMessage(playerID string, msgType byte, payload []byte) error {
+	start := time.Now()
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	defer func() {
+		recordRoomLock("message", start)
+		r.mu.Unlock()
+	}()
 
 	player, ok := r.state.Players[playerID]
 	if !ok {
@@ -58,8 +62,10 @@ func (r *Room) tick(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			start := time.Now()
 			r.mu.Lock()
 			r.tickOnce()
+			recordRoomLock("tick", start)
 			r.mu.Unlock()
 		}
 	}
@@ -241,21 +247,11 @@ func (r *Room) broadcastTapResult(player *domain.PlayerState, cooldown int64) {
 
 // handleSetNicknameMsg 处理设置昵称消息
 func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) {
-	if len(payload) < 1 {
+	nickname, ok := protocol.DecodeNicknamePayload(payload)
+	if !ok {
 		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
 		return
 	}
-	nickLen := int(payload[0])
-	// Length byte is UTF-8 byte count (wire format), not rune count; CJK nicknames can exceed MaxNicknameLen bytes.
-	if nickLen <= 0 || nickLen > 255 {
-		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
-		return
-	}
-	if len(payload) < 1+nickLen {
-		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
-		return
-	}
-	nickname := string(payload[1 : 1+nickLen])
 	sanitized := sanitizeNickname(nickname)
 	if sanitized == "" {
 		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()

@@ -1,6 +1,6 @@
 -- Database roles for least privilege access
 -- 企业为何需要：应用使用最小权限账户，即使 SQL 注入成功也无法执行 DDL 或管理操作。
--- NOTE: CREATE ROLE is in docker/init-scripts/01-create-roles.sql (runs at DB init, outside migration transactions).
+-- NOTE: CREATE ROLE is in docker/postgres/init/01-create-roles.sql (runs at DB init, outside migration transactions).
 -- This migration only contains GRANT statements (CREATE ROLE fails inside golang-migrate transactions on PG 16).
 
 -- App user: can only DML on application tables
