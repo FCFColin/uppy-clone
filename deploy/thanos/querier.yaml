@@ -1,0 +1,63 @@
+# Global Thanos Query — fans out to each region's Thanos sidecar Store API and
+# deduplicates by the `region`/`replica` external labels (ADR-014 multi-region
+# observability aggregation). Deployed once on the config/global cluster.
+#
+# 跨区域 gRPC 必须经 mTLS（服务网格或 Thanos --grpc-client-tls-*），见
+# docs/architecture/multi-region-topology.md。
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-query
+  labels:
+    app: thanos-query
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: thanos-query
+  template:
+    metadata:
+      labels:
+        app: thanos-query
+    spec:
+      containers:
+        - name: thanos-query
+          image: quay.io/thanos/thanos:v0.36.1
+          args:
+            - query
+            - --http-address=0.0.0.0:9090
+            - --grpc-address=0.0.0.0:10901
+            - --query.replica-label=replica
+            - --query.replica-label=region
+            # 每区域 Thanos sidecar Store 端点（通过区域间私网/网格 DNS）。
+            # 生产用 dnssrv+ 自动发现，并启用 gRPC mTLS。
+            - --store=dnssrv+_grpc._tcp.thanos-store-gateway.balloon-game.us-east1.svc
+            - --store=dnssrv+_grpc._tcp.thanos-store-gateway.balloon-game.europe-west1.svc
+            - --store=dnssrv+_grpc._tcp.thanos-store-gateway.balloon-game.asia-southeast1.svc
+          ports:
+            - name: http
+              containerPort: 9090
+            - name: grpc
+              containerPort: 10901
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-query
+  labels:
+    app: thanos-query
+spec:
+  selector:
+    app: thanos-query
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090

@@ -1,0 +1,9 @@
+uppy-clone
+Copyright (c) 2026 uppy-clone contributors
+
+This product includes software developed by third parties.
+See CI artifact `third-party-licenses.txt` or run:
+
+    cd backend && go-licenses report ./...
+
+The full license text for this project is in LICENSE (MIT).

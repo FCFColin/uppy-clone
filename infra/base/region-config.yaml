@@ -1,0 +1,12 @@
+# Default region routing config for single-region / local deploy.
+# Multi-region overlays replace these values via configMapGenerator (ADR-016).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: balloon-game-region
+  labels:
+    app: balloon-game
+data:
+  deploy-region: ""
+  region-ws-endpoint: ""
+  db-dialect: postgres

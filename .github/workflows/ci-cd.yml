@@ -20,23 +20,35 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - run: npm ci
-      - name: TypeScript Check
-        run: npx tsc --noEmit
       - name: Install frontend dependencies
         run: cd frontend && npm ci
+      - name: TypeScript Check
+        run: cd frontend && npm run typecheck
       - name: Lint frontend
         run: cd frontend && npm run lint
-        continue-on-error: true  # Start as non-blocking, upgrade to blocking later
       - name: npm audit (high severity)
         run: cd frontend && npm audit --audit-level=high
-        continue-on-error: true  # Start as non-blocking
-      - name: Unit Tests (Coverage ≥ 80%)
-        run: npx vitest run --coverage
-        # Coverage threshold may not be met yet; non-blocking until baseline improves
-        continue-on-error: true
-      - name: Integration Tests
-        run: npx vitest run tests/integration --coverage.enabled=false
+        continue-on-error: false
+      - name: Frontend Unit Tests
+        run: cd frontend && npm run test:frontend
+      - name: Frontend coverage governance
+        run: bash scripts/check-coverage.sh frontend
+
+  backend-test:
+    name: Backend Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Unit tests (same gate as go-ci Test job)
+        run: |
+          cd backend
+          PKGS=$(go list ./... | grep -v /tests/integration)
+          go test $PKGS -timeout 120s -race -short -coverprofile=unit.out -covermode=atomic
+      - name: Unit coverage governance
+        run: bash scripts/check-coverage.sh unit backend/unit.out
 
   dependency-review:
     name: Dependency Review
@@ -50,81 +62,106 @@ jobs:
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
 
-  e2e-gameplay:
-    name: E2E Gameplay Tests（核心玩法验证）
-    needs: quality-gate
+  e2e:
+    name: E2E Tests (${{ matrix.spec }})
+    needs: [quality-gate, backend-test]
     runs-on: ubuntu-latest
-    # Playwright E2E tests need a running backend which CI may not provide; non-blocking
-    continue-on-error: true
+    strategy:
+      matrix:
+        spec: [gameplay, performance]
+    services:
+      postgres:
+        image: postgres:16.4-alpine3.20
+        env:
+          POSTGRES_USER: uppy
+          POSTGRES_PASSWORD: uppy
+          POSTGRES_DB: uppy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7.4.0-alpine3.20
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JWT_SECRET: ci-test-jwt-secret-minimum-32-bytes-long
+      ADMIN_PASSWORD: ci-test-admin-password
+      ENCRYPTION_KEY: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+      DATABASE_URL: postgres://uppy:uppy@localhost:5432/uppy?sslmode=disable
+      REDIS_URL: localhost:6379
+      ENABLE_HSTS: "false"
+      MIGRATIONS_DIR: backend/migrations
+      FRONTEND_DIR: frontend/dist
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - run: npm ci
+      - uses: ./.github/actions/e2e-setup
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
-      - name: Run Core Gameplay E2E Tests
-        run: npx playwright test tests/e2e/gameplay.spec.ts --reporter=html
+      - name: Run E2E Tests
+        run: PROD_E2E=1 E2E_BASE_URL=http://localhost:8080 npx playwright test tests/e2e/${{ matrix.spec }}.spec.ts --reporter=html
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-gameplay-report-${{ github.sha }}
-          path: playwright-report/
-          retention-days: 30
-
-  e2e-performance:
-    name: E2E Performance Tests（性能验证）
-    needs: quality-gate
-    runs-on: ubuntu-latest
-    # Playwright E2E tests need a running backend which CI may not provide; non-blocking
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - run: npm ci
-      - name: Install Playwright
-        run: npx playwright install --with-deps chromium
-      - name: Run Performance E2E Tests
-        run: npx playwright test tests/e2e/performance.spec.ts --reporter=html
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-performance-report-${{ github.sha }}
+          name: playwright-${{ matrix.spec }}-report-${{ github.sha }}
           path: playwright-report/
           retention-days: 30
 
   deploy:
-    name: Deploy to Production
-    needs: [quality-gate, e2e-gameplay, e2e-performance]
+    name: Deploy to GKE (multi-region)
+    needs: [quality-gate, backend-test, e2e]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
+    # 多区域滚动部署：逐区域 apply kustomize overlay（ADR-014）。各区域用各自的
+    # GKE 集群凭据。Cloud Run 双平台已废弃（见 ADR-013 更新 / ADR-016）。
+    strategy:
+      max-parallel: 1
+      matrix:
+        region: [us-east1, europe-west1, asia-southeast1]
     steps:
       - uses: actions/checkout@v4
-      # Deploy target: Google Cloud Run (ADR-001). Wrangler/Cloudflare Workers
-      # deploy removed. The authoritative container build & push pipeline is
-      # the build-push job in .github/workflows/go-ci.yml, which pushes the
-      # image to GCR for Cloud Run. This job now only emits a deployment
-      # summary after the upstream quality/E2E gates pass.
+
+      # Workload Identity Federation：免长期 JSON 密钥（与运行时 ADR-014 一致）。
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+
+      - name: Set up Cloud SDK + GKE auth plugin
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: gke-gcloud-auth-plugin
+
+      - name: Get GKE credentials (${{ matrix.region }})
+        run: |
+          gcloud container clusters get-credentials "balloon-game-${{ matrix.region }}" \
+            --region "${{ matrix.region }}" --project "${{ secrets.GCP_PROJECT_ID }}"
+
+      - name: Pin image tag for region
+        run: |
+          cd "infra/overlays/${{ matrix.region }}"
+          kubectl kustomize . | sed "s/PROJECT_ID/${{ secrets.GCP_PROJECT_ID }}/g" | kubectl apply --server-side -f -
+          kubectl -n balloon-game set image statefulset/balloon-game \
+            balloon-game="gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}"
+
+      - name: Wait for rollout (${{ matrix.region }})
+        run: |
+          kubectl -n balloon-game rollout status statefulset/balloon-game --timeout=300s
+
       - name: Deployment Summary
         if: always()
         run: |
-          echo "## Deploy Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Environment:** production" >> $GITHUB_STEP_SUMMARY
-          echo "- **Ref:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Actor:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Workflow:** ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Run:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Triggered Jobs" >> $GITHUB_STEP_SUMMARY
-          echo "- quality-gate" >> $GITHUB_STEP_SUMMARY
-          echo "- e2e-gameplay" >> $GITHUB_STEP_SUMMARY
-          echo "- e2e-performance" >> $GITHUB_STEP_SUMMARY
-          echo "- deploy (summary only — image build/push via go-ci.yml build-push)" >> $GITHUB_STEP_SUMMARY
+          echo "## Deploy Summary — ${{ matrix.region }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target:** GKE ${{ matrix.region }} (StatefulSet balloon-game)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** gcr.io/.../balloon-game:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ref:** ${{ github.ref_name }} @ ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

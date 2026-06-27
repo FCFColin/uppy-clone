@@ -1,0 +1,97 @@
+name: Docs Governance
+
+# 文档-代码合一治理门禁（贯穿）：ADR 索引一致性、Markdown 链接、AsyncAPI/ws-protocol
+# 契约校验。任一失败均阻塞合并，强制文档与代码同步演进。
+on:
+  push:
+    branches: [main, develop]
+    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', '.github/workflows/docs-governance.yml']
+  pull_request:
+    branches: [main]
+    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', '.github/workflows/docs-governance.yml']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adr-index-consistency:
+    name: ADR index consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check README index matches ADR files
+        run: |
+          adr_count=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
+          table_rows=$(grep -c '^| 0' docs/adr/README.md)
+          echo "ADR files: $adr_count, index rows: $table_rows"
+          if [ "$adr_count" -ne "$table_rows" ]; then
+            echo "::error::ADR index mismatch: $adr_count files vs $table_rows table rows"
+            exit 1
+          fi
+
+  ws-protocol-sync:
+    name: ws-protocol matches constants.go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure every Msg* constant is documented
+        run: |
+          set -euo pipefail
+          consts=$(grep -oE 'Msg[A-Za-z]+' backend/internal/protocol/constants.go | sort -u)
+          missing=0
+          for c in $consts; do
+            if ! grep -q "$c" docs/api/ws-protocol.md; then
+              echo "::error::Message constant $c missing from docs/api/ws-protocol.md"
+              missing=1
+            fi
+            if ! grep -q "$c" docs/api/asyncapi.yaml; then
+              echo "::error::Message constant $c missing from docs/api/asyncapi.yaml"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Ensure frontend protocol.ts matches constants.go
+        run: |
+          set -euo pipefail
+          check() {
+            local name="$1" go_val="$2" ts_file="$3"
+            local ts_val
+            ts_val=$(grep -E "${name}:" "$ts_file" | head -1 | grep -oE '0x[0-9a-fA-F]+')
+            if [ "$go_val" != "$ts_val" ]; then
+              echo "::error::$name mismatch: constants.go=$go_val protocol.ts=$ts_val"
+              exit 1
+            fi
+          }
+          ts="frontend/src/shared/protocol.ts"
+          check SNAPSHOT 0x01 "$ts"
+          check PLAYER_JOIN 0x02 "$ts"
+          check PLAYER_LEAVE 0x03 "$ts"
+          check TAP_ACCEPTED 0x04 "$ts"
+          check TAP_REJECTED 0x05 "$ts"
+          check GAME_STATE_CHANGE 0x06 "$ts"
+          check RESTART_STATUS 0x07 "$ts"
+          check PONG 0x21 "$ts"
+
+  asyncapi-validate:
+    name: AsyncAPI validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate AsyncAPI spec
+        run: npx -y @asyncapi/cli@latest validate docs/api/asyncapi.yaml
+
+  markdown-links:
+    name: Markdown link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: lychee link check
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --offline docs/ README.md
+          fail: true

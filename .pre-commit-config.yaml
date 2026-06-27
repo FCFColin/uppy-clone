@@ -21,7 +21,7 @@ repos:
         args: ['--baseline', '.secrets.baseline']
 
   - repo: https://github.com/golangci/golangci-lint
-    rev: v1.59.0
+    rev: v2.1.6
     hooks:
       - id: golangci-lint
         args: [--new-from-rev=HEAD]
@@ -38,7 +38,19 @@ repos:
     hooks:
       - id: go-test
         name: go test
-        entry: bash -c 'cd backend && go test ./... -timeout 30s -short'
+        entry: bash -c 'cd backend && go test ./... -timeout 30s -short -race'
         language: system
         types: [go]
+        pass_filenames: false
+      - id: frontend-lint
+        name: frontend lint
+        entry: bash -c 'cd frontend && npm run lint'
+        language: system
+        files: ^frontend/src/.*\.(ts|tsx)$
+        pass_filenames: false
+      - id: frontend-typecheck
+        name: frontend typecheck
+        entry: bash -c 'cd frontend && npm run typecheck'
+        language: system
+        files: ^frontend/src/.*\.(ts|tsx)$
         pass_filenames: false

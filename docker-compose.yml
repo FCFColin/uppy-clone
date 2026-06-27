@@ -1,5 +1,13 @@
 name: uppy-clone
 services:
+  migrate:
+    build: .
+    entrypoint: ["./server", "-migrate-only"]
+    environment:
+      - DATABASE_URL=postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
   app:
     build: .
     ports:
@@ -8,15 +16,19 @@ services:
       # Production: use app_user instead of uppy for least privilege
       # DATABASE_URL=postgres://app_user:password@postgres:5432/uppy?sslmode=disable
       - DATABASE_URL=postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable
-      - REDIS_URL=redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-dev-redis-secret}@redis:6379
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - EMAIL_FROM=${EMAIL_FROM:-noreply@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD required}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
+      - ENABLE_HSTS=${ENABLE_HSTS:-false}
+      - ENABLE_EMBEDDED_WORKERS=${ENABLE_EMBEDDED_WORKERS:-true}
       - FRONTEND_DIR=/app/dist
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY required}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     deploy:
@@ -34,23 +46,77 @@ services:
       POSTGRES_PASSWORD: uppy
       POSTGRES_DB: uppy
     ports:
-      - "5432:5432"
+      # Host port 5434 to avoid conflict with native postgresql-x64-16 on 5432.
+      # Internal container port remains 5432; app connects via postgres:5432.
+      - "5434:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/init-scripts:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U uppy"]
       interval: 5s
       timeout: 5s
       retries: 5
   redis:
-    image: redis:7.4.0-alpine3.20  # Production: pin with @sha256:<digest>
+    image: redis:7.4.0-alpine3.20
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-dev-redis-secret}"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/alertmanager/rules.yml:/etc/prometheus/rules/rules.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    profiles: ["observability"]
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./deploy/alertmanager/config.local.yaml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: ["observability"]
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+  # Optional single-node CockroachDB for local multi-region dialect testing (ADR-015).
+  # Start with: docker compose --profile cockroach up cockroach
+  # Then point the app at it: DB_DIALECT=cockroach DATABASE_URL=postgresql://root@localhost:26257/defaultdb?sslmode=disable
+  cockroach:
+    image: cockroachdb/cockroach:v23.2.6
+    profiles: ["cockroach"]
+    command: ["start-single-node", "--insecure"]
+    ports:
+      - "26257:26257"  # SQL
+      - "8081:8080"    # CRDB admin UI (host 8081 to avoid app 8080)
+    volumes:
+      - crdbdata:/cockroach/cockroach-data
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 volumes:
   pgdata:
+  crdbdata:

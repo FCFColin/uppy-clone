@@ -87,7 +87,16 @@ resource "google_secret_manager_secret" "admin_password" {
   }
 }
 
-# Cloud Run service IAM
+# GKE Workload Identity service account (ADR-014).
+# 取代 Cloud Run compute 默认 SA：WebSocket 层运行在 GKE（owner 反向代理需实例间可
+# 寻址，ADR-005/013/016），Pod 通过 Workload Identity 以此 GSA 身份访问 Secret
+# Manager / Cloud SQL / CRDB，免长期密钥。
+resource "google_service_account" "balloon_game" {
+  account_id   = "balloon-game"
+  display_name = "Balloon Game GKE Workload Identity SA"
+}
+
+# Secret Manager access granted to the GKE Workload Identity GSA (not Cloud Run).
 resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   for_each = toset([
     google_secret_manager_secret.jwt_secret.secret_id,
@@ -98,7 +107,24 @@ resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   ])
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+  member    = "serviceAccount:${google_service_account.balloon_game.email}"
+}
+
+# Bind the Kubernetes ServiceAccount (balloon-game in namespace balloon-game,
+# created by infra/base/service.yaml) to the GSA via Workload Identity.
+# 每区域集群共用同一 GSA；overlay 的 SA 注解 iam.gke.io/gcp-service-account 指向它。
+resource "google_service_account_iam_member" "workload_identity" {
+  service_account_id = google_service_account.balloon_game.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game]"
+}
+
+# Cloud SQL client access for the Workload Identity GSA (single-region PostgreSQL;
+# multi-region CRDB uses its own client certs, see docs/data/cockroachdb-migration.md).
+resource "google_project_iam_member" "cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.balloon_game.email}"
 }
 
 data "google_project" "current" {}

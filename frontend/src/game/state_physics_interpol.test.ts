@@ -70,10 +70,9 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
     vi.setSystemTime(1000);
     resetInterpolation();
     resetClientState();
-    // First snapshot at position (0.1, 0.2)
     state.balloon.x = 0.1;
     state.balloon.y = 0.2;
-    updateInterpolation(); // prev = curr = {0.1, 0.2}, prevTime=934, currTime=1000
+    updateInterpolation();
   });
 
   afterEach(() => {
@@ -82,30 +81,25 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
 
   it('returns currBalloon when prevBalloon is null', () => {
     resetInterpolation();
-    // After reset prevBalloon is null and currBalloon is the default {0.5, 0.95}
     expect(getInterpolatedBalloon()).toEqual({ x: 0.5, y: 0.95 });
   });
 
   it('linearly interpolates between prev and curr as time advances', () => {
-    // Move by 0.04 on each axis (under the 0.05 teleport threshold) so interpolation applies.
     state.balloon.x = 0.14;
     state.balloon.y = 0.24;
     vi.setSystemTime(1100);
-    updateInterpolation(); // prev={0.1,0.2}, curr={0.14,0.24}, prevTime=1000, currTime=1100
+    updateInterpolation();
 
-    // alpha = 0 -> returns prev
     vi.setSystemTime(1100);
     let r = getInterpolatedBalloon();
     expect(r.x).toBeCloseTo(0.1, 8);
     expect(r.y).toBeCloseTo(0.2, 8);
 
-    // alpha = 0.5 -> midpoint
     vi.setSystemTime(1150);
     r = getInterpolatedBalloon();
     expect(r.x).toBeCloseTo(0.12, 8);
     expect(r.y).toBeCloseTo(0.22, 8);
 
-    // alpha = 1 -> returns curr
     vi.setSystemTime(1200);
     r = getInterpolatedBalloon();
     expect(r.x).toBeCloseTo(0.14, 8);
@@ -116,9 +110,8 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
     state.balloon.x = 0.14;
     state.balloon.y = 0.24;
     vi.setSystemTime(1100);
-    updateInterpolation(); // interval = 100
+    updateInterpolation();
 
-    // Well past the snapshot interval -> clamped to curr
     vi.setSystemTime(1300);
     const r = getInterpolatedBalloon();
     expect(r.x).toBeCloseTo(0.14, 8);
@@ -126,7 +119,6 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
   });
 
   it('handles the edge case of zero delta (same position)', () => {
-    // Same position as the first snapshot -> delta is 0, no teleport, prev == curr.
     state.balloon.x = 0.1;
     state.balloon.y = 0.2;
     vi.setSystemTime(1100);
@@ -139,13 +131,11 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
   });
 
   it('snaps (no smoothing) when movement exceeds the teleport threshold', () => {
-    // prev = curr = {0.1, 0.2} from beforeEach. Move beyond 0.05 threshold.
     state.balloon.x = 0.6;
     state.balloon.y = 0.7;
     vi.setSystemTime(1100);
-    updateInterpolation(); // teleport: prev snaps to {0.6, 0.7}, curr = {0.6, 0.7}
+    updateInterpolation();
 
-    // Because prev == curr, interpolation returns the new position immediately at any alpha.
     vi.setSystemTime(1100);
     expect(getInterpolatedBalloon()).toEqual({ x: 0.6, y: 0.7 });
     vi.setSystemTime(1150);
@@ -159,7 +149,6 @@ describe('Physics interpolation - getInterpolatedGhost', () => {
     vi.setSystemTime(1000);
     resetInterpolation();
     resetClientState();
-    // Keep balloon stable so it does not interfere with ghost logic.
     state.balloon.x = 0.5;
     state.balloon.y = 0.5;
   });
@@ -178,30 +167,28 @@ describe('Physics interpolation - getInterpolatedGhost', () => {
     state.ghost.active = true;
     state.ghost.x = 0.2;
     state.ghost.y = 0.3;
-    updateInterpolation(); // first call: prev = curr
+    updateInterpolation();
     expect(getInterpolatedGhost()).toEqual({ x: 0.2, y: 0.3, active: true });
   });
 
   it('linearly interpolates the ghost position between snapshots', () => {
-    // First snapshot: ghost at (0.1, 0.2)
     state.ghost.active = true;
     state.ghost.x = 0.1;
     state.ghost.y = 0.2;
     updateInterpolation();
 
-    // Second snapshot: ghost at (0.14, 0.24), 100ms later (delta 0.04, under threshold)
     state.ghost.x = 0.14;
     state.ghost.y = 0.24;
     vi.setSystemTime(1100);
-    updateInterpolation(); // prev={0.1,0.2}, curr={0.14,0.24}
+    updateInterpolation();
 
-    vi.setSystemTime(1150); // alpha = 0.5
+    vi.setSystemTime(1150);
     let g = getInterpolatedGhost();
     expect(g).not.toBeNull();
     expect(g!.x).toBeCloseTo(0.12, 8);
     expect(g!.y).toBeCloseTo(0.22, 8);
 
-    vi.setSystemTime(1200); // alpha = 1
+    vi.setSystemTime(1200);
     g = getInterpolatedGhost();
     expect(g).not.toBeNull();
     expect(g!.x).toBeCloseTo(0.14, 8);
@@ -245,19 +232,14 @@ describe('Physics interpolation - isDuplicateSeq', () => {
   });
 
   it('evicts the oldest entries once the set exceeds MAX_SEEN_SEQS', () => {
-    // Fill up to the boundary without triggering eviction.
     for (let i = 0; i < MAX_SEEN_SEQS; i += 1) {
       isDuplicateSeq(i);
     }
     expect(seenSeqs.size).toBe(MAX_SEEN_SEQS);
 
-    // One more unique seq triggers eviction of the oldest half.
     expect(isDuplicateSeq(MAX_SEEN_SEQS)).toBe(false);
     expect(seenSeqs.size).toBe(MAX_SEEN_SEQS - Math.floor(MAX_SEEN_SEQS / 2) + 1);
-
-    // An evicted (oldest) seq should no longer be considered a duplicate.
     expect(isDuplicateSeq(0)).toBe(false);
-    // A still-present (newer) seq should remain a duplicate.
     expect(isDuplicateSeq(MAX_SEEN_SEQS - 1)).toBe(true);
   });
 });

@@ -1,8 +1,9 @@
 import { CLIENT_MSG } from './constants.js';
 import { calculateCooldown } from './protocol.js';
 import { state } from './state.js';
-import { sendOrQueue } from './websocket.js';
+import { sendOrQueue, getWs } from './websocket.js';
 import { $canvas } from './renderer.js';
+import { updateUI } from './ui.js';
 
 export function handleTap(clientX: number, clientY: number): void {
   if (state.phase !== 'playing') return;
@@ -23,7 +24,7 @@ export function handleTap(clientX: number, clientY: number): void {
   const optimisticCooldown: number = calculateCooldown(state.players.length || 1);
   state.myCooldownEnd = now + optimisticCooldown;
 
-  state.ripples.push({ playerIndex: -2, x, y, time: now, optimistic: true, isOptimistic: true });
+  state.ripples.push({ playerIndex: -2, x, y, time: now, isOptimistic: true });
 
   const buf: ArrayBuffer = new ArrayBuffer(9);
   const dv: DataView = new DataView(buf);
@@ -34,15 +35,24 @@ export function handleTap(clientX: number, clientY: number): void {
 }
 
 export function requestRestart(): void {
-  console.log(`[restart] button clicked, current phase=${state.phase}`);
+  const $restartProgress: HTMLElement | null = document.getElementById('restart-progress');
   if (state.phase !== 'ended') {
-    console.log(`[restart] REJECTED: phase is ${state.phase}, not 'ended'`);
+    if ($restartProgress) $restartProgress.textContent = '游戏尚未结束';
+    return;
+  }
+  const ws = getWs();
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    state.restartClicked = true;
+    if ($restartProgress) $restartProgress.textContent = '连接已断开，正在重连…';
+    updateUI(true);
     return;
   }
   state.restartClicked = true;
+  if ($restartProgress) {
+    $restartProgress.textContent = '正在提交重启投票...';
+  }
+  updateUI(true);
   const buf: ArrayBuffer = new ArrayBuffer(1);
   new DataView(buf).setUint8(0, CLIENT_MSG.RESTART_VOTE);
-  console.log(`[restart] sending RESTART_VOTE message`);
   sendOrQueue(buf);
-  console.log(`[restart] RESTART_VOTE sent/queued`);
 }

@@ -1,0 +1,41 @@
+name: E2E Setup
+description: Build backend/frontend and start server for Playwright E2E
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+        cache-dependency-path: backend/go.sum
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+    - name: Install Playwright deps
+      shell: bash
+      run: npm ci
+    - name: Build frontend
+      shell: bash
+      run: cd frontend && npm ci && npm run build
+    - name: Build backend
+      shell: bash
+      run: cd backend && go build -o ../server ./cmd/server
+    - name: Start backend
+      shell: bash
+      run: |
+        MIGRATIONS_DIR=backend/migrations FRONTEND_DIR=frontend/dist ./server &
+        ready=0
+        for i in $(seq 1 30); do
+          if curl -sf http://localhost:8080/health/live; then
+            ready=1
+            break
+          fi
+          sleep 2
+        done
+        if [ "$ready" -ne 1 ]; then
+          echo "Backend failed to become ready"
+          exit 1
+        fi

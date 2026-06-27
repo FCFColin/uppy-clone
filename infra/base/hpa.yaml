@@ -1,0 +1,57 @@
+# Horizontal Pod Autoscaler for the WebSocket/Game tier (ADR-005).
+#
+# 企业为何需要：实时层按"房间分散到多实例"水平扩展（单房间 tick 不可分片，ADR-016）。
+# HPA 基于 CPU（tick 计算）+ 自定义指标（WS 连接数）扩缩，使容量随负载线性增长。
+#
+# 权衡：
+#   - 选 StatefulSet 而非 Deployment 是为稳定网络身份（owner 反向代理需可寻址）；
+#     HPA 同样可作用于 StatefulSet。
+#   - scaleDown 稳定窗口设较长（300s），避免对 WS 长连接做抖动式缩容导致频繁排空。
+#   - 自定义指标 ws_connections 需 prometheus-adapter 暴露为 Pods 指标。
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: balloon-game
+  labels:
+    app: balloon-game
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: balloon-game
+  minReplicas: 3
+  maxReplicas: 100
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Pods
+      pods:
+        metric:
+          name: ws_connections
+        target:
+          type: AverageValue
+          # 每实例目标 ~6000 连接（舱壁上限 10000，留 40% 余量给突发与排空）。
+          averageValue: "6000"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      # 长稳定窗口：WS 长连接缩容要谨慎，避免频繁触发优雅排空。
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      selectPolicy: Min

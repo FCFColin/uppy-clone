@@ -1,0 +1,82 @@
+/* Loading 指示器：首屏加载遮罩，收到首条快照后由 game.js 隐藏 */
+#loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+#loading-overlay .loading-spinner {
+  width: 60px;
+  height: 60px;
+  border: 6px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+#countdown-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+#countdown-overlay .countdown-number {
+  font-size: 120px;
+  color: #fff;
+  font-weight: bold;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+}
+#loading-overlay .loading-text {
+  margin-top: 20px;
+  color: #fff;
+  font-size: 18px;
+  font-family: sans-serif;
+}
+
+/* 重连 Banner：网络断开时半透明遮罩 */
+.reconnect-banner {
+  position: fixed;
+  inset: 0;
+  z-index: 9989;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn .3s ease;
+}
+.reconnect-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 32px;
+  background: rgba(22, 33, 62, 0.9);
+  border-radius: 12px;
+}
+.reconnect-spinner {
+  width: 44px;
+  height: 44px;
+  border: 5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #e94560;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+.reconnect-content #reconnect-text {
+  color: #fff;
+  font-size: 16px;
+  font-family: sans-serif;
+  text-align: center;
+}

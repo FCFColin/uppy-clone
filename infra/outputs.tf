@@ -9,3 +9,8 @@ output "redis_host" {
 output "redis_port" {
   value = google_redis_instance.uppy_redis.port
 }
+
+output "balloon_game_service_account" {
+  description = "GKE Workload Identity GSA for balloon-game pods (ADR-014)"
+  value       = google_service_account.balloon_game.email
+}

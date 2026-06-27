@@ -1,14 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const baseURL = process.env.E2E_BASE_URL || 'http://localhost:8080';
+
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: false, // 游戏测试需要顺序执行
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: 1, // 单线程避免端口冲突
+  workers: 1,
   reporter: [['html'], ['list']],
   use: {
-    baseURL: 'http://localhost:8787',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -21,9 +23,15 @@ export default defineConfig({
   webServer: process.env.PROD_E2E
     ? undefined
     : {
-        command: 'npx wrangler dev',
-        url: 'http://localhost:8787',
-        reuseExistingServer: true,
-        timeout: 30000,
+        command: 'npm run build:frontend && cd backend && go run ./cmd/server',
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120000,
+        env: {
+          ...process.env,
+          ENABLE_HSTS: 'false',
+          FRONTEND_DIR: 'frontend/dist',
+          MIGRATIONS_DIR: 'backend/migrations',
+        },
       },
 });

@@ -6,7 +6,6 @@ on:
     paths: ['backend/**']
   pull_request:
     branches: [main]
-    paths: ['backend/**']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,26 +22,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - run: go mod download
       - name: Run tests
-        run: go test ./... -timeout 60s -race -coverprofile=coverage.out
+        run: |
+          PKGS=$(go list ./... | grep -v /tests/integration)
+          go test $PKGS -timeout 120s -race -short -coverprofile=unit.out -covermode=atomic
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-out
-          path: backend/coverage.out
-      - name: Check coverage threshold
-        run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
-          echo "Total coverage: ${COVERAGE}%"
-          # Start at 30% (current baseline), increase quarterly
-          THRESHOLD=30
-          if [ $(echo "$COVERAGE < $THRESHOLD" | bc -l) -eq 1 ]; then
-            echo "ERROR: Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
-            exit 1
-          fi
-          echo "Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%"
+          path: backend/unit.out
+      - name: Check unit coverage governance
+        run: bash ../scripts/check-coverage.sh unit unit.out
 
   lint:
     name: Lint
@@ -54,14 +46,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           working-directory: backend
-          version: latest
-        # Existing lint debt will be fixed incrementally; non-blocking until then
-        continue-on-error: true
+          version: v2.1.6
 
   vet:
     name: Vet
@@ -73,8 +63,26 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - run: go vet ./...
+
+  bench:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Run benchmarks
+        run: go test -bench=. -benchmem -run=^$ ./internal/protocol/ ./internal/game/ -count=1 | tee ../docs/development/benchmarks.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmarks
+          path: docs/development/benchmarks.md
 
   security:
     name: Security Scan
@@ -86,7 +94,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -124,13 +132,12 @@ jobs:
       - name: Build Docker image
         run: docker build -t app:scan .
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: 'app:scan'
           format: 'table'
           exit-code: '1'
-          # HIGH vulnerabilities will be addressed in follow-up; only CRITICAL blocks CI
-          severity: 'CRITICAL'
+          severity: 'CRITICAL,HIGH'
 
   migration:
     name: Migration Test
@@ -153,7 +160,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: Install golang-migrate
         run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
       - name: Run migrations up
@@ -171,18 +178,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Docker images are pinned to specific versions
+      - name: Verify Dockerfile uses @sha256 digests (SLSA L2)
+        run: bash scripts/check-docker-digests.sh Dockerfile
+      - name: Reject :latest tags in compose
         run: |
-          # Enterprise rationale: Mutable tags (:latest) break build
-          # reproducibility and are a supply-chain attack vector (SLSA L2).
-          # Production should pin with @sha256:<digest>; specific version tags
-          # are the minimum requirement enforced here.
           set -e
-          if grep -nE 'image:.*:latest|FROM .*:latest' Dockerfile docker-compose.yml; then
-            echo "::error::Docker images must not use :latest — pin to a specific version tag or @sha256:<digest>"
+          if grep -nE 'image:.*:latest|FROM .*:latest' docker-compose.yml; then
+            echo "::error::docker-compose.yml must not use :latest"
             exit 1
           fi
-          echo "Docker image pinning check passed"
 
   license-check:
     name: License Check
@@ -194,7 +198,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: Generate third-party license report
         run: |
           go install github.com/google/go-licenses@latest
@@ -212,10 +216,39 @@ jobs:
           fi
           echo "License check passed"
 
+  openapi:
+    name: OpenAPI Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npx --yes @apidevtools/swagger-cli validate docs/api/openapi.yaml
+
+  integration:
+    name: Integration Tests (testcontainers)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: go mod download
+      - name: Run integration tests
+        run: |
+          go test ./tests/integration/... -race -timeout 180s -coverprofile=int.out -covermode=atomic
+          go test ./internal/outbox/... ./internal/worker/... ./cmd/migrate-passwords/... ./cmd/backfill-emails/... -race -timeout 180s
+      - name: Integration coverage governance
+        run: bash ../scripts/check-coverage.sh integration int.out
+
   build-push:
     name: Build & Push
     runs-on: ubuntu-latest
-    needs: [test, lint, vet, security, gitleaks, secrets-scan, container-scan, migration, docker-pin-check, license-check]
+    needs: [test, lint, vet, bench, security, gitleaks, secrets-scan, container-scan, migration, docker-pin-check, license-check, openapi, integration]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4

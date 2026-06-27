@@ -1,0 +1,43 @@
+# us-east1 regional overlay (ADR-014/016).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: balloon-game
+
+resources:
+  - ../../base
+
+images:
+  - name: gcr.io/PROJECT_ID/balloon-game
+    newName: gcr.io/PROJECT_ID/balloon-game
+    newTag: us-east1-latest
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: balloon-game-region
+    patch: |
+      - op: replace
+        path: /data/deploy-region
+        value: us-east1
+      - op: replace
+        path: /data/region-ws-endpoint
+        value: wss://us.balloon.example
+      - op: replace
+        path: /data/db-dialect
+        value: cockroach
+  - target:
+      kind: StatefulSet
+      name: balloon-game
+    patch: |
+      - op: replace
+        path: /spec/template/metadata/labels/region
+        value: us-east1
+  - target:
+      kind: ServiceAccount
+      name: balloon-game
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          iam.gke.io/gcp-service-account: balloon-game@PROJECT_ID.iam.gserviceaccount.com

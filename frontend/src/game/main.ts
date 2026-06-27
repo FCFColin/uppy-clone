@@ -1,7 +1,7 @@
-import { textEncoder, CLIENT_MSG } from './constants.js';
 import { encodeSetNickname } from './protocol.js';
 import { state, seenSeqs, getInterpState } from './state.js';
-import { resizeCanvas, gameLoop, setRenderActive, $canvas } from './renderer.js';
+import { normalizeAuthHost } from '../shared/session.js';
+import { resizeCanvas, gameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
 import {
   updateUI, generateRandomNickname, copyCode, checkOrientation,
   showFallbackErrorScreen,
@@ -11,9 +11,11 @@ import {
 } from './ui.js';
 import {
   connectWebSocket, sendOrQueue, waitForWebSocket,
-  stopHeartbeat, getWs, showConnectionError,
+  stopHeartbeat, getWs, getWsEverOpened, showConnectionError,
 } from './websocket.js';
 import { handleTap, requestRestart } from './input.js';
+
+normalizeAuthHost();
 
 window.state = state;
 window.__gamePhase = state.phase;
@@ -27,13 +29,8 @@ function submitNickname(): void {
   localStorage.setItem('uppy-nickname', nickname);
   if ($nicknameInline) $nicknameInline.classList.add('hidden');
 
-  const nickBytes: Uint8Array = textEncoder.encode(nickname);
-  const buf: ArrayBuffer = new ArrayBuffer(1 + 1 + nickBytes.length);
-  const dv: DataView = new DataView(buf);
-  dv.setUint8(0, CLIENT_MSG.SET_NICKNAME);
-  dv.setUint8(1, nickBytes.length);
-  new Uint8Array(buf, 2).set(nickBytes);
-  sendOrQueue(buf);
+  const nickBytes: ArrayBuffer = encodeSetNickname(nickname);
+  sendOrQueue(nickBytes);
 }
 
 async function submitSetupNickname(): Promise<void> {
@@ -43,6 +40,8 @@ async function submitSetupNickname(): Promise<void> {
     nickname = generateRandomNickname();
   }
   localStorage.setItem('uppy-nickname', nickname);
+  state.nicknameSubmitted = true;
+  state.pendingNickname = nickname;
   const setupScreen: HTMLElement | null = document.getElementById('nickname-setup-screen');
   if (setupScreen) setupScreen.classList.add('hidden');
 
@@ -51,6 +50,13 @@ async function submitSetupNickname(): Promise<void> {
   }
   const msg: ArrayBuffer = encodeSetNickname(nickname);
   sendOrQueue(msg);
+  updateUI(true);
+
+  if (state.phase === 'waiting') {
+    const waitingScreen: HTMLElement | null = document.getElementById('waiting-screen');
+    if (waitingScreen) waitingScreen.classList.remove('hidden');
+    updateUI(true);
+  }
 }
 window.submitSetupNickname = submitSetupNickname;
 
@@ -65,17 +71,41 @@ if ($nicknameSetupScreen) $nicknameSetupScreen.classList.remove('hidden');
 $nicknameBtn.addEventListener('click', submitNickname);
 $nicknameInput.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') submitNickname(); });
 
-$canvas.addEventListener('click', (e: MouseEvent) => handleTap(e.clientX, e.clientY));
+$canvas.addEventListener('click', (e: MouseEvent) => {
+  if ('ontouchstart' in window) return;
+  handleTapWithDedup(e.clientX, e.clientY);
+});
 $canvas.addEventListener('touchstart', (e: TouchEvent) => {
   e.preventDefault();
   const touch: Touch = e.touches[0]!;
-  handleTap(touch.clientX, touch.clientY);
+  handleTapWithDedup(touch.clientX, touch.clientY);
 }, { passive: false });
+
+let lastTapTime = 0;
+function handleTapWithDedup(clientX: number, clientY: number): void {
+  const now = Date.now();
+  if (now - lastTapTime < 200) return;
+  lastTapTime = now;
+  handleTap(clientX, clientY);
+}
+
+let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+function handleResize(): void {
+  if (resizeTimer !== null) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    resizeCanvas();
+    renderOnce();
+    resizeTimer = null;
+  }, 100);
+}
+
+window.addEventListener('resize', handleResize);
+resizeCanvas();
+renderOnce();
 
 if ($copyCodeBtn) $copyCodeBtn.addEventListener('click', copyCode);
 if ($hudCopyBtn) $hudCopyBtn.addEventListener('click', copyCode);
 
-// 按钮：随机昵称、进入游戏、重新开始（原 inline onclick，改为 addEventListener）
 const $randomNicknameBtn: HTMLElement | null = document.getElementById('random-nickname-btn');
 if ($randomNicknameBtn) {
   $randomNicknameBtn.addEventListener('click', () => {
@@ -90,9 +120,6 @@ const $restartBtn: HTMLElement | null = document.getElementById('restart-btn');
 if ($restartBtn) {
   $restartBtn.addEventListener('click', requestRestart);
 }
-
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
 
 window.addEventListener('resize', checkOrientation);
 window.addEventListener('orientationchange', checkOrientation);
@@ -126,7 +153,7 @@ requestAnimationFrame(gameLoop);
 
 setTimeout(() => {
   const overlay: HTMLElement | null = document.getElementById('loading-overlay');
-  if (overlay && overlay.style.display !== 'none') {
+  if (overlay && overlay.style.display !== 'none' && !overlay.dataset.error && !getWsEverOpened()) {
     showConnectionError('加载超时，请检查网络或稍后重试');
   }
 }, 8000);

@@ -51,6 +51,7 @@ export async function refreshAccessToken(): Promise<boolean> {
       const res = await fetch('/api/v1/auth/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ refresh_token: refreshToken }),
       });
 

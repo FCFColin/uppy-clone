@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { codeToPhase, calculateCooldown, encodeSetNickname } from './protocol.js';
+import { codeToPhase, calculateCooldown, encodeSetNickname, truncateNickname } from './protocol.js';
 import { CLIENT_MSG } from './constants.js';
 import { COOLDOWN } from '../shared/constants.js';
 
@@ -106,5 +106,12 @@ describe('Protocol parsing - encodeSetNickname', () => {
     // '玩家' = 2 chars but 6 UTF-8 bytes
     const view: DataView = new DataView(encodeSetNickname('玩家'));
     expect(view.getUint8(1)).toBe(6);
+  });
+
+  it('truncates nicknames longer than 12 runes before encoding', () => {
+    const long = '一二三四五六七八九十十一十二十三';
+    expect([...truncateNickname(long)].length).toBe(12);
+    const view: DataView = new DataView(encodeSetNickname(long));
+    expect(view.getUint8(1)).toBe(new TextEncoder().encode(truncateNickname(long)).length);
   });
 });

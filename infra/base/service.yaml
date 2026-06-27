@@ -1,44 +1,159 @@
-# Enterprise rationale: Resource limits prevent noisy neighbor problems
-# and ensure predictable performance. Cloud Run uses these to configure
-# auto-scaling and billing.
-apiVersion: serving.knative.dev/v1
+# WebSocket tier — GKE StatefulSet + headless Service (ADR-005).
+#
+# 为什么不是 Cloud Run / Knative：owner 反向代理需要"任意实例都能把连接转发到
+# 拥有该房间的实例"，这要求实例之间网络可寻址。Cloud Run 实例彼此不可寻址，
+# 与按房间分片路由冲突（见 ADR-013 更新）。因此 WebSocket 层运行在 GKE：
+#   - headless Service 为每个 Pod 提供稳定 DNS + 直接 Pod IP 可达性
+#   - StatefulSet 提供稳定网络身份（balloon-game-0、-1 ...）
+#   - Pod 通过 downward API 注入 POD_IP，启动时拼成 INSTANCE_ADDR 写入 Redis 房间注册表
+#
+# 房间归属是动态的（owner 实例信息存 Redis，区域内租约接管故障切换 ADR-016），
+# 因此不依赖 StatefulSet 的持久卷；选用 StatefulSet 仅为稳定网络身份。
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: balloon-game
+  labels:
+    app: balloon-game
+  # 每区域 overlay 追加注解：iam.gke.io/gcp-service-account=balloon-game@<project>.iam.gserviceaccount.com
+  # 实现 Workload Identity 绑定（ADR-014）。
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: balloon-game-internal
+  labels:
+    app: balloon-game
+spec:
+  # Headless：clusterIP=None → 每个 Pod 获得独立 DNS A 记录，实例间可直接拨号。
+  clusterIP: None
+  selector:
+    app: balloon-game
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: balloon-game
+  labels:
+    app: balloon-game
 spec:
+  # 面向客户端的入口 Service（由 Ingress / LoadBalancer 暴露）。
+  # 客户端连到任意实例即可——非 owner 实例会把 WebSocket 反向代理到 owner。
+  type: ClusterIP
+  selector:
+    app: balloon-game
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: balloon-game
+  labels:
+    app: balloon-game
+spec:
+  serviceName: balloon-game-internal
+  replicas: 3
+  selector:
+    matchLabels:
+      app: balloon-game
   template:
+    metadata:
+      labels:
+        app: balloon-game
+        # Scraped by Prometheus as the `region` label (deploy/prometheus/prometheus.yml).
+        region: local
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
-      containerConcurrency: 100
-      timeoutSeconds: 300
+      # Workload Identity：Pod 以 GСР IAM 服务账户身份访问 Cloud SQL/CRDB/Secret
+      # Manager，免长期密钥（ADR-014）。每区域 overlay 把该 KSA 绑定到区域 GSA。
+      serviceAccountName: balloon-game
+      # 滚动更新期间优雅排空 WebSocket：给正在进行的对局留出收尾时间。
+      terminationGracePeriodSeconds: 60
       containers:
-      - image: gcr.io/PROJECT_ID/balloon-game
-        # 企业为何需要：无 requests 时 K8s 调度器无法合理调度 Pod，可能被驱逐到资源不足的节点。
-        resources:
-          requests:
-            cpu: "250m"
-            memory: "128Mi"
-          limits:
-            cpu: "1"
-            memory: "512Mi"
-        ports:
-        - containerPort: 8080
-        # 企业为何需要：startup probe 区分'启动慢'与'死锁'。无 startup probe 时，
-        # liveness probe 在慢启动期间会反复杀进程。
-        startupProbe:
-          httpGet:
-            path: /health/live
-            port: 8080
-          failureThreshold: 30
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /health/live
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /health/ready
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 10
+        - name: balloon-game
+          image: gcr.io/PROJECT_ID/balloon-game
+          ports:
+            - containerPort: 8080
+          env:
+            # ── 多实例水平扩展（ADR-005）─────────────────────────────
+            # INSTANCE_ID：稳定实例标识（Pod 名，如 balloon-game-0）
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # POD_IP：本 Pod IP，供其它实例反向代理拨号
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # PORT：与 containerPort 一致，INSTANCE_ADDR 由 POD_IP:PORT 拼成
+            - name: PORT
+              value: "8080"
+            # ── 多区域路由（ADR-016）────────────────────────────────
+            # DEPLOY_REGION / REGION_WS_ENDPOINT：由每区域 overlay 的 ConfigMap 注入，
+            # 决定房间 home region 与跨区域重定向时返回给客户端的就近入口。
+            - name: DEPLOY_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: balloon-game-region
+                  key: deploy-region
+            - name: REGION_WS_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: balloon-game-region
+                  key: region-ws-endpoint
+            # DB_DIALECT：多区域生产为 cockroach（ADR-015），单区域默认 postgres。
+            - name: DB_DIALECT
+              valueFrom:
+                configMapKeyRef:
+                  name: balloon-game-region
+                  key: db-dialect
+            # INTERNAL_PROXY_SECRET：跨实例 /internal 路由的共享密钥
+            - name: INTERNAL_PROXY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: internal-proxy-secret
+            # 其余密钥（JWT_SECRET / ENCRYPTION_KEY / DATABASE_URL / REDIS_URL /
+            # METRICS_USER / METRICS_PASSWORD 等）同样来自 balloon-game-secrets。
+          envFrom:
+            - secretRef:
+                name: balloon-game-secrets
+          # 企业为何需要：无 requests 时调度器无法合理调度，可能被驱逐到资源不足节点。
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+          # startup probe 区分'启动慢'与'死锁'，避免慢启动期被 liveness 反复杀死。
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10

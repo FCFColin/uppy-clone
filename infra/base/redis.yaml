@@ -1,0 +1,64 @@
+# Region-local Redis for the room registry / state cache / rate limiting (ADR-014).
+#
+# 每区域一套 Redis：房间注册表与状态缓存是区域内热路径（owner 反向代理、租约），
+# 必须低延迟且不跨区。跨区域只通过 CRDB GLOBAL room_directory 共享路由信息，
+# Redis 不做跨区复制（避免跨洋写放大）。
+#
+# 注：生产可替换为 Memorystore（GCP 托管 Redis）以获得 HA/备份；此处给出自托管最小形态。
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  clusterIP: None
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: redis:7.4.0-alpine3.20  # 生产：用 @sha256:<digest> 固定
+          args: ["--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "320Mi"
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 30

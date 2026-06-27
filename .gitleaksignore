@@ -1,0 +1,10 @@
+# gitleaksignore: suppress false positives
+# Test fixtures with fake/placeholder keys in crypto tests (not real secrets)
+
+# backend/internal/crypto/aes_test.go - TestInitRejectsInvalidKeyLength
+# Fake 16-byte key "0123456789abcdef" used to test rejection of too-short keys
+a1519ac6163d6e2291bd233efcc306551e5a3b02:backend/internal/crypto/aes_test.go:generic-api-key:154
+
+# backend/internal/crypto/aes_test.go - TestInitRejectsInvalidKeyLength
+# Fake 64-byte key used to test rejection of too-long keys
+a1519ac6163d6e2291bd233efcc306551e5a3b02:backend/internal/crypto/aes_test.go:generic-api-key:155

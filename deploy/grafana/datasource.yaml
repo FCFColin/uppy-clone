@@ -1,0 +1,19 @@
+# Grafana datasource provisioning (ADR-014): point the global Grafana at Thanos
+# Query so dashboards aggregate metrics across all regions with dedup. The
+# `region` label is available as a template variable for per-region drill-down.
+apiVersion: 1
+datasources:
+  - name: Thanos (global)
+    type: prometheus
+    access: proxy
+    url: http://thanos-query.observability.svc:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+  # Optional direct per-region Prometheus for debugging a single region.
+  - name: Prometheus us-east1
+    type: prometheus
+    access: proxy
+    url: http://prometheus.balloon-game.us-east1.svc:9090
+    isDefault: false
