@@ -6,22 +6,25 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
+// roomJoinable reports whether a waiting room can accept another player.
+func roomJoinable(room *Room, maxPlayers int) bool {
+	room.mu.RLock()
+	defer room.mu.RUnlock()
+	return room.state.Phase == domain.PhaseWaiting &&
+		len(room.state.Players) < maxPlayers &&
+		len(room.connections) < maxPlayers
+}
+
 // MatchRoom finds a joinable waiting room or creates a new one for quick play.
 func (h *Hub) MatchRoom(ctx context.Context) (string, error) {
-	candidates := h.joinableRoomCodes()
-	for _, code := range candidates {
+	for _, code := range h.joinableRoomCodes() {
 		h.mu.RLock()
 		room, ok := h.rooms[code]
 		h.mu.RUnlock()
 		if !ok {
 			continue
 		}
-		room.mu.RLock()
-		joinable := room.state.Phase == domain.PhaseWaiting &&
-			len(room.state.Players) < h.maxPlayersPerRoom &&
-			len(room.connections) < h.maxPlayersPerRoom
-		room.mu.RUnlock()
-		if joinable {
+		if roomJoinable(room, h.maxPlayersPerRoom) {
 			return code, nil
 		}
 	}
@@ -34,12 +37,9 @@ func (h *Hub) joinableRoomCodes() []string {
 	defer h.mu.RUnlock()
 	codes := make([]string, 0, len(h.rooms))
 	for code, room := range h.rooms {
-		room.mu.RLock()
-		if room.state.Phase == domain.PhaseWaiting &&
-			len(room.state.Players) < h.maxPlayersPerRoom {
+		if roomJoinable(room, h.maxPlayersPerRoom) {
 			codes = append(codes, code)
 		}
-		room.mu.RUnlock()
 	}
 	return codes
 }

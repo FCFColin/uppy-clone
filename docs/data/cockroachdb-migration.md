@@ -36,7 +36,7 @@ ALTER DATABASE balloon SET PRIMARY REGION "us-east1";
 ALTER DATABASE balloon ADD REGION "europe-west1";
 ALTER DATABASE balloon ADD REGION "asia-southeast1";
 
--- 权限（最小权限，对应 ADR-008/000009 在 PG 上的等价物）
+-- 权限（最小权限，对应 ADR-008/009 在 PG 上的等价物）
 GRANT SELECT, INSERT, UPDATE, DELETE ON DATABASE balloon TO app_user;
 GRANT ALL ON DATABASE balloon TO migrator;
 ```

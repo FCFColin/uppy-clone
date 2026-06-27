@@ -140,6 +140,8 @@ function tryBalloonFromDelayBuffer(): InterpPoint | null {
   return { x, y };
 }
 
+// --- Entity delay-buffer interpolation (ghost / bird) ---
+
 function tryEntityFromDelayBuffer(
   buffer: EntityAnchor[],
   renderTime: number,
@@ -332,25 +334,7 @@ export function isDuplicateSeq(seq: number): boolean {
   return false;
 }
 
-export const pendingQueue: ArrayBuffer[] = [];
-
-export function resetClientState(): void {
-  state.hasReceivedFirstSnapshot = false;
-  seenSeqs.clear();
-  state.score = 0;
-  state.myCooldownEnd = 0;
-  state.ripples = [];
-  state.lastTapX = null;
-  state.lastTapY = null;
-  state.balloon = { x: 0.5, y: 0.5, vx: 0, vy: 0 };
-  state.bird = { x: 0, y: 0, active: false };
-  state.ghost = { x: 0, y: 0, active: false, repelTimer: 0 };
-  state.wind = 0;
-  state.explosionEffect = null;
-  pendingQueue.length = 0;
-  state.restartClicked = false;
-  state.restartVotes = { yes: 0, total: 0, countdownMs: 0 };
-}
+export const outboundMessageQueue: ArrayBuffer[] = [];
 
 export function getInterpState(): {
   get prevBalloon(): InterpPoint | null;

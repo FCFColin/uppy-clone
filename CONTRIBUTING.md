@@ -68,6 +68,19 @@ make lint-all
 - **集成测试**（`make test-integration`，带 `-tags=integration`）：使用 testcontainers，需要 Docker
 - Redis 策略：单元 → miniredis；集成 → testcontainers（`testutil.SetupRedisStore` / `SetupRedisClient`）
 - 本地与 CI 一致：`make check`
+- 完整 CI parity：`make ci`（含 testcontainers、audit、布局校验）；GitHub `go-ci` workflow 另含 golangci-lint、integration、安全扫描
+
+## Code Simplification
+
+重构与简化遵循 [代码简化 Roadmap](docs/development/code-simplification-roadmap.md)：
+
+1. **行为不变** — 只改表达方式，不改语义
+2. **遵循项目约定** — 见上文测试约定与 ADR-021
+3. **清晰优于 clever** — 显式代码优先
+4. **保持平衡** — 不过度内联或合并无关逻辑
+5. **范围可控** — 每 PR 一个主题；`refactor` 与 `feat`/`fix` 分 PR
+
+每步运行 `make check`；阶段末 `make ci`。章程约束见 [ADR-000](docs/adr/000-project-charter.md)（不得裁剪刻意保留的企业级组件）。
 
 Install [air](https://github.com/air-verse/air) for live reload during development:
 
@@ -179,4 +192,16 @@ Link: </api/v1/admin/config>; rel="successor-version"
 
 ## Postmortems
 
-P0 and P1 incidents require a postmortem within 7 days. Use the template at `docs/templates/postmortem.md`.
+P0/P1 事故须在 7 日内完成复盘，模板见 [`docs/templates/postmortem.md`](docs/templates/postmortem.md)。
+
+## CI 工作流
+
+| Workflow | 职责 |
+|----------|------|
+| [`go-ci.yml`](../.github/workflows/go-ci.yml) | 后端 test/lint/bench/security/integration；main 推送时 build-push |
+| [`ci-cd.yml`](../.github/workflows/ci-cd.yml) | 前端质量门禁、E2E、部署 |
+| [`docs-governance.yml`](../.github/workflows/docs-governance.yml) | ADR 索引、布局、OpenAPI |
+
+本地：`make check`、`make ci`。
+
+## API Deprecation Policy

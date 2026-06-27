@@ -11,14 +11,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  repo-layout:
-    name: Repo layout (ADR-021)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify canonical directory layout
-        run: bash scripts/ci/check-repo-layout.sh
-
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
@@ -42,22 +34,6 @@ jobs:
       - name: Frontend coverage governance
         run: bash scripts/ci/check-coverage.sh frontend
 
-  backend-test:
-    name: Backend Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-      - name: Unit tests (same gate as go-ci Test job)
-        run: |
-          cd backend
-          PKGS=$(go list ./... | grep -v /tests/integration)
-          go test $PKGS -timeout 120s -race -short -coverprofile=unit.out -covermode=atomic
-      - name: Unit coverage governance
-        run: bash scripts/ci/check-coverage.sh unit backend/unit.out
-
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
@@ -72,7 +48,7 @@ jobs:
 
   e2e:
     name: E2E Tests (${{ matrix.spec }})
-    needs: [quality-gate, backend-test]
+    needs: [quality-gate]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -125,8 +101,8 @@ jobs:
 
   deploy:
     name: Deploy to GKE (multi-region)
-    needs: [quality-gate, backend-test, e2e]
-    if: github.ref == 'refs/heads/main'
+    needs: [quality-gate, e2e]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
     # 多区域滚动部署：逐区域 apply kustomize overlay（ADR-014）。各区域用各自的
@@ -149,6 +125,20 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           install_components: gke-gcloud-auth-plugin
+
+      - name: Wait for container image (build-push from Go CI)
+        run: |
+          IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}"
+          for i in $(seq 1 30); do
+            if gcloud container images describe "$IMAGE" >/dev/null 2>&1; then
+              echo "Image ready: $IMAGE"
+              exit 0
+            fi
+            echo "Waiting for $IMAGE ($i/30)..."
+            sleep 20
+          done
+          echo "::error::Image not found: $IMAGE (Go CI build-push may still be running)"
+          exit 1
 
       - name: Get GKE credentials (${{ matrix.region }})
         run: |

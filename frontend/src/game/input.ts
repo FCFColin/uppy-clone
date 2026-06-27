@@ -2,15 +2,15 @@ import { CLIENT_MSG } from './constants.js';
 import { calculateCooldown } from './message_codec.js';
 import { state } from './state.js';
 import { sendOrQueue, getWs } from './websocket.js';
-import { $canvas } from './renderer.js';
+import { clientToNormalized } from './renderer_canvas.js';
+import { pushFloatingText } from './visual_helpers.js';
+import { playTapSound, vibrate } from '../shared/audio.js';
 import { updateUI } from './ui.js';
 
 export function handleTap(clientX: number, clientY: number): void {
   if (state.phase !== 'playing') return;
 
-  const rect: DOMRect = $canvas.getBoundingClientRect();
-  const x: number = (clientX - rect.left) / rect.width;
-  const y: number = 1 - ((clientY - rect.top) / rect.height);
+  const { x, y } = clientToNormalized(clientX, clientY);
 
   const now: number = Date.now();
   if (now < state.myCooldownEnd) {
@@ -32,6 +32,15 @@ export function handleTap(clientX: number, clientY: number): void {
   dv.setFloat32(1, x, true);
   dv.setFloat32(5, y, true);
   sendOrQueue(buf);
+  playTapSound();
+}
+
+export function tapAtBalloonCenter(): void {
+  if (state.phase !== 'playing') return;
+  const canvas = document.getElementById('game-canvas');
+  const rect = canvas?.getBoundingClientRect();
+  if (!rect) return;
+  handleTap(rect.left + rect.width * state.balloon.x, rect.top + rect.height * (1 - state.balloon.y));
 }
 
 export function requestRestart(): void {

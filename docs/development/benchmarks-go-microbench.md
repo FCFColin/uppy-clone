@@ -1,8 +1,6 @@
-# Benchmarks V2 — 企业级审计 V2 修复后基准数据
+# Go Microbench 基准（protocol + game）
 
-> 生成时间：2026-06-24
-> 环境：Windows amd64, 12th Gen Intel(R) Core(TM) i5-12450H
-> 命令：`go test -bench=. -benchmem -run=^$ ./...`
+> 由 `make bench` 或 CI 生成，勿手改。
 
 ## protocol 包（P1-6/P1-7 优化后）
 

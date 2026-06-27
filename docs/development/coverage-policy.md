@@ -1,64 +1,30 @@
-# Coverage Policy (Unit 100% / Integration 80% / Important 90% / Per-file 60%)
+# 测试覆盖率策略
 
-## Layers
+单元 100% / 集成 80% / 前端重要路径 90% / 单文件 60%（门禁脚本为准）。
 
-| Layer | Command | Total gate |
-|-------|---------|------------|
-| Backend unit | `go test $(go list ./... \| grep -v tests/integration) -short -coverprofile=unit.out -covermode=atomic` | **lines/branches/functions ≥ 100%** |
-| Backend integration | `go test ./tests/integration/... -coverprofile=int.out -covermode=atomic` | **lines ≥ 80%** |
-| Frontend Vitest | `cd frontend && npm run test:frontend` | **lines/branches/functions/statements ≥ 100%** |
+## 分层
 
-Governance script: [`scripts/ci/check-coverage.sh`](../../scripts/ci/check-coverage.sh)
+| 层级 | 命令 | 门禁 |
+|------|------|------|
+| 后端单元 | `make test-cover`（unit.out） | lines/branches/functions ≥ 100% |
+| 后端集成 | integration profile | lines ≥ 80% |
+| 前端 Vitest | `npm run test:frontend` | 见 `scripts/ci/check-coverage.sh` |
+
+治理脚本：[`scripts/ci/check-coverage.sh`](../../scripts/ci/check-coverage.sh)
 
 ```bash
-make test-cover          # unit + integration + frontend profiles
-bash scripts/ci/check-coverage.sh unit
-bash scripts/ci/check-coverage.sh integration
+make test-cover
+bash scripts/ci/check-coverage.sh unit backend/unit.out
+bash scripts/ci/check-coverage.sh integration backend/int.out
 bash scripts/ci/check-coverage.sh frontend
-bash scripts/ci/check-coverage.sh all
 ```
 
-## Exclusion rules (automated, pattern-based)
+## 排除规则
 
-Files matching these patterns are **fully excluded** from coverage gates (not counted at all):
+纯类型、常量、入口 glue、renderer/UI 视觉代码等见脚本内 `EXCLUDE_PATTERNS`。修改排除列表需同步本文件与 CI。
 
-### Frontend (vitest.config.ts exclude)
-| Pattern | Rationale |
-|---------|-----------|
-| `src/**/*_types.ts`, `src/**/*.d.ts` | Pure type definitions |
-| `src/**/constants.ts` | Pure constants |
-| `src/main.ts`, `src/index.ts` | Entry glue |
-| `src/game/renderer*.ts`, `src/game/ui*.ts` | Low ROI (visual rendering/UI; covered by E2E) |
+## 约定
 
-### Backend (check-coverage.sh EXCLUDE_PATTERNS)
-| Pattern | Rationale |
-|---------|-----------|
-| `*_types.ts`, `*.d.ts` | Pure type definitions |
-| `constants.ts`, `constants.go` | Pure constants |
-| `/main.ts`, `/index.ts` | Entry glue |
-| `testutil/` | Test helpers |
-| `degradation_deps.go` | Dependency injection glue |
-
-## Per-file rules
-
-- **Important paths ≥ 90%** — see script `IMPORTANT_*` lists (auth, crypto, audit, rbac, validate, store, cmd/server, handler, middleware, protocol, game, worker, domain; frontend ws, auth, protocol, input, state, phase_sync, session).
-- **Any non-excluded source file ≥ 60%**.
-- **Excluded files** (matching patterns above) have **no floor requirement**.
-
-## Test quality (required in PRs)
-
-Each new test file must include at least one **adversarial / failure-path** case with a comment explaining the threat model (`// 企业为何需要`, `// SECURITY:`, or `// Adversarial:`).
-
-Categories to cover per module:
-
-1. **Common** — happy path
-2. **Edge** — empty input, bounds, concurrency, timeouts
-3. **Malicious** — XSS nicknames, header spoofing, revoked JWT, SQL injection attempts, oversized bodies
-
-Do **not** add tests that only mock success with `err == nil` and no behavioral assertion.
-
-## Playwright E2E
-
-End-to-end specs under `tests/e2e/` supplement behavior validation and are **not** counted in Vitest percentage gates.
-
-Renderer (`src/game/renderer*.ts`) and UI (`src/game/ui*.ts`) are excluded from unit coverage and rely on E2E for behavioral validation.
+- 单元测试：`go test -short`，Redis 用 miniredis（ADR-023）
+- 集成测试：`//go:build integration`，testcontainers
+- 每 Go 包 1–3 个 `*_test.go`（见 [code-simplification-roadmap.md](code-simplification-roadmap.md)）

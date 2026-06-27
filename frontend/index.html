@@ -3,11 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>气球大作战 - 多人合作气球游戏</title>
+  <title>Uppy - 合作气球游戏</title>
+  <meta name="description" content="Uppy 是一款多人合作气球生存游戏。在气球附近点击保持它不掉落，躲避鸟和幽灵，与队友配合挑战更高分数。">
+  <meta property="og:title" content="Uppy - 合作气球游戏">
+  <meta property="og:description" content="和队友一起保护气球！点击、配合、生存。">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎈</text></svg>">
   <link rel="stylesheet" href="/src/style.css">
   <link rel="stylesheet" href="/src/index.css">
 </head>
-<body>
+<body class="landing-page">
   <div class="hero">
     <h1>🎈 Uppy</h1>
     <p class="subtitle">合作气球游戏</p>
@@ -21,7 +26,7 @@
       <div style="color:#555;font-size:0.85rem;margin-bottom:0.5rem">— 或 —</div>
       <input type="email" id="email-input" placeholder="输入邮箱登录" autocomplete="email">
       <button id="login-btn" class="btn-play" style="font-size:1rem;padding:0.7rem 2rem;background:#0f3460">发送登录链接</button>
-      <p id="success-msg" class="success-msg">✉️ 登录链接已发送，请查收邮件！</p>
+      <p id="success-msg" class="success-msg">✉️ 登录链接已发送，请查收邮件！<br><a href="#" id="email-change-link" class="link-secondary">修改邮箱 / 重新发送</a></p>
       <p id="error-msg" class="error-msg"></p>
     </div>
 
@@ -37,13 +42,22 @@
     <div class="rules">
       <h3>怎么玩</h3>
       <ul>
-        <li>点击屏幕让气球上升</li>
-        <li>每次点击后有冷却时间</li>
-        <li>人越多，冷却越长</li>
-        <li>小心幽灵来撞破气球！</li>
-        <li>保持气球不掉落，坚持越久分越高</li>
+        <li>在气球<strong>附近</strong>点击，把它往上推（点太远无效）</li>
+        <li>每次点击后有冷却时间；人越多，冷却越长</li>
+        <li><strong>鸟</strong>会追踪气球，碰到即结束</li>
+        <li><strong>幽灵</strong>靠近会撞破气球；在幽灵附近点击可将其推开</li>
+        <li>留意 HUD 中的<strong>风向</strong>，风会把气球吹向一侧</li>
+        <li>团队分数 = 成功点击次数，坚持越久分越高</li>
       </ul>
     </div>
+
+    <section class="leaderboard-preview-section" aria-labelledby="lb-preview-title">
+      <h3 id="lb-preview-title">排行榜</h3>
+      <ol id="leaderboard-preview" class="leaderboard-list"></ol>
+      <p id="leaderboard-preview-empty" class="hint hidden">暂无记录，成为第一个上榜的玩家吧！</p>
+      <p id="leaderboard-preview-error" class="hint hidden"></p>
+      <a href="/leaderboard.html" class="link-secondary">查看完整排行榜 →</a>
+    </section>
   </div>
 
   <script type="module" src="/src/index.ts"></script>

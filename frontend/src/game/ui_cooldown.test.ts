@@ -18,6 +18,10 @@ vi.mock('./ui_elements.js', () => ({
   $cooldownBar: mocks.bar,
   $cooldownText: mocks.text,
 }));
+vi.mock('../shared/audio.js', () => ({
+  playReadySound: vi.fn(),
+  vibrate: vi.fn(),
+}));
 
 import { startCooldownUpdater, stopCooldownUpdater, updateCooldownBar } from './ui_cooldown.js';
 
@@ -47,14 +51,14 @@ describe('ui_cooldown', () => {
   it('shows Tap when cooldown elapsed', () => {
     state.myCooldownEnd = Date.now() - 1;
     updateCooldownBar();
-    expect(mocks.text.textContent).toBe('Tap!');
+    expect(mocks.text.textContent).toBe('点击！');
     expect(mocks.bar.classList.add).toHaveBeenCalledWith('ready');
   });
 
   it('interval updater runs at 10Hz during playing phase', () => {
     startCooldownUpdater();
     vi.advanceTimersByTime(300);
-    expect(mocks.text.textContent).toMatch(/s|Tap!/);
+    expect(mocks.text.textContent).toMatch(/s|点击！/);
   });
 
   it('does nothing when phase is not playing', () => {

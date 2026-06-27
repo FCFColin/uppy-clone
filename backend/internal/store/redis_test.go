@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -324,4 +325,31 @@ func TestRedisStore_EnqueueStreams(t *testing.T) {
 	if !mr.Exists("email:queue") || !mr.Exists("game:results") {
 		t.Fatal("expected redis streams to exist")
 	}
+}
+
+func TestGetEnvInt(t *testing.T) {
+	t.Run("returns default when env not set", func(t *testing.T) {
+		os.Unsetenv("TEST_STORE_INT")
+		got := getEnvInt("TEST_STORE_INT", 42)
+		if got != 42 {
+			t.Errorf("getEnvInt = %d, want %d", got, 42)
+		}
+	})
+	t.Run("parses valid int", func(t *testing.T) {
+		os.Setenv("TEST_STORE_INT", "50")
+		defer os.Unsetenv("TEST_STORE_INT")
+		if got := getEnvInt("TEST_STORE_INT", 10); got != 50 {
+			t.Errorf("getEnvInt = %d, want 50", got)
+		}
+	})
+}
+
+func TestGetEnvDuration(t *testing.T) {
+	t.Run("returns default when env not set", func(t *testing.T) {
+		os.Unsetenv("TEST_STORE_DUR")
+		got := getEnvDuration("TEST_STORE_DUR", 5*time.Second)
+		if got != 5*time.Second {
+			t.Errorf("getEnvDuration = %v, want 5s", got)
+		}
+	})
 }

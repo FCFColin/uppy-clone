@@ -11,10 +11,11 @@ import (
 )
 
 // setupRoutes registers all HTTP routes and middleware on the chi router.
-func setupRoutes(r *chi.Mux, authHandler *handler.AuthHandler, lobbyHandler *handler.LobbyHandler, adminHandler *handler.AdminHandler, jwtMgr *auth.JWTManager, db *store.PostgresStore, redis *store.RedisStore, rbacEnforcer *rbac.Enforcer, cfg *handler.Config, hub *game.Hub) {
+func setupRoutes(r *chi.Mux, authHandler *handler.AuthHandler, lobbyHandler *handler.LobbyHandler, adminHandler *handler.AdminHandler, statsHandler *handler.StatsHandler, jwtMgr *auth.JWTManager, db *store.PostgresStore, redis *store.RedisStore, rbacEnforcer *rbac.Enforcer, cfg *handler.Config, hub *game.Hub) {
 	setupMiddleware(r)
 	setupHealthAndMetricsRoutes(r, db, redis, hub)
 	setupAuthRoutes(r, authHandler, redis, jwtMgr, rbacEnforcer)
+	setupStatsRoutes(r, statsHandler, redis, jwtMgr, rbacEnforcer)
 	setupLobbyRoutes(r, lobbyHandler, redis, jwtMgr, rbacEnforcer)
 	setupAdminRoutes(r, adminHandler, redis, jwtMgr, rbacEnforcer)
 	setupStaticRoutes(r, cfg)

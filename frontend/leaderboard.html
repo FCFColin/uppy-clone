@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Uppy - 合作气球游戏</title>
+  <meta name="description" content="Uppy 合作气球游戏排行榜 — 团队最高分排行。">
+  <link rel="stylesheet" href="/src/style.css">
+  <link rel="stylesheet" href="/src/index.css">
+</head>
+<body class="landing-page">
+  <div class="hero leaderboard-page">
+    <h1>🏆 排行榜</h1>
+    <p class="subtitle">团队最高分</p>
+    <div class="leaderboard-tabs">
+      <button id="tab-global" class="btn-secondary active" type="button">总榜</button>
+      <button id="tab-weekly" class="btn-secondary" type="button">周榜</button>
+    </div>
+    <ol id="leaderboard-list" class="leaderboard-list"></ol>
+    <p id="leaderboard-empty" class="hint hidden">暂无记录，快去开一局吧！</p>
+    <a href="/" class="link-secondary">← 返回大厅</a>
+  </div>
+  <script type="module" src="/src/leaderboard.ts"></script>
+</body>
+</html>

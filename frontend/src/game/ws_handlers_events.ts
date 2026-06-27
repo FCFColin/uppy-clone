@@ -31,6 +31,8 @@ export function handleTapAccepted(view: DataView): void {
   state.explosionEffect = { x: tapX, y: tapY, startTime: Date.now() };
 }
 
+import { pushFloatingText } from './visual_helpers.js';
+
 export function handleTapRejected(): void {
   if (state.lastTapX !== null) {
     state.ripples.push({
@@ -40,5 +42,6 @@ export function handleTapRejected(): void {
       time: Date.now(),
       rejected: true,
     });
+    pushFloatingText(state.lastTapX, state.lastTapY!, '太远了');
   }
 }

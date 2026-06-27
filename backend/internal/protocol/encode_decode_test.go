@@ -123,6 +123,16 @@ func TestEncodeGameStateChange_CountdownWithRemaining(t *testing.T) {
 	}
 }
 
+func TestEncodeGameStateChangeEnded_WithReason(t *testing.T) {
+	data := EncodeGameStateChangeEnded(EndReasonBird)
+	if len(data) != 3 {
+		t.Fatalf("ended EncodeGameStateChangeEnded 应为 3 字节，got=%d", len(data))
+	}
+	if data[0] != MsgGameStateChange || data[1] != PhaseCodeEnded || data[2] != EndReasonBird {
+		t.Fatalf("unexpected payload: %v", data)
+	}
+}
+
 // ─── DecodeTap ───────────────────────────────────────────────────────
 
 func TestDecodeTap_Valid(t *testing.T) {

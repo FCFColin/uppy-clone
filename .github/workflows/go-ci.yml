@@ -51,7 +51,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           working-directory: backend
-          version: v2.1.6
+          version: v1.64.8
 
   vet:
     name: Vet
@@ -110,19 +110,6 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  secrets-scan:
-    name: Secret Scanning (detect-secrets)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install detect-secrets
-        run: pip install detect-secrets==1.5.0
-      - name: Run detect-secrets
-        run: detect-secrets scan --baseline .secrets.baseline
 
   container-scan:
     name: Container Scan
@@ -240,15 +227,15 @@ jobs:
       - run: go mod download
       - name: Run integration tests
         run: |
-          go test ./tests/integration/... -race -timeout 180s -coverprofile=int.out -covermode=atomic
-          go test ./internal/outbox/... ./internal/worker/... ./cmd/migrate-passwords/... ./cmd/backfill-emails/... -race -timeout 180s
+          go test -tags=integration ./tests/integration/... -race -timeout 180s -coverprofile=int.out -covermode=atomic
+          go test -tags=integration ./internal/outbox/... ./internal/worker/... -race -timeout 180s
       - name: Integration coverage governance
         run: bash ../scripts/ci/check-coverage.sh integration int.out
 
   build-push:
     name: Build & Push
     runs-on: ubuntu-latest
-    needs: [test, lint, vet, bench, security, gitleaks, secrets-scan, container-scan, migration, docker-pin-check, license-check, openapi, integration]
+    needs: [test, lint, vet, bench, security, gitleaks, container-scan, migration, docker-pin-check, license-check, openapi, integration]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4

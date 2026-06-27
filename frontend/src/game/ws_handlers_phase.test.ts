@@ -25,6 +25,17 @@ vi.mock('./phase_sync.js', () => ({
   shouldApplySnapshotPhase: mocks.shouldApplySnapshotPhase,
 }));
 vi.mock('./ui.js', () => ({ updateUI: mocks.updateUI }));
+vi.mock('./tutorial.js', () => ({
+  runTutorialIfNeeded: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('../shared/audio.js', () => ({
+  playGameOverSound: vi.fn(),
+  vibrate: vi.fn(),
+}));
+vi.mock('../shared/best_score_cookie.js', () => ({
+  updateBestScore: vi.fn(() => ({ best: 0, isNewRecord: false })),
+  fetchUserBestScore: vi.fn(() => Promise.resolve(0)),
+}));
 
 import { handleGameStateChange, handleRestartStatus } from './ws_handlers_phase.js';
 
@@ -51,13 +62,15 @@ describe('handleGameStateChange', () => {
     expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
   });
 
-  it('derives countdown seconds from remaining ms', () => {
+  it('derives countdown seconds from remaining ms', async () => {
     const buf = new ArrayBuffer(6);
     const dv = new DataView(buf);
     dv.setUint8(1, 3);
     dv.setUint32(2, 5500, true);
     handleGameStateChange(dv);
-    expect(mocks.applyPhaseChange).toHaveBeenCalledWith('countdown', 6);
+    await vi.waitFor(() => {
+      expect(mocks.applyPhaseChange).toHaveBeenCalledWith('countdown', 6);
+    });
   });
 });
 

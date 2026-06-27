@@ -16,10 +16,15 @@ vi.mock('./websocket.js', () => ({
   sendOrQueue: vi.fn(),
   getWs: vi.fn(() => ({ readyState: 1 })),
 }));
-vi.mock('./renderer.js', () => ({
-  $canvas: {
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
-  },
+vi.mock('./renderer_canvas.js', () => ({
+  clientToNormalized: (x: number, y: number) => ({ x: x / 100, y: y / 100 }),
+}));
+vi.mock('./visual_helpers.js', () => ({
+  pushFloatingText: vi.fn(),
+}));
+vi.mock('../shared/audio.js', () => ({
+  playTapSound: vi.fn(),
+  vibrate: vi.fn(),
 }));
 vi.mock('./ui.js', () => ({ updateUI: vi.fn() }));
 

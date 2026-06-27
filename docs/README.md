@@ -13,6 +13,8 @@
 
 | 文档 | 说明 |
 |------|------|
+| [代码简化 Roadmap](development/code-simplification-roadmap.md) | 全项目简化进度、PR 清单与验证清单 |
+| [全仓清理 Checklist](development/repo-cleanup-checklist.md) | 目录/文档/工具链清理条目跟踪 |
 | [测试覆盖率策略](development/coverage-policy.md) | 单元/集成/前端覆盖率门禁 |
 | [日志策略](security/logging-policy.md) | 日志级别、结构化字段、PII 禁止项 |
 | [环境配置](operations/environments.md) | 本地 / staging / 生产配置矩阵 |
@@ -62,6 +64,8 @@
 | 文档 | 说明 |
 |------|------|
 | [Postmortem 模板](templates/postmortem.md) | P0/P1 事故复盘模板 |
+| [Enterprise checklist](../checklist-enterprise.md) | 企业级能力自检 |
+| [Vertical v2 checklist](../checklist-vertical-v2.md) | 垂直切片 v2 自检 |
 
 ## 路径变更说明（旧 flat 路径 → 当前位置）
 

@@ -2,19 +2,37 @@ export {};
 
 import { establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/session.js';
 import { fetchWithRetry } from './shared/fetch.js';
+import { loadLeaderboardPreview } from './index_leaderboard.js';
 
 normalizeAuthHost();
+void loadLeaderboardPreview();
 
 const emailInput: HTMLInputElement = document.getElementById('email-input') as HTMLInputElement;
 const loginBtn: HTMLButtonElement = document.getElementById('login-btn') as HTMLButtonElement;
 const successMsg: HTMLElement = document.getElementById('success-msg')!;
 const errorMsg: HTMLElement = document.getElementById('error-msg')!;
 const quickplayBtn: HTMLButtonElement = document.getElementById('quickplay-btn') as HTMLButtonElement;
+const joinCodeBtn: HTMLButtonElement = document.getElementById('join-code-btn') as HTMLButtonElement;
 
 function showError(message: string): void {
   errorMsg.textContent = message;
   errorMsg.style.display = 'block';
 }
+
+function resetEmailForm(): void {
+  successMsg.style.display = 'none';
+  emailInput.style.display = '';
+  loginBtn.style.display = '';
+  loginBtn.disabled = false;
+  loginBtn.textContent = '发送登录链接';
+  emailInput.value = '';
+  emailInput.focus();
+}
+
+document.getElementById('email-change-link')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  resetEmailForm();
+});
 
 async function requestLoginLink(): Promise<void> {
   const email: string = emailInput.value.trim();
@@ -89,6 +107,9 @@ async function joinByCode(): Promise<void> {
     return;
   }
   errorEl.classList.add('hidden');
+  joinCodeBtn.disabled = true;
+  const prevLabel = joinCodeBtn.textContent;
+  joinCodeBtn.textContent = '加入中...';
   try {
     const res: Response = await fetch(`/api/v1/registry/check/${code}`);
     const data: { full?: boolean } = await res.json();
@@ -115,6 +136,9 @@ async function joinByCode(): Promise<void> {
   } catch {
     errorEl.textContent = '网络错误，请重试';
     errorEl.classList.remove('hidden');
+  } finally {
+    joinCodeBtn.disabled = false;
+    joinCodeBtn.textContent = prevLabel ?? '加入';
   }
 }
 
@@ -123,7 +147,7 @@ emailInput.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'Enter') requestLoginLink();
 });
 quickplayBtn.addEventListener('click', quickPlay);
-document.getElementById('join-code-btn')!.addEventListener('click', joinByCode);
+joinCodeBtn.addEventListener('click', joinByCode);
 document.getElementById('join-code-input')!.addEventListener('keypress', (e: KeyboardEvent) => {
   if (e.key === 'Enter') joinByCode();
 });

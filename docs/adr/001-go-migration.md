@@ -16,7 +16,7 @@
 - Go: 高性能并发模型，goroutine 适合 WebSocket 长连接
 - PostgreSQL: 成熟的关系型数据库，支持高并发读写
 - Redis: 内存缓存，适合 rate limiting 和 session 存储
-- 部署到 GCP Cloud Run: 支持长连接，自动扩缩
+- 部署演进见 [ADR-013](013-cloud-run-deployment.md)（Cloud Run → GKE 多区域）
 
 ## 后果
 
@@ -28,4 +28,4 @@
 **负面**
 - 失去 Cloudflare 的全球边缘网络
 - 需要自行管理数据库和缓存
-- 冷启动延迟（Cloud Run）
+- 初期曾使用 Cloud Run；现以 GKE 为目标部署平台（ADR-013）

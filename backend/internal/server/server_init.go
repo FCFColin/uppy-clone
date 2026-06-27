@@ -77,13 +77,14 @@ func startWorkers(ctx context.Context, cfg *handler.Config, redis *store.RedisSt
 }
 
 // initHandlers creates the auth, lobby, and admin handlers.
-func initHandlers(jwtMgr *auth.JWTManager, db *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, timeouts appConfig.TimeoutConfig, hub *game.Hub) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler) {
+func initHandlers(jwtMgr *auth.JWTManager, db *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, timeouts appConfig.TimeoutConfig, hub *game.Hub) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler, *handler.StatsHandler) {
 	refreshMgr := auth.NewRefreshTokenManager(redis.Client())
 	authHandler := handler.NewAuthHandler(jwtMgr, refreshMgr, db, redis, cfg, timeouts)
 	allowedOrigins := appMiddleware.AllowedOriginsFromEnv(serverEnv.AllowedOrigins)
 	lobbyHandler := handler.NewLobbyHandler(hub, jwtMgr, allowedOrigins)
 	adminHandler := handler.NewAdminHandler(db, jwtMgr, redis)
-	return authHandler, lobbyHandler, adminHandler
+	statsHandler := handler.NewStatsHandler(db)
+	return authHandler, lobbyHandler, adminHandler, statsHandler
 }
 
 // initRBAC initializes the RBAC enforcer.

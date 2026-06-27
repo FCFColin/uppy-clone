@@ -1,36 +1,33 @@
-# Continuous Profiling
+# 持续 Profiling
 
-## Overview
-The system supports always-on continuous profiling via Pyroscope or Parca, integrated with Grafana dashboards.
+## 概述
 
-## Setup
+支持通过 Pyroscope 或 Parca 做 always-on 持续 profiling，并与 Grafana 集成。
 
-### Prerequisites
-- Pyroscope server (or Grafana Cloud Profiles)
-- `ENABLE_PYROSCOPE=true` environment variable
+## 配置
+
+### 前置条件
+
+- Pyroscope 服务（或 Grafana Cloud Profiles）
+- `ENABLE_PYROSCOPE=true`
 - `PYROSCOPE_SERVER_ADDRESS=http://pyroscope:4040`
 
-### Profile Types
-- **CPU**: Identifies hot paths and optimization opportunities
-- **Alloc Objects**: Memory allocation count (GC pressure)
-- **Alloc Space**: Memory allocation size
-- **Inuse Objects**: Current live objects (memory leaks)
-- **Inuse Space**: Current memory usage
+### Profile 类型
 
-### Grafana Dashboard
-Import the Pyroscope panel in Grafana to view:
-- Real-time CPU flame graphs
-- Memory allocation flame graphs
-- Diff views (compare before/after deployments)
+- **CPU**：热点路径
+- **Alloc Objects / Alloc Space**：分配压力
+- **Inuse Objects / Inuse Space**：泄漏排查
 
-## Usage
-1. Deploy Pyroscope server: `docker run -p 4040:4040 grafana/pyroscope:latest`
-2. Set environment variables
-3. Deploy the application
-4. Open Grafana → Explore → Pyroscope to view flame graphs
+## 使用
 
-## pprof (On-Demand)
-For on-demand profiling without Pyroscope, use the built-in pprof endpoints:
-- `ENABLE_PPROF=true` to enable
+1. 启动 Pyroscope：`docker run -p 4040:4040 grafana/pyroscope:latest`
+2. 设置环境变量并部署应用
+3. Grafana → Explore → Pyroscope 查看火焰图
+
+## pprof（按需）
+
+- `ENABLE_PPROF=true`
 - `curl http://localhost:6060/debug/pprof/profile?seconds=30 > cpu.prof`
 - `go tool pprof cpu.prof`
+
+详见 [Runbook](../operations/runbook.md) 性能章节。

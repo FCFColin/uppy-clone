@@ -10,7 +10,7 @@ import {
   scheduleReconnect,
   waitForWebSocket,
 } from './ws_connection.js';
-import { pendingQueue } from './state.js';
+import { outboundMessageQueue } from './state.js';
 import { MAX_PENDING_QUEUE, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS } from './constants.js';
 
 class MockWebSocket {
@@ -28,7 +28,7 @@ vi.mock('./ws_connect.js', () => ({ connectWebSocket: vi.fn() }));
 describe('ws_connection', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    pendingQueue.length = 0;
+    outboundMessageQueue.length = 0;
     stopHeartbeat();
     setWs(null);
     resetReconnectAttempts();
@@ -50,14 +50,14 @@ describe('ws_connection', () => {
   it('sendOrQueue queues when socket closed', () => {
     const buf = new ArrayBuffer(1);
     sendOrQueue(buf);
-    expect(pendingQueue.length).toBe(1);
+    expect(outboundMessageQueue.length).toBe(1);
   });
 
   it('sendOrQueue drops oldest when queue full', () => {
     for (let i = 0; i < MAX_PENDING_QUEUE + 2; i++) {
       sendOrQueue(new ArrayBuffer(1));
     }
-    expect(pendingQueue.length).toBe(MAX_PENDING_QUEUE);
+    expect(outboundMessageQueue.length).toBe(MAX_PENDING_QUEUE);
   });
 
   it('flushPendingQueue drains queue on open socket', () => {
@@ -65,7 +65,7 @@ describe('ws_connection', () => {
     setWs(socket);
     sendOrQueue(new ArrayBuffer(1));
     flushPendingQueue();
-    expect(pendingQueue.length).toBe(0);
+    expect(outboundMessageQueue.length).toBe(0);
     expect((socket as unknown as MockWebSocket).sent.length).toBe(1);
   });
 

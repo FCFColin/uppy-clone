@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
         play: resolve(__dirname, 'play.html'),
         admin: resolve(__dirname, 'admin.html'),
         verify: resolve(__dirname, 'verify.html'),
+        leaderboard: resolve(__dirname, 'leaderboard.html'),
       },
     },
   },

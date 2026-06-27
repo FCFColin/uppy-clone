@@ -30,10 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deploy job uses `environment: production` for approval gating (T21)
 
 ### Changed
-- ADR-005 status updated from "提议中" to "已接受（部分实施）" (T15)
-- `architecture.md` tick rate corrected from 60fps to 15Hz (T15)
-- `architecture.md` "无消息队列" updated to reflect Redis Stream implementation (T15)
-- ADR README index rewritten to include ADR-001 through ADR-010 (T14)
+- 全仓整理：删除 `run-backend.ps1`、`scripts/archive/`、一次性 `cmd/`；统一 ADR 中文模板与状态审计
+- ADR 索引覆盖 000–027；移除 phantom `ADR-V2-*` 引用
+- `REDIS_URL` 支持 URL 与 host:port；`make load-*` 与 CI/golangci 版本对齐
+- ADR README index rewritten to include ADR-000 through ADR-027
 - `pin-digests.sh` updated with exact image tags matching Dockerfile (T12)
 
 ### Security

@@ -18,12 +18,17 @@ type RedisStore struct {
 	cb  *gobreaker.CircuitBreaker[any]
 }
 
-func NewRedisStore(addr string, timeouts config.TimeoutConfig) (*RedisStore, error) {
+func NewRedisStore(redisURL string, timeouts config.TimeoutConfig) (*RedisStore, error) {
+	conn, err := config.ParseRedisURL(redisURL)
+	if err != nil {
+		return nil, err
+	}
 	poolSize := getEnvInt("REDIS_POOL_SIZE", 20)
 	minIdleConns := getEnvInt("REDIS_MIN_IDLE_CONNS", 5)
 
 	rdb := redis.NewClient(&redis.Options{
-		Addr:            addr,
+		Addr:            conn.Addr,
+		Password:        conn.Password,
 		PoolSize:        poolSize,
 		MinIdleConns:    minIdleConns,
 		PoolTimeout:     4 * time.Second,

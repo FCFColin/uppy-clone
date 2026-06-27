@@ -1,7 +1,12 @@
-# ADR-008: Audit Log Tamper-Proof Persistence
+# ADR-008: 审计日志防篡改持久化
 
-> 状态: Accepted
-> 日期: 2026-06-23
+## 状态
+
+已接受
+
+## 日期
+
+2026-06-23
 
 ## 上下文
 

@@ -178,7 +178,7 @@ func extractClientIP(r *http.Request) string {
 // Exported so that other packages (e.g., handler/admin.go) can reuse the
 // same reverse-proxy-aware IP extraction logic for lockout keys.
 //
-// 企业为何需要：在 Cloud Run/nginx/Cloudflare 等反向代理后，r.RemoteAddr
+// 反向代理（GKE Ingress/nginx）后，r.RemoteAddr 为代理地址，须解析 X-Forwarded-For。
 // 恒为代理 IP，所有攻击者共享同一锁定 key，导致 DoS（单攻击者锁全部用户）
 // 或暴力破解成功（锁定永不触发）。必须从 X-Forwarded-For 提取真实客户端 IP。
 func ExtractClientIP(r *http.Request) string {

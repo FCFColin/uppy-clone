@@ -7,11 +7,20 @@ import sys
 from pathlib import Path
 
 
+def strip_all_imports(content: str) -> str:
+    while True:
+        prev = content
+        content = re.sub(r"import\s*\([^)]*\)\s*\n?", "", content, count=1, flags=re.DOTALL)
+        content = re.sub(r"import\s+[^\n]+\n", "", content, count=1)
+        if content == prev:
+            break
+    return content
+
+
 def strip_header(content: str) -> str:
     content = re.sub(r"^package\s+\w+\s*\n", "", content, count=1)
-    content = re.sub(r"^//go:build[^\n]*\n", "", content, count=1)
-    content = re.sub(r"^import\s*\([^)]*\)\s*\n", "", content, count=1, flags=re.DOTALL)
-    content = re.sub(r"^import\s+[^\n]+\n", "", content, count=1)
+    content = re.sub(r"^//go:build[^\n]*\n(?:// \+build[^\n]*\n)?", "", content, count=1)
+    content = strip_all_imports(content)
     return content.strip() + "\n"
 
 
@@ -41,9 +50,12 @@ def main() -> None:
         }
     elif pkg == "middleware":
         groups = {
-            "middleware_test.go": [
-                "cors_test.go", "logging_test.go", "ratelimit_test.go", "tracing_test.go",
-                "prometheus_test.go", "security_test.go", "bulkhead_test.go", "proxy_test.go", "idempotency_test.go",
+            "middleware_core_test.go": [
+                "cors_test.go", "logging_test.go", "tracing_test.go",
+                "prometheus_test.go", "security_test.go", "proxy_test.go",
+            ],
+            "middleware_resilience_test.go": [
+                "ratelimit_test.go", "bulkhead_test.go", "idempotency_test.go",
             ],
         }
     elif pkg == "handler":

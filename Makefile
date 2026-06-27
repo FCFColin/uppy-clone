@@ -35,7 +35,7 @@ test-integration:
 	cd backend && go test -tags=integration ./tests/integration/... -timeout 180s -v
 
 test-containers:
-	cd backend && go test -tags=integration ./tests/integration/... ./internal/outbox/... ./internal/worker/... ./cmd/migrate-passwords/... ./cmd/backfill-emails/... -timeout 180s
+	cd backend && go test -tags=integration ./tests/integration/... ./internal/outbox/... ./internal/worker/... -timeout 180s
 
 test-all: test test-integration
 	cd frontend && npm test
@@ -85,7 +85,16 @@ seed:
 	cd backend && go run ./cmd/seed
 
 bench:
-	cd backend && go test -bench=. -benchmem -run=^$$ ./... | tee ../docs/development/benchmarks-go-microbench.md
+	cd backend && go test -bench=. -benchmem -run=^$$ ./internal/protocol/ ./internal/game/ -count=1 | tee ../docs/development/benchmarks-go-microbench.md
+
+load-smoke:
+	k6 run scripts/load/k6-smoke.js
+
+load-ws-soak:
+	k6 run scripts/load/k6-ws-soak.js
+
+load-single-room:
+	k6 run scripts/load/k6-single-room.js
 
 audit:
 	$(TOOL_BUILD)/govulncheck golang.org/x/vuln/cmd/govulncheck

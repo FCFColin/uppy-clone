@@ -40,6 +40,14 @@ const (
 	PhaseCodeCountdown = 3
 )
 
+// End reason codes (sent as optional 3rd byte on MsgGameStateChange when phase=ended).
+const (
+	EndReasonNone   = 0
+	EndReasonGround = 1
+	EndReasonBird   = 2
+	EndReasonGhost  = 3
+)
+
 // ─── 游戏阶段类型 ────────────────────────────────────────────────────
 
 // GamePhase represents the current phase of a game.

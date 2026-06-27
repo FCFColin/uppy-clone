@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
@@ -19,10 +20,13 @@ func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (*doma
 	)
 	defer span.End()
 
+	emailHash := crypto.EmailHMAC(email)
+
 	var u *domain.User
 	err := s.withRetryRead(ctx, func(ctx context.Context) error {
 		row := s.pool.QueryRow(ctx,
-			`SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE email = $1`, email)
+			`SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE email_hash = $1 OR (email_hash IS NULL AND email = $2)`,
+			emailHash, email)
 
 		var user domain.User
 		if scanErr := row.Scan(&user.ID, &user.Email, &user.Nickname, &user.Palette, &user.CreatedAt, &user.LastLogin); scanErr != nil {
@@ -31,6 +35,11 @@ func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (*doma
 			}
 			return fmt.Errorf("get user by email: %w", scanErr)
 		}
+		plain, decErr := emailFromStorage(user.Email)
+		if decErr != nil {
+			return decErr
+		}
+		user.Email = plain
 		u = &user
 		return nil
 	})
@@ -62,6 +71,11 @@ func (s *PostgresStore) GetUserByID(ctx context.Context, id string) (*domain.Use
 			}
 			return fmt.Errorf("get user by id: %w", scanErr)
 		}
+		plain, decErr := emailFromStorage(user.Email)
+		if decErr != nil {
+			return decErr
+		}
+		user.Email = plain
 		u = &user
 		return nil
 	})

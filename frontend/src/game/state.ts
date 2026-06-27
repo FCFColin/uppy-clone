@@ -11,7 +11,7 @@ export {
   commitRenderedState,
   seenSeqs,
   isDuplicateSeq,
-  pendingQueue,
-  resetClientState,
+  outboundMessageQueue,
   getInterpState,
 } from './state_interp.js';
+export { resetClientState, resetRoundClientState } from './client_state_reset.js';

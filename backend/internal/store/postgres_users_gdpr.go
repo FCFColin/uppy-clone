@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -45,10 +46,16 @@ func (s *PostgresStore) AnonymizeUser(ctx context.Context, userID string) error 
 	defer span.End()
 
 	now := time.Now().Unix()
+	anonEmail := "deleted_" + userID + "@anonymized"
+	anonHash := crypto.EmailHMAC(anonEmail)
+	storedAnon, err := crypto.EncryptEmailForStorage(anonEmail)
+	if err != nil {
+		return fmt.Errorf("encrypt anonymized email: %w", err)
+	}
 	return s.withRetryWrite(ctx, func(ctx context.Context) error {
 		_, execErr := s.pool.Exec(ctx,
-			`UPDATE users SET email = $1, nickname = 'Deleted User', deleted_at = $2, email_anonymized = true WHERE id = $3`,
-			"deleted_"+userID+"@anonymized", now, userID)
+			`UPDATE users SET email = $1, email_hash = $2, nickname = 'Deleted User', deleted_at = $3, email_anonymized = true WHERE id = $4`,
+			storedAnon, anonHash, now, userID)
 		if execErr != nil {
 			return fmt.Errorf("anonymize user: %w", execErr)
 		}

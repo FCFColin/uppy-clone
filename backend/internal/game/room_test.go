@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"math"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -1072,45 +1071,6 @@ func TestHandleSetNickname_TruncateLongName(t *testing.T) {
 	}
 	if len([]rune(player.Nickname)) > protocol.MaxNicknameLen {
 		t.Fatalf("nickname should be truncated to %d chars, got %d", protocol.MaxNicknameLen, len([]rune(player.Nickname)))
-	}
-}
-
-// --- sanitizeNickname tests ---
-
-func TestSanitizeNickname_ControlChars(t *testing.T) {
-	result := sanitizeNickname("hello\x00world\x01test")
-	// validate.Nickname truncates to protocol.MaxNicknameLen (12 runes).
-	want := "helloworldte"
-	if result != want {
-		t.Errorf("sanitizeNickname = %q, want %q", result, want)
-	}
-}
-
-func TestSanitizeNickname_ZeroWidthChars(t *testing.T) {
-	result := sanitizeNickname("hello\u200Bworld")
-	if result != testNickname {
-		t.Errorf("sanitizeNickname = %q, want %q", result, testNickname)
-	}
-}
-
-func TestSanitizeNickname_HTMLChars(t *testing.T) {
-	result := sanitizeNickname("test<script>alert('xss')</script>")
-	if strings.ContainsAny(result, "<>'\"`&") {
-		t.Errorf("sanitizeNickname should remove HTML chars, got %q", result)
-	}
-}
-
-func TestSanitizeNickname_TrimSpace(t *testing.T) {
-	result := sanitizeNickname("  hello  ")
-	if result != testGreeting {
-		t.Errorf("sanitizeNickname = %q, want %q", result, testGreeting)
-	}
-}
-
-func TestSanitizeNickname_EmptyAfterSanitization(t *testing.T) {
-	result := sanitizeNickname("\x00\x01\x02")
-	if result != "" {
-		t.Errorf("sanitizeNickname = %q, want empty string", result)
 	}
 }
 

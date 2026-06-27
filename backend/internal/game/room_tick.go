@@ -100,7 +100,7 @@ func (r *Room) tickOnce() {
 
 	gameOver := ApplyPhysics(&r.state.Balloon)
 	if gameOver {
-		r.EndGame()
+		r.EndGameWithReason(protocol.EndReasonGround)
 		return
 	}
 
@@ -108,12 +108,12 @@ func (r *Room) tickOnce() {
 	UpdateBirdAI(&r.state.Bird, &r.state.Balloon, r.state.TickCount)
 	UpdateGhostAI(r.state)
 	if CheckGhostCollision(r.state) {
-		r.EndGame()
+		r.EndGameWithReason(protocol.EndReasonGhost)
 		return
 	}
 
 	if CheckBirdCollision(&r.state.Bird, &r.state.Balloon) {
-		_ = r.EndGame()
+		_ = r.EndGameWithReason(protocol.EndReasonBird)
 		return
 	}
 

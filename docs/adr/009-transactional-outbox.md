@@ -1,34 +1,41 @@
-# ADR-009: Transactional Outbox Pattern
+# ADR-009: 事务性 Outbox 模式
 
-## Status
-Accepted
+## 状态
 
-## Date
+已接受
+
+## 日期
+
 2026-06-23
 
-## Context
-When creating users, we need to publish a "user.created" event to Redis Stream for downstream consumers (email, analytics). However, writing to PostgreSQL and Redis is not atomic — if the Redis publish fails after the PG insert, the event is lost.
+## 上下文
 
-## Decision
-Use the Transactional Outbox pattern:
-1. Write the business data AND the outbox event in the same PostgreSQL transaction
-2. A background Publisher goroutine polls outbox_events every 1 second
-3. Unprocessed events are published to Redis Streams
-4. Successfully published events are marked with processed_at timestamp
+创建用户时需要向 Redis Stream 发布 `user.created` 事件供下游消费（邮件、分析）。但 PostgreSQL 写入与 Redis 发布非原子——若 PG 插入成功而 Redis 发布失败，事件会丢失。
 
-## Consequences
-**Positive:**
-- Atomicity: business data and event are committed together
-- At-least-once delivery: events are never lost
-- Replayability: unprocessed events remain in the table
-- Ordering: events are processed in ID order
+## 决策
 
-**Negative:**
-- Additional DB polling (mitigated by 1s interval + LIMIT 100)
-- Potential duplicate publishing (consumers must be idempotent)
-- Requires monitoring of unprocessed event count
+采用 **Transactional Outbox** 模式：
 
-## Alternatives Considered
-1. **2PC (Two-Phase Commit)**: Not supported by Redis, adds latency
-2. **Change Data Capture (CDC)**: Complex to set up (Debezium), overkill for current scale
-3. **Best-effort publishing**: Unreliable, events can be lost
+1. 在同一 PostgreSQL 事务中写入业务数据与 outbox 事件
+2. 后台 Publisher goroutine 每 1 秒轮询 `outbox_events`
+3. 未处理事件发布到 Redis Streams
+4. 成功发布后标记 `processed_at`
+
+## 后果
+
+**正面**
+- 原子性：业务数据与事件一同提交
+- 至少一次投递：事件不丢失
+- 可重放：未处理事件保留在表中
+- 有序：按 ID 顺序处理
+
+**负面**
+- 额外 DB 轮询（1s 间隔 + LIMIT 100 缓解）
+- 可能重复发布（消费者须幂等）
+- 需监控未处理事件数量
+
+## 备选方案
+
+1. **两阶段提交（2PC）**：Redis 不支持，延迟高
+2. **CDC（Debezium）**：搭建复杂，当前规模过度
+3. **尽力而为发布**：不可靠，事件可丢失

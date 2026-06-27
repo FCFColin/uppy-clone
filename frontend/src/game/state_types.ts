@@ -65,6 +65,8 @@ export interface ClientState {
   nicknameSubmitted: boolean;
   pendingNickname: string | null;
   countdownTimerInterval: ReturnType<typeof setInterval> | null;
+  endReason: number | null;
+  wasEverConnected: boolean;
 }
 
 export const state: ClientState = {
@@ -88,4 +90,6 @@ export const state: ClientState = {
   nicknameSubmitted: false,
   pendingNickname: null,
   countdownTimerInterval: null,
+  endReason: null,
+  wasEverConnected: false,
 };

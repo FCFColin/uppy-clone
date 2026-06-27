@@ -174,7 +174,10 @@ func EncodeTapRejected() []byte {
 
 // EncodeGameStateChange encodes a game state change notification.
 //
-// Binary layout: msgType(1) + phaseCode(uint8) [+ countdownRemainingMs(uint32 LE) when phase=countdown]
+// Binary layout:
+//   - msgType(1) + phaseCode(uint8)
+//   - when phase=countdown: + countdownRemainingMs(uint32 LE)
+//   - when phase=ended: + endReason(uint8)
 func EncodeGameStateChange(phase GamePhase, countdownRemainingMs ...uint32) []byte {
 	if phase == PhaseCountdown && len(countdownRemainingMs) > 0 {
 		var buf bytes.Buffer
@@ -184,6 +187,11 @@ func EncodeGameStateChange(phase GamePhase, countdownRemainingMs ...uint32) []by
 		return buf.Bytes()
 	}
 	return []byte{MsgGameStateChange, PhaseToCode(phase)}
+}
+
+// EncodeGameStateChangeEnded encodes ended phase with death reason.
+func EncodeGameStateChangeEnded(endReason uint8) []byte {
+	return []byte{MsgGameStateChange, PhaseToCode(PhaseEnded), endReason}
 }
 
 // EncodeRestartStatus encodes a restart vote status update.

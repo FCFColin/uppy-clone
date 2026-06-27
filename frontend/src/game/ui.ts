@@ -1,14 +1,16 @@
 import { state } from './state.js';
 import {
   $waitingScreen, $endedScreen, $gameHud,
-  $cooldownIndicator, $rotateHint,
+  $cooldownIndicator, $hudScore,
   pickRandomNickname,
 } from './ui_elements.js';
+import { showToast } from '../shared/toast.js';
+import { playCountdownTick } from '../shared/audio.js';
+import { measureLayoutInsets } from './renderer_canvas.js';
 
 export {
-  $waitingScreen, $endedScreen, $gameHud, $rotateHint,
+  $waitingScreen, $endedScreen, $gameHud,
   $lobbyCode, $hudCode, $copyCodeBtn, $hudCopyBtn,
-  $nicknameInline, $nicknameInput, $nicknameBtn,
   $nicknameSetupScreen, $setupNicknameInput,
 } from './ui_elements.js';
 
@@ -24,7 +26,13 @@ export function startCountdownTimer(seconds: number): void {
   if (!countdownEl) return;
   const numberEl: Element | null = countdownEl.querySelector('.countdown-number');
   let remaining: number = seconds;
-  if (numberEl) numberEl.textContent = String(remaining);
+  if (numberEl) {
+    numberEl.textContent = String(remaining);
+    numberEl.classList.remove('countdown-pop');
+    void numberEl.clientWidth;
+    numberEl.classList.add('countdown-pop');
+  }
+  playCountdownTick();
   countdownEl.classList.remove('hidden');
 
   state.countdownTimerInterval = setInterval(() => {
@@ -34,19 +42,23 @@ export function startCountdownTimer(seconds: number): void {
       state.countdownTimerInterval = null;
       countdownEl.classList.add('hidden');
     } else {
-      if (numberEl) numberEl.textContent = String(remaining);
+      if (numberEl) {
+        numberEl.textContent = String(remaining);
+        numberEl.classList.remove('countdown-pop');
+        void numberEl.clientWidth;
+        numberEl.classList.add('countdown-pop');
+      }
+      playCountdownTick();
     }
   }, 1000);
 }
 
 export function hideCountdownOverlay(): void {
-  const countdownEl: HTMLElement | null = document.getElementById('countdown-overlay');
-  if (countdownEl) countdownEl.classList.add('hidden');
+  document.getElementById('countdown-overlay')?.classList.add('hidden');
 }
 
 export function showCountdownOverlay(): void {
-  const countdownEl: HTMLElement | null = document.getElementById('countdown-overlay');
-  if (countdownEl) countdownEl.classList.remove('hidden');
+  document.getElementById('countdown-overlay')?.classList.remove('hidden');
 }
 
 export function hideLoadingOverlay(): void {
@@ -58,17 +70,18 @@ export function generateRandomNickname(): string {
   return pickRandomNickname();
 }
 
-export function copyCode(): void {
+export async function copyCode(): Promise<void> {
   const url: string = `${window.location.origin}/play.html?code=${state.lobbyCode}`;
-  navigator.clipboard.writeText(url).catch(() => {});
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('已复制邀请链接');
+  } catch {
+    showToast('复制失败，请手动复制房间码');
+  }
 }
 
-export function checkOrientation(): void {
-  if (window.innerHeight > window.innerWidth * 1.2 && window.innerWidth < 768) {
-    $rotateHint.classList.remove('hidden');
-  } else {
-    $rotateHint.classList.add('hidden');
-  }
+export function refreshLayout(): void {
+  measureLayoutInsets();
 }
 
 export function showFallbackErrorScreen(message: string): void {

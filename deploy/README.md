@@ -11,6 +11,15 @@
 | [`thanos/`](thanos/) | 跨区域 Thanos Querier |
 | [`kustomization.yaml`](kustomization.yaml) | 一键 apply 可观测性栈 |
 
+## K8s vs 本地 Compose 配置对照
+
+| 组件 | K8s（`deploy/prometheus/` 等） | 本地（`deploy/local/*.local.yml` + compose observability profile） |
+|------|----------------------------------|----------------------------------------------------------------------|
+| Prometheus | `deploy/prometheus/prometheus.yml` + Deployment | `deploy/local/prometheus.local.yml` 挂载到 compose |
+| Alertmanager | `deploy/alertmanager/config.yaml` ConfigMap | `deploy/local/alertmanager.local.yaml` |
+| 告警规则 | `rules.yml` → `make sync-alert-rules` → ConfigMap | 同一 `rules.yml` 挂载到 Prometheus |
+| Grafana | K8s Deployment + provisioning | compose `grafana` 服务 |
+
 ## Alert rules 单源
 
 - **源文件**：[`alertmanager/rules.yml`](alertmanager/rules.yml)（docker-compose 与文档引用此文件）

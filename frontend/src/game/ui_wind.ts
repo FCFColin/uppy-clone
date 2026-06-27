@@ -1,3 +1,4 @@
+import { isTutorialDone } from '../shared/tutorial_cookie.js';
 import { PHYSICS } from './constants.js';
 import { state } from './state.js';
 
@@ -8,6 +9,8 @@ let $windIndicator: HTMLElement | null = null;
 let $windDirection: HTMLElement | null = null;
 let $windMeterFill: HTMLElement | null = null;
 let $windStrength: HTMLElement | null = null;
+let $windFirstHint: HTMLElement | null = null;
+let windHintShown = false;
 
 function ensureElements(): void {
   if ($windIndicator && !$windIndicator.isConnected) {
@@ -15,11 +18,13 @@ function ensureElements(): void {
     $windDirection = null;
     $windMeterFill = null;
     $windStrength = null;
+    $windFirstHint = null;
   }
   if (!$windIndicator) $windIndicator = document.getElementById('wind-indicator');
   if (!$windDirection) $windDirection = document.getElementById('wind-direction');
   if (!$windMeterFill) $windMeterFill = document.getElementById('wind-meter-fill');
   if (!$windStrength) $windStrength = document.getElementById('wind-strength');
+  if (!$windFirstHint) $windFirstHint = document.getElementById('wind-first-hint');
 }
 
 export function updateWindIndicator(wind: number): void {
@@ -57,6 +62,12 @@ export function updateWindIndicator(wind: number): void {
 
   const dirLabel = isCalm ? '无' : clamped >= 0 ? '东' : '西';
   $windIndicator.title = `风向 ${dirLabel} · 风力 ${pct}%`;
+
+  if (!windHintShown && !isTutorialDone() && $windFirstHint) {
+    windHintShown = true;
+    $windFirstHint.classList.remove('hidden');
+    setTimeout(() => $windFirstHint?.classList.add('hidden'), 3000);
+  }
 }
 
 export function hideWindIndicator(): void {

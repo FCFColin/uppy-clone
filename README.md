@@ -55,7 +55,16 @@ make seed
 | `make bench` | 性能基准 |
 | `make audit` | govulncheck + gitleaks |
 | `make deadcode` | 死代码扫描 |
-| `k6 run scripts/load/k6-smoke.js` | 负载冒烟（需服务运行） |
+| `make load-smoke` | k6 HTTP 冒烟 |
+| `make load-ws-soak` | k6 WebSocket soak |
+| `make load-single-room` | k6 单房间压测 |
+
+## 命名对照
+
+| 名称 | 用途 |
+|------|------|
+| **Uppy** / uppy-clone | 产品名；Go module `github.com/uppy-clone/backend`；npm 包名 |
+| **balloon-game** | GCR/K8s 镜像与部署资源名（`gcr.io/.../balloon-game`） |
 
 ## Documentation
 

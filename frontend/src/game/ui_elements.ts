@@ -47,7 +47,6 @@ export const $gameHud: HTMLElement = document.getElementById('game-hud')!;
 export const $cooldownIndicator: HTMLElement = document.getElementById('cooldown-indicator')!;
 export const $cooldownBar: HTMLElement = document.getElementById('cooldown-bar')!;
 export const $cooldownText: HTMLElement = document.getElementById('cooldown-text')!;
-export const $rotateHint: HTMLElement = document.getElementById('rotate-hint')!;
 export const $lobbyCode: HTMLElement = document.getElementById('lobby-code')!;
 export const $hudCode: HTMLElement = document.getElementById('hud-code')!;
 export const $hudScore: HTMLElement = document.getElementById('hud-score')!;
@@ -58,9 +57,6 @@ export const $endPlayerList: HTMLElement = document.getElementById('end-player-l
 export const $playerListWaiting: HTMLElement = document.getElementById('player-list-waiting')!;
 export const $copyCodeBtn: HTMLElement | null = document.getElementById('copy-code-btn');
 export const $hudCopyBtn: HTMLElement | null = document.getElementById('hud-copy-btn');
-export const $nicknameInline: HTMLElement | null = document.getElementById('nickname-inline');
-export const $nicknameInput: HTMLInputElement = document.getElementById('nickname-input') as HTMLInputElement;
-export const $nicknameBtn: HTMLElement = document.getElementById('nickname-btn')!;
 export const $nicknameSetupScreen: HTMLElement | null = document.getElementById('nickname-setup-screen');
 export const $setupNicknameInput: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
 

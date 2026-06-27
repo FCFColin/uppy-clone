@@ -5,12 +5,11 @@
 | 目录 | 用途 |
 |------|------|
 | [`ci/`](ci/) | 覆盖率门禁、镜像 digest 校验、Alert rules 同步、仓库布局校验 |
-| [`load/`](load/) | k6 负载与 soak 脚本（`make load-smoke` 等） |
-| [`archive/`](archive/) | 一次性迁移/重构脚本，**不参与** CI |
+| [`load/`](load/) | k6 负载与 soak 脚本 |
 
 ## CI 脚本
 
-- `ci/check-coverage.sh` — 分层覆盖率门禁（`make check-coverage`）
+- `ci/check-coverage.sh` — 分层覆盖率门禁（`make test-cover`）
 - `ci/check-docker-digests.sh` — Dockerfile digest 与 lockfile 一致性
 - `ci/pin-digests.sh` — 解析并更新 digest lockfile
 - `ci/sync-alert-rules.sh` — 从 `deploy/alertmanager/rules.yml` 生成 K8s ConfigMap
@@ -19,7 +18,8 @@
 ## 负载测试
 
 ```bash
-k6 run scripts/load/k6-smoke.js
-k6 run scripts/load/k6-ws-soak.js
-k6 run scripts/load/k6-single-room.js
+make load-smoke
+make load-ws-soak
+make load-single-room
+# 或: k6 run scripts/load/k6-smoke.js -e BASE_URL=http://localhost:8080
 ```

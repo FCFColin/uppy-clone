@@ -1,19 +1,21 @@
 import { encodeSetNickname } from './message_codec.js';
 import { state, seenSeqs, getInterpState } from './state.js';
 import { normalizeAuthHost } from '../shared/session.js';
+import { resumeAudioContext } from '../shared/audio.js';
 import { resizeCanvas, gameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
 import {
-  updateUI, generateRandomNickname, copyCode, checkOrientation,
-  showFallbackErrorScreen,
+  updateUI, generateRandomNickname, copyCode, refreshLayout,
+  showFallbackErrorScreen, hideLoadingOverlay,
   $copyCodeBtn, $hudCopyBtn,
-  $nicknameInline, $nicknameInput, $nicknameBtn,
   $nicknameSetupScreen, $setupNicknameInput,
 } from './ui.js';
 import {
   connectWebSocket, sendOrQueue, waitForWebSocket,
   stopHeartbeat, getWs, getWsEverOpened, showConnectionError,
 } from './websocket.js';
-import { handleTap, requestRestart } from './input.js';
+import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
+import { initWaitingTips } from './waiting_tips.js';
+import { bindReconnectRetry } from './connection_ui.js';
 
 normalizeAuthHost();
 
@@ -24,13 +26,9 @@ window.generateRandomNickname = generateRandomNickname;
 window.__seenSeqs = seenSeqs;
 window.__interp = getInterpState();
 
-function submitNickname(): void {
-  const nickname: string = $nicknameInput.value.trim() || ('Player ' + Math.floor(Math.random() * 999));
-  localStorage.setItem('uppy-nickname', nickname);
-  if ($nicknameInline) $nicknameInline.classList.add('hidden');
-
-  const nickBytes: ArrayBuffer = encodeSetNickname(nickname);
-  sendOrQueue(nickBytes);
+function setNicknameConnectStatus(text: string): void {
+  const el = document.getElementById('nickname-connect-status');
+  if (el) el.textContent = text;
 }
 
 async function submitSetupNickname(): Promise<void> {
@@ -53,8 +51,7 @@ async function submitSetupNickname(): Promise<void> {
   updateUI(true);
 
   if (state.phase === 'waiting') {
-    const waitingScreen: HTMLElement | null = document.getElementById('waiting-screen');
-    if (waitingScreen) waitingScreen.classList.remove('hidden');
+    document.getElementById('waiting-screen')?.classList.remove('hidden');
     updateUI(true);
   }
 }
@@ -66,10 +63,25 @@ if (savedNickname && $setupNicknameInput) {
 } else if ($setupNicknameInput) {
   $setupNicknameInput.value = generateRandomNickname();
 }
-if ($nicknameSetupScreen) $nicknameSetupScreen.classList.remove('hidden');
+if ($nicknameSetupScreen) {
+  $nicknameSetupScreen.classList.remove('hidden');
+  hideLoadingOverlay();
+  setNicknameConnectStatus('正在连接房间…');
+}
 
-$nicknameBtn.addEventListener('click', submitNickname);
-$nicknameInput.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') submitNickname(); });
+function onGameLobbyReady(): void {
+  setNicknameConnectStatus('正在加入房间…');
+}
+
+function onGameSocketReady(): void {
+  setNicknameConnectStatus('已连接，可以进入游戏');
+}
+
+window.addEventListener('game-lobby-ready', onGameLobbyReady);
+window.addEventListener('game-ws-open', onGameSocketReady);
+
+$canvas.addEventListener('click', () => resumeAudioContext());
+$canvas.addEventListener('touchstart', () => resumeAudioContext(), { passive: true });
 
 $canvas.addEventListener('click', (e: MouseEvent) => {
   if ('ontouchstart' in window) return;
@@ -94,35 +106,34 @@ function handleResize(): void {
   if (resizeTimer !== null) clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
     resizeCanvas();
+    refreshLayout();
     renderOnce();
     resizeTimer = null;
   }, 100);
 }
 
 window.addEventListener('resize', handleResize);
+window.addEventListener('orientationchange', handleResize);
 resizeCanvas();
 renderOnce();
 
-if ($copyCodeBtn) $copyCodeBtn.addEventListener('click', copyCode);
-if ($hudCopyBtn) $hudCopyBtn.addEventListener('click', copyCode);
+if ($copyCodeBtn) $copyCodeBtn.addEventListener('click', () => { void copyCode(); });
+if ($hudCopyBtn) $hudCopyBtn.addEventListener('click', () => { void copyCode(); });
 
-const $randomNicknameBtn: HTMLElement | null = document.getElementById('random-nickname-btn');
-if ($randomNicknameBtn) {
-  $randomNicknameBtn.addEventListener('click', () => {
-    if ($setupNicknameInput) $setupNicknameInput.value = generateRandomNickname();
-  });
-}
-const $enterGameBtn: HTMLElement | null = document.getElementById('enter-game-btn');
-if ($enterGameBtn) {
-  $enterGameBtn.addEventListener('click', () => { submitSetupNickname(); });
-}
-const $restartBtn: HTMLElement | null = document.getElementById('restart-btn');
-if ($restartBtn) {
-  $restartBtn.addEventListener('click', requestRestart);
-}
+document.getElementById('random-nickname-btn')?.addEventListener('click', () => {
+  if ($setupNicknameInput) $setupNicknameInput.value = generateRandomNickname();
+});
+document.getElementById('enter-game-btn')?.addEventListener('click', () => { void submitSetupNickname(); });
+document.getElementById('restart-btn')?.addEventListener('click', requestRestart);
 
-window.addEventListener('resize', checkOrientation);
-window.addEventListener('orientationchange', checkOrientation);
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    if (state.phase === 'playing' && document.activeElement?.tagName !== 'INPUT') {
+      e.preventDefault();
+      tapAtBalloonCenter();
+    }
+  }
+});
 
 document.addEventListener('visibilitychange', () => {
   setRenderActive(!document.hidden);
@@ -136,6 +147,14 @@ window.addEventListener('error', (e: ErrorEvent) => {
 
 window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
   console.error('Unhandled promise rejection:', e.reason);
+  showFallbackErrorScreen(String(e.reason ?? '未知错误'));
+});
+
+window.addEventListener('online', () => {
+  if (getWs()?.readyState !== WebSocket.OPEN) void connectWebSocket();
+});
+window.addEventListener('offline', () => {
+  state.connectionError = '网络已断开';
 });
 
 window.addEventListener('beforeunload', () => {
@@ -147,8 +166,12 @@ window.addEventListener('beforeunload', () => {
   }
 });
 
+initWaitingTips();
+bindReconnectRetry(() => {
+  void connectWebSocket();
+});
+
 connectWebSocket();
-checkOrientation();
 requestAnimationFrame(gameLoop);
 
 setTimeout(() => {

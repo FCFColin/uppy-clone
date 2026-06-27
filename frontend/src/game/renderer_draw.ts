@@ -12,7 +12,12 @@ export function drawBalloon(): void {
     const img: HTMLImageElement = gameImages['balloon']!.img;
     const w: number = radius * 2.5;
     const h: number = w * (img.height / img.width);
-    ctx.drawImage(img, bx - w / 2, by - h / 2, w, h);
+    const tilt = Math.max(-5, Math.min(5, state.wind * 40)) * (Math.PI / 180);
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(tilt);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
     return;
   }
 

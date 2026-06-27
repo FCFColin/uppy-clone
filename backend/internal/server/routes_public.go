@@ -65,6 +65,18 @@ func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, redis *store.
 	})
 }
 
+// setupStatsRoutes registers leaderboard and user stats routes.
+func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, redis *store.RedisStore, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
+	if statsHandler == nil {
+		return
+	}
+	r.With(appMiddleware.EndpointRateLimit(redis, "stats:leaderboard", jwtMgr)).Get("/api/v1/leaderboard", statsHandler.GetLeaderboard)
+	r.With(
+		authMiddlewareWrapper(jwtMgr, redis),
+		rbacEnforcer.Middleware("user_data", "read"),
+	).Get("/api/v1/user/stats", statsHandler.GetUserStats)
+}
+
 // setupLobbyRoutes registers registry (room create/check/list) and lobby WebSocket routes.
 func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, redis *store.RedisStore, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/registry", func(r chi.Router) {

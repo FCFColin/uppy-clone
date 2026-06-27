@@ -16,8 +16,6 @@
     "test:frontend:gate": "npm run test:frontend"
   },
   "devDependencies": {
-    "@commitlint/cli": "^19.0.0",
-    "@commitlint/config-conventional": "^19.0.0",
     "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.9",
     "eslint": "^10.5.0",

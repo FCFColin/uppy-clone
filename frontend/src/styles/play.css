@@ -11,6 +11,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
+}
+#loading-overlay[data-error="true"],
+#loading-overlay.connecting-blocking {
+  pointer-events: auto;
 }
 #loading-overlay .loading-spinner {
   width: 60px;
@@ -29,15 +34,33 @@
   z-index: 10000;
   background: rgba(0, 0, 0, 0.75);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   pointer-events: auto;
+}
+#countdown-overlay .countdown-label {
+  font-size: 1rem;
+  color: rgba(255,255,255,.7);
+  margin-bottom: .5rem;
+  text-align: center;
 }
 #countdown-overlay .countdown-number {
   font-size: 120px;
   color: #fff;
   font-weight: bold;
   text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+  transition: transform .25s ease;
+}
+.countdown-pop {
+  animation: countdownPop .28s ease;
+}
+@keyframes countdownPop {
+  from { transform: scale(1.35); opacity: .6; }
+  to { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .countdown-pop { animation: none; }
 }
 #loading-overlay .loading-text {
   margin-top: 20px;

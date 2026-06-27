@@ -10,15 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Enterprise rationale: Kubernetes/Cloud Run rely on probes to determine
-// service health. Without probes, the orchestrator cannot:
-// - Restart a dead instance (liveness)
-// - Stop sending traffic to an unready instance (readiness)
-// - Wait for slow startup before health checks (startup)
-// Three probe types serve distinct purposes:
-// - Liveness: "Is the process alive?" → restart if not
-// - Readiness: "Can it serve traffic?" → remove from LB if not
-// - Startup: "Has it finished initializing?" → delay other probes
+// HealthHandler 提供 liveness/readiness/startup 探针（GKE 依赖探针做流量与重启决策）。
 
 // healthCheckTimeout is the max time to wait for a dependency ping.
 // 企业为何需要：readiness 探测不应阻塞过久，否则 K8s 会因 probe timeout 杀死 pod。

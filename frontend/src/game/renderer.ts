@@ -3,6 +3,9 @@ import { $endedScreen, $nicknameSetupScreen, $waitingScreen } from './ui_element
 import { $canvas, ctx, resizeCanvas as resizeCanvasBase } from './renderer_canvas.js';
 import { drawBackground, invalidateBackgroundStaticCache } from './renderer_background.js';
 import { drawBalloon, drawBird, drawGhost, drawRipples, drawExplosion } from './renderer_draw.js';
+import {
+  drawTutorialRangeCircle, drawDangerVignettes, drawFloatingTexts,
+} from './visual_helpers.js';
 import { drainPendingMessages } from './ws_message_queue.js';
 
 export { $canvas } from './renderer_canvas.js';
@@ -38,6 +41,8 @@ function overlayBlocksGameRender(): boolean {
   if ($waitingScreen && !$waitingScreen.classList.contains('hidden') && state.nicknameSubmitted && state.phase === 'waiting') {
     return true;
   }
+  const tutorial = document.getElementById('tutorial-overlay');
+  if (tutorial && !tutorial.classList.contains('hidden')) return true;
   return false;
 }
 
@@ -54,14 +59,17 @@ function render(): void {
 
     if (state.phase === 'playing' || state.phase === 'ended') {
       if (state.hasReceivedFirstSnapshot) {
+        drawTutorialRangeCircle();
         drawBalloon();
         drawBird();
         drawGhost();
+        drawDangerVignettes();
         if (state.phase === 'playing') {
           commitRenderedState();
         }
       }
       drawRipples();
+      drawFloatingTexts();
       drawExplosion();
     }
   } catch (err: unknown) {

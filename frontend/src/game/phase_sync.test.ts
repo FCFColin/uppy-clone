@@ -35,6 +35,23 @@ vi.mock('./state.js', () => ({
   seenSeqs: mocks.seenSeqs,
 }));
 
+vi.mock('./client_state_reset.js', () => ({
+  resetRoundClientState: () => {
+    mocks.state.ripples = [];
+    mocks.state.explosionEffect = null;
+    mocks.state.myCooldownEnd = 0;
+    mocks.state.lastTapX = null;
+    mocks.state.lastTapY = null;
+    mocks.state.restartClicked = false;
+    mocks.state.restartVotes = { yes: 0, total: 0, countdownMs: 0 };
+    mocks.state.score = 0;
+    mocks.state.balloon = { x: 0.5, y: 0.95, vx: 0, vy: 0 };
+    mocks.state.bird = { x: 0, y: 0, active: false };
+    mocks.state.ghost = { x: 0, y: 0, active: false, repelTimer: 0 };
+    mocks.state.wind = 0;
+  },
+}));
+
 vi.mock('./ui.js', () => ({
   updateUI: mocks.updateUI,
   startCountdownTimer: mocks.startCountdownTimer,

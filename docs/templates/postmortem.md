@@ -1,52 +1,47 @@
-# Postmortem: [Incident Title]
+# 事故复盘模板： [事故标题]
 
-**Date:** YYYY-MM-DD
-**Severity:** P0/P1/P2
-**Authors:** [names]
-**Status:** Draft/Final
+**日期：** YYYY-MM-DD  
+**严重级别：** P0 / P1 / P2  
+**作者：** [姓名]  
+**状态：** 草稿 / 定稿
 
-## 1. Summary
-Brief description of the incident (1-2 sentences).
+## 1. 摘要
 
-## 2. Impact
-- **Duration:** [start time] to [end time] ([total time])
-- **Users affected:** [count or percentage]
-- **Revenue impact:** [if applicable]
-- **SLO impact:** [which SLOs were violated, error budget consumed]
+一两句话描述事故。
 
-## 3. Root Cause
-The underlying cause of the incident (technical).
+## 2. 影响
 
-## 4. Timeline
-All times in UTC.
+- **持续时间：** [开始] 至 [结束]
+- **影响用户：** [数量或比例]
+- **SLO 影响：** [违反的 SLO、错误预算消耗]
 
-| Time | Event |
-|------|-------|
-| 00:00 | Alert fired |
-| 00:05 | On-call acknowledged |
-| 00:10 | Mitigation applied |
-| 00:30 | Service restored |
+## 3. 根因
 
-## 5. Trigger
-What caused the incident to happen at this specific time (deployment, config change, traffic spike, etc.).
+技术层面的根本原因。
 
-## 6. Mitigation
-What was done to restore service.
+## 4. 时间线（UTC）
 
-## 7. Root Cause Analysis (5 Whys)
-1. Why did the service go down? → [answer]
-2. Why did [answer 1] happen? → [answer]
-3. Why did [answer 2] happen? → [answer]
-4. Why did [answer 3] happen? → [answer]
-5. Why did [answer 4] happen? → [root cause]
+| 时间 | 事件 |
+|------|------|
+| 00:00 | 告警触发 |
+| 00:05 | 值班确认 |
+| 00:30 | 服务恢复 |
 
-## 8. Action Items
-| Action | Owner | Priority | Due Date | Status |
-|--------|-------|----------|----------|--------|
-| [action] | [name] | P0 | [date] | Open |
-| [action] | [name] | P1 | [date] | Open |
+## 5. 触发条件
 
-## Lessons Learned
-- What went well
-- What went poorly
-- Where we got lucky
+导致事故的直接触发事件。
+
+## 6. 修复与缓解
+
+已采取与计划采取的行动。
+
+## 7. 经验教训
+
+- 做得好的
+- 需改进的
+
+## 8. 行动项
+
+| 行动 | 负责人 | 截止日期 | 状态 |
+|------|--------|----------|------|
+| | | | |

@@ -14,25 +14,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// T40 [G-5] PostgreSQL 邮箱加密 — 延期实施说明（DEFERRED）
-//
-// 现状：users.email 当前以明文存储，存在数据库泄露时 PII 暴露风险。
-//
-// 为何不能直接加密 email 列：
-//   crypto.Encrypt 使用 AES-256-GCM + 随机 nonce（非确定性加密），同一明文每次加密
-//   产生不同密文。因此无法用 `WHERE email = $1` 查询加密后的邮箱——加密后的查询值
-//   永远不会匹配数据库中的密文。GetUserByEmail 用于 magic link 登录流程
-//   （auth/magiclink.go:191），查询能力是认证链路的硬性依赖。
-//
-// 正确方案（需 Schema 迁移，故延期）：
-//   1. 新增 email_hash 列（HMAC-SHA256(email)），建立唯一索引，用于等值查询
-//   2. email 列改为存储 AES-256-GCM 密文（保留非确定性加密的安全性）
-//   3. GetUserByEmail 改为 `WHERE email_hash = $1` 查询，取出后 crypto.Decrypt 解密
-//   4. CreateUser 同时写入 email_hash 和加密后的 email
-//   5. AnonymizeUser 同步更新 email_hash（GDPR 匿名化）
-//
-// 此任务标记为 DEFERRED，待 schema migration 窗口期实施。
-
 // CreateUser inserts a new user record and enqueues a user.created outbox event
 // in the same ACID transaction.
 // No retry: non-idempotent (would create duplicates).
@@ -41,6 +22,11 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u *domain.User) error {
 		trace.WithAttributes(attribute.String("db.system", "postgresql")),
 	)
 	defer span.End()
+
+	emailHash, storedEmail, err := prepareEmailForStorage(u.Email)
+	if err != nil {
+		return err
+	}
 
 	outboxPayload, err := json.Marshal(map[string]interface{}{
 		"event_type": "user.created",
@@ -61,8 +47,8 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u *domain.User) error {
 		defer func() { _ = tx.Rollback(ctx) }()
 
 		if _, execErr := tx.Exec(ctx,
-			`INSERT INTO users (id, email, nickname, palette, created_at, last_login) VALUES ($1, $2, $3, $4, $5, $6)`,
-			u.ID, u.Email, u.Nickname, u.Palette, u.CreatedAt, u.LastLogin); execErr != nil {
+			`INSERT INTO users (id, email, email_hash, nickname, palette, created_at, last_login) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			u.ID, storedEmail, emailHash, u.Nickname, u.Palette, u.CreatedAt, u.LastLogin); execErr != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(execErr, &pgErr) && pgErr.Code == "23505" {
 				return nil, ErrDuplicateUser

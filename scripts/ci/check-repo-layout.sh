@@ -65,12 +65,15 @@ assert_missing frontend/src/index_fetch.ts
 assert_missing backend/internal/rbac/model.conf
 assert_missing backend/internal/rbac/policy.csv
 
+# One-off maintenance scripts must not return to scripts/archive
+assert_missing scripts/archive
+
 # Required canonical paths
 for p in \
   backend/internal/server \
   infra/k8s/base infra/terraform \
   deploy/local \
-  scripts/ci scripts/load scripts/archive \
+  scripts/ci scripts/load \
   docker/postgres/init \
   docs/operations/runbook.md \
   docs/development/benchmarks-go-microbench.md \

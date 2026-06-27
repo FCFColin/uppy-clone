@@ -27,6 +27,8 @@ tags:
     description: 房间创建与查询
   - name: Admin
     description: 管理员配置管理
+  - name: Stats
+    description: 排行榜与用户统计
   - name: Health
     description: 存活与就绪探针
   - name: WebSocket
@@ -294,6 +296,66 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+
+  # ─── Stats ─────────────────────────────────────────────────────────
+  /api/v1/leaderboard:
+    get:
+      operationId: getLeaderboard
+      summary: 公开排行榜
+      description: scope=global|weekly，limit 默认 50。
+      tags: [Stats]
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [global, weekly]
+            default: global
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: 排行榜条目
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scope:
+                    type: string
+                  entries:
+                    type: array
+                    items:
+                      type: object
+        "400":
+          description: 无效 scope
+        "503":
+          description: 服务不可用
+
+  /api/v1/user/stats:
+    get:
+      operationId: getUserStats
+      summary: 当前用户最佳分与对局数
+      tags: [Stats]
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: 用户统计
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bestScore:
+                    type: integer
+                  gamesPlayed:
+                    type: integer
+        "401":
+          description: 未认证
 
   # ─── User Data (GDPR) ─────────────────────────────────────────────
   /api/v1/user/data:

@@ -61,10 +61,10 @@ func runServer(logger *slog.Logger) {
 	startWorkers(ctx, cfg, redis, db, timeouts)
 	startMetricsCollector(ctx, hub, db, redis)
 
-	authHandler, lobbyHandler, adminHandler := initHandlers(jwtMgr, db, redis, cfg, timeouts, hub)
+	authHandler, lobbyHandler, adminHandler, statsHandler := initHandlers(jwtMgr, db, redis, cfg, timeouts, hub)
 	rbacEnforcer := initRBAC()
 	r := chi.NewRouter()
-	setupRoutes(r, authHandler, lobbyHandler, adminHandler, jwtMgr, db, redis, rbacEnforcer, cfg, hub)
+	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, db, redis, rbacEnforcer, cfg, hub)
 
 	srv := startServer(r, cfg)
 	waitForShutdown(srv, cancel, hub, broadcaster)

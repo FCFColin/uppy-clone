@@ -469,3 +469,22 @@ func TestSendEmail_AuthorizationHeader(t *testing.T) {
 		t.Fatalf("expected Authorization 'Bearer my-secret-key', got %q", authHeader)
 	}
 }
+
+func TestNewGDPRCleanupWorker_Defaults(t *testing.T) {
+	t.Parallel()
+	w := NewGDPRCleanupWorker(nil, 0, 0)
+	if w.retentionDays != defaultGDPRRetentionDays {
+		t.Errorf("retentionDays = %d, want %d", w.retentionDays, defaultGDPRRetentionDays)
+	}
+	if w.interval != defaultGDPRCleanupInterval {
+		t.Errorf("interval = %v, want %v", w.interval, defaultGDPRCleanupInterval)
+	}
+}
+
+func TestNewGDPRCleanupWorker_CustomValues(t *testing.T) {
+	t.Parallel()
+	w := NewGDPRCleanupWorker(nil, 60, 12*time.Hour)
+	if w.retentionDays != 60 || w.interval != 12*time.Hour {
+		t.Errorf("unexpected gdpr worker config: %+v", w)
+	}
+}

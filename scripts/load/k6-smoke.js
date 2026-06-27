@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-// ADR-V2-030: HTTP load smoke — auth quickplay + health + room create (requires running server).
+// HTTP load smoke — auth quickplay + health + room create (requires running server). See docs/development/benchmarks-k6-room-slo.md.
 // Usage: k6 run scripts/load/k6-smoke.js -e BASE_URL=http://localhost:8080
 
 export const options = {

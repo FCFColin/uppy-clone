@@ -3,6 +3,7 @@ import {
   state, resetInterpolation, freezeInterpolation,
   seenSeqs,
 } from './state.js';
+import { resetRoundClientState } from './client_state_reset.js';
 import {
   updateUI, startCountdownTimer,
   hideCountdownOverlay, showCountdownOverlay,
@@ -36,26 +37,6 @@ export function shouldApplySnapshotPhase(snapshotPhase: GamePhase): boolean {
   }
 }
 
-/**
- * Clear per-round client FX without wiping snapshot/render readiness.
- * Also resets score and entity positions so that a dropped first snapshot
- * (e.g. due to seq collision after restart) doesn't leave stale state.
- */
-function resetRoundClientState(): void {
-  state.ripples = [];
-  state.explosionEffect = null;
-  state.myCooldownEnd = 0;
-  state.lastTapX = null;
-  state.lastTapY = null;
-  state.restartClicked = false;
-  state.restartVotes = { yes: 0, total: 0, countdownMs: 0 };
-  state.score = 0;
-  state.balloon = { x: 0.5, y: 0.95, vx: 0, vy: 0 };
-  state.bird = { x: 0, y: 0, active: false };
-  state.ghost = { x: 0, y: 0, active: false, repelTimer: 0 };
-  state.wind = 0;
-}
-
 /** Hide nickname UI once the round begins — nickname belongs to setup only. */
 function hideNicknameUI(): void {
   const setup: HTMLElement | null = document.getElementById('nickname-setup-screen');
@@ -85,6 +66,7 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
   window.__gamePhase = nextPhase;
 
   if (nextPhase === 'playing') {
+    state.endReason = null;
     resetRoundClientState();
     // Clear seenSeqs so the first playing snapshot (which may share the same
     // tick-count/seq as the preceding countdown snapshot) is not dropped as a

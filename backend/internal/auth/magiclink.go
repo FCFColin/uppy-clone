@@ -26,12 +26,7 @@ var (
 	ErrInvalidEmail    = errors.New("invalid email format")
 )
 
-// getOrigin constructs the origin URL from the request, respecting reverse proxy headers.
-// Enterprise rationale: Behind reverse proxies (Cloud Run, nginx, Cloudflare),
-// r.Host is the internal hostname, not the public URL. X-Forwarded-Host
-// contains the original Host header sent by the client. Without this fix,
-// magic link URLs point to internal hostnames that are unreachable from
-// the user's browser.
+// getOrigin 从请求构造对外 origin URL；反向代理后须读 X-Forwarded-Host（见 ADR-003）。
 func getOrigin(r *http.Request) string {
 	scheme := "https"
 	if r.TLS == nil && (!requestctx.IsTrustedProxy(r.Context()) || r.Header.Get("X-Forwarded-Proto") == "") {
@@ -179,27 +174,26 @@ func VerifyMagicLink(redis *store.RedisStore, db *store.PostgresStore, jwtMgr *J
 		return nil, nil, err
 	}
 
-	// Update last_login
+	return issueMagicLinkSession(ctx, db, jwtMgr, refreshMgr, user)
+}
+
+func issueMagicLinkSession(ctx context.Context, db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, user *domain.User) (*http.Cookie, *VerifyResponse, error) {
 	if err := db.UpdateUserLastLogin(ctx, user.ID); err != nil {
-		// Non-fatal — log but continue
 		_ = err
 	}
 
-	// 6. Sign JWT, set HttpOnly session cookie
 	jwtToken, err := jwtMgr.SignToken(user.ID, user.Nickname)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sign token: %w", err)
 	}
 
-	cookie := BuildAuthCookie("session", jwtToken, config.CookieMaxAge, true) // 15min matches access token TTL
+	cookie := BuildAuthCookie("session", jwtToken, config.CookieMaxAge, true)
 
-	// Generate refresh token
 	refreshToken, err := refreshMgr.Generate(ctx, user.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	// 7. Return user info
 	return cookie, &VerifyResponse{UserID: user.ID, Nickname: user.Nickname, RefreshToken: refreshToken}, nil
 }
 

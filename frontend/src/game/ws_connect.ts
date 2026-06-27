@@ -1,5 +1,5 @@
-import { CLIENT_MSG, MSG_TYPE } from './constants.js';
-import { state, resetInterpolation, seenSeqs, pendingQueue } from './state.js';
+import { CLIENT_MSG } from './constants.js';
+import { state, resetInterpolation, seenSeqs, outboundMessageQueue } from './state.js';
 import { establishGameSession, sessionErrorMessage } from '../shared/session.js';
 import { hideLoadingOverlay, $lobbyCode, $hudCode } from './ui.js';
 import { resolveLobbyCode } from './ws_connect_lobby.js';
@@ -16,7 +16,6 @@ import {
   wasRoomPreChecked, setRoomPreChecked,
 } from './ws_connection.js';
 import { enqueueBinaryMessage } from './ws_message_queue.js';
-import { handleSnapshot } from './ws_handlers_snapshot.js';
 
 export { showConnectionError } from './ws_connection.js';
 
@@ -51,6 +50,10 @@ export async function connectWebSocket(): Promise<void> {
   $lobbyCode.textContent = lobbyCode;
   $hudCode.textContent = lobbyCode;
 
+  // 房间码已就绪即可进入昵称设置，WebSocket 在后台继续连接
+  hideLoadingOverlay();
+  window.dispatchEvent(new CustomEvent('game-lobby-ready'));
+
   const protocol: string = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const playerIdParam: string = savedPlayerId ? `?playerId=${savedPlayerId}` : '';
   const wsUrl: string = `${protocol}//${window.location.host}/api/v1/lobby/${lobbyCode}/ws${playerIdParam}`;
@@ -62,14 +65,16 @@ export async function connectWebSocket(): Promise<void> {
 
   socket.onopen = () => {
     setWsEverOpened(true);
+    state.wasEverConnected = true;
     resetReconnectAttempts();
     hideReconnectBanner();
     hideLoadingOverlay();
+    window.dispatchEvent(new Event('game-ws-open'));
     startWsHeartbeat();
     flushPendingQueue();
     seenSeqs.clear();
     resetInterpolation();
-    pendingQueue.length = 0;
+    outboundMessageQueue.length = 0;
     state.connectionError = null;
     setReconnectTimer(null);
     if (state.phase === 'ended' && state.restartClicked) {
@@ -79,15 +84,10 @@ export async function connectWebSocket(): Promise<void> {
     }
   };
 
-  socket.onmessage = (event: MessageEvent) => {
-    if (!(event.data instanceof ArrayBuffer)) return;
-    const view = new DataView(event.data);
-    if (view.byteLength > 0 && view.getUint8(0) === MSG_TYPE.SNAPSHOT) {
-      handleSnapshot(view);
-      return;
-    }
-    enqueueBinaryMessage(event.data);
-  };
+	socket.onmessage = (event: MessageEvent) => {
+		if (!(event.data instanceof ArrayBuffer)) return;
+		enqueueBinaryMessage(event.data);
+	};
 
   socket.onclose = () => {
     stopHeartbeat();

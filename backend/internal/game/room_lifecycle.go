@@ -73,23 +73,30 @@ func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 	r.logger.Info("player reconnected during grace period", "playerID", playerID)
 	r.sendToPlayer(playerID, r.buildSnapshot())
 	r.saveState()
-	if r.state.Phase == domain.PhaseWaiting {
+
+	switch r.state.Phase {
+	case domain.PhaseWaiting:
 		r.tryStartWhenAllReady()
-		return
-	}
-	if r.state.Phase == domain.PhasePlaying && r.tickCancel == nil {
-		r.startTick()
-	}
-	if r.state.Phase == domain.PhaseCountdown && r.tickCancel == nil {
-		elapsed := time.Now().UnixMilli() - r.countdownStart
-		countdownMs := int64(protocol.CountdownTicks) * 1000 / int64(protocol.TickRate)
-		remaining := countdownMs - elapsed
-		if remaining < 100 {
-			remaining = 100
+	case domain.PhasePlaying:
+		if r.tickCancel == nil {
+			r.startTick()
 		}
-		r.sendToPlayer(playerID, protocol.EncodeGameStateChange(protocol.PhaseCountdown, uint32(remaining))) //nolint:gosec // bounded countdown
-		r.scheduleCountdownEnd(time.Now().Add(time.Duration(remaining) * time.Millisecond))
+	case domain.PhaseCountdown:
+		if r.tickCancel == nil {
+			r.resumeCountdownForReconnect(playerID)
+		}
 	}
+}
+
+func (r *Room) resumeCountdownForReconnect(playerID string) {
+	elapsed := time.Now().UnixMilli() - r.countdownStart
+	countdownMs := int64(protocol.CountdownTicks) * 1000 / int64(protocol.TickRate)
+	remaining := countdownMs - elapsed
+	if remaining < 100 {
+		remaining = 100
+	}
+	r.sendToPlayer(playerID, protocol.EncodeGameStateChange(protocol.PhaseCountdown, uint32(remaining))) //nolint:gosec // bounded countdown
+	r.scheduleCountdownEnd(time.Now().Add(time.Duration(remaining) * time.Millisecond))
 }
 
 // addNewPlayer 添加新玩家到房间，房间已满时返回 ErrRoomFull。
@@ -237,6 +244,11 @@ func (r *Room) StartGame() error {
 
 // EndGame 结束游戏（playing → ended）
 func (r *Room) EndGame() error {
+	return r.EndGameWithReason(protocol.EndReasonNone)
+}
+
+// EndGameWithReason ends the game and broadcasts the death reason to clients.
+func (r *Room) EndGameWithReason(endReason uint8) error {
 	r.state.Phase = domain.PhaseEnded
 	r.stopTick()
 
@@ -245,7 +257,7 @@ func (r *Room) EndGame() error {
 	}
 
 	r.enqueueGameResultAsync()
-	r.broadcastGameEnded()
+	r.broadcastGameEnded(endReason)
 
 	if len(r.connections) > 0 {
 		r.scheduleAutoRestart(time.Now().Add(time.Duration(protocol.AutoRestartMs) * time.Millisecond))
@@ -258,9 +270,9 @@ func (r *Room) EndGame() error {
 }
 
 
-func (r *Room) broadcastGameEnded() {
+func (r *Room) broadcastGameEnded(endReason uint8) {
 	r.broadcast(r.buildSnapshot(), "")
-	r.broadcastCritical(protocol.EncodeGameStateChange(protocol.PhaseEnded))
+	r.broadcastCritical(protocol.EncodeGameStateChangeEnded(endReason))
 	r.saveState()
 }
 

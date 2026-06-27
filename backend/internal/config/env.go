@@ -58,8 +58,7 @@ func (e *Env) Validate() error {
 
 	if e.JWTSecret == "" {
 		missing = append(missing, "JWT_SECRET")
-	} else if e.EnableHSTS &&
-		(strings.Contains(e.JWTSecret, "DEV_ONLY") || strings.Contains(e.JWTSecret, "change-in-production")) {
+	} else if e.EnableHSTS && isWeakJWTSecret(e.JWTSecret) {
 		return fmt.Errorf("JWT_SECRET contains a known weak/dev value; refuse to start in production mode (set ENABLE_HSTS=false only for local dev)")
 	}
 	if e.DatabaseURL == "" {
@@ -120,4 +119,8 @@ func GetEnvDuration(key string, defaultVal time.Duration) time.Duration {
 		}
 	}
 	return defaultVal
+}
+
+func isWeakJWTSecret(secret string) bool {
+	return strings.Contains(secret, "DEV_ONLY") || strings.Contains(secret, "change-in-production")
 }
