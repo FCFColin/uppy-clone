@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+bin/
 .wrangler/
 
 # Environment & secrets
@@ -30,6 +31,30 @@ backend/cov_*
 # Build artifacts
 backend/server
 backend/server.exe
+backend/*.exe
+backend/*.test
+backend/bin/
+backend/store/
+
+# Coverage & test binaries (ad-hoc profiles dropped by `go test -coverprofile`)
+backend/*.out
+backend/*cov*
+backend/*cover*
+# Ad-hoc coverprofile files without .out suffix (must not collide with package names)
+backend/migrate
+backend/seed
+backend/backfill
+backend/server
+backend/unit
+backend/handler
+backend/unit_focus
+backend/$out
+
+# Security/audit scan reports
+*-report.txt
+leaks.json
+staged.txt
+staged_list.txt
 
 # Lint output
 lint-*.txt
@@ -47,6 +72,10 @@ lint-json.txt
 *.legacy
 *.tmp
 *.bak
+
+# Python cache
+__pycache__/
+*.py[cod]
 
 # Logs
 *.log

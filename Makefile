@@ -1,49 +1,103 @@
-.PHONY: dev test lint build run migrate seed bench audit clean
+.PHONY: help dev observability-up test test-all test-cover test-integration test-containers lint lint-all build run migrate seed bench audit clean generate simplify deadcode check check-fast ci
 
-# 一键启动：PostgreSQL + Redis + 后端热重载 + 前端
+help:
+	@echo "Targets:"
+	@echo "  dev              Start postgres/redis + backend air + frontend"
+	@echo "  observability-up Start Prometheus + Grafana + Alertmanager (profile observability)"
+	@echo "  test             Backend unit tests (-race -short)"
+	@echo "  test-all         Backend + integration + frontend tests"
+	@echo "  test-containers  testcontainers tests (no -short)"
+	@echo "  test-cover       Backend coverage + frontend tests"
+	@echo "  test-integration Integration tests (testcontainers)"
+	@echo "  lint             Backend golangci-lint"
+	@echo "  lint-all         Backend lint + frontend lint + typecheck"
+	@echo "  check-fast       lint-all + unit tests (-short)"
+	@echo "  check            lint-all + test-cover"
+	@echo "  ci               check + test-containers + audit"
+	@echo "  build run migrate seed bench audit clean generate simplify deadcode"
+
+TOOL_BUILD = cd backend && go build -o bin
+
 dev:
 	docker compose up -d postgres redis
-	cd backend && air &
+	$(TOOL_BUILD)/air github.com/air-verse/air
+	cd backend && ./bin/air &
 	cd frontend && npm run dev
 
-# 运行所有测试
+observability-up:
+	docker compose --profile observability up -d prometheus grafana alertmanager
+
 test:
-	cd backend && go test -race ./...
+	cd backend && go test ./... -race -short -timeout 60s
+
+test-integration:
+	cd backend && go test ./tests/integration/... -race -timeout 180s -v
+
+test-containers:
+	cd backend && go test ./tests/integration/... ./internal/outbox/... ./internal/worker/... ./cmd/migrate-passwords/... ./cmd/backfill-emails/... -race -timeout 180s
+
+test-all: test test-integration
 	cd frontend && npm test
 
-# Lint 检查
-lint:
-	cd backend && golangci-lint run
-	cd frontend && npm run lint
+test-cover:
+	cd backend && go test $$(go list ./... | grep -v /tests/integration) -short -p 1 -race -coverprofile=unit.out -covermode=atomic -timeout 180s
+	cd backend && go test ./tests/integration/... -p 1 -coverprofile=int.out -covermode=atomic -timeout 180s
+	cd backend && go tool cover -func unit.out
+	bash scripts/check-coverage.sh unit backend/unit.out
+	bash scripts/check-coverage.sh integration backend/int.out
+	cd frontend && npm run test:frontend
+	bash scripts/check-coverage.sh frontend
 
-# 构建生产产物
+lint:
+	cd backend && golangci-lint run --allow-parallel-runners=false
+
+lint-all: lint
+	cd frontend && npm run lint
+	cd frontend && npm run typecheck
+
+check: lint-all test-cover
+
+check-fast: lint-all test
+
+ci: check test-containers audit
+
 build:
 	cd backend && go build -o bin/server ./cmd/server
 	cd frontend && npm run build
 
-# 运行服务器
 run:
 	cd backend && go run ./cmd/server
 
-# 数据库迁移
 migrate:
-	cd backend && go run ./cmd/server -migrate
+	cd backend && go run ./cmd/server -migrate-only
 
-# 插入测试数据
 seed:
 	cd backend && go run ./cmd/seed
 
-# 基准测试
 bench:
-	cd backend && go test -bench=. ./... | tee docs/benchmarks-v2.md
+	cd backend && go test -bench=. -benchmem -run=^$$ ./... | tee ../docs/development/benchmarks.md
 
-# 安全审计
 audit:
-	cd backend && govulncheck ./...
+	$(TOOL_BUILD)/govulncheck golang.org/x/vuln/cmd/govulncheck
+	cd backend && ./bin/govulncheck ./...
 	gitleaks detect --source . --report-path leaks.json
 	trivy fs .
 
-# 清理
+deadcode:
+	$(TOOL_BUILD)/deadcode golang.org/x/tools/cmd/deadcode
+	cd backend && ./bin/deadcode ./...
+
+generate:
+	cd backend && go generate ./...
+
+simplify:
+	cd backend && gofmt -w .
+	$(TOOL_BUILD)/goimports golang.org/x/tools/cmd/goimports
+	cd backend && ./bin/goimports -w .
+	cd backend && golangci-lint run --fix --allow-parallel-runners=false
+
 clean:
-	rm -rf backend/bin frontend/dist
+	rm -rf backend/bin frontend/dist bin
+	rm -f backend/*.out backend/*cov* backend/*cover*
+	rm -f backend/migrate backend/seed backend/backfill backend/server backend/store backend/unit backend/handler backend/unit_focus 'backend/$$out'
 	docker compose down -v
