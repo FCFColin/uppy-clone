@@ -22,9 +22,10 @@
 - [ ] 无 panic 或 goroutine 泄漏
 
 ### 实验结果
-- 日期: [待执行]
-- 结果: [待记录]
-- 发现: [待记录]
+- 日期: 2026-06-25（审计实施 — 待在 staging 执行）
+- 结果: 待执行 — 使用 Chaos Mesh / toxiproxy 按上述方法在 staging 运行
+- 发现: 代码层已具备熔断（`resilience/circuitbreaker.go`）、降级响应（`handler/degradation.go`）、graceful shutdown（`cmd/server/main.go:551-576`）
+- **下次执行:** 每月第一个周二 staging，前置条件见 [`slo.md`](./slo.md) Burn Rate 告警已部署
 
 ---
 
@@ -47,8 +48,9 @@
 - [ ] 无数据丢失（游戏状态在内存中）
 
 ### 实验结果
-- 日期: [待执行]
-- 结果: [待记录]
+- 日期: 2026-06-25（审计实施 — 待在 staging 执行）
+- 结果: 待执行 — WS 内存态应持续；magic link 应返回 503 degraded
+- 发现: Rate limit fail-open 见 `middleware/ratelimit.go`；详见 runbook 故障 2/6
 
 ---
 
@@ -71,8 +73,48 @@
 - [ ] 延迟恢复后指标恢复正常
 
 ### 实验结果
-- 日期: [待执行]
-- 结果: [待记录]
+- 日期: 2026-06-25（审计实施 — 待在 staging 执行）
+- 结果: 待执行 — WS 内存态应持续；magic link 应返回 503 degraded
+- 发现: Rate limit fail-open 见 `middleware/ratelimit.go`；详见 runbook 故障 2/6
+
+---
+
+---
+
+## 实验 4: 区域级故障切换（多区域，ADR-014/016）
+
+### 假设
+某区域整体不可用（GKE 集群宕机 / 区域网络分区）时，全局入口应把新流量导向其余
+健康区域；该区域的对局会中断，玩家重连后由全局 LB 路由到最近健康区域并新建/加入
+房间（房间 home region 随 `room_directory` 更新）。**跨区域绝不接管正在进行的对局，
+也绝不转发游戏帧**。
+
+### 稳态假设
+- 全局可用区域的 p99 不受影响（< 700ms）
+- 故障区域流量在健康检查窗口内（≤ 30s）被 GCLB 摘除
+- CRDB 在多数派区域存活时保持可写（REGIONAL BY ROW 行驻留区域失联会影响该区域行的写，
+  但其余区域行不受影响）
+
+### 实验方法
+1. 在 staging 多区域集群，用 Chaos Mesh `PodChaos`(kill) 或封锁某区域的 MCS 后端，
+   模拟 `europe-west1` 整体不可用
+2. 持续 10 分钟
+3. 监控（Thanos 聚合视图，按 `region` 切分）：
+   - `up{region="europe-west1"}` 归零
+   - GCLB 后端健康数下降、流量重路由到 us/asia
+   - 其余区域 `ws_active_connections` 上升、p99 平稳
+   - CRDB `ranges_unavailable` / region 写延迟
+
+### 成功标准
+- [ ] ≤ 30s 内故障区域被摘除，新连接不再路由过去
+- [ ] 健康区域 p99 < 700ms，无跨区域帧转发（无 `RouteRedirect`→`RouteProxy` 跨区）
+- [ ] 玩家重连后能在健康区域建/加房（`room_directory` 写入新 region）
+- [ ] 区域恢复后自动重新纳入 LB，指标恢复
+
+### 实验结果
+- 日期: 2026-06-25（待在多区域 staging 执行）
+- 结果: 待执行
+- 关联处置: 见 runbook「7. 多区域事件」
 
 ---
 

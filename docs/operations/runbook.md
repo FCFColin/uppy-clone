@@ -195,12 +195,11 @@ curl -s localhost:8080/metrics | grep ws_connection_total
 1. 启用/收紧 WebSocket 连接级速率限制（`CheckRateLimit` 已实现）
 2. 封禁高频 IP：在 WAF 或 iptables 层 `iptables -A INPUT -s <ip> -j DROP`
 3. 临时降低 `MaxWSConnections` 上限，拒绝新连接保护存量用户
-4. 水平扩容应用实例，分散连接压力
-5. 若为 Cloud Run：调高 `max-concurrent-requests` 并增加实例数
+4. 水平扩容应用实例（HPA 自动扩缩，`infra/base/hpa.yaml`），分散连接压力
 
 **根治方案**
 - 部署 WAF（Cloudflare / AWS WAF）拦截恶意流量，配置 Bot 防护规则
-- 实现自动扩缩容（HPA / Cloud Run autoscaling）应对流量峰值
+- GKE HPA 按 CPU 与 `game_active_ws_connections` 自动扩缩（见 `infra/base/hpa.yaml`）
 - 客户端实现指数退避重连（exponential backoff + jitter）
 - 按 IP 限流 + 按用户限流双层防护
 - 监控 `ws_connections` 增长速率，异常突增触发告警
@@ -244,8 +243,8 @@ go tool pprof http://localhost:6060/debug/pprof/allocs
 ```
 
 **缓解步骤**
-1. 临时降低 tick rate（如从 30fps 降至 20fps），减少 CPU 负载
-2. 水平扩容：将部分房间迁移到新实例（需 Hub 分片支持）
+1. 临时降低活跃房间数上限或拒绝新房间，保护存量对局 CPU
+2. 水平扩容：HPA 增加 StatefulSet 副本，分散房间到更多实例（ADR-005）
 3. 重启高负载实例释放累积的内存碎片
 4. 若为 GC 压力：临时调高 `GOGC` 环境变量（如 `GOGC=200`）降低 GC 频率
 
@@ -316,7 +315,7 @@ psql $DATABASE_URL -c "SELECT count(*) FROM audit_logs"
 
 ## 故障 6: 认证服务异常
 
-> 认证 SLO：成功率 99.9%、p99 < 500ms（详见 `docs/slo.md` §2.1）。
+> 认证 SLO：成功率 99.9%、p99 < 500ms（详见 [`slo.md`](./slo.md) §2.1）。
 > 认证失败直接消耗 Error Budget（43.2 分钟/月），属 P1 级响应（15 分钟内介入）。
 
 ### 6.1 Refresh token 验证失败率突增
@@ -399,3 +398,63 @@ psql $DATABASE_URL -c "SELECT count(*) FROM audit_logs"
 2. 重新加密敏感配置字段：用新密钥通过 admin 配置接口重新写入 `resend_api_key` 等字段（先恢复旧密钥解密读出明文，再用新密钥加密写入）
 3. 若旧密钥已丢失：需在 Resend 控制台重新生成 API Key，再通过 admin 接口写入
 4. 密钥轮换流程固化：轮换前先解密所有字段 → 换密钥 → 重新加密写入，避免直接替换密钥导致密文失效
+
+## 7. 多区域事件（ADR-014/016）
+
+### 7.1 区域级故障（某区域整体不可用）
+
+**症状**
+- Thanos 聚合视图中 `up{region="<region>"}` 归零；该区域 `ws_active_connections` 断崖
+- 全局 LB 后端健康数下降；该区域玩家集中报告掉线
+- 可能伴随 CRDB 该区域 range 不可用告警
+
+**排查**
+1. 确认是区域基础设施故障还是应用故障：
+   ```bash
+   kubectl --context <region> get nodes,pods -n balloon-game
+   ```
+2. 查看 GCLB/MCI 后端健康：故障区域应已被健康检查（`/health/ready`）摘除
+3. 查看 CRDB 拓扑：`SHOW RANGES` 确认多数派是否存活、是否有 region 写阻塞
+
+**处置**
+1. **不要**尝试把对局跨区域迁移/转发（架构禁止，ADR-016）。新连接由 GCLB 自动导向
+   健康区域；玩家重连即在健康区域建/加房
+2. 若 GCLB 未及时摘除：手动将故障区域 MCS 后端权重置 0 或下线该区域 overlay
+3. CRDB：若故障区域是某些行的 home region，确认存活策略；多数派存活时其余区域行可继续
+   读写，故障区域行待区域恢复
+4. 区域恢复：滚动重启该区域 StatefulSet，确认 readiness 通过后 GCLB 自动重新纳入；
+   观察 `region` 维度指标恢复
+
+### 7.2 跨区域路由异常（玩家被导向错误区域 / 重定向循环）
+
+**症状**
+- 客户端反复 421/重连，或连到非房间 home region
+- `room_directory` 中 `code→region` 与实际 owner 不一致
+
+**排查**
+1. 查 `GET /api/v1/lobby/{code}/resolve` 返回的 `region`/`ws_endpoint` 是否正确
+2. 查 CRDB `SELECT * FROM room_directory WHERE code='<code>'` 与区域 Redis 注册表一致性
+3. 确认各区域 `DEPLOY_REGION` / `REGION_WS_ENDPOINT`（ConfigMap `balloon-game-region`）配置正确
+
+**处置**
+1. 配置错误：修正对应区域 overlay 的 `balloon-game-region` ConfigMap 并滚动更新
+2. 目录与实际不一致（脏条目）：删除该 `room_directory` 行，玩家重连重新登记
+   ```sql
+   DELETE FROM room_directory WHERE code = '<code>';
+   ```
+3. 重定向循环：通常因 `ws_endpoint` 指向了无该房间的区域；核对 DNS/endpoint 映射
+
+### 7.3 跨区域控制面 mTLS / 可观测性聚合故障
+
+**症状**
+- Grafana 全局视图缺某区域数据；Thanos Query `store` 端点不可达
+- 跨区域 gRPC 报 TLS 握手失败
+
+**排查**
+1. `thanos-query` 日志查看各 region store 端点连接状态
+2. 确认跨区域网络/网格 mTLS 证书有效（未过期、SAN 匹配）
+
+**处置**
+1. 证书过期：轮换 mTLS 证书（CRDB 节点证书 / 网格 sidecar 证书）
+2. store 端点 DNS 失效：核对 `--store=dnssrv+...` 与各区域 `thanos-store-gateway` Service
+3. 聚合恢复前，可临时直连单区域 Prometheus 数据源排障（见 `deploy/grafana/datasource.yaml`）

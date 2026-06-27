@@ -23,24 +23,25 @@ Nested Loop
   → Index Scan using game_sessions_pkey on game_sessions (id = gr.session_id)
 ```
 
-## 2. 活跃房间列表查询（分页）
+## 2. 活跃房间列表查询（cursor 分页）
 
 ```sql
 SELECT * FROM lobby_states
-WHERE updated_at > $1
-ORDER BY updated_at DESC
-LIMIT $2 OFFSET $3;
+WHERE (updated_at, code) < ($1, $2)
+ORDER BY updated_at DESC, code DESC
+LIMIT $3;
 ```
 
 **预期索引使用**：
-- `idx_lobby_states_updated_code` (复合, updated_at DESC, code) → 覆盖排序+分页
+- `idx_lobby_states_updated_code` (复合, updated_at DESC, code) → keyset 分页
 
 **预期计划**：
 ```
 Index Scan using idx_lobby_states_updated_code on lobby_states
-  Index Cond: (updated_at > $1)
+  Index Cond: ((updated_at, code) < ($1, $2))
 ```
-复合索引使 ORDER BY + LIMIT 无需额外排序（Index Scan 已按 updated_at DESC 有序）。
+
+> 注：实现见 `store/postgres.go` `LoadAllActiveLobbies`；已弃用 OFFSET 深页方案。
 
 ## 3. 房间状态按 lobby_code + status 查询
 

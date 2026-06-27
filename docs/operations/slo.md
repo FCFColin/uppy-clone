@@ -35,7 +35,7 @@
 | **Prometheus 指标** | `auth_requests_total{status}`、`auth_request_duration_seconds` |
 
 > **故障排查**：认证 SLO 异常（401 突增、magic link 投递失败、配置解密失败）时，
-> 参见 `docs/runbook.md` **故障 6: 认证服务异常**（含 refresh token / Resend 熔断 / AES 密钥轮换三类场景的排查与处置）。
+> 参见 [`runbook.md`](./runbook.md) **故障 6: 认证服务异常**（含 refresh token / Resend 熔断 / AES 密钥轮换三类场景的排查与处置）。
 
 ### 2.2 房间创建 (Room Creation)
 
@@ -54,7 +54,7 @@
 |------|------|
 | **用户旅程** | 用户建立 WebSocket 连接加入游戏房间 |
 | **SLI** | 成功建立 WS 连接数 / 总连接尝试数；连接建立延迟分布 |
-| **SLO - 成功率** | 99.0%（30 天窗口） |
+| **SLO - 成功率** | 99.5%（30 天窗口） |
 | **SLO - 延迟** | p99 < 2s |
 | **Error Budget** | 7.2 小时/月（见下方计算） |
 | **Prometheus 指标** | `ws_connection_total{status}` |
@@ -114,12 +114,30 @@ Error Budget 的消耗速率用于多窗口告警（见 `deploy/alertmanager/rul
 |------|----------------|----------------|------|
 | 认证成功率 | 99.9% | 99.5% | 0.4%（约 2.9 小时/月缓冲） |
 | 房间创建成功率 | 99.5% | 99.5% | 0%（与 SLA 持平，需关注） |
-| WebSocket 成功率 | 99.0% | 99.5% | -0.5%（WS SLO 低于 SLA，需提升 SLO） |
+| WebSocket 成功率 | 99.5% | 99.5% | 0%（已与 SLA 对齐，ADR-V2-034） |
 
 > **注意**：WebSocket 当前 SLO（99.0%）低于 SLA（99.5%），存在违约风险。
 > 短期通过 Burn Rate 告警提前干预，长期目标将 WS SLO 提升至 99.5% 以上。
 
 ---
+
+## 4b. 多区域 SLO（ADR-014/016）
+
+多区域部署下，SLO 在**每区域**与**全局聚合**两个维度衡量（Thanos 按 `region` 标签切分）：
+
+| 维度 | 指标 | 目标 | 说明 |
+|------|------|------|------|
+| 每区域 | 区域 WS 成功率 | ≥ 99.5% | 单区域可用性，独立 Error Budget |
+| 每区域 | 区域内对局 p99 | < 100ms（稳态） | 区域内 owner 反向代理，无跨区 RTT |
+| 全局 | 全局可用性 | ≥ 99.95% | 任一区域故障时其余区域吸收流量 |
+| 路由 | 跨区域重定向率 | 监控项 | `resolve` 返回异区域占比，过高说明就近接入异常 |
+| 数据 | CRDB 跨区写 p99 | < 该区域 SLO 预算内 | REGIONAL BY ROW 行驻留降低跨区写 |
+
+**关键不变量**：跨区域**绝不**转发游戏帧（ADR-016）。因此「区域内对局延迟」与
+「全局可用性」解耦——单区域故障降低全局可用性预算，但不会拉高健康区域的对局延迟。
+
+高并发验证见 [`capacity-planning.md`](./capacity-planning.md)（`k6-ws-soak.js` 区域内、分布式 k6 跨区域），
+真实并发/房间/p99 由多区域 staging 压测回填。
 
 ## 5. SLO 评审与调整
 

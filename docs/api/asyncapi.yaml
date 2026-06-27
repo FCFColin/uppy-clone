@@ -1,0 +1,96 @@
+asyncapi: 3.0.0
+info:
+  title: Balloon Game WebSocket Protocol
+  version: 1.0.0
+  description: >
+    Binary WebSocket protocol for the realtime multiplayer game. The authoritative
+    source for byte layouts is backend/internal/protocol and docs/api/ws-protocol.md;
+    this AsyncAPI document describes the channels and message catalog for tooling
+    and CI validation (ADR-002, ADR-016).
+servers:
+  region:
+    host: '{region}.balloon.example'
+    protocol: wss
+    description: >
+      Per-region WebSocket endpoint. Clients resolve the home-region endpoint via
+      GET /api/v1/lobby/{code}/resolve before connecting (ADR-016).
+    variables:
+      region:
+        enum: [us, eu, asia]
+        default: us
+channels:
+  gameConnection:
+    address: '/api/v1/lobby/{code}/ws'
+    parameters:
+      code:
+        description: Room code (globally unique via room_directory, ADR-016).
+    messages:
+      tap: { $ref: '#/components/messages/Tap' }
+      setNickname: { $ref: '#/components/messages/SetNickname' }
+      restartVote: { $ref: '#/components/messages/RestartVote' }
+      ping: { $ref: '#/components/messages/Ping' }
+      snapshot: { $ref: '#/components/messages/Snapshot' }
+      playerJoin: { $ref: '#/components/messages/PlayerJoin' }
+      playerLeave: { $ref: '#/components/messages/PlayerLeave' }
+      tapAccepted: { $ref: '#/components/messages/TapAccepted' }
+      tapRejected: { $ref: '#/components/messages/TapRejected' }
+      gameStateChange: { $ref: '#/components/messages/GameStateChange' }
+      restartStatus: { $ref: '#/components/messages/RestartStatus' }
+      pong: { $ref: '#/components/messages/Pong' }
+operations:
+  sendInput:
+    action: send
+    channel: { $ref: '#/channels/gameConnection' }
+    messages:
+      - { $ref: '#/channels/gameConnection/messages/tap' }
+      - { $ref: '#/channels/gameConnection/messages/setNickname' }
+      - { $ref: '#/channels/gameConnection/messages/restartVote' }
+      - { $ref: '#/channels/gameConnection/messages/ping' }
+  receiveState:
+    action: receive
+    channel: { $ref: '#/channels/gameConnection' }
+    messages:
+      - { $ref: '#/channels/gameConnection/messages/snapshot' }
+      - { $ref: '#/channels/gameConnection/messages/gameStateChange' }
+      - { $ref: '#/channels/gameConnection/messages/pong' }
+components:
+  messages:
+    Tap:
+      title: Tap (MsgTap=0x10)
+      summary: Player tap input.
+      payload: { type: object, x-binary-type: "0x10" }
+    SetNickname:
+      title: SetNickname (MsgSetNickname=0x11)
+      payload: { type: object, x-binary-type: "0x11" }
+    RestartVote:
+      title: RestartVote (MsgRestartVote=0x12)
+      payload: { type: object, x-binary-type: "0x12" }
+    Ping:
+      title: Ping (MsgPing=0x20)
+      payload: { type: object, x-binary-type: "0x20" }
+    Snapshot:
+      title: Snapshot (MsgSnapshot=0x01)
+      summary: 15Hz authoritative game state snapshot.
+      payload: { type: object, x-binary-type: "0x01" }
+    PlayerJoin:
+      title: PlayerJoin (MsgPlayerJoin=0x02)
+      payload: { type: object, x-binary-type: "0x02" }
+    PlayerLeave:
+      title: PlayerLeave (MsgPlayerLeave=0x03)
+      payload: { type: object, x-binary-type: "0x03" }
+    TapAccepted:
+      title: TapAccepted (MsgTapAccepted=0x04)
+      payload: { type: object, x-binary-type: "0x04" }
+    TapRejected:
+      title: TapRejected (MsgTapRejected=0x05)
+      payload: { type: object, x-binary-type: "0x05" }
+    GameStateChange:
+      title: GameStateChange (MsgGameStateChange=0x06)
+      summary: Phase transition waiting/countdown/playing/ended.
+      payload: { type: object, x-binary-type: "0x06" }
+    RestartStatus:
+      title: RestartStatus (MsgRestartStatus=0x07)
+      payload: { type: object, x-binary-type: "0x07" }
+    Pong:
+      title: Pong (MsgPong=0x21)
+      payload: { type: object, x-binary-type: "0x21" }
