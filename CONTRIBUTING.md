@@ -15,7 +15,7 @@
 1. 克隆仓库
 ```bash
 git clone <repo-url>
-cd balloon-game
+cd 多人网页游戏
 ```
 
 2. 启动依赖服务
@@ -39,16 +39,21 @@ npm run dev
 
 5. 运行测试
 ```bash
-# 后端
-cd backend
-go test ./... -race
+# 推荐：与 CI 一致的全量检查
+make check
 
-# 前端
-cd frontend
-npm test
+# 或分步：
+make test          # 后端 -race -short
+make test-integration
+make lint-all
 ```
 
-## Hot Reload (Backend)
+## 测试约定
+
+- 优先每包 1–3 个 `*_test.go`，使用 `t.Run` 表驱动子测试
+- 禁止为通过 `funlen` 将单函数拆成 `{funcName}_test.go` 机械碎片
+- 共享 testcontainers 辅助代码放在 `backend/internal/testutil/`
+- 本地与 CI 一致：`make check`
 
 Install [air](https://github.com/air-verse/air) for live reload during development:
 
@@ -62,6 +67,7 @@ cd backend && air
 - Go: 遵循 [Effective Go](https://go.dev/doc/effective_go)，使用 golangci-lint 检查
 - TypeScript: 遵循项目 ESLint 配置
 - 运行 lint: `cd backend && golangci-lint run`
+- 日志级别策略: 见 [docs/security/logging-policy.md](docs/security/logging-policy.md)
 
 ## Commit 规范
 
