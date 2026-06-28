@@ -1,17 +1,36 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  stopHeartbeat,
-  startWsHeartbeat,
-  handlePong,
-  sendOrQueue,
-  flushPendingQueue,
-  setWs,
-  resetReconnectAttempts,
-  scheduleReconnect,
-  waitForWebSocket,
-} from './ws_connection.js';
 import { outboundMessageQueue } from './state.js';
-import { MAX_PENDING_QUEUE, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS } from './constants.js';
+
+vi.mock('./constants.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./constants.js')>();
+  return {
+    ...actual,
+    HEARTBEAT_INTERVAL_MS: 1000,
+    HEARTBEAT_TIMEOUT_MS: 500,
+  };
+});
+
+import {
+  MAX_PENDING_QUEUE,
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_TIMEOUT_MS,
+  MAX_RECONNECT_ATTEMPTS,
+} from './constants.js';
+
+vi.mock('./ws_connect.js', () => ({ connectWebSocket: vi.fn() }));
+vi.mock('./connection_ui.js', () => ({
+  hideReconnectBanner: vi.fn(),
+  showReconnectBanner: vi.fn(),
+  updatePingDisplay: vi.fn(),
+  showConnectionError: vi.fn(),
+}));
+
+import { getWs, setWs, stopHeartbeat, startWsHeartbeat, handlePong, sendOrQueue, flushPendingQueue, resetReconnectAttempts, scheduleReconnect, waitForWebSocket, showConnectionError, setRoomPreChecked, wasRoomPreChecked, setReconnectTimer, clearReconnectTimer, getWsEverOpened, setWsEverOpened } from './ws_connection.js';
+import {
+  showConnectionError as showConnectionErrorUI,
+  showReconnectBanner,
+  updatePingDisplay,
+} from './connection_ui.js';
 
 class MockWebSocket {
   static OPEN = 1;
@@ -23,11 +42,10 @@ class MockWebSocket {
   close(): void {}
 }
 
-vi.mock('./ws_connect.js', () => ({ connectWebSocket: vi.fn() }));
-
 describe('ws_connection', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     outboundMessageQueue.length = 0;
     stopHeartbeat();
     setWs(null);
@@ -62,8 +80,9 @@ describe('ws_connection', () => {
 
   it('flushPendingQueue drains queue on open socket', () => {
     const socket = new MockWebSocket() as unknown as WebSocket;
-    setWs(socket);
+    setWs(null);
     sendOrQueue(new ArrayBuffer(1));
+    setWs(socket);
     flushPendingQueue();
     expect(outboundMessageQueue.length).toBe(0);
     expect((socket as unknown as MockWebSocket).sent.length).toBe(1);
@@ -79,16 +98,93 @@ describe('ws_connection', () => {
     expect((socket as unknown as MockWebSocket).sent.length).toBeGreaterThan(0);
   });
 
-  it('scheduleReconnect stops after max attempts', () => {
-    for (let i = 0; i < 10; i++) {
+  it('heartbeat timeout closes the socket when pong is missing', async () => {
+    const socket = new MockWebSocket() as unknown as WebSocket;
+    const closeSpy = vi.spyOn(socket, 'close');
+    setWs(socket);
+    startWsHeartbeat();
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS + HEARTBEAT_TIMEOUT_MS + 1);
+    expect(closeSpy).toHaveBeenCalled();
+  });
+
+  it('flushPendingQueue drains multiple queued messages', () => {
+    const socket = new MockWebSocket() as unknown as WebSocket;
+    setWs(null);
+    sendOrQueue(new ArrayBuffer(1));
+    sendOrQueue(new ArrayBuffer(1));
+    sendOrQueue(new ArrayBuffer(1));
+    setWs(socket);
+    flushPendingQueue();
+    expect(outboundMessageQueue.length).toBe(0);
+    expect((socket as unknown as MockWebSocket).sent.length).toBe(3);
+  });
+
+  it('getWs returns the active socket reference', () => {
+    const socket = new MockWebSocket() as unknown as WebSocket;
+    setWs(socket);
+    expect(getWs()).toBe(socket);
+    setWs(null);
+    expect(getWs()).toBeNull();
+  });
+
+  it('flushPendingQueue no-ops when socket is closed', () => {
+    sendOrQueue(new ArrayBuffer(1));
+    flushPendingQueue();
+    expect(outboundMessageQueue.length).toBe(1);
+  });
+
+  it('scheduleReconnect stops after max attempts', async () => {
+    for (let i = 0; i < MAX_RECONNECT_ATTEMPTS; i++) {
       scheduleReconnect();
       vi.runAllTimers();
     }
+    scheduleReconnect();
+    await vi.waitFor(() => {
+      expect(showConnectionErrorUI).toHaveBeenCalled();
+    });
+  });
+
+  it('scheduleReconnect shows reconnect banner before max attempts', () => {
+    scheduleReconnect();
+    expect(showReconnectBanner).toHaveBeenCalledWith(1);
+  });
+
+  it('handlePong updates ping display when ping was sent', () => {
+    const socket = new MockWebSocket() as unknown as WebSocket;
+    setWs(socket);
+    startWsHeartbeat();
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
+    handlePong();
+    expect(vi.mocked(updatePingDisplay)).toHaveBeenCalled();
+  });
+
+  it('showConnectionError delegates to connection UI', () => {
+    showConnectionError('offline', { showActions: true });
+    expect(showConnectionErrorUI).toHaveBeenCalledWith('offline', { showActions: true });
   });
 
   it('waitForWebSocket resolves when socket open', async () => {
     const socket = new MockWebSocket() as unknown as WebSocket;
     setWs(socket);
     await expect(waitForWebSocket(1000)).resolves.toBeUndefined();
+  });
+
+  it('waitForWebSocket resolves after timeout when socket stays closed', async () => {
+    setWs(null);
+    const pending = waitForWebSocket(150);
+    await vi.advanceTimersByTimeAsync(200);
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('clearReconnectTimer and room pre-check helpers work', () => {
+    setRoomPreChecked(true);
+    expect(wasRoomPreChecked()).toBe(true);
+    setWsEverOpened(true);
+    expect(getWsEverOpened()).toBe(true);
+    const timer = setTimeout(() => {}, 1000);
+    setReconnectTimer(timer);
+    clearReconnectTimer();
+    setRoomPreChecked(false);
+    setWsEverOpened(false);
   });
 });

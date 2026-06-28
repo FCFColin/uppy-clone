@@ -105,6 +105,12 @@
   justify-content: center;
 }
 
+.entry-inline-error {
+  color: #ffb4c4;
+  opacity: 1;
+  margin-bottom: 0.75rem;
+}
+
 /* 重连 Banner：网络断开时半透明遮罩 */
 .reconnect-banner {
   position: fixed;
@@ -138,4 +144,22 @@
   font-size: 16px;
   font-family: sans-serif;
   text-align: center;
+}
+
+/* 进房 overlay 置于 loading/reconnect 之上，确保按钮可点击 */
+#nickname-setup-screen.entry-overlay-active,
+#waiting-screen.entry-overlay-active {
+  z-index: 10100;
+  pointer-events: auto;
+}
+
+#nickname-entry-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#loading-overlay.hidden {
+  pointer-events: none !important;
 }

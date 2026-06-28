@@ -10,6 +10,8 @@ import (
 
 const lobbyListCachePrefix = "lobby:list:"
 const lobbyCheckCachePrefix = "lobby:check:"
+
+// LobbyReadCacheTTL is the TTL for cached lobby list and room-check responses.
 const LobbyReadCacheTTL = 30 * time.Second
 
 func lobbyListCacheKey(limit int, cursor string) string {

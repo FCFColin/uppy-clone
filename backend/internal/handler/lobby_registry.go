@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -17,37 +18,57 @@ import (
 	"github.com/uppy-clone/backend/internal/metrics"
 )
 
-// CreateRoom handles POST /api/registry/create
-func (h *LobbyHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
+type registryRoomParams struct {
+	emptyKey      string
+	emptyVal      string
+	unavailMsg    string
+	unavailLog    string
+	failLog       string
+	degradedMsg   string
+	responseField string
+}
+
+type registryRoomFn func(context.Context) (string, error)
+
+func (h *LobbyHandler) handleRegistryRoom(w http.ResponseWriter, r *http.Request, p registryRoomParams, op registryRoomFn) {
 	start := time.Now()
-	if !RequireHubDegraded(h.hub, w, http.StatusServiceUnavailable,
-		map[string]string{"code": ""},
-		"Room service temporarily unavailable, please retry") {
-		slog.Warn("degraded: Hub not available, cannot create room")
+	emptyResp := map[string]string{p.emptyKey: p.emptyVal}
+	if !RequireHubDegraded(h.hub, w, http.StatusServiceUnavailable, emptyResp, p.unavailMsg) {
+		slog.Warn("degraded: " + p.unavailLog)
 		metrics.RecordRoomCreation("failed", start)
 		return
 	}
 
-	code, err := h.hub.CreateRoom(r.Context())
+	code, err := op(r.Context())
 	if err == game.ErrRoomCodeConflict {
 		metrics.RecordRoomCreation("failed", start)
 		apierror.Conflict("Room code conflict, please retry").Write(w)
 		return
 	}
 	if err != nil {
-		slog.Warn("degraded: Hub.CreateRoom failed", "error", err)
+		slog.Warn("degraded: "+p.failLog, "error", err)
 		metrics.RecordRoomCreation("failed", start)
-		WriteDegradedJSON(w, http.StatusServiceUnavailable,
-			map[string]string{"code": ""},
-			"Room creation temporarily unavailable, please retry")
+		WriteDegradedJSON(w, http.StatusServiceUnavailable, emptyResp, p.degradedMsg)
 		return
 	}
 
 	metrics.RecordRoomCreation("success", start)
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"code": code})
+	_ = json.NewEncoder(w).Encode(map[string]string{p.responseField: code})
+}
+
+// CreateRoom handles POST /api/registry/create
+func (h *LobbyHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
+	h.handleRegistryRoom(w, r, registryRoomParams{
+		emptyKey:      "code",
+		emptyVal:      "",
+		unavailMsg:    "Room service temporarily unavailable, please retry",
+		unavailLog:    "Hub not available, cannot create room",
+		failLog:       "Hub.CreateRoom failed",
+		degradedMsg:   "Room creation temporarily unavailable, please retry",
+		responseField: "code",
+	}, h.hub.CreateRoom)
 }
 
 // CheckRoom handles GET /api/registry/check/{code}
@@ -99,7 +120,7 @@ func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Last-Modified", time.Unix(info.CreatedAt, 0).UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"code":        info.Code,
 		"phase":       info.Phase,
 		"playerCount": info.PlayerCount,
@@ -110,7 +131,7 @@ func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 func writeDegradedLobbyList(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"lobbies":     []interface{}{},
 		"total":       0,
 		"has_more":    false,
@@ -161,38 +182,20 @@ func (h *LobbyHandler) ListLobbies(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(bodyBytes)
+	if _, err := w.Write(bodyBytes); err != nil {
+		slog.Warn("ListLobbies: failed to write response", "error", err)
+	}
 }
 
 // MatchRoom handles POST /api/v1/registry/match
 func (h *LobbyHandler) MatchRoom(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	if !RequireHubDegraded(h.hub, w, http.StatusServiceUnavailable,
-		map[string]string{"lobbyCode": ""},
-		"Room match temporarily unavailable, please retry") {
-		slog.Warn("degraded: Hub not available, cannot match room")
-		metrics.RecordRoomCreation("failed", start)
-		return
-	}
-
-	code, err := h.hub.MatchRoom(r.Context())
-	if err == game.ErrRoomCodeConflict {
-		metrics.RecordRoomCreation("failed", start)
-		apierror.Conflict("Room code conflict, please retry").Write(w)
-		return
-	}
-	if err != nil {
-		slog.Warn("degraded: Hub.MatchRoom failed", "error", err)
-		metrics.RecordRoomCreation("failed", start)
-		WriteDegradedJSON(w, http.StatusServiceUnavailable,
-			map[string]string{"lobbyCode": ""},
-			"Room match temporarily unavailable, please retry")
-		return
-	}
-
-	metrics.RecordRoomCreation("success", start)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"lobbyCode": code})
+	h.handleRegistryRoom(w, r, registryRoomParams{
+		emptyKey:      "lobbyCode",
+		emptyVal:      "",
+		unavailMsg:    "Room match temporarily unavailable, please retry",
+		unavailLog:    "Hub not available, cannot match room",
+		failLog:       "Hub.MatchRoom failed",
+		degradedMsg:   "Room match temporarily unavailable, please retry",
+		responseField: "lobbyCode",
+	}, h.hub.MatchRoom)
 }

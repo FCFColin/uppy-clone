@@ -9,6 +9,17 @@ import (
 	"github.com/uppy-clone/backend/internal/idgen"
 )
 
+func newLobbyState(code string, stateJSON []byte) *domain.LobbyState {
+	now := time.Now().UnixMilli()
+	return &domain.LobbyState{
+		ID:        idgen.UUID(),
+		Code:      code,
+		State:     string(stateJSON),
+		UpdatedAt: now,
+		CreatedAt: now,
+	}
+}
+
 // saveStateWithError persists state to PostgreSQL and returns any error.
 // P4-6.1: 暴露 error 供 Saga 补偿模式判断是否回滚。
 func (r *Room) saveStateWithError() error {
@@ -23,13 +34,7 @@ func (r *Room) saveStateWithError() error {
 		return fmt.Errorf("serialize state: %w", err)
 	}
 
-	ls := &domain.LobbyState{
-		ID:        idgen.UUID(),
-		Code:      r.state.LobbyCode,
-		State:     string(data),
-		UpdatedAt: time.Now().UnixMilli(),
-		CreatedAt: time.Now().UnixMilli(),
-	}
+	ls := newLobbyState(r.state.LobbyCode, data)
 	if err := r.store.SaveLobbyState(ctx, ls); err != nil {
 		return fmt.Errorf("save lobby state: %w", err)
 	}

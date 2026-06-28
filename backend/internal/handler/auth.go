@@ -1,3 +1,4 @@
+// Package handler implements HTTP and WebSocket API endpoints.
 package handler
 
 import (

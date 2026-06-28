@@ -61,7 +61,7 @@ func (r *Room) closeExistingConnection(playerID string, player *domain.PlayerSta
 	}
 	if oldConn, ok := r.connections[playerID]; ok {
 		r.logger.Info("closing old WebSocket for player", "playerID", playerID)
-		oldConn.Conn.Close()
+		_ = oldConn.Conn.Close()
 		delete(r.connections, playerID)
 	}
 }
@@ -89,14 +89,9 @@ func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 }
 
 func (r *Room) resumeCountdownForReconnect(playerID string) {
-	elapsed := time.Now().UnixMilli() - r.countdownStart
-	countdownMs := int64(protocol.CountdownTicks) * 1000 / int64(protocol.TickRate)
-	remaining := countdownMs - elapsed
-	if remaining < 100 {
-		remaining = 100
-	}
+	remaining := remainingCountdownMs(r.countdownStart)
 	r.sendToPlayer(playerID, protocol.EncodeGameStateChange(protocol.PhaseCountdown, uint32(remaining))) //nolint:gosec // bounded countdown
-	r.scheduleCountdownEnd(time.Now().Add(time.Duration(remaining) * time.Millisecond))
+	r.setEndGameAlarm(time.Now().Add(time.Duration(remaining) * time.Millisecond))
 }
 
 // addNewPlayer 添加新玩家到房间，房间已满时返回 ErrRoomFull。
@@ -104,7 +99,7 @@ func (r *Room) addNewPlayer(playerID string, conn *websocket.Conn) (*domain.Play
 	if len(r.state.Players) >= r.maxPlayers {
 		delete(r.connections, playerID)
 		if conn != nil {
-			conn.Close()
+			_ = conn.Close()
 		}
 		return nil, ErrRoomFull
 	}
@@ -162,6 +157,10 @@ func (r *Room) normalizePhaseForNicknameGate() {
 		r.endGameTimer.Stop()
 		r.endGameTimer = nil
 	}
+	if r.startDelayTimer != nil {
+		r.startDelayTimer.Stop()
+		r.startDelayTimer = nil
+	}
 	r.state.Phase = domain.PhaseWaiting
 	r.logger.Info("phase reset to waiting: not all players confirmed nickname")
 }
@@ -188,6 +187,7 @@ func (r *Room) allConnectedPlayersReady() bool {
 }
 
 // tryStartWhenAllReady 当所有已连接玩家确认昵称后，从 waiting 进入 countdown。
+// 延迟 1.5 秒启动，给玩家时间看到欢迎信息。
 func (r *Room) tryStartWhenAllReady() {
 	if r.state.Phase != domain.PhaseWaiting {
 		return
@@ -195,7 +195,17 @@ func (r *Room) tryStartWhenAllReady() {
 	if !r.allConnectedPlayersReady() {
 		return
 	}
-	_ = r.StartGame()
+	if r.startDelayTimer != nil {
+		return // 已在等待启动
+	}
+	r.startDelayTimer = time.AfterFunc(r.startDelay, func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.startDelayTimer = nil
+		if r.state.Phase == domain.PhaseWaiting && r.allConnectedPlayersReady() {
+			_ = r.StartGame()
+		}
+	})
 }
 
 // HandleDisconnect 处理玩家断连
@@ -232,12 +242,10 @@ func (r *Room) StartGame() error {
 
 	ResetGameEntities(r.state, RandomSpawnTimer())
 
-	countdownMs := int64(protocol.CountdownTicks) * 1000 / int64(protocol.TickRate)
-	r.scheduleCountdownEnd(time.Now().Add(time.Duration(countdownMs) * time.Millisecond))
-	r.broadcastCritical(protocol.EncodeGameStateChange(protocol.PhaseCountdown, uint32(countdownMs))) //nolint:gosec // bounded countdown
-	r.broadcast(r.buildSnapshot(), "")
+	r.scheduleCountdownFromNow()
+	r.broadcastCountdownPhase()
 
-	r.logger.Info("startGame", "phase", "countdown", "countdownMs", countdownMs)
+	r.logger.Info("startGame", "phase", "countdown", "countdownMs", countdownDurationMs())
 	r.saveState()
 	return nil
 }
@@ -260,7 +268,7 @@ func (r *Room) EndGameWithReason(endReason uint8) error {
 	r.broadcastGameEnded(endReason)
 
 	if len(r.connections) > 0 {
-		r.scheduleAutoRestart(time.Now().Add(time.Duration(protocol.AutoRestartMs) * time.Millisecond))
+		r.setEndGameAlarm(time.Now().Add(time.Duration(protocol.AutoRestartMs) * time.Millisecond))
 	} else {
 		r.state.Phase = domain.PhaseWaiting
 		r.logger.Info("no players, phase reset to waiting")
@@ -268,7 +276,6 @@ func (r *Room) EndGameWithReason(endReason uint8) error {
 
 	return nil
 }
-
 
 func (r *Room) broadcastGameEnded(endReason uint8) {
 	r.broadcast(r.buildSnapshot(), "")
@@ -299,16 +306,6 @@ func (r *Room) setEndGameAlarm(when time.Time) {
 	})
 }
 
-// scheduleCountdownEnd 调度倒计时结束定时器（countdown → playing）。
-func (r *Room) scheduleCountdownEnd(when time.Time) {
-	r.setEndGameAlarm(when)
-}
-
-// scheduleAutoRestart 调度自动重启定时器（ended → countdown）。
-func (r *Room) scheduleAutoRestart(when time.Time) {
-	r.setEndGameAlarm(when)
-}
-
 // handleCountdownEnd 处理倒计时结束：转为 playing 阶段并启动 tick。
 func (r *Room) handleCountdownEnd() {
 	r.state.Phase = domain.PhasePlaying
@@ -329,7 +326,7 @@ func (r *Room) handleCountdownEnd() {
 		r.createGameSessionAsync(&domain.GameSession{
 			ID:        r.state.SessionID,
 			LobbyCode: r.state.LobbyCode,
-			Status:    "playing",
+			Status:    "active", // DB CHECK 约束只允许 'active' 或 'ended'
 			StartedAt: &r.state.StartedAt,
 		})
 	}
@@ -351,15 +348,10 @@ func (r *Room) handleAutoRestart() {
 		return
 	}
 
-	activeVotes := 0
-	for _, v := range r.state.RestartVotes {
-		if v {
-			activeVotes++
-		}
-	}
-	if activeVotes > 0 {
+	yesVotes, _ := countRestartYesVotes(r.state.Players, r.state.RestartVotes)
+	if yesVotes > 0 {
 		r.logger.Info("phase=ended but restart votes active, deferring auto-restart by 30s")
-		r.scheduleAutoRestart(time.Now().Add(time.Duration(protocol.RestartTimeoutMs) * time.Millisecond))
+		r.setEndGameAlarm(time.Now().Add(time.Duration(protocol.RestartTimeoutMs) * time.Millisecond))
 		return
 	}
 

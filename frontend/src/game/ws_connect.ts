@@ -1,7 +1,13 @@
 import { CLIENT_MSG } from './constants.js';
-import { state, resetInterpolation, seenSeqs, outboundMessageQueue } from './state.js';
-import { establishGameSession, sessionErrorMessage } from '../shared/session.js';
-import { hideLoadingOverlay, $lobbyCode, $hudCode } from './ui.js';
+import { state, resetInterpolation, seenSeqs } from './state.js';
+import { establishGameSession, sessionErrorMessage, type SessionResult } from '../shared/session.js';
+import {
+  onLobbyCodeReady,
+  onWebSocketOpen,
+  onWebSocketClosed,
+  clearWaitingInlineError,
+  getEntryStep,
+} from './entry_flow.js';
 import { resolveLobbyCode } from './ws_connect_lobby.js';
 import {
   getLobbyCodeFromUrl,
@@ -9,7 +15,7 @@ import {
   roomErrorMessage,
 } from './room_validate.js';
 import {
-  setWs, getWsEverOpened, setWsEverOpened,
+  setWs, getWs, getWsEverOpened, setWsEverOpened,
   resetReconnectAttempts, setReconnectTimer,
   startWsHeartbeat, stopHeartbeat, sendOrQueue, flushPendingQueue,
   hideReconnectBanner, scheduleReconnect, showConnectionError,
@@ -19,47 +25,63 @@ import { enqueueBinaryMessage } from './ws_message_queue.js';
 
 export { showConnectionError } from './ws_connection.js';
 
-export async function connectWebSocket(): Promise<void> {
-  const session = await establishGameSession();
-  if (!session.ok) {
-    showConnectionError(sessionErrorMessage(session));
-    return;
-  }
-  const savedPlayerId: string | null = localStorage.getItem('uppy-player-id');
+let connectInFlight = false;
+let connectedLobbyCode: string | null = null;
 
-  const urlCode = getLobbyCodeFromUrl();
+function shouldSkipConnect(lobbyCode: string): boolean {
+  const ws = getWs();
+  if (!ws) return false;
+  if (connectedLobbyCode !== lobbyCode) return false;
+  return ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN;
+}
+
+async function ensureSession(): Promise<SessionResult> {
+  return establishGameSession();
+}
+
+async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
   if (urlCode) {
-    const check = await validateRoomCode(urlCode);
-    if (!check.ok) {
-      showConnectionError(roomErrorMessage(check.reason), {
-        showActions: true,
-        title: check.reason === 'ended' ? '房间已结束' : '无法进入房间',
-      });
-      return;
+    const freshMatch = sessionStorage.getItem('uppy-fresh-match');
+    if (freshMatch === urlCode) {
+      sessionStorage.removeItem('uppy-fresh-match');
+      setRoomPreChecked(true);
+    } else {
+      const check = await validateRoomCode(urlCode);
+      if (!check.ok) {
+        showConnectionError(roomErrorMessage(check.reason), {
+          showActions: true,
+          title: check.reason === 'ended' ? '房间已结束' : '无法进入房间',
+        });
+        return null;
+      }
+      setRoomPreChecked(true);
     }
-    setRoomPreChecked(true);
+    return urlCode;
   }
 
-  const lobbyCode: string | null = await resolveLobbyCode();
-  if (!lobbyCode) {
+  const matched = await resolveLobbyCode();
+  if (!matched) {
     showConnectionError('无法连接到游戏服务器，请稍后重试', { showActions: true });
-    return;
+    return null;
   }
+  onLobbyCodeReady(matched);
+  return matched;
+}
 
-  state.lobbyCode = lobbyCode;
-  $lobbyCode.textContent = lobbyCode;
-  $hudCode.textContent = lobbyCode;
-
-  // 房间码已就绪即可进入昵称设置，WebSocket 在后台继续连接
-  hideLoadingOverlay();
-  window.dispatchEvent(new CustomEvent('game-lobby-ready'));
+function openGameSocket(wsCode: string, savedPlayerId: string | null): void {
+  const existing = getWs();
+  if (existing && existing.readyState !== WebSocket.CLOSED) {
+    existing.onclose = null;
+    existing.close();
+  }
 
   const protocol: string = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const playerIdParam: string = savedPlayerId ? `?playerId=${savedPlayerId}` : '';
-  const wsUrl: string = `${protocol}//${window.location.host}/api/v1/lobby/${lobbyCode}/ws${playerIdParam}`;
+  const wsUrl: string = `${protocol}//${window.location.host}/api/v1/lobby/${wsCode}/ws${playerIdParam}`;
 
   const socket = new WebSocket(wsUrl);
   socket.binaryType = 'arraybuffer';
+  connectedLobbyCode = wsCode;
   setWs(socket);
   window.__ws = socket;
 
@@ -68,13 +90,13 @@ export async function connectWebSocket(): Promise<void> {
     state.wasEverConnected = true;
     resetReconnectAttempts();
     hideReconnectBanner();
-    hideLoadingOverlay();
+    clearWaitingInlineError();
+    onWebSocketOpen();
     window.dispatchEvent(new Event('game-ws-open'));
     startWsHeartbeat();
     flushPendingQueue();
     seenSeqs.clear();
     resetInterpolation();
-    outboundMessageQueue.length = 0;
     state.connectionError = null;
     setReconnectTimer(null);
     if (state.phase === 'ended' && state.restartClicked) {
@@ -84,13 +106,14 @@ export async function connectWebSocket(): Promise<void> {
     }
   };
 
-	socket.onmessage = (event: MessageEvent) => {
-		if (!(event.data instanceof ArrayBuffer)) return;
-		enqueueBinaryMessage(event.data);
-	};
+  socket.onmessage = (event: MessageEvent) => {
+    if (!(event.data instanceof ArrayBuffer)) return;
+    enqueueBinaryMessage(event.data);
+  };
 
   socket.onclose = () => {
     stopHeartbeat();
+    onWebSocketClosed();
     if (!getWsEverOpened()) {
       const message = wasRoomPreChecked()
         ? '无法连接房间，请稍后重试'
@@ -104,4 +127,44 @@ export async function connectWebSocket(): Promise<void> {
   socket.onerror = () => {
     console.error('WebSocket error');
   };
+}
+
+export async function connectWebSocket(): Promise<void> {
+  const urlCode = getLobbyCodeFromUrl();
+  let lobbyCode: string | null = urlCode;
+
+  if (lobbyCode && getEntryStep() === 'connecting') {
+    onLobbyCodeReady(lobbyCode);
+  }
+
+  if (lobbyCode && shouldSkipConnect(lobbyCode)) {
+    return;
+  }
+
+  if (connectInFlight) return;
+  connectInFlight = true;
+
+  try {
+    // Run session establishment and room validation in parallel to cut latency.
+    const savedPlayerId: string | null = localStorage.getItem('uppy-player-id');
+    const [session, resolvedCode] = await Promise.all([
+      ensureSession(),
+      resolveRoomCode(urlCode),
+    ]);
+
+    if (!session.ok) {
+      showConnectionError(sessionErrorMessage(session));
+      return;
+    }
+    lobbyCode = resolvedCode;
+    if (!lobbyCode) return;
+
+    if (shouldSkipConnect(lobbyCode)) {
+      return; /* v8 ignore next -- defensive skip after async resolve */
+    }
+
+    openGameSocket(lobbyCode, savedPlayerId);
+  } finally {
+    connectInFlight = false;
+  }
 }

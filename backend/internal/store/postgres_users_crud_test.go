@@ -1,0 +1,103 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pashagolub/pgxmock/v4"
+	"github.com/uppy-clone/backend/internal/domain"
+)
+
+func TestLogUserCreateAudit_DoesNotPanic(t *testing.T) {
+	logUserCreateAudit(context.Background(), &domain.User{
+		ID:       "user-1",
+		Nickname: "TestPlayer",
+	})
+}
+
+func TestCreateUser_Success(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+	lastLogin := int64(100)
+	user := &domain.User{
+		ID:        "user-1",
+		Email:     "create@example.com",
+		Nickname:  "Creator",
+		Palette:   1,
+		CreatedAt: 100,
+		LastLogin: &lastLogin,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO users").
+		WithArgs(user.ID, pgxmock.AnyArg(), pgxmock.AnyArg(), user.Nickname, user.Palette, user.CreatedAt, user.LastLogin).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectExec("INSERT INTO outbox_events").
+		WithArgs("user", user.ID, pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectCommit()
+
+	if err := s.CreateUser(ctx, user); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestCreateUser_DuplicateUser(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+	user := &domain.User{
+		ID:        "user-dup",
+		Email:     "dup@example.com",
+		Nickname:  "Dup",
+		CreatedAt: 1,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO users").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnError(&pgconn.PgError{Code: "23505"})
+	mock.ExpectRollback()
+
+	err := s.CreateUser(ctx, user)
+	if !errors.Is(err, ErrDuplicateUser) {
+		t.Fatalf("CreateUser = %v, want ErrDuplicateUser", err)
+	}
+}
+
+func TestCreateUser_BeginError(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	mock.ExpectBegin().WillReturnError(errors.New("begin failed"))
+
+	err := s.CreateUser(ctx, &domain.User{ID: "u1", Email: "a@b.com", Nickname: "n"})
+	if err == nil || !strings.Contains(err.Error(), "begin tx") {
+		t.Fatalf("CreateUser = %v, want begin error", err)
+	}
+}
+
+func TestCreateUser_OutboxInsertError(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+	user := &domain.User{ID: "u2", Email: "b@c.com", Nickname: "n", CreatedAt: 1}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO users").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectExec("INSERT INTO outbox_events").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnError(errors.New("outbox insert failed"))
+	mock.ExpectRollback()
+
+	err := s.CreateUser(ctx, user)
+	if err == nil || !strings.Contains(err.Error(), "insert outbox event") {
+		t.Fatalf("CreateUser = %v, want outbox insert error", err)
+	}
+}

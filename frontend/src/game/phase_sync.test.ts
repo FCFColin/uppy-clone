@@ -61,6 +61,10 @@ vi.mock('./ui.js', () => ({
   stopCooldownUpdater: vi.fn(),
 }));
 
+vi.mock('./entry_flow.js', () => ({
+  tryEntryHandoff: vi.fn(),
+}));
+
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 
 describe('applyPhaseChange', () => {
@@ -128,6 +132,13 @@ describe('applyPhaseChange', () => {
     expect(applyPhaseChange('countdown')).toBe(false);
     expect(mocks.state.phase).toBe('waiting');
     expect(mocks.showCountdownOverlay).not.toHaveBeenCalled();
+  });
+
+  it('blocks ended before nickname submitted', () => {
+    mocks.state.nicknameSubmitted = false;
+    expect(applyPhaseChange('ended')).toBe(false);
+    expect(mocks.state.phase).toBe('waiting');
+    expect(mocks.freezeInterpolation).not.toHaveBeenCalled();
   });
 
   it('allows countdown after restart from ended', () => {
@@ -201,5 +212,34 @@ describe('shouldApplySnapshotPhase', () => {
   it('blocks countdown -> waiting regression', () => {
     mocks.state.phase = 'countdown';
     expect(shouldApplySnapshotPhase('waiting')).toBe(false);
+  });
+
+  it('allows unknown client phase via default branch', () => {
+    mocks.state.phase = 'unknown' as typeof mocks.state.phase;
+    expect(shouldApplySnapshotPhase('playing')).toBe(true);
+  });
+
+  it('clears countdown and restart timers when entering playing', () => {
+    mocks.state.phase = 'countdown';
+    mocks.state.countdownTimerInterval = setInterval(() => {}, 1000);
+    window._restartCountdownTimer = setInterval(() => {}, 1000);
+    applyPhaseChange('playing');
+    expect(mocks.state.countdownTimerInterval).toBeNull();
+    expect(window._restartCountdownTimer).toBeNull();
+  });
+
+  it('handles missing nickname inline element when entering playing', () => {
+    document.body.innerHTML = '<div id="nickname-setup-screen"></div><div id="nickname-inline"></div>';
+    mocks.state.phase = 'countdown';
+    mocks.state.nicknameSubmitted = true;
+    applyPhaseChange('playing');
+    expect(document.getElementById('nickname-inline')!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('allows waiting snapshot transitions from waiting phase', () => {
+    mocks.state.phase = 'waiting';
+    expect(shouldApplySnapshotPhase('countdown')).toBe(true);
+    expect(shouldApplySnapshotPhase('playing')).toBe(true);
+    expect(shouldApplySnapshotPhase('ended')).toBe(true);
   });
 });

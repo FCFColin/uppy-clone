@@ -13,7 +13,9 @@ import (
 type RoomRoute int
 
 const (
+	// RouteLocal serves the room on this instance.
 	RouteLocal RoomRoute = iota
+	// RouteProxy forwards the connection to the room owner instance.
 	RouteProxy
 )
 
@@ -71,7 +73,7 @@ func (h *Hub) invalidateLobbyReadCaches(code string) {
 	}
 }
 
-// ListLobbies returns active lobbies with cursor-based pagination.
+// ListLobbiesCached returns active lobbies with cursor-based pagination.
 // Uses Redis read-through cache per ADR-006 when available.
 func (h *Hub) ListLobbiesCached(ctx context.Context, limit int, cursor string) (*store.LobbyListResult, error) {
 	if h.store == nil {
@@ -79,25 +81,20 @@ func (h *Hub) ListLobbiesCached(ctx context.Context, limit int, cursor string) (
 	}
 
 	if h.redis != nil {
-		if cached, ok, err := h.redis.GetCachedLobbyList(ctx, limit, cursor); ok && err == nil {
-			var result store.LobbyListResult
-			if json.Unmarshal(cached, &result) == nil {
-				return &result, nil
-			}
-		}
+		return readThroughCache(ctx,
+			func(ctx context.Context) ([]byte, bool, error) {
+				return h.redis.GetCachedLobbyList(ctx, limit, cursor)
+			},
+			func(ctx context.Context, data []byte) error {
+				return h.redis.SetCachedLobbyList(ctx, limit, cursor, data)
+			},
+			func(ctx context.Context) (*store.LobbyListResult, error) {
+				return h.store.LoadAllActiveLobbies(ctx, limit, cursor)
+			},
+		)
 	}
 
-	result, err := h.store.LoadAllActiveLobbies(ctx, limit, cursor)
-	if err != nil {
-		return nil, err
-	}
-
-	if h.redis != nil {
-		if data, err := json.Marshal(result); err == nil {
-			_ = h.redis.SetCachedLobbyList(ctx, limit, cursor, data)
-		}
-	}
-	return result, nil
+	return h.store.LoadAllActiveLobbies(ctx, limit, cursor)
 }
 
 // CheckRoomCached checks room existence with Redis read-through cache per ADR-006.
@@ -122,4 +119,27 @@ func (h *Hub) CheckRoomCached(ctx context.Context, code string) (*RoomInfo, erro
 		}
 	}
 	return info, err
+}
+
+func readThroughCache[T any](
+	ctx context.Context,
+	get func(context.Context) ([]byte, bool, error),
+	set func(context.Context, []byte) error,
+	load func(context.Context) (T, error),
+) (T, error) {
+	var zero T
+	if cached, ok, err := get(ctx); ok && err == nil {
+		var result T
+		if json.Unmarshal(cached, &result) == nil {
+			return result, nil
+		}
+	}
+	result, err := load(ctx)
+	if err != nil {
+		return zero, err
+	}
+	if data, err := json.Marshal(result); err == nil {
+		_ = set(ctx, data)
+	}
+	return result, nil
 }

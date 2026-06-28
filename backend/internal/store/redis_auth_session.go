@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// RevokeJWT stores a JWT jti in the revocation list until TTL expires.
 func (s *RedisStore) RevokeJWT(ctx context.Context, jti string, ttl time.Duration) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "redis.RevokeJWT",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -28,6 +29,7 @@ func (s *RedisStore) RevokeJWT(ctx context.Context, jti string, ttl time.Duratio
 	return err
 }
 
+// IsJWTRevoked reports whether a JWT jti has been revoked.
 func (s *RedisStore) IsJWTRevoked(ctx context.Context, jti string) (bool, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "redis.IsJWTRevoked",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -55,6 +57,7 @@ func (s *RedisStore) IsJWTRevoked(ctx context.Context, jti string) (bool, error)
 	return revoked, nil
 }
 
+// IncrementFailedLogin increments the failed admin login counter for an IP.
 func (s *RedisStore) IncrementFailedLogin(ctx context.Context, ip string) (int, error) {
 	key := "admin:login:fail:" + ip
 	count, err := s.rdb.Incr(ctx, key).Result()
@@ -67,6 +70,7 @@ func (s *RedisStore) IncrementFailedLogin(ctx context.Context, ip string) (int, 
 	return int(count), nil
 }
 
+// IsLoginLocked reports whether an IP is locked out from admin login.
 func (s *RedisStore) IsLoginLocked(ctx context.Context, ip string) (bool, error) {
 	key := "admin:login:lock:" + ip
 	val, err := s.rdb.Exists(ctx, key).Result()
@@ -76,6 +80,7 @@ func (s *RedisStore) IsLoginLocked(ctx context.Context, ip string) (bool, error)
 	return val > 0, nil
 }
 
+// SetLoginLock locks admin login for an IP until TTL expires.
 func (s *RedisStore) SetLoginLock(ctx context.Context, ip string, ttl time.Duration) error {
 	key := "admin:login:lock:" + ip
 	if err := s.rdb.Set(ctx, key, "1", ttl).Err(); err != nil {
@@ -84,6 +89,7 @@ func (s *RedisStore) SetLoginLock(ctx context.Context, ip string, ttl time.Durat
 	return nil
 }
 
+// ResetFailedLogin clears the failed admin login counter for an IP.
 func (s *RedisStore) ResetFailedLogin(ctx context.Context, ip string) error {
 	failKey := "admin:login:fail:" + ip
 	lockKey := "admin:login:lock:" + ip

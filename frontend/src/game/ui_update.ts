@@ -11,6 +11,8 @@ import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
 import { endReasonLabel } from './end_reason.js';
 import { refreshLayout } from './ui.js';
 import { isLowHeightDanger } from './visual_helpers.js';
+import { isEntryHandoff, getWaitingTitleText } from './entry_flow.js';
+import { syncRestartVoteProgress } from './restart_vote_ui.js';
 
 let lastPhase: GamePhase | null = null;
 let lastPlayerListKey = '';
@@ -35,7 +37,10 @@ function isCurrentPlayer(p: { nickname: string }): boolean {
 }
 
 function setOverlayVisibility(): void {
-  $waitingScreen.classList.toggle('hidden', state.phase !== 'waiting');
+  if (isEntryHandoff()) {
+    $waitingScreen.classList.toggle('hidden', state.phase !== 'waiting');
+  }
+
   $endedScreen.classList.toggle('hidden', state.phase !== 'ended');
   $gameHud.classList.toggle('hidden', state.phase !== 'playing');
   $cooldownIndicator.classList.toggle('hidden', state.phase !== 'playing');
@@ -47,21 +52,17 @@ function setOverlayVisibility(): void {
     hideWindIndicator();
   }
 
-  if (state.phase === 'waiting') {
+  if (state.phase === 'waiting' && isEntryHandoff()) {
     const waitingTitle: HTMLElement | null = document.getElementById('waiting-title');
     if (waitingTitle) {
-      if (!state.nicknameSubmitted) {
-        waitingTitle.textContent = '准备开始...';
-      } else if (state.players.length > 1) {
-        waitingTitle.textContent = '等待其他玩家确认昵称...';
-      } else {
-        waitingTitle.textContent = '即将开始...';
-      }
+      waitingTitle.textContent = getWaitingTitleText();
     }
   }
 
-  const hideNick = state.phase === 'countdown' || state.phase === 'playing' || state.phase === 'ended';
-  if ($nicknameSetupScreen && hideNick) $nicknameSetupScreen.classList.add('hidden');
+  if (isEntryHandoff()) {
+    const hideNick = state.phase === 'countdown' || state.phase === 'playing' || state.phase === 'ended';
+    if ($nicknameSetupScreen && hideNick) $nicknameSetupScreen.classList.add('hidden');
+  }
 }
 
 function displayNickname(p: { playerIndex: number; nickname: string }): string {
@@ -165,18 +166,10 @@ export function updateUI(force = false): void {
   }
 
   if (state.phase === 'ended' && state.restartVotes) {
-    const $restartProgress: HTMLElement | null = document.getElementById('restart-progress');
-    const $restartCountdown: HTMLElement | null = document.getElementById('restart-countdown');
-    if ($restartProgress) {
-      if (state.restartVotes.yes >= state.restartVotes.total && state.restartVotes.total > 0) {
-        $restartProgress.textContent = '正在重启游戏...';
-      } else {
-        const need = state.restartVotes.total - state.restartVotes.yes;
-        $restartProgress.textContent = `${state.restartVotes.yes}/${state.restartVotes.total} 人已投票，还差 ${need} 人`;
-      }
-    }
-    if (state.restartVotes.countdownMs <= 0 && $restartCountdown) {
-      $restartCountdown.textContent = '';
+    syncRestartVoteProgress();
+    if (state.restartVotes.countdownMs <= 0) {
+      const $restartCountdown: HTMLElement | null = document.getElementById('restart-countdown');
+      if ($restartCountdown) $restartCountdown.textContent = '';
     }
   }
 

@@ -24,7 +24,14 @@ func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.Postg
 		return nil, err
 	}
 	migrationsPath := "migrations"
+	if serverEnv != nil && serverEnv.MigrationsDir != "" {
+		migrationsPath = serverEnv.MigrationsDir
+	}
 	if err := db.RunMigrations(migrationsPath); err != nil {
+		if cfg.DatabaseURL != "" {
+			slog.Error("migrations failed", "error", err, "path", migrationsPath)
+			return nil, err
+		}
 		slog.Warn("migrations warning", "error", err)
 	}
 	return db, nil
@@ -77,12 +84,12 @@ func startWorkers(ctx context.Context, cfg *handler.Config, redis *store.RedisSt
 }
 
 // initHandlers creates the auth, lobby, and admin handlers.
-func initHandlers(jwtMgr *auth.JWTManager, db *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, timeouts appConfig.TimeoutConfig, hub *game.Hub) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler, *handler.StatsHandler) {
+func initHandlers(jwtMgr *auth.JWTManager, adminJwtMgr *auth.JWTManager, db *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, timeouts appConfig.TimeoutConfig, hub *game.Hub) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler, *handler.StatsHandler) {
 	refreshMgr := auth.NewRefreshTokenManager(redis.Client())
 	authHandler := handler.NewAuthHandler(jwtMgr, refreshMgr, db, redis, cfg, timeouts)
 	allowedOrigins := appMiddleware.AllowedOriginsFromEnv(serverEnv.AllowedOrigins)
 	lobbyHandler := handler.NewLobbyHandler(hub, jwtMgr, allowedOrigins)
-	adminHandler := handler.NewAdminHandler(db, jwtMgr, redis)
+	adminHandler := handler.NewAdminHandler(db, adminJwtMgr, redis)
 	statsHandler := handler.NewStatsHandler(db)
 	return authHandler, lobbyHandler, adminHandler, statsHandler
 }

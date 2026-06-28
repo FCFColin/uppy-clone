@@ -119,6 +119,12 @@ spec:
                 configMapKeyRef:
                   name: balloon-game-region
                   key: db-dialect
+            # TRUSTED_PROXY_CIDRS：Ingress/LB 代理 CIDR，用于 ExtractClientIP 与 admin lockout
+            - name: TRUSTED_PROXY_CIDRS
+              valueFrom:
+                configMapKeyRef:
+                  name: balloon-game-region
+                  key: trusted-proxy-cidrs
             # INTERNAL_PROXY_SECRET：跨实例 /internal 路由的共享密钥
             - name: INTERNAL_PROXY_SECRET
               valueFrom:

@@ -13,8 +13,8 @@
 
 | 文档 | 说明 |
 |------|------|
-| [代码简化 Roadmap](development/code-simplification-roadmap.md) | 全项目简化进度、PR 清单与验证清单 |
-| [全仓清理 Checklist](development/repo-cleanup-checklist.md) | 目录/文档/工具链清理条目跟踪 |
+| [代码简化计划](development/code-simplification-plan.md) | 全项目简化进度、PR 清单与验证清单 |
+| [安全自检清单](security/self-check-checklist.md) | 发布阻塞项与分层安全自检（原 repo-cleanup 条目已并入） |
 | [测试覆盖率策略](development/coverage-policy.md) | 单元/集成/前端覆盖率门禁 |
 | [日志策略](security/logging-policy.md) | 日志级别、结构化字段、PII 禁止项 |
 | [环境配置](operations/environments.md) | 本地 / staging / 生产配置矩阵 |

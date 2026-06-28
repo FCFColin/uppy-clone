@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 // Env holds server environment configuration loaded from process env.
 type Env struct {
 	JWTSecret         string
+	AdminJWTSecret    string
 	DatabaseURL       string
 	RedisURL          string
 	EncryptionKey     string
@@ -22,6 +24,7 @@ type Env struct {
 	AllowedOrigins    string
 	Port              string
 	FrontendDir       string
+	MigrationsDir     string
 	EnableHSTS        bool
 	MaxWSConnections  int
 	MaxPlayersPerRoom int
@@ -33,6 +36,7 @@ type Env struct {
 func Load() *Env {
 	return &Env{
 		JWTSecret:         os.Getenv("JWT_SECRET"),
+		AdminJWTSecret:    os.Getenv("ADMIN_JWT_SECRET"),
 		DatabaseURL:       os.Getenv("DATABASE_URL"),
 		RedisURL:          GetEnv("REDIS_URL", "localhost:6379"),
 		EncryptionKey:     os.Getenv("ENCRYPTION_KEY"),
@@ -44,6 +48,7 @@ func Load() *Env {
 		AllowedOrigins:    os.Getenv("ALLOWED_ORIGINS"),
 		Port:              GetEnv("PORT", "8080"),
 		FrontendDir:       os.Getenv("FRONTEND_DIR"),
+		MigrationsDir:     GetEnv("MIGRATIONS_DIR", "migrations"),
 		EnableHSTS:        os.Getenv("ENABLE_HSTS") != "false",
 		MaxWSConnections:  GetEnvInt("MAX_WS_CONNECTIONS", MaxWSConnections),
 		MaxPlayersPerRoom: GetEnvInt("MAX_PLAYERS_PER_ROOM", MaxPlayersPerRoom),
@@ -61,16 +66,63 @@ func (e *Env) Validate() error {
 	} else if e.EnableHSTS && isWeakJWTSecret(e.JWTSecret) {
 		return fmt.Errorf("JWT_SECRET contains a known weak/dev value; refuse to start in production mode (set ENABLE_HSTS=false only for local dev)")
 	}
+	if e.EnableHSTS && e.AdminJWTSecret == "" {
+		missing = append(missing, "ADMIN_JWT_SECRET")
+	} else if e.AdminJWTSecret != "" && len(e.AdminJWTSecret) < 32 {
+		return fmt.Errorf("ADMIN_JWT_SECRET must be at least 32 bytes (256 bits) for HS256")
+	}
 	if e.DatabaseURL == "" {
 		missing = append(missing, "DATABASE_URL")
 	}
 	if e.EncryptionKey == "" {
 		missing = append(missing, "ENCRYPTION_KEY")
 	}
+	if e.EnableHSTS && strings.TrimSpace(e.TrustedProxyCIDRs) == "" {
+		missing = append(missing, "TRUSTED_PROXY_CIDRS")
+	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
+	if e.EnableHSTS {
+		if err := validateTrustedProxyCIDRs(e.TrustedProxyCIDRs); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateTrustedProxyCIDRs(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("TRUSTED_PROXY_CIDRS is empty")
+	}
+	valid := 0
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		entry := part
+		if !strings.Contains(part, "/") {
+			part += "/32"
+		}
+		if _, _, err := net.ParseCIDR(part); err != nil {
+			return fmt.Errorf("TRUSTED_PROXY_CIDRS contains invalid CIDR %q", entry)
+		}
+		valid++
+	}
+	if valid == 0 {
+		return fmt.Errorf("TRUSTED_PROXY_CIDRS contains no valid CIDR entries")
+	}
+	return nil
+}
+
+// AdminJWTSecretOrUser returns ADMIN_JWT_SECRET, falling back to JWT_SECRET for local dev.
+func (e *Env) AdminJWTSecretOrUser() string {
+	if e.AdminJWTSecret != "" {
+		return e.AdminJWTSecret
+	}
+	return e.JWTSecret
 }
 
 // AuditSecretOrJWT returns AUDIT_SECRET or falls back to JWT_SECRET.

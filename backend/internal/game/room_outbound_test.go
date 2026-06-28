@@ -1,96 +1,114 @@
 package game
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-func TestRoom_OutboundQueue_CriticalPriority(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-	r.syncOutbound = true
+type publishErrBroadcaster struct{}
 
-	ch := make(chan []byte, 4)
-	r.mu.Lock()
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-	r.broadcastCritical([]byte{0xAA})
-	r.mu.Unlock()
+func (e *publishErrBroadcaster) Publish(_ context.Context, _ string, _ BroadcastMessage) error {
+	return errors.New("publish failed")
+}
+
+func (e *publishErrBroadcaster) Subscribe(_ string, _ func(BroadcastMessage)) (func(), error) {
+	return func() {}, nil
+}
+
+func (e *publishErrBroadcaster) Close() error { return nil }
+
+func TestRoom_enqueueOutbound_CriticalDoesNotBlockIndefinitely(t *testing.T) {
+	r := NewRoom("OUT1", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.syncOutbound = false
+	r.startOutboundLoop()
+	r.outboundCh = make(chan outboundMsg, 1)
+	r.outboundCh <- outboundMsg{payload: []byte("fill"), critical: false}
+
+	done := make(chan struct{})
+	go func() {
+		r.mu.Lock()
+		r.enqueueOutbound([]byte("critical"), "", true, false)
+		r.mu.Unlock()
+		close(done)
+	}()
 
 	select {
-	case got := <-ch:
-		if len(got) != 1 || got[0] != 0xAA {
-			t.Fatalf("unexpected payload: %v", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("critical message not delivered")
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("critical enqueue blocked longer than timeout")
 	}
 }
 
-func TestRoom_AsyncPersist_FlushesOnClose(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	store := newMockRoomRepository()
-	r := NewRoom("PERSIST", nil, store, timeouts, 0)
+func TestRoom_enqueueOutbound_DropsNonCriticalWhenFull(t *testing.T) {
+	r := NewRoom("OUT2", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.syncOutbound = false
+	r.outboundCh = make(chan outboundMsg, 1)
+	r.outboundCh <- outboundMsg{payload: []byte("fill")}
 
-	r.mu.Lock()
-	r.state.Phase = "waiting"
-	r.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		r.mu.Lock()
+		r.enqueueOutbound([]byte("drop"), "", false, false)
+		r.mu.Unlock()
+		close(done)
+	}()
 
-	r.saveState()
-	time.Sleep(200 * time.Millisecond)
-
-	r.Close()
-
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	if len(store.lobbyStates) == 0 {
-		t.Fatal("expected persisted state after close")
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("non-critical enqueue should not block when queue full")
 	}
 }
 
-func TestRoom_TickAndMessageNotBlockedByOutbound(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("CONC", nil, nil, timeouts, 0)
-
+func TestRoom_deliverToTargets_SlowClientDisconnect(t *testing.T) {
+	r := NewRoom("OUT3", nil, nil, config.DefaultTimeoutConfig(), 0)
+	ch := make(chan []byte)
 	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "p1"}
-	r.connections["p1"] = &PlayerConn{
-		PlayerID: "p1",
-		Send:     make(chan []byte, 256),
-	}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
+	targets := r.snapshotConnTargetsLocked("")
 	r.mu.Unlock()
 
-	start := time.Now()
+	msg := outboundMsg{payload: []byte("x"), critical: false}
+	for i := 0; i < 10; i++ {
+		r.deliverToTargets(targets, msg)
+	}
+
 	r.mu.Lock()
-	r.tickOnce()
+	pc := r.connections["p1"]
 	r.mu.Unlock()
-	if d := time.Since(start); d > 10*time.Millisecond {
-		t.Fatalf("tickOnce held lock too long: %v", d)
+	if pc == nil || !pc.pendingDisconnect {
+		t.Fatal("expected pending disconnect after 10 consecutive drops")
 	}
+}
 
-	done := make(chan time.Duration, 16)
-	for i := 0; i < 16; i++ {
-		go func() {
-			start := time.Now()
-			_ = r.HandleMessage("p1", protocol.MsgPing, nil)
-			done <- time.Since(start)
-		}()
+func TestRoom_deliverOutbound_RemovesPendingDisconnect(t *testing.T) {
+	r := NewRoom("OUT4", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.syncOutbound = true
+	r.mu.Lock()
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1), pendingDisconnect: true}
+	r.mu.Unlock()
+
+	r.deliverOutbound(outboundMsg{payload: []byte("ok"), skipRedis: true})
+
+	r.mu.Lock()
+	_, exists := r.connections["p1"]
+	r.mu.Unlock()
+	if exists {
+		t.Fatal("pending disconnect connection should be removed")
 	}
+}
 
-	for i := 0; i < 16; i++ {
-		select {
-		case d := <-done:
-			if d > 20*time.Millisecond {
-				t.Fatalf("HandleMessage blocked too long: %v", d)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("HandleMessage goroutine timed out")
-		}
-	}
+func TestRoom_publishBroadcastAsync_PublishError(t *testing.T) {
+	r := NewRoom("OUT5", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.broadcaster = &publishErrBroadcaster{}
+	r.syncOutbound = true
+	addConnectedPlayer(r, "p1")
 
-	r.Close()
+	r.mu.Lock()
+	r.broadcast([]byte{0x01}, "")
+	r.mu.Unlock()
 }

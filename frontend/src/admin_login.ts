@@ -7,7 +7,7 @@ const loginBtn: HTMLButtonElement = document.getElementById('login-btn') as HTML
 const loginError: HTMLElement = document.getElementById('login-error')!;
 
 async function doLogin(
-  onSuccess: (token: string) => void,
+  onSuccess: () => void,
   showToast: (msg: string, type: 'success' | 'error') => void,
 ): Promise<void> {
   const password: string = adminPasswordInput.value;
@@ -17,13 +17,14 @@ async function doLogin(
     const res: Response = await fetch('/api/v1/admin/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ password }),
     });
-    const data: { token?: string; error?: string } = await res.json();
+    const data: { error?: string } = await res.json();
     if (res.ok) {
       loginSection.classList.add('hidden');
       configSection.classList.remove('hidden');
-      onSuccess(data.token ?? '');
+      onSuccess();
     } else {
       loginError.textContent = data.error || '密码错误';
       loginError.style.display = 'block';
@@ -38,7 +39,7 @@ async function doLogin(
 }
 
 export function bindLoginEvents(
-  onSuccess: (token: string) => void,
+  onSuccess: () => void,
   showToast: (msg: string, type: 'success' | 'error') => void,
 ): void {
   loginBtn.addEventListener('click', () => doLogin(onSuccess, showToast));

@@ -1,4 +1,4 @@
-.PHONY: help dev observability-up test test-all test-cover test-integration test-containers lint lint-all build run migrate seed bench audit clean generate simplify deadcode check check-fast ci e2e sync-alert-rules check-repo-layout
+.PHONY: help dev observability-up test test-all test-cover test-integration test-containers lint lint-all build run migrate seed bench audit clean generate simplify deadcode check check-fast ci e2e sync-alert-rules check-repo-layout security-check
 
 help:
 	@echo "Targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  lint-all         Backend lint + frontend lint + typecheck"
 	@echo "  check-fast       lint-all + unit tests (-short)"
 	@echo "  check            lint-all + test-cover"
+	@echo "  security-check   Layer-1 security self-check (see docs/security/self-check-checklist.md)"
 	@echo "  ci               check + test-containers + audit"
 	@echo "  e2e              Playwright E2E (tests/e2e)"
 	@echo "  build run migrate seed bench audit clean generate simplify deadcode"
@@ -41,8 +42,8 @@ test-all: test test-integration
 	cd frontend && npm test
 
 test-cover:
-	cd backend && go test $$(go list ./... | grep -v /tests/integration) -short -p 1 -coverprofile=unit.out -covermode=atomic -timeout 180s
-	cd backend && go test -tags=integration ./tests/integration/... -p 1 -coverprofile=int.out -covermode=atomic -timeout 180s
+	cd backend && go test $$(go list ./internal/... | grep -v /internal/testutil) -short -p 1 -coverprofile=unit.out -covermode=atomic -timeout 180s
+	cd backend && go test -tags=integration ./tests/integration/... ./internal/outbox/... ./internal/worker/... -p 1 -coverprofile=int.out -covermode=atomic -timeout 180s
 	cd backend && go tool cover -func unit.out
 	bash scripts/ci/check-coverage.sh unit backend/unit.out
 	bash scripts/ci/check-coverage.sh integration backend/int.out
@@ -66,7 +67,20 @@ sync-alert-rules:
 	bash scripts/ci/sync-alert-rules.sh
 
 check-repo-layout:
-	bash scripts/ci/check-repo-layout.sh
+	@bash scripts/ci/check-repo-layout.sh 2>/dev/null || powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/check-repo-layout.ps1
+
+security-check:
+	@echo "==> detect-secrets (requires: pip install detect-secrets)"
+	@detect-secrets scan --baseline .secrets.baseline
+	@echo "==> docker digest check"
+	@bash scripts/ci/check-docker-digests.sh Dockerfile
+	@echo "==> repo layout"
+	@$(MAKE) check-repo-layout
+	@echo "==> backend lint"
+	@$(MAKE) lint
+	@echo "==> frontend npm audit"
+	@cd frontend && npm audit --audit-level=high
+	@echo "Security check complete. See docs/security/self-check-checklist.md for full layers."
 
 e2e:
 	npx playwright test
@@ -107,7 +121,12 @@ deadcode:
 	cd backend && ./bin/deadcode ./...
 
 generate:
+	go run scripts/codegen/generate_nicknames.go
 	cd backend && go generate ./...
+
+check-generated:
+	go run scripts/codegen/generate_nicknames.go
+	@git diff --exit-code backend/internal/nicknames/pools_gen.go frontend/src/shared/nickname_pools_gen.ts || (echo "generated nickname pools out of sync; run make generate" >&2; exit 1)
 
 simplify:
 	cd backend && gofmt -w .

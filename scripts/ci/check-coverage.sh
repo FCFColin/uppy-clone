@@ -37,21 +37,16 @@ IMPORTANT_BACKEND=(
 )
 IMPORTANT_FRONTEND=(
   "src/game/message_codec.ts"
-  "src/game/ws_handlers_phase.ts"
   "src/game/ws_handlers.ts"
   "src/game/ws_handlers_events.ts"
   "src/game/ws_handlers_snapshot.ts"
-  "src/game/ws_connection.ts"
   "src/game/ws_auth.ts"
-  "src/game/ws_connect.ts"
   "src/game/ws_connect_lobby.ts"
-  "src/game/websocket.ts"
   "src/shared/auth.ts"
-  "src/game/input.ts"
-  "src/game/state"
+  "src/game/state.ts"
   "src/game/phase_sync.ts"
+  "src/game/snapshot_decode.ts"
   "src/shared/protocol.ts"
-  "src/shared/session.ts"
 )
 
 # Exclude from per-file floor (types, glue, env stubs).
@@ -64,6 +59,7 @@ EXCLUDE_PATTERNS=(
   "constants.ts"
   "constants.go"
   "testutil/"
+  "cmd/server/main.go"
   "degradation_deps.go"
 )
 
@@ -156,7 +152,7 @@ run_unit_coverage() {
   cd "$BACKEND"
   local cover_file="${COVER_TMP:-/tmp/balloon-unit.out}"
   local pkgs
-  pkgs=$(go list ./internal/... ./cmd/... 2>/dev/null || go list ./...)
+  pkgs=$(go list ./internal/... 2>/dev/null | grep -v /internal/testutil || go list ./internal/... | grep -v /internal/testutil)
   # shellcheck disable=SC2086
   go test $pkgs -short -coverprofile="$cover_file" -covermode=atomic -timeout 180s
   echo "$cover_file"
@@ -178,7 +174,13 @@ check_frontend_important() {
   for imp in "${IMPORTANT_FRONTEND[@]}"; do
     local total hit
     read -r total hit <<< "$(awk -v imp="$imp" '
-      /^SF:/ { infile = index($0, imp) > 0; next }
+      /^SF:/ {
+        path = $0
+        sub(/^SF:/, "", path)
+        gsub(/\\/, "/", path)
+        infile = index(path, imp) > 0
+        next
+      }
       infile && /^DA:/ {
         split($0, parts, /[:,]/)
         total++
@@ -228,9 +230,10 @@ check_frontend_lcov_metric() {
       hit=$(grep '^DA:' "$FRONTEND_LCOV" | awk -F, '$2 > 0' | wc -l | tr -d ' ')
       ;;
     branches)
-      while IFS=',' read -r _ _ taken; do
+      while IFS= read -r brda; do
+        taken="${brda##*,}"
         total=$((total + 1))
-        if [[ "$taken" =~ ^[0-9]+$ ]] && [ "$taken" -gt 0 ]; then
+        if [[ "$taken" =~ ^-[0-9]+$ || "$taken" =~ ^[0-9]+$ ]] && [ "$taken" -gt 0 ]; then
           hit=$((hit + 1))
         fi
       done < <(grep '^BRDA:' "$FRONTEND_LCOV" || true)

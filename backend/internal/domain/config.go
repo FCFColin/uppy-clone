@@ -1,3 +1,4 @@
+// Package domain holds core game and user model types shared across layers.
 package domain
 
 // AppConfig stores admin configuration as JSON.

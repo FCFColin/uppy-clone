@@ -7,7 +7,6 @@ export {
   getInterpolatedBalloon,
   getInterpolatedGhost,
   getInterpolatedBird,
-  setInterpolationClockOffset,
   commitRenderedState,
   seenSeqs,
   isDuplicateSeq,

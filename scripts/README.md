@@ -7,13 +7,15 @@
 | [`ci/`](ci/) | 覆盖率门禁、镜像 digest 校验、Alert rules 同步、仓库布局校验 |
 | [`load/`](load/) | k6 负载与 soak 脚本 |
 
+安全自检清单见 [`docs/security/self-check-checklist.md`](../docs/security/self-check-checklist.md)；本地快捷命令：`make security-check`。
+
 ## CI 脚本
 
 - `ci/check-coverage.sh` — 分层覆盖率门禁（`make test-cover`）
 - `ci/check-docker-digests.sh` — Dockerfile digest 与 lockfile 一致性
 - `ci/pin-digests.sh` — 解析并更新 digest lockfile
 - `ci/sync-alert-rules.sh` — 从 `deploy/alertmanager/rules.yml` 生成 K8s ConfigMap
-- `ci/check-repo-layout.sh` — ADR-021 目录布局白名单校验
+- `ci/check-repo-layout.sh` — ADR-021 目录布局白名单校验（Windows：`check-repo-layout.ps1` 或 `make check-repo-layout`）
 
 ## 负载测试
 

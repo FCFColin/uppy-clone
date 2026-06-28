@@ -47,7 +47,7 @@ for (const key in gameImages) {
   loadImageEntry(gameImages[key]!, key);
 }
 for (const entry of cloudImages) {
-  loadImageEntry(entry);
+  loadImageEntry(entry, entry.url);
 }
 
 /** Normalized vertical band where clouds may appear (above mountains). */

@@ -10,7 +10,7 @@ resources:
 images:
   - name: gcr.io/PROJECT_ID/balloon-game
     newName: gcr.io/PROJECT_ID/balloon-game
-    newTag: europe-west1-latest
+    newTag: __IMAGE_TAG__
 
 patches:
   - target:
@@ -26,6 +26,9 @@ patches:
       - op: replace
         path: /data/db-dialect
         value: cockroach
+      - op: replace
+        path: /data/trusted-proxy-cidrs
+        value: __TRUSTED_PROXY_CIDRS__
   - target:
       kind: StatefulSet
       name: balloon-game

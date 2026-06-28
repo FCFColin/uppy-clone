@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"testing"
+
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestComputeHash_Chain(t *testing.T) {
@@ -43,6 +46,30 @@ func TestLog_StdoutOnlyWithoutDB(t *testing.T) {
 	})
 	if !bytes.Contains(buf.Bytes(), []byte("test.action")) {
 		t.Errorf("log output = %s", buf.String())
+	}
+}
+
+func TestLog_AutoTraceID(t *testing.T) {
+	tp := sdktrace.NewTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	var buf bytes.Buffer
+	old := auditLogger
+	auditLogger = slog.New(slog.NewJSONHandler(&buf, nil))
+	defer func() { auditLogger = old }()
+
+	tracer := otel.Tracer("audit-test")
+	ctx, span := tracer.Start(context.Background(), "audit-span")
+	defer span.End()
+
+	Log(ctx, AuditEntry{Action: "test.trace", ActorID: "u1"})
+	traceID := span.SpanContext().TraceID().String()
+	if traceID == "" {
+		t.Fatal("expected non-empty trace ID from span")
+	}
+	if !bytes.Contains(buf.Bytes(), []byte(traceID)) {
+		t.Fatalf("log output = %s, want trace_id %q", buf.String(), traceID)
 	}
 }
 

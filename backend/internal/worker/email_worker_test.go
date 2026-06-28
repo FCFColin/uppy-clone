@@ -488,3 +488,70 @@ func TestNewGDPRCleanupWorker_CustomValues(t *testing.T) {
 		t.Errorf("unexpected gdpr worker config: %+v", w)
 	}
 }
+
+func TestEmailWorker_Start_Cancelled(t *testing.T) {
+	rdb := setupRedis(t)
+	w := newTestWorker(rdb, "http://localhost")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		w.Start(ctx)
+		close(done)
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit after cancel")
+	}
+}
+
+func TestEmailWorker_Start_ProcessesMessage(t *testing.T) {
+	rdb := setupRedis(t)
+	ctx := context.Background()
+
+	if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: "email:queue",
+		Values: map[string]interface{}{
+			"payload": makePayload("user@test.com", "Start test", "body"),
+		},
+	}).Result(); err != nil {
+		t.Fatalf("XAdd: %v", err)
+	}
+	if err := rdb.XGroupCreateMkStream(ctx, "email:queue", "email-workers", "0").Err(); err != nil {
+		t.Fatalf("XGroupCreateMkStream: %v", err)
+	}
+
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requestCount, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	w := newTestWorker(rdb, server.URL)
+	workerCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		w.Start(workerCtx)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(&requestCount) >= 1 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if atomic.LoadInt32(&requestCount) != 1 {
+		t.Fatalf("expected 1 API call from Start, got %d", atomic.LoadInt32(&requestCount))
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(6 * time.Second):
+		t.Fatal("Start did not exit after cancel")
+	}
+}

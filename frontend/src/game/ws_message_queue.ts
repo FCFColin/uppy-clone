@@ -16,7 +16,7 @@ export function drainPendingMessages(budget: number): void {
     const data = pending.shift();
     if (data) {
       handleBinaryMessage(data);
-    }
+    } /* v8 ignore else -- shift only returns undefined on empty queue */
     processed++;
   }
 }

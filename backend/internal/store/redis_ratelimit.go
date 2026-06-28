@@ -21,6 +21,7 @@ end
 return {count, is_first}
 `)
 
+// CheckRateLimit applies a sliding-window rate limit for the given key.
 func (s *RedisStore) CheckRateLimit(ctx context.Context, key string, maxCount int64, window time.Duration) (bool, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "redis.CheckRateLimit",
 		trace.WithAttributes(attribute.String("db.system", "redis"),

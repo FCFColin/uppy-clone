@@ -80,10 +80,11 @@
 | email | PII | PostgreSQL（TLS 连接） | HTTPS |
 | nickname | 非敏感 | 明文 | HTTPS |
 | IP 地址 | PII | Redis（TTL 自动过期） | HTTPS |
-| JWT | 认证凭据 | HttpOnly cookie | HTTPS + Secure flag |
+| JWT | 认证凭据 | HttpOnly cookie（access） | HTTPS + Secure flag |
 | Resend API Key | 密钥 | AES-256-GCM 加密 | HTTPS |
 | Admin Password | 密钥 | bcrypt 哈希 | HTTPS |
-| Refresh Token | 认证凭据 | Redis（TTL 自动过期） | HTTPS |
+| Admin JWT | 认证凭据 | 独立 `ADMIN_JWT_SECRET` 签名 | HttpOnly `admin_token` cookie + HTTPS |
+| Refresh Token | 认证凭据 | Redis（TTL 自动过期） | HttpOnly `refresh` cookie + HTTPS |
 
 ## GDPR/CCPA 合规要点
 

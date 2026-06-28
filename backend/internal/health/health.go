@@ -1,3 +1,4 @@
+// Package health exposes liveness and readiness probes for orchestrators.
 package health
 
 import (
@@ -41,7 +42,7 @@ func (c *Checker) WithCanAcceptWS(fn func() bool) *Checker {
 
 // LiveHandler returns 200 if the process is alive (always true if handler runs).
 // K8s liveness probe: restart the pod if this fails.
-func (c *Checker) LiveHandler(w http.ResponseWriter, r *http.Request) {
+func (c *Checker) LiveHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "alive"})
 }

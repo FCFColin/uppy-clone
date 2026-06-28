@@ -38,16 +38,8 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	clientIP := middleware.ExtractClientIP(r)
-
-	if h.redis != nil {
-		locked, err := h.redis.IsLoginLocked(ctx, clientIP)
-		if err != nil {
-			slog.Warn("failed to check login lock", "ip", clientIP, "error", err)
-		} else if locked {
-			metrics.AdminLoginLockedTotal.Inc()
-			apierror.TooManyRequests("too many failed login attempts, try again later").Write(w)
-			return
-		}
+	if h.isLoginLocked(ctx, w, clientIP) {
+		return
 	}
 
 	storedPassword, ok := h.getStoredAdminPassword(ctx, w)
@@ -61,6 +53,29 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.completeAdminLogin(w, r, ctx, clientIP)
+}
+
+func (h *AdminHandler) isLoginLocked(ctx context.Context, w http.ResponseWriter, clientIP string) bool {
+	if h.redis == nil {
+		return false
+	}
+	locked, err := h.redis.IsLoginLocked(ctx, clientIP)
+	if err != nil {
+		slog.Warn("failed to check login lock", "ip", clientIP, "error", err)
+		apierror.New(http.StatusServiceUnavailable, "Service Unavailable",
+			"Login temporarily unavailable, please retry later").Write(w)
+		return true
+	}
+	if !locked {
+		return false
+	}
+	metrics.AdminLoginLockedTotal.Inc()
+	apierror.TooManyRequests("too many failed login attempts, try again later").Write(w)
+	return true
+}
+
+func (h *AdminHandler) completeAdminLogin(w http.ResponseWriter, r *http.Request, ctx context.Context, clientIP string) {
 	if h.redis != nil {
 		if err := h.redis.ResetFailedLogin(ctx, clientIP); err != nil {
 			slog.Warn("failed to reset failed login", "ip", clientIP, "error", err)
@@ -87,7 +102,7 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"token": token})
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Logged in"})
 }
 
 // handleFailedLogin increments the failed login counter and logs the failure.

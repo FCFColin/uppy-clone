@@ -20,8 +20,8 @@ type Bulkhead struct {
 }
 
 // NewBulkhead creates a bulkhead with the given max concurrent requests.
-func NewBulkhead(max int64) *Bulkhead {
-	return &Bulkhead{sem: semaphore.NewWeighted(max)}
+func NewBulkhead(limit int64) *Bulkhead {
+	return &Bulkhead{sem: semaphore.NewWeighted(limit)}
 }
 
 // Middleware returns an HTTP middleware that enforces the bulkhead.

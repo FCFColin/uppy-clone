@@ -44,7 +44,7 @@ func SetupRedisStore(t *testing.T) (context.Context, *store.RedisStore) {
 	if err != nil {
 		t.Fatalf("NewRedisStore: %v", err)
 	}
-	t.Cleanup(func() { rdb.Close() })
+	t.Cleanup(func() { _ = rdb.Close() })
 
 	return ctx, rdb
 }

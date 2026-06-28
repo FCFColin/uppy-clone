@@ -1,7 +1,9 @@
+// Package metrics registers Prometheus collectors for HTTP, DB, Redis, and game SLIs.
 package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
@@ -16,11 +18,11 @@ func init() {
 	// Enterprise rationale: Go runtime metrics (goroutine count, GC pauses, heap alloc)
 	// and process metrics (RSS, FD count, CPU) are essential for capacity planning
 	// and detecting memory leaks / goroutine leaks before they cause outages.
-	if err := prometheus.Register(prometheus.NewGoCollector()); err != nil {
-		// Already registered (e.g., in tests with multiple packages)
+	if err := prometheus.Register(collectors.NewGoCollector()); err != nil {
+		_ = err // already registered in tests with multiple packages
 	}
-	if err := prometheus.Register(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{})); err != nil {
-		// Already registered
+	if err := prometheus.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
+		_ = err // already registered
 	}
 }
 
@@ -31,7 +33,7 @@ func init() {
 var SLOBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0}
 
 var (
-	// HTTP metrics — Golden Signal: Latency + Traffic + Errors
+	// HTTPRequestsTotal counts HTTP requests by method, path, and status.
 	HTTPRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "http_requests_total",
@@ -39,6 +41,7 @@ var (
 		},
 		[]string{"method", "path", "status"},
 	)
+	// HTTPRequestDuration records HTTP request latency in seconds.
 	HTTPRequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "http_request_duration_seconds",
@@ -48,13 +51,14 @@ var (
 		[]string{"method", "path"},
 	)
 
-	// DB pool metrics — Golden Signal: Saturation
+	// DBPoolAcquireCount counts connection acquires from the PostgreSQL pool.
 	DBPoolAcquireCount = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "db_pool_acquire_total",
 			Help: "Total number of connection acquires from the pool",
 		},
 	)
+	// DBPoolAcquireDuration records time spent waiting to acquire a DB pool connection.
 	DBPoolAcquireDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "db_pool_acquire_duration_seconds",
@@ -62,12 +66,14 @@ var (
 			Buckets: SLOBuckets,
 		},
 	)
+	// DBPoolIdleConns tracks idle connections in the PostgreSQL pool.
 	DBPoolIdleConns = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "db_pool_idle_conns",
 			Help: "Number of idle connections in the pool",
 		},
 	)
+	// DBPoolInUseConns tracks in-use connections in the PostgreSQL pool.
 	DBPoolInUseConns = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "db_pool_in_use_conns",
@@ -75,35 +81,29 @@ var (
 		},
 	)
 
-	// Business metrics
+	// ActiveRooms tracks the number of active game rooms.
 	ActiveRooms = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "game_active_rooms",
 			Help: "Number of active game rooms",
 		},
 	)
+	// ActivePlayers tracks total connected players across all rooms.
 	ActivePlayers = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "game_active_players",
 			Help: "Total number of players across all rooms",
 		},
 	)
+	// WSConnections tracks active WebSocket connections across the server.
 	WSConnections = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "ws_connections",
 			Help: "Number of active WebSocket connections",
 		},
 	)
-	GameSessionsTotal = promauto.NewCounter(
-		prometheus.CounterOpts{
-			Name: "game_sessions_total",
-			Help: "Total number of game sessions started",
-		},
-	)
 
-	// WS message drop metric — slow client detection.
-	// 企业为何需要：广播消息被静默丢弃时运维无法感知。丢弃率突增表明客户端消费速度
-	// 跟不上生产速度，需告警排查慢客户端或扩容 WebSocket 层。
+	// WSMessagesDroppedTotal counts messages dropped due to slow WebSocket clients.
 	WSMessagesDroppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_messages_dropped_total",
 		Help: "Total WebSocket messages dropped due to full channel buffer",
@@ -120,13 +120,14 @@ var (
 		[]string{"name", "state"},
 	)
 
-	// Redis pool metrics — Golden Signal: Saturation
+	// RedisPoolIdleConns tracks idle connections in the Redis pool.
 	RedisPoolIdleConns = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "redis_pool_idle_conns",
 			Help: "Number of idle connections in the Redis pool",
 		},
 	)
+	// RedisPoolTotalConns tracks total connections in the Redis pool.
 	RedisPoolTotalConns = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "redis_pool_total_conns",
@@ -134,8 +135,7 @@ var (
 		},
 	)
 
-	// Admin login lockout metric — brute-force defense observability.
-	// 企业为何需要：登录锁定次数突增表明暴力破解攻击正在进行，需告警。
+	// AdminLoginLockedTotal counts admin login attempts rejected by IP lockout.
 	AdminLoginLockedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "admin_login_locked_total",
 		Help: "Total number of admin login attempts rejected due to lockout",
@@ -148,47 +148,51 @@ var (
 		Help: "Total suspicious login events (multi-IP, brute force, etc.)",
 	})
 
-	// SLO metrics — 企业为何需要：SLI 指标是 SLO 监控的基础，用于计算 Error Budget 和 Burn Rate。
-	// 详见 docs/operations/slo.md。这些指标配合 deploy/alertmanager/rules.yml 的多窗口告警实现 SLO 自动化。
+	// AuthRequestTotal counts auth endpoint requests by endpoint and status.
 	AuthRequestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "auth_requests_total",
 		Help: "Total auth requests by endpoint and status",
 	}, []string{"endpoint", "status"})
 
+	// AuthRequestDuration records auth endpoint latency in seconds.
 	AuthRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "auth_request_duration_seconds",
 		Help:    "Auth request duration in seconds",
 		Buckets: []float64{0.1, 0.25, 0.5, 1.0, 2.0, 5.0},
 	}, []string{"endpoint"})
 
+	// RoomCreationTotal counts room creation attempts by status.
 	RoomCreationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "room_creation_total",
 		Help: "Total room creation attempts by status",
 	}, []string{"status"})
 
+	// RoomCreationDuration records room creation latency in seconds.
 	RoomCreationDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "room_creation_duration_seconds",
 		Help:    "Room creation duration in seconds",
 		Buckets: []float64{0.1, 0.25, 0.5, 1.0, 2.0, 5.0},
 	}, []string{})
 
+	// WSConnectionTotal counts WebSocket connection attempts by status.
 	WSConnectionTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_connection_total",
 		Help: "Total WebSocket connection attempts by status",
 	}, []string{"status"})
 
+	// WSMessageDuration records WebSocket message processing latency in seconds.
 	WSMessageDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "ws_message_duration_seconds",
 		Help:    "WebSocket message processing duration in seconds",
 		Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1.0},
 	}, []string{"msg_type"})
 
-	// Async queue metrics — Consumer Lag monitoring.
-	// 企业为何需要：Stream 长度增长表明 Worker 消费速度跟不上生产速度，需告警扩容。
+	// GameResultsStreamLen tracks pending messages in the game:results Redis Stream.
 	GameResultsStreamLen = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "game_results_stream_length",
 		Help: "Number of pending messages in game:results Redis Stream",
 	})
+	// EmailQueueStreamLen tracks pending messages in the email queue Redis Stream.
 	EmailQueueStreamLen = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "email_queue_stream_length",
 		Help: "Number of pending messages in email:queue Redis Stream",
@@ -237,4 +241,12 @@ var (
 		Help:    "Number of outbox events processed per batch",
 		Buckets: []float64{1, 5, 10, 25, 50, 100},
 	})
+)
+
+// GameSessionsTotal counts game sessions started across the server.
+var GameSessionsTotal = promauto.NewCounter(
+	prometheus.CounterOpts{
+		Name: "game_sessions_total",
+		Help: "Total number of game sessions started",
+	},
 )

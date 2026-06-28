@@ -1,3 +1,4 @@
+// Package crypto provides AES encryption helpers for sensitive user data.
 package crypto
 
 import (
@@ -61,6 +62,9 @@ func MustInitFromEnv() {
 // Output format: "v1:hex_ciphertext" for versioned key rotation support.
 // 企业为何需要：版本前缀允许未来密钥轮换时区分新旧密文，批量重新加密可按版本筛选。
 func Encrypt(plaintext string) (string, error) {
+	if encKey == nil {
+		return "", errors.New("encryption key not initialized: call Init() or InitFromEnv() first")
+	}
 	block, err := aes.NewCipher(encKey)
 	if err != nil {
 		return "", fmt.Errorf("create cipher: %w", err)
@@ -125,6 +129,6 @@ func Decrypt(encoded string) (string, error) {
 // RotateKey re-encrypts all AES-encrypted fields with a new key.
 // TODO: implement batch re-encryption of database fields when key rotation is needed.
 // 企业为何需要：密钥轮换要求将存量密文用新密钥重新加密，此处为预留接口。
-func RotateKey(_, newKey []byte) error {
+func RotateKey(_, _ []byte) error {
 	return fmt.Errorf("RotateKey not yet implemented")
 }

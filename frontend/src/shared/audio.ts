@@ -1,5 +1,5 @@
 let audioCtx: AudioContext | null = null;
-let muted = false;
+const muted = false;
 
 function ctx(): AudioContext | null {
   if (muted) return null;

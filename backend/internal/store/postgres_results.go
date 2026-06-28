@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
@@ -28,6 +29,52 @@ func (s *PostgresStore) CreateGameSession(ctx context.Context, gs *domain.GameSe
 			gs.ID, gs.LobbyCode, gs.CreatedBy, gs.Status, gs.StartedAt, gs.EndedAt, gs.FinalScore)
 		if execErr != nil {
 			return fmt.Errorf("create game session: %w", execErr)
+		}
+		return nil
+	})
+}
+
+// RecordGameResult directly writes the game session (UPSERT) and player results to PostgreSQL.
+// This is the synchronous fallback path that does not depend on Redis.
+func (s *PostgresStore) RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "postgres.RecordGameResult",
+		trace.WithAttributes(
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.session_id", sessionID),
+		),
+	)
+	defer span.End()
+
+	return s.withRetryWrite(ctx, func(ctx context.Context) error {
+		tx, txErr := s.pool.Begin(ctx)
+		if txErr != nil {
+			return fmt.Errorf("begin tx: %w", txErr)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		// UPSERT game_sessions: if the row doesn't exist (e.g. createGameSession failed),
+		// insert it directly as 'ended'. If it exists, update to 'ended'.
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO game_sessions (id, lobby_code, status, ended_at, final_score)
+			 VALUES ($1, $2, 'ended', $3, $4)
+			 ON CONFLICT (id) DO UPDATE SET status = 'ended', ended_at = EXCLUDED.ended_at, final_score = EXCLUDED.final_score`,
+			sessionID, roomCode, endedAt, finalScore); err != nil {
+			return fmt.Errorf("upsert game session: %w", err)
+		}
+
+		for _, r := range results {
+			resultID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(sessionID+r.UserID)).String()
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at)
+				 VALUES ($1, $2, $3, $4, $5, $6)
+				 ON CONFLICT (id) DO NOTHING`,
+				resultID, sessionID, r.UserID, r.ScoreContribution, r.TapsCount, endedAt); err != nil {
+				return fmt.Errorf("insert game result: %w", err)
+			}
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit record game result: %w", err)
 		}
 		return nil
 	})

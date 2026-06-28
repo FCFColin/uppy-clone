@@ -41,7 +41,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	rows, err := conn.Query(ctx, `SELECT id, email FROM users WHERE email_hash IS NULL AND email <> ''`)
 	if err != nil {

@@ -47,6 +47,9 @@ func modelPhaseToProtocol(p domain.GamePhase) protocol.GamePhase {
 func (r *Room) buildSnapshot() []byte {
 	players := r.players[:0]
 	for _, p := range r.state.Players {
+		if p.Disconnected {
+			continue
+		}
 		cooldownRemaining := int64(0)
 		now := time.Now().UnixMilli()
 		if p.CooldownEndTime > now {

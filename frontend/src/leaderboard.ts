@@ -16,11 +16,34 @@ const tabWeekly = document.getElementById('tab-weekly')!;
 
 let scope: Scope = 'global';
 
+const EMPTY_TEXT = '暂无记录，快去开一局吧！';
+
+function appendLeaderboardItem(parent: HTMLElement, e: Entry): void {
+  const li = document.createElement('li');
+  li.className = 'leaderboard-item';
+
+  const rank = document.createElement('span');
+  rank.className = 'lb-rank';
+  rank.textContent = `#${e.rank}`;
+
+  const score = document.createElement('span');
+  score.className = 'lb-score';
+  score.textContent = String(e.score);
+
+  const code = document.createElement('span');
+  code.className = 'lb-code';
+  code.textContent = e.lobbyCode;
+
+  li.append(rank, score, code);
+  parent.appendChild(li);
+}
+
 async function load(): Promise<void> {
   listEl.textContent = '';
+  emptyEl.textContent = EMPTY_TEXT;
   try {
     const res = await fetch(`/api/v1/leaderboard?scope=${scope}&limit=50`);
-    if (!res.ok) throw new Error('load failed');
+    if (!res.ok) throw new Error(`load failed (${res.status})`);
     const data: { entries: Entry[] } = await res.json();
     if (!data.entries?.length) {
       emptyEl.classList.remove('hidden');
@@ -28,13 +51,10 @@ async function load(): Promise<void> {
     }
     emptyEl.classList.add('hidden');
     for (const e of data.entries) {
-      const li = document.createElement('li');
-      li.className = 'leaderboard-item';
-      li.innerHTML = `<span class="lb-rank">#${e.rank}</span><span class="lb-score">${e.score}</span><span class="lb-code">${e.lobbyCode}</span>`;
-      listEl.appendChild(li);
+      appendLeaderboardItem(listEl, e);
     }
   } catch {
-    emptyEl.textContent = '加载失败，请稍后重试';
+    emptyEl.textContent = '加载失败，请确认后端已启动并刷新页面';
     emptyEl.classList.remove('hidden');
   }
 }
@@ -48,4 +68,15 @@ function setScope(next: Scope): void {
 
 tabGlobal.addEventListener('click', () => setScope('global'));
 tabWeekly.addEventListener('click', () => setScope('weekly'));
+
+// Show "返回游戏" button when a game URL was saved (opened from game page).
+const backBtn = document.getElementById('back-to-game-btn');
+const gameUrl = localStorage.getItem('uppy-game-url');
+if (backBtn && gameUrl) {
+  backBtn.hidden = false;
+  backBtn.addEventListener('click', () => {
+    window.location.href = gameUrl;
+  });
+}
+
 void load();

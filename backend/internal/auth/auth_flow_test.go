@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/idgen"
+	"github.com/uppy-clone/backend/internal/nicknames"
 	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
@@ -221,11 +222,11 @@ func TestSanitizePlayerName(t *testing.T) {
 	})
 }
 
-func TestGenerateRandomPlayerName(t *testing.T) {
-	t.Run("produces Player prefix", func(t *testing.T) {
-		name := generateRandomPlayerName()
-		if !strings.HasPrefix(name, "Player") {
-			t.Errorf("generateRandomPlayerName = %q, want Player prefix", name)
+func TestQuickPlayRandomNickname(t *testing.T) {
+	t.Run("produces non-empty nickname from word pool", func(t *testing.T) {
+		name := nicknames.GenerateRandom(nil)
+		if name == "" {
+			t.Fatalf("nicknames.GenerateRandom = empty")
 		}
 	})
 }

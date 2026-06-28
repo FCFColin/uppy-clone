@@ -12,6 +12,40 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// TryClaimRoomRegistry atomically claims room ownership when the registry is
+// missing or already owned by instanceID. Returns false when another instance owns the room.
+func (s *RedisStore) TryClaimRoomRegistry(ctx context.Context, code string, data []byte, instanceID string, ttl time.Duration) (bool, error) {
+	info, err := s.GetRoomRegistry(ctx, code)
+	if err != nil {
+		return false, err
+	}
+	if info != nil && info.Instance != "" && info.Instance != instanceID {
+		return false, nil
+	}
+	if info != nil && info.Instance == instanceID {
+		return true, s.RegisterRoom(ctx, code, data, ttl)
+	}
+
+	key := roomInfoKey(code)
+	ok, err := s.rdb.SetNX(ctx, key, data, ttl).Result()
+	if err != nil {
+		return false, fmt.Errorf("claim room registry: %w", err)
+	}
+	if ok {
+		if sAddErr := s.rdb.SAdd(ctx, "rooms:active", code).Err(); sAddErr != nil {
+			return false, fmt.Errorf("claim room registry sadd: %w", sAddErr)
+		}
+		return true, nil
+	}
+
+	info, err = s.GetRoomRegistry(ctx, code)
+	if err != nil {
+		return false, err
+	}
+	return info != nil && info.Instance == instanceID, nil
+}
+
+// RegisterRoom stores room ownership metadata for multi-instance routing.
 func (s *RedisStore) RegisterRoom(ctx context.Context, code string, data []byte, ttl time.Duration) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "redis.RegisterRoom",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -32,6 +66,7 @@ func (s *RedisStore) RegisterRoom(ctx context.Context, code string, data []byte,
 	return err
 }
 
+// UnregisterRoom removes room ownership metadata from Redis.
 func (s *RedisStore) UnregisterRoom(ctx context.Context, code string) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "redis.UnregisterRoom",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -52,6 +87,7 @@ func (s *RedisStore) UnregisterRoom(ctx context.Context, code string) error {
 	return err
 }
 
+// ListActiveRooms returns room codes registered in the Redis room registry.
 func (s *RedisStore) ListActiveRooms(ctx context.Context) ([]string, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "redis.ListActiveRooms",
 		trace.WithAttributes(attribute.String("db.system", "redis"),

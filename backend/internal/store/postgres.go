@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sony/gobreaker/v2"
 	"github.com/uppy-clone/backend/internal/config"
@@ -17,12 +18,22 @@ import (
 	"github.com/uppy-clone/backend/internal/resilience"
 )
 
+// pgPool abstracts pgxpool for store operations (enables pgxmock in unit tests).
+type pgPool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Close()
+	Ping(ctx context.Context) error
+}
+
 // ErrDuplicateUser indicates a unique constraint violation on user creation.
 var ErrDuplicateUser = errors.New("duplicate user")
 
 // PostgresStore provides PostgreSQL-backed persistence.
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool pgPool
 	cb   *gobreaker.CircuitBreaker[any]
 
 	lastAcquireDuration atomic.Value // float64
@@ -66,6 +77,14 @@ func NewPostgresStore(connString string, timeouts config.TimeoutConfig) (*Postgr
 	}, nil
 }
 
+// NewPostgresStoreWithPool wraps an existing pool (pgxmock-backed unit tests).
+func NewPostgresStoreWithPool(pool pgPool) *PostgresStore {
+	return &PostgresStore{
+		pool: pool,
+		cb:   resilience.NewPostgresBreaker(),
+	}
+}
+
 // Close releases the connection pool.
 func (s *PostgresStore) Close() {
 	s.pool.Close()
@@ -73,18 +92,26 @@ func (s *PostgresStore) Close() {
 
 // Pool returns the underlying connection pool.
 func (s *PostgresStore) Pool() *pgxpool.Pool {
-	return s.pool
+	p, _ := s.pool.(*pgxpool.Pool)
+	return p
 }
 
 // PoolStats returns the current connection pool statistics.
 func (s *PostgresStore) PoolStats() *pgxpool.Stat {
-	return s.pool.Stat()
+	if p, ok := s.pool.(*pgxpool.Pool); ok {
+		return p.Stat()
+	}
+	return nil
 }
 
 // RunMigrations applies all pending migrations from the given directory.
 func (s *PostgresStore) RunMigrations(migrationsPath string) error {
+	p, ok := s.pool.(*pgxpool.Pool)
+	if !ok {
+		return fmt.Errorf("migrations require a real pgxpool connection")
+	}
 	ctx := context.Background()
-	if err := migrateutil.RunMigrations(ctx, s.pool.Config().ConnString(), migrationsPath); err != nil {
+	if err := migrateutil.RunMigrations(ctx, p.Config().ConnString(), migrationsPath); err != nil {
 		return err
 	}
 	return nil

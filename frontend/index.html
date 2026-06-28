@@ -14,50 +14,66 @@
 </head>
 <body class="landing-page">
   <div class="hero">
-    <h1>🎈 Uppy</h1>
-    <p class="subtitle">合作气球游戏</p>
-    <p class="description">
-      点击保持气球不掉落！人多时冷却更长，需要真正的团队合作才能生存。
-      和陌生人一起，或者分享房间码给朋友。
-    </p>
+    <header class="hero-intro">
+      <h1>🎈 Uppy</h1>
+      <p class="subtitle">合作气球游戏</p>
+      <p class="description">
+        点击保持气球不掉落！人多时冷却更长，需要真正的团队合作才能生存。
+        和陌生人一起，或者分享房间码给朋友。
+      </p>
+    </header>
 
-    <div class="auth-section">
-      <button id="quickplay-btn" class="btn-play" style="margin-bottom:1rem">快速开始</button>
-      <div style="color:#555;font-size:0.85rem;margin-bottom:0.5rem">— 或 —</div>
-      <input type="email" id="email-input" placeholder="输入邮箱登录" autocomplete="email">
-      <button id="login-btn" class="btn-play" style="font-size:1rem;padding:0.7rem 2rem;background:#0f3460">发送登录链接</button>
-      <p id="success-msg" class="success-msg">✉️ 登录链接已发送，请查收邮件！<br><a href="#" id="email-change-link" class="link-secondary">修改邮箱 / 重新发送</a></p>
-      <p id="error-msg" class="error-msg"></p>
-    </div>
-
-    <!-- 房间号加入 -->
-    <div class="join-code-section">
-      <div class="join-code-input-group">
-        <input id="join-code-input" type="text" maxlength="5" placeholder="输入房间号" autocomplete="off" style="text-transform:uppercase">
-        <button id="join-code-btn" class="btn-secondary">加入</button>
+    <div class="hero-play">
+      <div class="auth-section">
+        <button id="quickplay-btn" class="btn-play">快速开始</button>
+        <p class="auth-divider">— 或 —</p>
+        <input type="email" id="email-input" placeholder="输入邮箱登录" autocomplete="email">
+        <button id="login-btn" class="btn-play btn-play-compact">发送登录链接</button>
+        <p id="success-msg" class="success-msg">✉️ 登录链接已发送，请查收邮件！<br><a href="#" id="email-change-link" class="link-secondary">修改邮箱 / 重新发送</a></p>
+        <p id="error-msg" class="error-msg"></p>
       </div>
-      <div id="join-code-error" class="error-msg hidden"></div>
+
+      <div class="join-code-section">
+        <div class="join-code-input-group">
+          <input id="join-code-input" type="text" maxlength="5" placeholder="输入房间号" autocomplete="off" style="text-transform:uppercase">
+          <button id="join-code-btn" class="btn-secondary">加入</button>
+        </div>
+        <div id="join-code-error" class="error-msg hidden"></div>
+      </div>
     </div>
 
-    <div class="rules">
-      <h3>怎么玩</h3>
-      <ul>
-        <li>在气球<strong>附近</strong>点击，把它往上推（点太远无效）</li>
-        <li>每次点击后有冷却时间；人越多，冷却越长</li>
-        <li><strong>鸟</strong>会追踪气球，碰到即结束</li>
-        <li><strong>幽灵</strong>靠近会撞破气球；在幽灵附近点击可将其推开</li>
-        <li>留意 HUD 中的<strong>风向</strong>，风会把气球吹向一侧</li>
-        <li>团队分数 = 成功点击次数，坚持越久分越高</li>
-      </ul>
-    </div>
+    <div class="hero-learn">
+      <div class="rules rules-section">
+        <h3>怎么玩</h3>
+        <ul>
+          <li>在气球<strong>附近</strong>点击，把它往上推（点太远无效）</li>
+          <li>每次点击后有冷却时间；人越多，冷却越长</li>
+          <li><strong>鸟</strong>会追踪气球，碰到即结束</li>
+          <li><strong>幽灵</strong>靠近会撞破气球；在幽灵附近点击可将其推开</li>
+          <li>留意 HUD 中的<strong>风向</strong>，风会把气球吹向一侧</li>
+          <li>团队分数 = 成功点击次数，坚持越久分越高</li>
+        </ul>
+      </div>
 
-    <section class="leaderboard-preview-section" aria-labelledby="lb-preview-title">
-      <h3 id="lb-preview-title">排行榜</h3>
-      <ol id="leaderboard-preview" class="leaderboard-list"></ol>
-      <p id="leaderboard-preview-empty" class="hint hidden">暂无记录，成为第一个上榜的玩家吧！</p>
-      <p id="leaderboard-preview-error" class="hint hidden"></p>
-      <a href="/leaderboard.html" class="link-secondary">查看完整排行榜 →</a>
-    </section>
+      <section class="leaderboard-collapsible" aria-labelledby="lb-preview-title">
+      <button id="lb-collapse-toggle" class="lb-collapse-header" type="button" aria-expanded="false" aria-controls="lb-collapse-body">
+        <span id="lb-preview-title">🏆 排行榜</span>
+        <span id="lb-collapsed-summary" class="lb-collapsed-summary">加载中…</span>
+        <span class="lb-collapse-chevron" aria-hidden="true">▾</span>
+      </button>
+      <div id="lb-collapse-body" class="lb-collapse-body hidden">
+        <div class="leaderboard-tabs leaderboard-tabs-compact">
+          <button id="lb-preview-global" class="btn-secondary active" type="button">总榜</button>
+          <button id="lb-preview-weekly" class="btn-secondary" type="button">周榜</button>
+        </div>
+        <p id="leaderboard-preview-loading" class="hint hidden">加载排行榜…</p>
+        <ol id="leaderboard-preview" class="leaderboard-list"></ol>
+        <p id="leaderboard-preview-empty" class="hint hidden">暂无记录，成为第一个上榜的玩家吧！</p>
+        <p id="leaderboard-preview-error" class="hint hidden"></p>
+        <a href="/leaderboard.html" class="btn-secondary lb-nav-btn">查看完整排行榜</a>
+      </div>
+      </section>
+    </div>
   </div>
 
   <script type="module" src="/src/index.ts"></script>

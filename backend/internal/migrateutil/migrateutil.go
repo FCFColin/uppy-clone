@@ -1,3 +1,4 @@
+// Package migrateutil runs database migrations and ensures required PostgreSQL roles exist.
 package migrateutil
 
 import (
@@ -6,10 +7,32 @@ import (
 	"path/filepath"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres" // register postgres driver
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// pgxExecer is satisfied by *pgx.Conn; tests may inject fakes.
+type pgxExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Close(ctx context.Context) error
+}
+
+// pgxConnect opens a PostgreSQL connection. Tests may replace this to avoid a live DB.
+var pgxConnect = func(ctx context.Context, connString string) (pgxExecer, error) {
+	return pgx.Connect(ctx, connString)
+}
+
+// migrateRunner applies pending migrations.
+type migrateRunner interface {
+	Up() error
+}
+
+// newMigrateRunner creates a golang-migrate instance. Tests may replace this.
+var newMigrateRunner = func(source, connString string) (migrateRunner, error) {
+	return migrate.New(source, connString)
+}
 
 const ensureDBRolesSQL = `
 DO $$
@@ -37,11 +60,11 @@ func FileSourceURL(dir string) (string, error) {
 // EnsureDBRoles creates roles required by migration 000009 when missing.
 // Production Docker runs docker/postgres/init/01-create-roles.sql at init time.
 func EnsureDBRoles(ctx context.Context, connString string) error {
-	conn, err := pgx.Connect(ctx, connString)
+	conn, err := pgxConnect(ctx, connString)
 	if err != nil {
 		return fmt.Errorf("connect for roles: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	if _, err := conn.Exec(ctx, ensureDBRolesSQL); err != nil {
 		return fmt.Errorf("ensure db roles: %w", err)
@@ -59,7 +82,7 @@ func RunMigrations(ctx context.Context, connString, migrationsPath string) error
 	if err != nil {
 		return fmt.Errorf("migrate source path: %w", err)
 	}
-	m, err := migrate.New(source, connString)
+	m, err := newMigrateRunner(source, connString)
 	if err != nil {
 		return fmt.Errorf("migrate init: %w", err)
 	}

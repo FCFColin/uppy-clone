@@ -23,19 +23,3 @@ runs:
     - name: Build backend
       shell: bash
       run: cd backend && go build -o ../server ./cmd/server
-    - name: Start backend
-      shell: bash
-      run: |
-        MIGRATIONS_DIR=backend/migrations FRONTEND_DIR=frontend/dist ./server &
-        ready=0
-        for i in $(seq 1 30); do
-          if curl -sf http://localhost:8080/health/live; then
-            ready=1
-            break
-          fi
-          sleep 2
-        done
-        if [ "$ready" -ne 1 ]; then
-          echo "Backend failed to become ready"
-          exit 1
-        fi

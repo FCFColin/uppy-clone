@@ -51,15 +51,16 @@ type EndpointRateLimitConfig struct {
 // Security-critical endpoints (auth:quickplay, admin:login) use FailClosed=true
 // so that Redis unavailability blocks requests rather than allowing unbounded access.
 var DefaultEndpointRateLimits = map[string]EndpointRateLimitConfig{
-	"auth:quickplay":   {Requests: 10, Window: time.Minute, FailClosed: true},
-	"auth:request":     {Requests: 5, Window: time.Minute},
-	"auth:verify":      {Requests: 10, Window: time.Minute},
-	"registry:create":  {Requests: 5, Window: time.Minute},
-	"registry:check":   {Requests: 30, Window: time.Minute},
-	"registry:lobbies": {Requests: 30, Window: time.Minute},
-	"registry:match":   {Requests: 10, Window: time.Minute},
-	"admin:login":      {Requests: 5, Window: time.Minute, FailClosed: true},
-	"default":          {Requests: 60, Window: time.Minute},
+	"auth:quickplay":    {Requests: 10, Window: time.Minute, FailClosed: true},
+	"auth:request":      {Requests: 5, Window: time.Minute},
+	"auth:verify":       {Requests: 10, Window: time.Minute},
+	"registry:create":   {Requests: 5, Window: time.Minute},
+	"registry:check":    {Requests: 30, Window: time.Minute},
+	"registry:lobbies":  {Requests: 30, Window: time.Minute},
+	"registry:match":    {Requests: 10, Window: time.Minute},
+	"stats:leaderboard": {Requests: 60, Window: time.Minute},
+	"admin:login":       {Requests: 5, Window: time.Minute, FailClosed: true},
+	"default":           {Requests: 60, Window: time.Minute},
 }
 
 // RateLimit returns middleware that checks Redis-based rate limits.

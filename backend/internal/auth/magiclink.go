@@ -48,9 +48,10 @@ func getOrigin(r *http.Request) string {
 
 // VerifyResponse is returned after a successful magic-link verification.
 type VerifyResponse struct {
-	UserID       string `json:"userId"`
-	Nickname     string `json:"nickname"`
-	RefreshToken string `json:"refreshToken,omitempty"`
+	UserID   string `json:"userId"`
+	Nickname string `json:"nickname"`
+	// RefreshToken is set internally for HttpOnly cookie issuance; never serialized.
+	RefreshToken string `json:"-"`
 }
 
 // magicTokenData is stored in Redis for each magic-link token.
@@ -71,7 +72,7 @@ func NewMagicLinkService() *MagicLinkService {
 
 // RequestMagicLink sends a magic link email to the user.
 // Flow: validate email → rate limit → generate token → hash → store in Redis → send email.
-func (s *MagicLinkService) RequestMagicLink(redis *store.RedisStore, db *store.PostgresStore, resendAPIKey, emailFrom, email string, r *http.Request, timeouts config.TimeoutConfig) error {
+func (s *MagicLinkService) RequestMagicLink(redis *store.RedisStore, _ *store.PostgresStore, _, _, email string, r *http.Request, _ config.TimeoutConfig) error {
 	if !isValidEmail(email) {
 		return ErrInvalidEmail
 	}
@@ -161,7 +162,7 @@ func enqueueMagicLinkEmail(ctx context.Context, redis *store.RedisStore, r *http
 
 // VerifyMagicLink verifies a magic link token and creates/updates user.
 // Flow: hash token → lookup Redis → parse data → delete token → find/create user → sign JWT → set cookie.
-func VerifyMagicLink(redis *store.RedisStore, db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, token string) (*http.Cookie, *VerifyResponse, error) {
+func VerifyMagicLink(redis *store.RedisStore, db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, token string, r *http.Request) (*http.Cookie, *VerifyResponse, error) {
 	ctx := context.Background()
 
 	email, err := validateMagicToken(ctx, redis, token)
@@ -174,10 +175,10 @@ func VerifyMagicLink(redis *store.RedisStore, db *store.PostgresStore, jwtMgr *J
 		return nil, nil, err
 	}
 
-	return issueMagicLinkSession(ctx, db, jwtMgr, refreshMgr, user)
+	return issueMagicLinkSession(ctx, db, jwtMgr, refreshMgr, user, r)
 }
 
-func issueMagicLinkSession(ctx context.Context, db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, user *domain.User) (*http.Cookie, *VerifyResponse, error) {
+func issueMagicLinkSession(ctx context.Context, db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, user *domain.User, r *http.Request) (*http.Cookie, *VerifyResponse, error) {
 	if err := db.UpdateUserLastLogin(ctx, user.ID); err != nil {
 		_ = err
 	}
@@ -187,7 +188,8 @@ func issueMagicLinkSession(ctx context.Context, db *store.PostgresStore, jwtMgr 
 		return nil, nil, fmt.Errorf("sign token: %w", err)
 	}
 
-	cookie := BuildAuthCookie("session", jwtToken, config.CookieMaxAge, true)
+	secure := IsSecure(r)
+	cookie := BuildAuthCookie("session", jwtToken, config.CookieMaxAge, secure)
 
 	refreshToken, err := refreshMgr.Generate(ctx, user.ID)
 	if err != nil {

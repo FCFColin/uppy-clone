@@ -2,10 +2,10 @@ export {};
 
 import { establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/session.js';
 import { fetchWithRetry } from './shared/fetch.js';
-import { loadLeaderboardPreview } from './index_leaderboard.js';
+import { initCollapsibleLeaderboard } from './index_leaderboard.js';
 
 normalizeAuthHost();
-void loadLeaderboardPreview();
+initCollapsibleLeaderboard();
 
 const emailInput: HTMLInputElement = document.getElementById('email-input') as HTMLInputElement;
 const loginBtn: HTMLButtonElement = document.getElementById('login-btn') as HTMLButtonElement;
@@ -89,6 +89,8 @@ async function quickPlay(): Promise<void> {
       return;
     }
     const matchData: { lobbyCode: string } = await matchRes.json();
+    sessionStorage.setItem('uppy-auth-ready', '1');
+    sessionStorage.setItem('uppy-fresh-match', matchData.lobbyCode);
     window.location.href = `/play.html?code=${encodeURIComponent(matchData.lobbyCode)}`;
   } catch {
     showError('网络错误，请重试');
@@ -132,6 +134,8 @@ async function joinByCode(): Promise<void> {
         return;
       }
     }
+    sessionStorage.setItem('uppy-auth-ready', '1');
+    sessionStorage.setItem('uppy-fresh-match', code);
     window.location.href = `/play.html?code=${code}`;
   } catch {
     errorEl.textContent = '网络错误，请重试';

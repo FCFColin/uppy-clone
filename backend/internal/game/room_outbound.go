@@ -18,11 +18,11 @@ type outboundMsg struct {
 }
 
 type connTarget struct {
-	playerID         string
-	send             chan []byte
-	consecutiveDrops *int
+	playerID          string
+	send              chan []byte
+	consecutiveDrops  *int
 	pendingDisconnect *bool
-	connClose        func()
+	connClose         func()
 }
 
 // startOutboundLoop launches the per-room outbound delivery goroutine (once).
@@ -52,12 +52,7 @@ func (r *Room) enqueueOutbound(payload []byte, excludePlayerID string, critical,
 		skipRedis:       skipRedis,
 	}
 	if r.syncOutbound {
-		targets := r.snapshotConnTargetsLocked(excludePlayerID)
-		r.deliverToTargets(targets, msg)
-		r.removePendingDisconnectsLocked()
-		if !msg.skipRedis {
-			r.publishBroadcastAsync(msg.payload, msg.excludePlayerID, msg.critical)
-		}
+		r.deliverOutboundLocked(excludePlayerID, msg)
 		return
 	}
 	r.startOutboundLoop()
@@ -66,8 +61,14 @@ func (r *Room) enqueueOutbound(payload []byte, excludePlayerID string, critical,
 		metrics.SetRoomOutboundQueueDepth(r.state.LobbyCode, len(r.outboundCh))
 	default:
 		if critical {
-			r.outboundCh <- msg
-			metrics.SetRoomOutboundQueueDepth(r.state.LobbyCode, len(r.outboundCh))
+			select {
+			case r.outboundCh <- msg:
+				metrics.SetRoomOutboundQueueDepth(r.state.LobbyCode, len(r.outboundCh))
+			case <-time.After(100 * time.Millisecond):
+				metrics.WSMessagesDroppedTotal.WithLabelValues(r.state.LobbyCode).Inc()
+				slog.Warn("critical outbound queue blocked, dropping to avoid room lock hold",
+					"room_code", r.state.LobbyCode)
+			}
 			return
 		}
 		metrics.WSMessagesDroppedTotal.WithLabelValues(r.state.LobbyCode).Inc()
@@ -84,6 +85,17 @@ func (r *Room) deliverOutbound(msg outboundMsg) {
 	r.mu.Lock()
 	r.removePendingDisconnectsLocked()
 	r.mu.Unlock()
+	r.publishOutboundIfNeeded(msg)
+}
+
+func (r *Room) deliverOutboundLocked(excludePlayerID string, msg outboundMsg) {
+	targets := r.snapshotConnTargetsLocked(excludePlayerID)
+	r.deliverToTargets(targets, msg)
+	r.removePendingDisconnectsLocked()
+	r.publishOutboundIfNeeded(msg)
+}
+
+func (r *Room) publishOutboundIfNeeded(msg outboundMsg) {
 	if !msg.skipRedis {
 		r.publishBroadcastAsync(msg.payload, msg.excludePlayerID, msg.critical)
 	}

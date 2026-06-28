@@ -41,7 +41,9 @@ function respawnCloud(cloud: Cloud, side: 'left' | 'right'): void {
 }
 
 function advanceCloud(cloud: Cloud, windDir: number): void {
-  cloud.x += cloud.speed * (1 + windDir * 0.25);
+  // Clouds follow wind direction; near-still when wind is calm.
+  // windDir ranges ~-0.65..0.65; multiplier scales it to visible drift speed.
+  cloud.x += cloud.speed * windDir * 20;
   const half = cloudHalfWidth(cloud);
   if (cloud.x - half > 1.02) {
     respawnCloud(cloud, 'left');

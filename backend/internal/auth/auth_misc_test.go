@@ -9,8 +9,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/requestctx"
+	"github.com/uppy-clone/backend/internal/store"
 )
 
 type mockUserDataStore struct {
@@ -126,6 +131,62 @@ func TestDeleteUserData_AnonymizeSuccess(t *testing.T) {
 	err := DeleteUserData(context.Background(), nil, nil, nil, store, "u1", nil)
 	if err != nil {
 		t.Errorf("DeleteUserData should succeed: %v", err)
+	}
+}
+
+func TestDeleteUserData_WithRefreshManager(t *testing.T) {
+	t.Parallel()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	ctx := context.Background()
+	if _, err := refreshMgr.Generate(ctx, "u1"); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	store := &mockUserDataStore{}
+	if err := DeleteUserData(ctx, nil, refreshMgr, nil, store, "u1", nil); err != nil {
+		t.Fatalf("DeleteUserData: %v", err)
+	}
+}
+
+func TestDeleteUserData_RevokesTokensFromRequest(t *testing.T) {
+	t.Parallel()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	timeouts := config.DefaultTimeoutConfig()
+	redisStore, err := store.NewRedisStore(mr.Addr(), timeouts)
+	if err != nil {
+		t.Fatalf("NewRedisStore: %v", err)
+	}
+	defer redisStore.Close()
+
+	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	ctx := context.Background()
+
+	token, err := jwtMgr.SignToken("u1", "Nick")
+	if err != nil {
+		t.Fatalf("SignToken: %v", err)
+	}
+	if _, err := refreshMgr.Generate(ctx, "u1"); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/me", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+
+	store := &mockUserDataStore{}
+	if err := DeleteUserData(ctx, jwtMgr, refreshMgr, redisStore, store, "u1", req); err != nil {
+		t.Fatalf("DeleteUserData: %v", err)
 	}
 }
 

@@ -1,3 +1,4 @@
+// Package resilience provides circuit breakers and retry helpers for downstream dependencies.
 package resilience
 
 import (
@@ -46,6 +47,7 @@ func onStateChange(name string, from gobreaker.State, to gobreaker.State) {
 	}
 }
 
+// NewPostgresBreaker returns a circuit breaker tuned for PostgreSQL access.
 func NewPostgresBreaker() *gobreaker.CircuitBreaker[any] {
 	return gobreaker.NewCircuitBreaker[any](gobreaker.Settings{
 		Name:        "postgres",
@@ -59,6 +61,7 @@ func NewPostgresBreaker() *gobreaker.CircuitBreaker[any] {
 	})
 }
 
+// NewRedisBreaker returns a circuit breaker tuned for Redis access.
 func NewRedisBreaker() *gobreaker.CircuitBreaker[any] {
 	return gobreaker.NewCircuitBreaker[any](gobreaker.Settings{
 		Name:        "redis",
@@ -72,6 +75,7 @@ func NewRedisBreaker() *gobreaker.CircuitBreaker[any] {
 	})
 }
 
+// NewResendBreaker returns a circuit breaker tuned for the Resend email API.
 func NewResendBreaker() *gobreaker.CircuitBreaker[any] {
 	return gobreaker.NewCircuitBreaker[any](gobreaker.Settings{
 		Name:        "resend-api",

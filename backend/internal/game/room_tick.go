@@ -9,6 +9,7 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/protocol"
+	"github.com/uppy-clone/backend/internal/validate"
 )
 
 // HandleMessage 处理客户端消息
@@ -33,7 +34,7 @@ func (r *Room) HandleMessage(playerID string, msgType byte, payload []byte) erro
 	player.MessageCount++
 	if player.MessageCount > protocol.MessageRateLimit {
 		if pc, ok := r.connections[playerID]; ok {
-			pc.Conn.Close()
+			_ = pc.Conn.Close()
 			delete(r.connections, playerID)
 		}
 		return nil
@@ -79,14 +80,7 @@ func (r *Room) tickOnce() {
 
 	r.cleanupDisconnected(time.Now().UnixMilli())
 
-	hasConnected := false
-	for _, p := range r.state.Players {
-		if !p.Disconnected {
-			hasConnected = true
-			break
-		}
-	}
-	if !hasConnected && len(r.state.Players) > 0 {
+	if !hasAnyConnectedPlayer(r.state.Players) && len(r.state.Players) > 0 {
 		r.stopTick()
 		return
 	}
@@ -100,7 +94,7 @@ func (r *Room) tickOnce() {
 
 	gameOver := ApplyPhysics(&r.state.Balloon)
 	if gameOver {
-		r.EndGameWithReason(protocol.EndReasonGround)
+		_ = r.EndGameWithReason(protocol.EndReasonGround)
 		return
 	}
 
@@ -108,7 +102,7 @@ func (r *Room) tickOnce() {
 	UpdateBirdAI(&r.state.Bird, &r.state.Balloon, r.state.TickCount)
 	UpdateGhostAI(r.state)
 	if CheckGhostCollision(r.state) {
-		r.EndGameWithReason(protocol.EndReasonGhost)
+		_ = r.EndGameWithReason(protocol.EndReasonGhost)
 		return
 	}
 
@@ -149,7 +143,7 @@ func (r *Room) stopTick() {
 // cleanupDisconnected 清理超过 30 秒优雅期的断连玩家
 func (r *Room) cleanupDisconnected(now int64) {
 	for pid, player := range r.state.Players {
-		if player.Disconnected && player.DisconnectedAt != nil && now-*player.DisconnectedAt > protocol.ReconnectGraceMs {
+		if player.Disconnected && player.DisconnectedAt != nil && reconnectGraceExpired(*player.DisconnectedAt, now) {
 			delete(r.state.Players, pid)
 			delete(r.usedNames, player.Nickname)
 			delete(r.state.RestartVotes, pid)
@@ -222,13 +216,7 @@ func (r *Room) applyTapPhysics(tapX, tapY float64) bool {
 
 // updatePlayerStats 更新玩家点击统计与冷却时间，返回冷却时长。
 func (r *Room) updatePlayerStats(player *domain.PlayerState, now int64) int64 {
-	connectedCount := 0
-	for _, p := range r.state.Players {
-		if !p.Disconnected {
-			connectedCount++
-		}
-	}
-	cooldown := CalculateCooldown(connectedCount)
+	cooldown := CalculateCooldown(len(r.state.Players))
 	player.RecordTap(now, cooldown)
 	r.state.Balloon.Score++
 	return cooldown
@@ -252,7 +240,7 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
 		return
 	}
-	sanitized := sanitizeNickname(nickname)
+	sanitized := validate.Nickname(nickname)
 	if sanitized == "" {
 		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
 		return
@@ -260,13 +248,6 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 
 	player.NicknameConfirmed = true
 	metrics.NicknameConfirmTotal.WithLabelValues("accepted").Inc()
-
-	now := time.Now().UnixMilli()
-	if player.LastNicknameChange != 0 && now-player.LastNicknameChange < protocol.NicknameCooldownMs {
-		r.broadcast(r.buildSnapshot(), "")
-		r.tryStartWhenAllReady()
-		return
-	}
 
 	if HandleSetNickname(r.state, player, sanitized, r.usedNames) {
 		r.saveState()

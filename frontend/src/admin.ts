@@ -2,7 +2,7 @@
  * 管理后台脚本
  *
  * 处理 Uppy 游戏管理后台的：
- * - 管理员密码登录（获取 admin token）
+ * - 管理员密码登录（admin_token HttpOnly cookie）
  * - 加载/保存应用配置（邮件开关、Resend API Key、发件人地址、管理员密码）
  */
 
@@ -10,8 +10,6 @@ export {};
 
 import { bindLoginEvents } from './admin_login.js';
 import { loadConfig, saveConfig, type AdminConfig } from './admin_config.js';
-
-let adminToken: string = '';
 
 const loginSection: HTMLElement = document.getElementById('login-section')!;
 const configSection: HTMLElement = document.getElementById('config-section')!;
@@ -38,14 +36,14 @@ function updateEmailStatus(enabled: boolean): void {
   }
 }
 
+function showLogin(): void {
+  configSection.classList.add('hidden');
+  loginSection.classList.remove('hidden');
+}
+
 function refreshConfig(): void {
   loadConfig(
-    adminToken,
-    () => {
-      adminToken = '';
-      configSection.classList.add('hidden');
-      loginSection.classList.remove('hidden');
-    },
+    showLogin,
     showToast,
     (config: AdminConfig) => {
       emailEnabledInput.checked = config.emailEnabled;
@@ -56,10 +54,7 @@ function refreshConfig(): void {
   );
 }
 
-bindLoginEvents((token: string) => {
-  adminToken = token;
-  refreshConfig();
-}, showToast);
+bindLoginEvents(refreshConfig, showToast);
 
 saveBtn.addEventListener('click', async () => {
   saveBtn.disabled = true;
@@ -76,7 +71,7 @@ saveBtn.addEventListener('click', async () => {
     config.adminPassword = newPassword;
   }
 
-  await saveConfig(adminToken, config, showToast, () => {
+  await saveConfig(config, showToast, () => {
     newAdminPasswordInput.value = '';
     refreshConfig();
   });

@@ -20,7 +20,7 @@ type DegradedResponse struct {
 func WriteDegradedJSON(w http.ResponseWriter, status int, data interface{}, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(DegradedResponse{
+	_ = json.NewEncoder(w).Encode(DegradedResponse{
 		Data:     data,
 		Degraded: true,
 		Message:  message,

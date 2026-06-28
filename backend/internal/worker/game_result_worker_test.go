@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -137,4 +138,172 @@ func TestProcessBatch_BeginFailure(t *testing.T) {
 	w.processBatch(ctx, []redis.XMessage{
 		{ID: "1-0", Values: map[string]interface{}{"payload": "{}"}},
 	})
+}
+
+func TestGameResultWorker_Start_Cancelled(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	w := NewGameResultWorker(rdb, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		w.Start(ctx)
+		close(done)
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit after cancel")
+	}
+}
+
+func TestGameResultWorker_processMessage_InvalidPayload(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+
+	w := NewGameResultWorker(rdb, nil)
+	w.processMessage(ctx, redis.XMessage{ID: "1-0", Values: map[string]interface{}{"payload": 123}})
+
+	pending, _ := rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream: "game:results", Group: "result-workers", Start: "-", End: "+", Count: 10,
+	}).Result()
+	if len(pending) != 0 {
+		t.Fatalf("expected acked invalid payload, pending=%d", len(pending))
+	}
+}
+
+func TestGameResultWorker_processMessage_UnmarshalError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+
+	w := NewGameResultWorker(rdb, nil)
+	w.processMessage(ctx, redis.XMessage{ID: "2-0", Values: map[string]interface{}{"payload": "not-json"}})
+}
+
+func TestGameResultWorker_processMessage_BeginFailure(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+
+	config, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	config.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	w := NewGameResultWorker(rdb, pool)
+	payload, _ := json.Marshal(GameResultPayload{GameID: "game-1", RoomCode: "ROOM1"})
+	w.processMessage(ctx, redis.XMessage{
+		ID:     "4-0",
+		Values: map[string]interface{}{"payload": string(payload)},
+	})
+}
+
+func TestGameResultWorker_processMessage_MissingPayload(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+
+	w := NewGameResultWorker(rdb, nil)
+	w.processMessage(ctx, redis.XMessage{ID: "3-0", Values: map[string]interface{}{"other": "value"}})
+
+	pending, _ := rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream: "game:results", Group: "result-workers", Start: "-", End: "+", Count: 10,
+	}).Result()
+	if len(pending) != 0 {
+		t.Fatalf("expected acked missing payload, pending=%d", len(pending))
+	}
+}
+
+func TestGameResultWorker_processBatch_MultipleMessages(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+
+	w := NewGameResultWorker(rdb, nil)
+	w.processBatch(ctx, []redis.XMessage{
+		{ID: "5-0", Values: map[string]interface{}{"payload": "bad-json"}},
+		{ID: "6-0", Values: map[string]interface{}{"payload": 42}},
+	})
+}
+
+func TestGameResultWorker_Start_ReadsAndFlushes(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+
+	if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: "game:results",
+		Values: map[string]interface{}{"payload": "not-json"},
+	}).Result(); err != nil {
+		t.Fatalf("XAdd: %v", err)
+	}
+	if err := rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err(); err != nil {
+		t.Fatalf("XGroupCreateMkStream: %v", err)
+	}
+
+	w := NewGameResultWorker(rdb, nil)
+	workerCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		w.Start(workerCtx)
+		close(done)
+	}()
+
+	time.Sleep(1500 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit after cancel")
+	}
+
+	pending, _ := rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream: "game:results", Group: "result-workers", Start: "-", End: "+", Count: 10,
+	}).Result()
+	if len(pending) != 0 {
+		t.Fatalf("expected invalid payload to be acked, pending=%d", len(pending))
+	}
 }

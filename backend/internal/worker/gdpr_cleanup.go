@@ -4,22 +4,25 @@ import (
 	"context"
 	"log/slog"
 	"time"
-
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 const defaultGDPRRetentionDays = 30
 const defaultGDPRCleanupInterval = 24 * time.Hour
 
+// userHardDeleter permanently removes soft-deleted users past retention.
+type userHardDeleter interface {
+	HardDeleteExpiredUsers(ctx context.Context, retentionDays int) (int64, error)
+}
+
 // GDPRCleanupWorker hard-deletes users past the GDPR retention window.
 type GDPRCleanupWorker struct {
-	db            *store.PostgresStore
+	db            userHardDeleter
 	retentionDays int
 	interval      time.Duration
 }
 
 // NewGDPRCleanupWorker creates a GDPR hard-delete worker.
-func NewGDPRCleanupWorker(db *store.PostgresStore, retentionDays int, interval time.Duration) *GDPRCleanupWorker {
+func NewGDPRCleanupWorker(db userHardDeleter, retentionDays int, interval time.Duration) *GDPRCleanupWorker {
 	if retentionDays <= 0 {
 		retentionDays = defaultGDPRRetentionDays
 	}

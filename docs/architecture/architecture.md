@@ -29,6 +29,9 @@
 - 弹性栈：熔断 / 隔板 / 幂等 / 限流；可观测：OTel + Prometheus + Pyroscope
 - 合规：审计日志防篡改、GDPR 硬删除 Worker；事务性 Outbox + Redis Stream
 - 部署：GKE StatefulSet + HPA（`infra/k8s/base` + `infra/k8s/overlays/<region>`）
+- Vanilla TS MPA 前端 + dist 嵌入 Go 单镜像（ADR-018/020）；raw SQL + pgx（ADR-019）
+- 字段级 PII 加密部分落地（ADR-022）；混合测试 testcontainers + miniredis（ADR-023）
+- 前端可变单例状态（ADR-025）；Room 出站锁外广播（ADR-027）
 
 ## 应用分层（当前实际架构）
 

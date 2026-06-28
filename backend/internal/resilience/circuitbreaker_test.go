@@ -160,6 +160,19 @@ func TestResendBreaker_OpensAfterFailures(t *testing.T) {
 	}
 }
 
+func TestOnStateChange_AllStates(t *testing.T) {
+	onStateChange("test-breaker", gobreaker.StateClosed, gobreaker.StateHalfOpen)
+	onStateChange("test-breaker", gobreaker.StateHalfOpen, gobreaker.StateOpen)
+	onStateChange("test-breaker", gobreaker.StateOpen, gobreaker.StateClosed)
+	onStateChange("test-breaker", gobreaker.StateClosed, gobreaker.StateClosed)
+}
+
+func TestCircuitBreakerStateValue_UnknownState(t *testing.T) {
+	if got := circuitBreakerStateValue(gobreaker.State(99)); got != -1 {
+		t.Fatalf("unknown state = %v, want -1", got)
+	}
+}
+
 // ─── test error ──────────────────────────────────────────────────────
 
 var errTest = &testError{}

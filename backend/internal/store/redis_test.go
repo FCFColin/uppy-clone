@@ -352,4 +352,42 @@ func TestGetEnvDuration(t *testing.T) {
 			t.Errorf("getEnvDuration = %v, want 5s", got)
 		}
 	})
+	t.Run("returns default for invalid env", func(t *testing.T) {
+		os.Setenv("TEST_STORE_DUR", "not-a-duration")
+		defer os.Unsetenv("TEST_STORE_DUR")
+		got := getEnvDuration("TEST_STORE_DUR", 5*time.Second)
+		if got != 5*time.Second {
+			t.Errorf("getEnvDuration = %v, want 5s", got)
+		}
+	})
+	t.Run("returns default for zero duration", func(t *testing.T) {
+		os.Setenv("TEST_STORE_DUR", "0s")
+		defer os.Unsetenv("TEST_STORE_DUR")
+		got := getEnvDuration("TEST_STORE_DUR", 5*time.Second)
+		if got != 5*time.Second {
+			t.Errorf("getEnvDuration = %v, want 5s", got)
+		}
+	})
+	t.Run("parses valid duration", func(t *testing.T) {
+		os.Setenv("TEST_STORE_DUR", "10s")
+		defer os.Unsetenv("TEST_STORE_DUR")
+		got := getEnvDuration("TEST_STORE_DUR", 5*time.Second)
+		if got != 10*time.Second {
+			t.Errorf("getEnvDuration = %v, want 10s", got)
+		}
+	})
+}
+
+func TestRedisStore_ListActiveRooms_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	ctx := context.Background()
+	mr.SetError("redis unavailable")
+
+	rooms, err := s.ListActiveRooms(ctx)
+	if err == nil {
+		t.Fatal("expected error from ListActiveRooms")
+	}
+	if rooms != nil {
+		t.Fatalf("expected nil rooms on error, got %v", rooms)
+	}
 }

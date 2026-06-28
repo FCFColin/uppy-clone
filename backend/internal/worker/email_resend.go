@@ -1,3 +1,4 @@
+// Package worker runs background consumers for email and game-result queues.
 package worker
 
 import (
@@ -45,7 +46,7 @@ func (w *EmailWorker) sendEmail(ctx context.Context, payload EmailPayload) error
 		if err != nil {
 			return nil, fmt.Errorf("send email: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode >= 500 {
 			return nil, fmt.Errorf("resend API server error (%d): %s", resp.StatusCode, truncateRespBody(resp))

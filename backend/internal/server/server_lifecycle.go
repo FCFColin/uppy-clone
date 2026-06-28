@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,16 +16,32 @@ import (
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/telemetry"
 )
 
-func runServer(logger *slog.Logger) {
+// shutdownSignals returns the OS signal channel used for graceful shutdown.
+// Tests may replace this to inject signals without sending real SIGTERM.
+var shutdownSignals = func() <-chan os.Signal {
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
+	return done
+}
+
+func runServer(logger *slog.Logger) error {
 	ctx := context.Background()
 	shutdown, err := telemetry.InitTracer(ctx, "balloon-game", "1.0.0")
 	if err != nil {
 		slog.Error("failed to initialize tracer", "error", err)
 	}
-	defer shutdown(ctx)
+	stopTracer := func() {
+		if shutdown != nil {
+			if err := shutdown(ctx); err != nil {
+				slog.Warn("tracer shutdown", "error", err)
+			}
+		}
+	}
+	defer stopTracer()
 
 	initProfiling()
 
@@ -32,14 +49,12 @@ func runServer(logger *slog.Logger) {
 	cfg := loadConfig()
 	validateConfig(cfg, logger)
 	if err := initCrypto(cfg); err != nil {
-		logger.Error("ENCRYPTION_KEY environment variable is required", "error", err)
-		shutdown(ctx)
-		os.Exit(1)
+		return fmt.Errorf("init crypto: %w", err)
 	}
 
 	db, err := initDB(cfg, timeouts)
 	if err != nil {
-		os.Exit(1)
+		return err
 	}
 	defer db.Close()
 	audit.InitDBLogger(db.Pool(), serverEnv.AuditSecretOrJWT())
@@ -47,11 +62,16 @@ func runServer(logger *slog.Logger) {
 
 	redis, err := initRedis(cfg, timeouts)
 	if err != nil {
-		os.Exit(1)
+		return err
 	}
 	defer func() { _ = redis.Close() }()
 
+	return serve(ctx, cfg, timeouts, db, redis)
+}
+
+func serve(ctx context.Context, cfg *handler.Config, timeouts appConfig.TimeoutConfig, db *store.PostgresStore, redis *store.RedisStore) error {
 	jwtMgr := auth.NewJWTManager(cfg.JWTSecret)
+	adminJwtMgr := auth.NewJWTManager(serverEnv.AdminJWTSecretOrUser())
 	broadcaster := game.NewPubSubBroadcaster(redis.Client())
 	hub := initHub(db, redis, timeouts, broadcaster)
 
@@ -61,13 +81,14 @@ func runServer(logger *slog.Logger) {
 	startWorkers(ctx, cfg, redis, db, timeouts)
 	startMetricsCollector(ctx, hub, db, redis)
 
-	authHandler, lobbyHandler, adminHandler, statsHandler := initHandlers(jwtMgr, db, redis, cfg, timeouts, hub)
+	authHandler, lobbyHandler, adminHandler, statsHandler := initHandlers(jwtMgr, adminJwtMgr, db, redis, cfg, timeouts, hub)
 	rbacEnforcer := initRBAC()
 	r := chi.NewRouter()
 	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, db, redis, rbacEnforcer, cfg, hub)
 
 	srv := startServer(r, cfg)
 	waitForShutdown(srv, cancel, hub, broadcaster)
+	return nil
 }
 
 // startServer creates and starts the HTTP server in a goroutine.
@@ -95,16 +116,11 @@ func startServer(r *chi.Mux, cfg *handler.Config) *http.Server {
 // waitForShutdown handles graceful shutdown on SIGINT/SIGTERM.
 // Closes all rooms (persisting state) before shutting down the HTTP server (P2-24).
 func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub, broadcaster *game.PubSubBroadcaster) {
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
-
-	<-done
+	<-shutdownSignals()
 	slog.Info("shutting down server...")
 
-	// Close all rooms and persist state before shutting down (P2-24).
 	hub.CloseAllRooms()
 
-	// 关闭跨实例广播订阅（ADR-005）
 	if broadcaster != nil {
 		if err := broadcaster.Close(); err != nil {
 			slog.Error("broadcaster close error", "error", err)
@@ -118,12 +134,15 @@ func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub,
 		slog.Error("server shutdown error", "error", err)
 	}
 
-	cancel() // stop hub cleanup loop
+	cancel()
 	slog.Info("server stopped")
 }
 
 // Run is the application entrypoint invoked from cmd/server/main.go.
 func Run() {
 	logger := initLogger()
-	runServer(logger)
+	if err := runServer(logger); err != nil {
+		logger.Error("server failed", "error", err)
+		os.Exit(1)
+	}
 }

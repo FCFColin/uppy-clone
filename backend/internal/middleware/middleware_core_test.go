@@ -418,6 +418,60 @@ func (h *hijackableResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error)
 	return &net.TCPConn{}, bufio.NewReadWriter(bufio.NewReader(nil), bufio.NewWriter(nil)), nil
 }
 
+type flushableResponseWriter struct {
+	*httptest.ResponseRecorder
+	flushed bool
+}
+
+func (f *flushableResponseWriter) Flush() {
+	f.flushed = true
+}
+
+func TestTracingMiddleware_ResponseWriterSupportsFlush(t *testing.T) {
+	flushable := &flushableResponseWriter{ResponseRecorder: httptest.NewRecorder()}
+
+	r := chi.NewRouter()
+	r.Use(TracingMiddleware)
+	r.Get("/stream", func(w http.ResponseWriter, r *http.Request) {
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/stream", nil)
+	r.ServeHTTP(flushable, req)
+
+	if !flushable.flushed {
+		t.Fatal("expected Flush to be delegated to underlying ResponseWriter")
+	}
+}
+
+func TestTracingMiddleware_HijackUnsupported(t *testing.T) {
+	r := chi.NewRouter()
+	r.Use(TracingMiddleware)
+	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "not hijacker", http.StatusInternalServerError)
+			return
+		}
+		_, _, err := hj.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for non-hijackable writer, got %d", rec.Code)
+	}
+}
+
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可在生产暴露。
 
 func TestPrometheusMiddleware_IncrementsCounter(t *testing.T) {
@@ -672,6 +726,108 @@ func TestExtractClientIP_UsesRemoteAddrWhenUntrusted(t *testing.T) {
 	if got := ExtractClientIP(req); got != "203.0.113.50" {
 		t.Fatalf("ExtractClientIP() = %q, want 203.0.113.50", got)
 	}
+}
+
+func TestExtractClientIP_UsesForwardedForWhenTrusted(t *testing.T) {
+	handler := TrustedProxy("10.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := ExtractClientIP(r); got != "198.51.100.10" {
+			t.Fatalf("ExtractClientIP() = %q, want 198.51.100.10", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:54321"
+	req.Header.Set("X-Forwarded-For", "198.51.100.10")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestExtractClientIP_IsolatesClientsBehindSharedProxy(t *testing.T) {
+	// Simulates GKE Ingress: all requests share RemoteAddr (LB) but distinct X-Forwarded-For.
+	handler := TrustedProxy("10.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Seen-IP", ExtractClientIP(r))
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	reqA := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqA.RemoteAddr = "10.0.0.1:54321"
+	reqA.Header.Set("X-Forwarded-For", "198.51.100.10")
+	recA := httptest.NewRecorder()
+	handler.ServeHTTP(recA, reqA)
+
+	reqB := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqB.RemoteAddr = "10.0.0.1:54321"
+	reqB.Header.Set("X-Forwarded-For", "203.0.113.50")
+	recB := httptest.NewRecorder()
+	handler.ServeHTTP(recB, reqB)
+
+	if recA.Header().Get("X-Seen-IP") == recB.Header().Get("X-Seen-IP") {
+		t.Fatalf("expected distinct client IPs, both got %q", recA.Header().Get("X-Seen-IP"))
+	}
+}
+
+func TestExtractClientIP_InvalidRemoteAddr(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "not-a-valid-hostport"
+	if got := ExtractClientIP(req); got != "not-a-valid-hostport" {
+		t.Fatalf("ExtractClientIP() = %q, want raw RemoteAddr fallback", got)
+	}
+}
+
+func TestExtractClientIP_TrustedEmptyXFF(t *testing.T) {
+	handler := TrustedProxy("127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := ExtractClientIP(r); got != "127.0.0.1" {
+			t.Fatalf("ExtractClientIP() = %q, want 127.0.0.1", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:8080"
+	req.Header.Set("X-Forwarded-For", "  ")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+}
+
+func TestTrustedProxy_IgnoresInvalidCIDR(t *testing.T) {
+	trustedHandler := TrustedProxy("not-a-cidr,127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !IsTrustedProxy(r) {
+			t.Error("expected valid CIDR in list to trust 127.0.0.1")
+		}
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+	trustedHandler.ServeHTTP(httptest.NewRecorder(), req)
+
+	untrustedHandler := TrustedProxy("not-a-cidr,127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if IsTrustedProxy(r) {
+			t.Error("expected untrusted peer when CIDR does not match")
+		}
+	}))
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.RemoteAddr = "203.0.113.1:1234"
+	untrustedHandler.ServeHTTP(httptest.NewRecorder(), req2)
+}
+
+func TestTrustedProxy_EmptyCIDRListNeverTrusts(t *testing.T) {
+	handler := TrustedProxy(" , , ")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if IsTrustedProxy(r) {
+			t.Error("empty CIDR list must not trust proxy headers")
+		}
+		if r.Header.Get("X-Forwarded-For") != "" {
+			t.Error("expected spoofed X-Forwarded-For stripped")
+		}
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
 }
 
 func TestIsOriginAllowed_ExactMatch(t *testing.T) {

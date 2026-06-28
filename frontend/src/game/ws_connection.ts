@@ -84,7 +84,7 @@ export function flushPendingQueue(): void {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   while (outboundMessageQueue.length > 0) {
     const msg: ArrayBuffer | undefined = outboundMessageQueue.shift();
-    if (msg) ws.send(msg);
+    if (msg) ws.send(msg); /* v8 ignore else -- shift only returns undefined on empty queue */
   }
 }
 

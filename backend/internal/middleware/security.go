@@ -46,9 +46,15 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		// 企业为何需要：CSP unsafe-inline 削弱 XSS 防御。Nonce-based CSP 允许已知脚本执行，阻止注入的恶意脚本。
 		// 权衡：style-src 保留 unsafe-inline 因为 Vite 注入的样式需要它。
 		nonce := generateNonce()
+		// Production: restrict WebSocket connections to same origin only.
+		// Dev (ENABLE_HSTS=false): allow wss:/ws: for Vite HMR and local tooling.
+		connectSrc := "'self'"
+		if os.Getenv("ENABLE_HSTS") == "false" {
+			connectSrc = "'self' wss: ws:"
+		}
 		csp := "script-src 'self' 'nonce-" + nonce + "'; " +
 			"style-src 'self' 'unsafe-inline'; " +
-			"connect-src 'self' wss: ws:; " +
+			"connect-src " + connectSrc + "; " +
 			"img-src 'self' data:; " +
 			"default-src 'self'"
 		w.Header().Set("Content-Security-Policy", csp)

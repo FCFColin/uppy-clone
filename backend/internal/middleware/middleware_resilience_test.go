@@ -421,6 +421,85 @@ func TestRateLimit_IPBasedStillWorks(t *testing.T) {
 	}
 }
 
+func TestRateLimit_DeniedReturns429(t *testing.T) {
+	store := &fakeRateLimiterStore{allow: false}
+	mw := RateLimit(store, RateLimitConfig{MaxRequests: 5, Window: time.Minute})
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run when rate limited")
+	}))
+
+	r := newRequest("9.9.9.9:9")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", w.Code)
+	}
+	if got := w.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("Retry-After = %q, want 60", got)
+	}
+}
+
+func TestRateLimit_FailOpenOnStoreError(t *testing.T) {
+	store := &fakeRateLimiterStore{err: errors.New("redis down")}
+	mw := RateLimit(store, RateLimitConfig{MaxRequests: 5, Window: time.Minute})
+
+	called := false
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, newRequest("8.8.8.8:8"))
+	if !called {
+		t.Fatal("handler should run when store errors (fail-open)")
+	}
+}
+
+func TestResponseRecorder_WriteWithoutWriteHeader(t *testing.T) {
+	base := httptest.NewRecorder()
+	rec := newResponseRecorder(base)
+	if _, err := rec.Write([]byte("hello")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if rec.statusCode != http.StatusOK {
+		t.Errorf("statusCode = %d, want 200 default", rec.statusCode)
+	}
+	if !rec.written {
+		t.Error("written should be true after Write")
+	}
+	if base.Body.String() != "hello" {
+		t.Errorf("body = %q", base.Body.String())
+	}
+}
+
+func TestResponseRecorder_WriteHeaderTwice(t *testing.T) {
+	base := httptest.NewRecorder()
+	rec := newResponseRecorder(base)
+	rec.WriteHeader(http.StatusCreated)
+	rec.WriteHeader(http.StatusAccepted)
+	if rec.statusCode != http.StatusCreated {
+		t.Errorf("statusCode = %d, want first WriteHeader to win", rec.statusCode)
+	}
+	if base.Code != http.StatusCreated {
+		t.Errorf("base status = %d", base.Code)
+	}
+}
+
+func TestResponseRecorder_WriteAfterWriteHeader(t *testing.T) {
+	base := httptest.NewRecorder()
+	rec := newResponseRecorder(base)
+	rec.WriteHeader(http.StatusAccepted)
+	if _, err := rec.Write([]byte("data")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if rec.statusCode != http.StatusAccepted {
+		t.Errorf("statusCode = %d", rec.statusCode)
+	}
+}
+
 // TestBulkhead_AllowsUnderLimit 验证配额未满时请求正常通过且调用下游。
 func TestBulkhead_AllowsUnderLimit(t *testing.T) {
 	b := NewBulkhead(2)

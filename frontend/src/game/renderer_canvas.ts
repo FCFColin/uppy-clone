@@ -22,10 +22,15 @@ export function measureLayoutInsets(): CanvasLayout {
   let bottom = 0;
 
   if (hud && !hud.classList.contains('hidden')) {
-    top = hud.offsetHeight;
+    const hudTop = hud.querySelector('.hud-top') as HTMLElement | null;
+    top = hudTop ? hudTop.offsetHeight : 0;
+    const hudBottom = hud.querySelector('.hud-bottom') as HTMLElement | null;
+    if (hudBottom) {
+      bottom = Math.max(bottom, hudBottom.offsetHeight);
+    }
   }
   if (cooldown && !cooldown.classList.contains('hidden')) {
-    bottom = cooldown.offsetHeight + 12;
+    bottom = Math.max(bottom, cooldown.offsetHeight + 12);
   }
 
   layout = {
@@ -49,8 +54,18 @@ function resolveCtx(): CanvasRenderingContext2D {
 }
 
 export const ctx: CanvasRenderingContext2D = new Proxy({} as CanvasRenderingContext2D, {
-  get(_target, prop, receiver) {
-    return Reflect.get(resolveCtx(), prop, receiver);
+  get(_target, prop) {
+    const realCtx = resolveCtx();
+    const value = Reflect.get(realCtx, prop, realCtx);
+    if (typeof value === 'function') {
+      return value.bind(realCtx);
+    }
+    return value;
+  },
+  set(_target, prop, value) {
+    const realCtx = resolveCtx();
+    Reflect.set(realCtx, prop, value, realCtx);
+    return true;
   },
 });
 

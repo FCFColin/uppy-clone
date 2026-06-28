@@ -3,13 +3,13 @@ package auth
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/metrics"
+	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/slogctx"
 )
 
@@ -96,7 +96,7 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 			// 企业为何需要：多 IP 同账户登录是账户盗用/凭证共享的典型信号，需告警。
 			if rev != nil {
 				if provider, ok := rev.(redisClientProvider); ok {
-					detectMultiIPLogin(r.Context(), provider.Client(), userId, clientIPFromRequest(r))
+					detectMultiIPLogin(r.Context(), provider.Client(), userId, requestctx.ExtractClientIP(r))
 				}
 			}
 			// Inject user_id into slog context for structured logging
@@ -116,6 +116,15 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 // AuthenticatedUserFromRequest returns user info from request context (AuthMiddleware)
 // or from valid session/quickplay JWT cookies on routes without that middleware.
 func AuthenticatedUserFromRequest(r *http.Request, jwtMgr *JWTManager) (userID, nickname string, ok bool) {
+	return authenticatedUserFromCookies(r, jwtMgr, nil)
+}
+
+// AuthenticatedUserFromRequestWithRevocation rejects revoked JWT cookies (logout-safe).
+func AuthenticatedUserFromRequestWithRevocation(r *http.Request, jwtMgr *JWTManager, rev JWTRevocationChecker) (userID, nickname string, ok bool) {
+	return authenticatedUserFromCookies(r, jwtMgr, rev)
+}
+
+func authenticatedUserFromCookies(r *http.Request, jwtMgr *JWTManager, rev JWTRevocationChecker) (userID, nickname string, ok bool) {
 	if uid, nick, ctxOK := GetAuthenticatedUser(r); ctxOK {
 		return uid, nick, true
 	}
@@ -123,10 +132,17 @@ func AuthenticatedUserFromRequest(r *http.Request, jwtMgr *JWTManager) (userID, 
 		return "", "", false
 	}
 	for _, cookieName := range []string{"session", "quickplay"} {
-		uid, nick, _ := tryCookie(r, jwtMgr, cookieName)
-		if uid != "" {
-			return uid, nick, true
+		uid, nick, jti := tryCookie(r, jwtMgr, cookieName)
+		if uid == "" {
+			continue
 		}
+		if rev != nil {
+			revoked, revErr := rev.IsJWTRevoked(r.Context(), jti)
+			if revErr != nil || revoked {
+				continue
+			}
+		}
+		return uid, nick, true
 	}
 	return "", "", false
 }
@@ -178,16 +194,6 @@ func WithRole(ctx context.Context, role string) context.Context {
 func RoleFromContext(r *http.Request) (string, bool) {
 	role, ok := r.Context().Value(roleKey).(string)
 	return role, ok
-}
-
-// clientIPFromRequest extracts the client IP from the request, handling
-// proxied environments by trusting RemoteAddr (set by RealIP middleware).
-func clientIPFromRequest(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 // detectMultiIPLogin tracks the client IP for a user in a Redis Set with a

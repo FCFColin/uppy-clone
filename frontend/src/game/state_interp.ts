@@ -1,44 +1,17 @@
-import { MAX_SEEN_SEQS, PHYSICS } from './constants.js';
+import { MAX_SEEN_SEQS } from './constants.js';
+import type { InterpBirdPoint, InterpGhostPoint, InterpPoint } from './interp_buffers.js';
+import {
+  TELEPORT_THRESHOLD,
+  TICK_MS,
+  birdBuffer,
+  clearAnchorBuffers,
+  getRenderTime,
+  ghostBuffer,
+  pushAnchors,
+  tryBalloonFromDelayBuffer,
+  tryEntityFromDelayBuffer,
+} from './interp_buffers.js';
 import { state } from './state_types.js';
-
-const TICK_MS: number = PHYSICS.TICK_INTERVAL;
-const INTERP_DELAY_MS: number = PHYSICS.INTERP_DELAY_MS;
-const MAX_SNAPSHOT_BUFFER = 12;
-const TELEPORT_THRESHOLD = 0.05;
-
-interface InterpPoint {
-  x: number;
-  y: number;
-}
-
-interface InterpGhostPoint {
-  x: number;
-  y: number;
-  active: boolean;
-}
-
-interface InterpBirdPoint {
-  x: number;
-  y: number;
-  active: boolean;
-}
-
-interface BalloonAnchor {
-  tick: number;
-  receivedAt: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-}
-
-interface EntityAnchor {
-  tick: number;
-  receivedAt: number;
-  x: number;
-  y: number;
-  active: boolean;
-}
 
 let prevTick: number = 0;
 let currTick: number = 0;
@@ -53,116 +26,9 @@ let prevBird: InterpBirdPoint | null = null;
 let currBird: InterpBirdPoint = { x: 0, y: 0, active: false };
 let lastRenderedBalloon: InterpPoint | null = null;
 
-const balloonBuffer: BalloonAnchor[] = [];
-const ghostBuffer: EntityAnchor[] = [];
-const birdBuffer: EntityAnchor[] = [];
-
-/** Kept for API compatibility; RTT is shown in HUD only. */
-export function setInterpolationClockOffset(_rttMs: number): void {}
-
-function getRenderTime(): number {
-  return Date.now() - INTERP_DELAY_MS;
-}
-
 function lerpT(): number {
   if (prevBalloon === null) return 1;
   return Math.max(0, (Date.now() - currSnapshotAt) / TICK_MS);
-}
-
-function pushAnchors(tickCount: number): void {
-  const receivedAt = Date.now();
-  balloonBuffer.push({
-    tick: tickCount,
-    receivedAt,
-    x: state.balloon.x,
-    y: state.balloon.y,
-    vx: state.balloon.vx,
-    vy: state.balloon.vy,
-  });
-  ghostBuffer.push({
-    tick: tickCount,
-    receivedAt,
-    x: state.ghost.x,
-    y: state.ghost.y,
-    active: state.ghost.active,
-  });
-  birdBuffer.push({
-    tick: tickCount,
-    receivedAt,
-    x: state.bird.x,
-    y: state.bird.y,
-    active: state.bird.active,
-  });
-  while (balloonBuffer.length > MAX_SNAPSHOT_BUFFER) balloonBuffer.shift();
-  while (ghostBuffer.length > MAX_SNAPSHOT_BUFFER) ghostBuffer.shift();
-  while (birdBuffer.length > MAX_SNAPSHOT_BUFFER) birdBuffer.shift();
-}
-
-function clearAnchorBuffers(): void {
-  balloonBuffer.length = 0;
-  ghostBuffer.length = 0;
-  birdBuffer.length = 0;
-}
-
-function findAnchorIndex(buffer: { receivedAt: number }[], renderTime: number): number {
-  let index = -1;
-  for (let i = 0; i < buffer.length; i++) {
-    if (buffer[i]!.receivedAt <= renderTime) index = i;
-  }
-  return index;
-}
-
-function tryBalloonFromDelayBuffer(): InterpPoint | null {
-  if (balloonBuffer.length === 0) return null;
-  const renderTime = getRenderTime();
-  const i = findAnchorIndex(balloonBuffer, renderTime);
-  if (i < 0) return null;
-
-  const a = balloonBuffer[i]!;
-  const b = balloonBuffer[i + 1];
-  if (!b) {
-    const ticks = (renderTime - a.receivedAt) / TICK_MS;
-    return { x: a.x + a.vx * ticks, y: a.y + a.vy * ticks };
-  }
-
-  const span = b.receivedAt - a.receivedAt;
-  if (span <= 0) return { x: b.x, y: b.y };
-  const t = Math.min(1, (renderTime - a.receivedAt) / span);
-  let x = a.x + (b.x - a.x) * t;
-  let y = a.y + (b.y - a.y) * t;
-  if (t >= 1) {
-    const extraTicks = (renderTime - b.receivedAt) / TICK_MS;
-    if (extraTicks > 0) {
-      x += b.vx * extraTicks;
-      y += b.vy * extraTicks;
-    }
-  }
-  return { x, y };
-}
-
-// --- Entity delay-buffer interpolation (ghost / bird) ---
-
-function tryEntityFromDelayBuffer(
-  buffer: EntityAnchor[],
-  renderTime: number,
-): InterpPoint | null {
-  if (buffer.length === 0) return null;
-  const i = findAnchorIndex(buffer, renderTime);
-  if (i < 0) return null;
-
-  const a = buffer[i]!;
-  const b = buffer[i + 1];
-  if (!a.active) return null;
-  if (!b) return { x: a.x, y: a.y };
-  if (!b.active) return { x: a.x, y: a.y };
-
-  const span = b.receivedAt - a.receivedAt;
-  if (span <= 0) return { x: b.x, y: b.y };
-  const t = Math.min(1, (renderTime - a.receivedAt) / span);
-  return {
-    x: a.x + (b.x - a.x) * t,
-    y: a.y + (b.y - a.y) * t,
-  };
 }
 
 function interpolateBalloonPrevCurr(): InterpPoint {
@@ -312,7 +178,6 @@ export function getInterpolatedBird(): InterpBirdPoint | null {
   return getInterpolatedBirdPrevCurr();
 }
 
-/** Call once per rendered frame to avoid snap-back on the next snapshot. */
 export function commitRenderedState(): void {
   lastRenderedBalloon = { ...getInterpolatedBalloon() };
 }

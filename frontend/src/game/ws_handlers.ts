@@ -2,10 +2,7 @@ import { MSG_TYPE } from './constants.js';
 import { handlePong } from './ws_connection.js';
 import { handleSnapshot } from './ws_handlers_snapshot.js';
 import { handleGameStateChange, handleRestartStatus } from './ws_handlers_phase.js';
-import {
-  handlePlayerJoin, handlePlayerLeave,
-  handleTapAccepted, handleTapRejected,
-} from './ws_handlers_events.js';
+import { handleTapAccepted, handleTapRejected } from './ws_handlers_events.js';
 
 export function handleBinaryMessage(buffer: ArrayBuffer): void {
   const view: DataView = new DataView(buffer);
@@ -14,12 +11,6 @@ export function handleBinaryMessage(buffer: ArrayBuffer): void {
   switch (msgType) {
     case MSG_TYPE.SNAPSHOT:
       handleSnapshot(view);
-      break;
-    case MSG_TYPE.PLAYER_JOIN:
-      handlePlayerJoin(view);
-      break;
-    case MSG_TYPE.PLAYER_LEAVE:
-      handlePlayerLeave(view);
       break;
     case MSG_TYPE.TAP_ACCEPTED:
       handleTapAccepted(view);
@@ -35,6 +26,10 @@ export function handleBinaryMessage(buffer: ArrayBuffer): void {
       break;
     case MSG_TYPE.PONG:
       handlePong();
+      break;
+    case MSG_TYPE.PLAYER_JOIN:
+    case MSG_TYPE.PLAYER_LEAVE:
+      // Player roster is driven by snapshots; join/leave are server-side events only.
       break;
     default:
       console.warn('Unknown message type:', msgType);

@@ -1,3 +1,4 @@
+// Package requestctx stores per-request values such as trusted-proxy state.
 package requestctx
 
 import (

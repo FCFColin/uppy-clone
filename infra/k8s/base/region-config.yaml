@@ -10,3 +10,6 @@ data:
   deploy-region: ""
   region-ws-endpoint: ""
   db-dialect: postgres
+  # Comma-separated CIDRs of GKE Ingress / L7 LB proxies that may set X-Forwarded-*.
+  # Overlays replace __TRUSTED_PROXY_CIDRS__ at deploy time (see ci-cd.yml).
+  trusted-proxy-cidrs: ""

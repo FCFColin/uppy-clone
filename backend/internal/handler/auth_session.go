@@ -25,7 +25,7 @@ func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email strin
 	if email != "" {
 		body["email"] = email
 	}
-	json.NewEncoder(w).Encode(body)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // CheckAuth handles GET /api/v1/auth/check
@@ -33,7 +33,11 @@ func (h *AuthHandler) CheckAuth(w http.ResponseWriter, r *http.Request) {
 	rec, w := metrics.BeginAuth("check", w)
 	defer rec.End()
 
-	userId, nickname, ok := auth.AuthenticatedUserFromRequest(r, h.jwtMgr)
+	var rev auth.JWTRevocationChecker
+	if h.redis != nil {
+		rev = h.redis
+	}
+	userId, nickname, ok := auth.AuthenticatedUserFromRequestWithRevocation(r, h.jwtMgr, rev)
 	if !ok || userId == "" {
 		apierror.Unauthorized("").Write(w)
 		return
@@ -62,22 +66,21 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.BadRequest("Invalid request body").Write(w)
-		return
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	refreshToken := auth.RefreshTokenFromRequest(r)
+	if refreshToken == "" {
+		refreshToken = body.RefreshToken
 	}
-	if body.RefreshToken == "" {
-		apierror.BadRequest("refresh_token is required").Write(w)
+	if refreshToken == "" {
+		apierror.BadRequest("refresh token is required").Write(w)
 		return
 	}
 
 	if h.redis == nil {
 		slog.Warn("degraded: Redis not available, cannot refresh token")
 		WriteDegradedJSON(w, http.StatusServiceUnavailable,
-			map[string]interface{}{
-				"access_token":  "",
-				"refresh_token": "",
-			},
+			map[string]interface{}{"refreshed": false},
 			"Token refresh temporarily unavailable, please retry later")
 		return
 	}
@@ -87,20 +90,16 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := auth.RefreshSession(ctx, h.refreshMgr, h.jwtMgr, h.db, body.RefreshToken)
+	result, err := auth.RefreshSession(ctx, h.refreshMgr, h.jwtMgr, h.db, refreshToken)
 	if err != nil {
 		apierror.Unauthorized("Invalid or expired refresh token").Write(w)
 		return
 	}
 
 	secure := auth.IsSecure(r)
-	cookie := auth.BuildAuthCookie("quickplay", result.AccessToken, config.CookieMaxAge, secure)
-	http.SetCookie(w, cookie)
+	writeAuthCookies(w, r, auth.BuildAuthCookie("quickplay", result.AccessToken, config.CookieMaxAge, secure), result.RefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"access_token":  result.AccessToken,
-		"refresh_token": result.RefreshToken,
-	})
+	_ = json.NewEncoder(w).Encode(map[string]bool{"refreshed": true})
 }

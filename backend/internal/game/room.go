@@ -58,6 +58,12 @@ type Room struct {
 	// endGameAlarm 用于 ended 阶段的定时重启
 	endGameTimer *time.Timer
 
+	// startDelayTimer 给玩家短暂时间看到欢迎信息后再开始倒计时
+	startDelayTimer *time.Timer
+
+	// startDelay 是开始游戏前的延迟，默认 1.5 秒，测试中可覆盖
+	startDelay time.Duration
+
 	// wg tracks tick goroutines so Close() can wait for them to exit
 	// before persisting state (P2-24: graceful shutdown).
 	wg sync.WaitGroup
@@ -99,6 +105,7 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 		logger:      slog.Default().With("lobby", code),
 		maxPlayers:  maxPlayers,
 		instanceID:  defaultInstanceID(),
+		startDelay:  2000 * time.Millisecond,
 	}
 	if hub != nil {
 		r.broadcaster = hub.broadcaster
@@ -132,6 +139,9 @@ func (r *Room) Close() {
 	r.mu.Lock()
 	if r.endGameTimer != nil {
 		r.endGameTimer.Stop()
+	}
+	if r.startDelayTimer != nil {
+		r.startDelayTimer.Stop()
 	}
 	for _, pc := range r.connections {
 		if pc.Conn != nil {

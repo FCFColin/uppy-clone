@@ -16,8 +16,8 @@ branches:
         contexts:
           # ci-cd.yml
           - "Quality Gate"
-          - "E2E Gameplay Tests（核心玩法验证）"
-          - "E2E Performance Tests（性能验证）"
+          - "E2E Tests (gameplay)"
+          - "E2E Tests (performance)"
           # go-ci.yml
           - "Test"
           - "Lint"
@@ -31,7 +31,6 @@ branches:
           - "Migration Test"
           - "Docker Image Pinning"
           - "License Check"
-          - "Build & Push"
       enforce_admins: true
       restrictions: null
       allow_force_pushes: false

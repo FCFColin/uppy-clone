@@ -14,6 +14,7 @@ type statusWriter struct {
 	status int
 }
 
+// NewStatusWriter wraps a ResponseWriter to capture the written status code.
 func NewStatusWriter(w http.ResponseWriter) *statusWriter {
 	return &statusWriter{ResponseWriter: w}
 }
@@ -48,11 +49,13 @@ type AuthRecorder struct {
 	start    time.Time
 }
 
+// BeginAuth wraps the response writer and starts auth latency measurement.
 func BeginAuth(endpoint string, w http.ResponseWriter) (*AuthRecorder, *statusWriter) {
 	sw := NewStatusWriter(w)
 	return &AuthRecorder{sw: sw, endpoint: endpoint, start: time.Now()}, sw
 }
 
+// End records auth metrics for the wrapped request.
 func (r *AuthRecorder) End() {
 	RecordAuth(r.endpoint, r.sw.Status(), r.start)
 }

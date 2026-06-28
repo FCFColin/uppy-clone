@@ -3,6 +3,7 @@ package game
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/auth"
@@ -18,49 +19,78 @@ type gameResultJob struct {
 
 // enqueueGameResultAsync fires game result + outbox insert without blocking the caller.
 func (r *Room) enqueueGameResultAsync() {
-	if r.hub == nil || r.hub.redis == nil || r.state.SessionID == "" {
+	if r.state.SessionID == "" {
 		return
 	}
 
 	endedAt := time.Now().UnixMilli()
-	results := make([]map[string]interface{}, 0, len(r.state.Players))
+	results := make([]domain.GameResultPlayer, 0, len(r.state.Players))
 	for _, p := range r.state.Players {
-		results = append(results, map[string]interface{}{
-			"user_id":            p.ID,
-			"score_contribution": p.ScoreContribution,
-			"taps_count":         p.TapsCount,
+		results = append(results, domain.GameResultPlayer{
+			UserID:            p.ID,
+			ScoreContribution: p.ScoreContribution,
+			TapsCount:         p.TapsCount,
 		})
 	}
 
-	payload := map[string]interface{}{
-		"game_id":     r.state.SessionID,
-		"room_code":   r.state.LobbyCode,
-		"final_score": r.state.Balloon.Score,
-		"results":     results,
-		"ended_at":    endedAt,
-	}
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		r.logger.Error("marshal game result payload", "error", err)
-		return
-	}
+	finalScore := r.state.Balloon.Score
+	sessionID := r.state.SessionID
+	roomCode := r.state.LobbyCode
 
-	var outboxPayload []byte
+	// 直写 PostgreSQL 作为主路径，不依赖 Redis 队列。
 	if r.store != nil {
-		outboxPayload, err = auth.GameEndedOutboxPayload(payload)
-		if err != nil {
-			r.logger.Error("marshal game ended outbox payload", "error", err)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
+			defer cancel()
+			if err := r.store.RecordGameResult(ctx, sessionID, roomCode, endedAt, finalScore, results); err != nil {
+				slog.Error("direct record game result failed", "error", err, "session_id", sessionID)
+			}
+		}()
+	}
+
+	// 同时入队 Redis（供 worker 批量处理/对账），非主路径。
+	if r.hub != nil && r.hub.redis != nil {
+		payload := map[string]interface{}{
+			"game_id":     sessionID,
+			"room_code":   roomCode,
+			"final_score": finalScore,
+			"results":     resultsToMap(results),
+			"ended_at":    endedAt,
 		}
-	}
+		payloadJSON, err := json.Marshal(payload)
+		if err != nil {
+			r.logger.Error("marshal game result payload", "error", err)
+			return
+		}
 
-	job := gameResultJob{
-		sessionID: r.state.SessionID,
-		roomCode:  r.state.LobbyCode,
-		payload:   payloadJSON,
-		outbox:    outboxPayload,
-	}
+		var outboxPayload []byte
+		if r.store != nil {
+			outboxPayload, err = auth.GameEndedOutboxPayload(payload)
+			if err != nil {
+				r.logger.Error("marshal game ended outbox payload", "error", err)
+			}
+		}
 
-	go r.runGameResultJob(job)
+		job := gameResultJob{
+			sessionID: sessionID,
+			roomCode:  roomCode,
+			payload:   payloadJSON,
+			outbox:    outboxPayload,
+		}
+		go r.runGameResultJob(job)
+	}
+}
+
+func resultsToMap(results []domain.GameResultPlayer) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(results))
+	for _, r := range results {
+		out = append(out, map[string]interface{}{
+			"user_id":            r.UserID,
+			"score_contribution": r.ScoreContribution,
+			"taps_count":         r.TapsCount,
+		})
+	}
+	return out
 }
 
 func (r *Room) runGameResultJob(job gameResultJob) {

@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// StoreMagicToken persists hashed magic-link token data with a TTL.
 func (s *RedisStore) StoreMagicToken(ctx context.Context, hashedToken string, data []byte, ttl time.Duration) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "redis.StoreMagicToken",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -30,6 +31,7 @@ func (s *RedisStore) StoreMagicToken(ctx context.Context, hashedToken string, da
 	return err
 }
 
+// GetMagicToken loads hashed magic-link token data from Redis.
 func (s *RedisStore) GetMagicToken(ctx context.Context, hashedToken string) ([]byte, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "redis.GetMagicToken",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -59,6 +61,7 @@ func (s *RedisStore) GetMagicToken(ctx context.Context, hashedToken string) ([]b
 	return result, nil
 }
 
+// DeleteMagicToken removes a hashed magic-link token from Redis.
 func (s *RedisStore) DeleteMagicToken(ctx context.Context, hashedToken string) error {
 	key := magicTokenKey(hashedToken)
 	_, err := s.cb.Execute(func() (any, error) {

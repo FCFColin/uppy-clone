@@ -13,11 +13,13 @@ import (
 	"github.com/uppy-clone/backend/internal/resilience"
 )
 
+// RedisStore wraps a go-redis client with circuit breaker protection.
 type RedisStore struct {
 	rdb *redis.Client
 	cb  *gobreaker.CircuitBreaker[any]
 }
 
+// NewRedisStore connects to Redis using the given URL and timeout configuration.
 func NewRedisStore(redisURL string, timeouts config.TimeoutConfig) (*RedisStore, error) {
 	conn, err := config.ParseRedisURL(redisURL)
 	if err != nil {
@@ -59,9 +61,14 @@ func NewRedisStoreFromClient(rdb *redis.Client) *RedisStore {
 	}
 }
 
+// PoolStats returns the underlying Redis connection pool statistics.
 func (s *RedisStore) PoolStats() *redis.PoolStats { return s.rdb.PoolStats() }
-func (s *RedisStore) Client() *redis.Client       { return s.rdb }
-func (s *RedisStore) Close() error                { return s.rdb.Close() }
+
+// Client exposes the underlying go-redis client for advanced use cases.
+func (s *RedisStore) Client() *redis.Client { return s.rdb }
+
+// Close shuts down the Redis client and its connection pool.
+func (s *RedisStore) Close() error { return s.rdb.Close() }
 
 func getEnvInt(key string, defaultVal int) int {
 	val := os.Getenv(key)

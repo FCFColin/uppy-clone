@@ -37,17 +37,7 @@ func HandleRestartVote(room *Room, player *domain.PlayerState) error {
 // - 全部同意 → 立即重启
 // - 第一个投票 → 启动 30 秒倒计时
 func CheckRestartConsensus(room *Room) error {
-	// 计算在线玩家和投票数
-	connectedCount := 0
-	yesVotes := 0
-	for _, p := range room.state.Players {
-		if !p.Disconnected {
-			connectedCount++
-			if v, ok := room.state.RestartVotes[p.ID]; ok && v {
-				yesVotes++
-			}
-		}
-	}
+	yesVotes, connectedCount := countRestartYesVotes(room.state.Players, room.state.RestartVotes)
 
 	// 广播投票状态
 	var countdownMs uint32
@@ -124,8 +114,7 @@ func RestartAndStart(room *Room) error {
 	ResetGameEntities(room.state, RandomSpawnTimer())
 	room.countdownStart = time.Now().UnixMilli()
 
-	countdownMs := int64(protocol.CountdownTicks) * 1000 / int64(protocol.TickRate)
-	room.setEndGameAlarm(time.Now().Add(time.Duration(countdownMs) * time.Millisecond))
+	room.scheduleCountdownFromNow()
 
 	// 先持久化，成功后再广播。持久化失败时回滚内存状态，不广播不一致的状态。
 	if err := room.saveStateWithError(); err != nil {
@@ -134,9 +123,7 @@ func RestartAndStart(room *Room) error {
 		return err
 	}
 
-	countdownMsU32 := uint32(protocol.CountdownTicks) * 1000 / uint32(protocol.TickRate)
-	room.broadcastCritical(protocol.EncodeGameStateChange(protocol.PhaseCountdown, countdownMsU32))
-	room.broadcast(room.buildSnapshot(), "")
+	room.broadcastCountdownPhase()
 
 	return nil
 }

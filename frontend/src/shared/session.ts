@@ -1,6 +1,4 @@
-import {
-  storeRefreshToken, getRefreshToken, refreshAccessToken, clearRefreshToken,
-} from './auth.js';
+import { refreshAccessToken } from './auth.js';
 import { fetchWithRetry } from './fetch.js';
 
 export type SessionResult =
@@ -18,22 +16,24 @@ export function normalizeAuthHost(): void {
 }
 
 /**
- * Ensure the browser has a valid game session (access cookie + refresh token).
+ * Ensure the browser has a valid game session (access cookie + refresh cookie).
  * Falls back to quickplay when check/refresh fail.
  */
 export async function establishGameSession(): Promise<SessionResult> {
   try {
+    if (sessionStorage.getItem('uppy-auth-ready') === '1') {
+      sessionStorage.removeItem('uppy-auth-ready');
+      const quickCheck: Response = await fetch('/api/v1/auth/check', { credentials: 'include' });
+      if (quickCheck.ok) return { ok: true };
+    }
+
     const checkRes: Response = await fetch('/api/v1/auth/check', { credentials: 'include' });
     if (checkRes.ok) return { ok: true };
 
-    const refreshToken = getRefreshToken();
-    if (refreshToken) {
-      const refreshed = await refreshAccessToken();
-      if (refreshed) {
-        const recheck: Response = await fetch('/api/v1/auth/check', { credentials: 'include' });
-        if (recheck.ok) return { ok: true };
-      }
-      clearRefreshToken();
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const recheck: Response = await fetch('/api/v1/auth/check', { credentials: 'include' });
+      if (recheck.ok) return { ok: true };
     }
 
     const savedNick: string = localStorage.getItem('uppy-nickname') || '';
@@ -49,12 +49,8 @@ export async function establishGameSession(): Promise<SessionResult> {
       return { ok: false, status: res.status, reason: 'server' };
     }
 
-    const data: { userId?: string; refreshToken?: string } = await res.json() as {
-      userId?: string;
-      refreshToken?: string;
-    };
+    const data: { userId?: string } = await res.json() as { userId?: string };
     if (data.userId) localStorage.setItem('uppy-player-id', data.userId);
-    if (data.refreshToken) storeRefreshToken(data.refreshToken);
     return { ok: true };
   } catch {
     return { ok: false, reason: 'network' };

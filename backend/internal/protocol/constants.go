@@ -147,8 +147,8 @@ const (
 	CountdownTicks = 45  // 3s x 15Hz
 	EndResetTicks  = 450 // 30s x 15Hz
 
-	BirdSpawnMin        = 300 // 20s x 15Hz
-	BirdSpawnMax        = 600 // 40s x 15Hz
+	BirdSpawnMin        = 15  // 1s x 15Hz
+	BirdSpawnMax        = 30  // 2s x 15Hz
 	BirdSpeed           = 0.003
 	BirdCollisionRadius = 0.05
 
@@ -156,7 +156,8 @@ const (
 	GhostSpawnMax             = 30 // 2s x 15Hz
 	GhostSpeed                = 0.002
 	GhostAttractRadius        = 0.4
-	GhostCollisionRadius      = 0.06
+	GhostCollisionRadiusX     = 0.05  // matches balloon visual radius for fair collision
+	GhostCollisionRadiusY     = 0.065 // slightly more forgiving vertical
 	GhostRepelRadius          = 0.15
 	GhostRepelDuration        = 30 // 2s x 15Hz
 	GhostRepelForce           = 0.01

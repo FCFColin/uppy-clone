@@ -54,6 +54,7 @@ func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, redis *store.
 		r.With(appMiddleware.EndpointRateLimit(redis, "auth:quickplay", jwtMgr)).Post("/quickplay", authHandler.QuickPlay)
 		r.With(appMiddleware.EndpointRateLimit(redis, "auth:request", jwtMgr)).Post("/request", authHandler.RequestMagicLink)
 		r.With(appMiddleware.EndpointRateLimit(redis, "auth:verify", jwtMgr)).Get("/verify", authHandler.VerifyMagicLink)
+		r.With(appMiddleware.EndpointRateLimit(redis, "auth:verify", jwtMgr)).Post("/verify", authHandler.VerifyMagicLinkPost)
 		r.Get("/check", authHandler.CheckAuth)
 		r.Post("/refresh", authHandler.RefreshToken)
 		r.Post("/logout", authHandler.Logout)

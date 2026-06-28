@@ -13,7 +13,7 @@
     <div class="countdown-number">3</div>
   </div>
 
-  <div id="loading-overlay">
+  <div id="loading-overlay" class="hidden">
     <div class="loading-spinner"></div>
     <div class="loading-text">加载中…</div>
     <div id="loading-error-panel" class="hidden">
@@ -51,11 +51,13 @@
   <div id="nickname-setup-screen" class="overlay hidden">
     <div class="overlay-content">
       <h2>设置你的昵称</h2>
-      <div class="nickname-setup">
-        <input id="setup-nickname-input" type="text" maxlength="12" placeholder="输入昵称..." aria-label="昵称">
-        <button id="random-nickname-btn" class="btn-small" type="button">随机一个</button>
-      </div>
-      <button id="enter-game-btn" class="btn-primary" type="button">进入游戏</button>
+      <form id="nickname-entry-form">
+        <div class="nickname-setup">
+          <input id="setup-nickname-input" type="text" maxlength="12" placeholder="输入昵称..." aria-label="昵称">
+          <button id="random-nickname-btn" class="btn-small" type="button">随机一个</button>
+        </div>
+        <button id="enter-game-btn" class="btn-primary" type="submit">进入游戏</button>
+      </form>
       <p id="nickname-connect-status" class="hint">正在连接房间…</p>
     </div>
   </div>
@@ -63,6 +65,7 @@
   <div id="waiting-screen" class="overlay hidden">
     <div class="overlay-content waiting-card">
       <h2 id="waiting-title">准备开始...</h2>
+      <p id="waiting-connect-error" class="hint entry-inline-error hidden"></p>
       <div class="lobby-code-display">
         <span>房间码:</span>
         <span id="lobby-code" class="code">-----</span>
@@ -93,7 +96,7 @@
       <button id="restart-btn" class="btn-primary" type="button">投票重新开始（需全员同意）</button>
       <div id="restart-progress" class="restart-progress"></div>
       <div id="restart-countdown" class="restart-countdown"></div>
-      <a href="/leaderboard.html" class="link-secondary end-leaderboard-link">查看排行榜 →</a>
+      <a href="/leaderboard.html" class="btn-secondary end-leaderboard-link" target="_blank" rel="noopener">查看排行榜</a>
     </div>
   </div>
 

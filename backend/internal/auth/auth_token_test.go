@@ -7,11 +7,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/store"
 )
+
+func TestNewJWTManager_PanicsOnWeakSecret(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for JWT secret shorter than 32 bytes")
+		}
+	}()
+	NewJWTManager("too-short")
+}
 
 // ─── SignToken + VerifyToken round-trip ──────────────────────────────
 
@@ -107,6 +117,27 @@ func TestVerifyToken_WrongSecret(t *testing.T) {
 	_, _, _, err = mgr2.VerifyToken(token)
 	if err == nil {
 		t.Fatal("使用错误密钥验证应失败")
+	}
+}
+
+func TestVerifyToken_UnexpectedSigningMethod(t *testing.T) {
+	mgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	token := jwt.NewWithClaims(jwt.SigningMethodNone, customClaims{
+		Nickname: "test",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-1",
+			ID:        "none-jti",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+		},
+	})
+	tokenString, err := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
+	if err != nil {
+		t.Fatalf("SignedString: %v", err)
+	}
+
+	_, _, _, err = mgr.VerifyToken(tokenString)
+	if err == nil {
+		t.Fatal("none-alg token should fail verification")
 	}
 }
 
@@ -248,6 +279,62 @@ func TestNewRefreshTokenManager(t *testing.T) {
 	})
 }
 
+func TestRefreshTokenManager_GenerateRedisError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	mr.SetError("redis unavailable")
+	mgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+
+	_, err = mgr.Generate(context.Background(), testUserID)
+	if err == nil {
+		t.Fatal("expected error when redis Set fails")
+	}
+}
+
+func TestRefreshTokenManager_ValidateRedisError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	mgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	ctx := context.Background()
+	token, err := mgr.Generate(ctx, testUserID)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	mr.SetError("redis unavailable")
+	_, err = mgr.Validate(ctx, token)
+	if err == nil {
+		t.Fatal("expected error when redis Get fails")
+	}
+}
+
+func TestRefreshTokenManager_RevokeAllForUserRedisError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	mgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	ctx := context.Background()
+	if _, err := mgr.Generate(ctx, "user-revoke-err"); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	mr.SetError("redis unavailable")
+	if err := mgr.RevokeAllForUser(ctx, "user-revoke-err"); err == nil {
+		t.Fatal("expected error when SMembers fails")
+	}
+}
+
 // The following tests require a real Redis connection.
 // They are skipped if Redis is not available.
 // In CI, use testcontainers or miniredis.
@@ -384,6 +471,11 @@ func newTestJWTManager(t *testing.T) *JWTManager {
 
 // --- 无 cookie：不应 panic ---
 
+func TestRevokeAllTokens_NilRequest(t *testing.T) {
+	mgr := newTestJWTManager(t)
+	RevokeAllTokens(context.Background(), mgr, nil, nil, nil)
+}
+
 func TestRevokeAllTokens_NoCookie(t *testing.T) {
 	mgr := newTestJWTManager(t)
 
@@ -391,6 +483,32 @@ func TestRevokeAllTokens_NoCookie(t *testing.T) {
 
 	// 不应 panic
 	RevokeAllTokens(context.Background(), mgr, nil, nil, req)
+}
+
+func TestRevokeAllTokens_RefreshRevokeError(t *testing.T) {
+	mgr := newTestJWTManager(t)
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	ctx := context.Background()
+
+	token, err := mgr.SignToken("user-refresh-revoke", "Player")
+	if err != nil {
+		t.Fatalf("SignToken: %v", err)
+	}
+	if _, err := refreshMgr.Generate(ctx, "user-refresh-revoke"); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	mr.SetError("redis unavailable")
+	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+
+	RevokeAllTokens(ctx, mgr, refreshMgr, nil, req)
 }
 
 // --- cookie 存在但 token 无效：不应 panic，不调用 RevokeJWT ---

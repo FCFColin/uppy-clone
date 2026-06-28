@@ -5,7 +5,6 @@ import (
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
-	"github.com/uppy-clone/backend/internal/validate"
 )
 
 // HandleSetNickname 处理设置昵称请求
@@ -21,17 +20,12 @@ func HandleSetNickname(_ *domain.GameState, player *domain.PlayerState, nickname
 		return false
 	}
 
-	// 内容过滤：去除控制字符、零宽字符和 HTML 特殊字符
-	nickname = sanitizeNickname(nickname)
-	if nickname == "" {
+	// 内容过滤与长度限制（domain.Nickname 委托 validate.Nickname）
+	parsed, err := domain.NewNickname(nickname)
+	if err != nil {
 		return false
 	}
-
-	// 长度限制统一为 12 字符
-	runeSlice := []rune(nickname)
-	if len(runeSlice) > protocol.MaxNicknameLen {
-		nickname = string(runeSlice[:protocol.MaxNicknameLen])
-	}
+	nickname = parsed.String()
 
 	// 与当前昵称相同则无需修改
 	if nickname == player.Nickname {
@@ -50,9 +44,4 @@ func HandleSetNickname(_ *domain.GameState, player *domain.PlayerState, nickname
 	player.LastNicknameChange = now
 	player.Nickname = nickname
 	return true
-}
-
-// sanitizeNickname delegates to validate.Nickname for unified sanitization.
-func sanitizeNickname(raw string) string {
-	return validate.Nickname(raw)
 }

@@ -20,15 +20,19 @@ func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
 
 	nickname := auth.ParseQuickPlayRequest(r)
 
-	cookie, resp, err := auth.QuickPlay(h.db, h.jwtMgr, h.refreshMgr, nickname, r)
+	var rev auth.JWTRevocationChecker
+	if h.redis != nil {
+		rev = h.redis
+	}
+	cookie, resp, err := auth.QuickPlay(h.db, h.jwtMgr, h.refreshMgr, rev, nickname, r)
 	if err != nil {
 		apierror.InternalError("Internal server error").Write(w)
 		return
 	}
 
-	http.SetCookie(w, cookie)
+	writeAuthCookies(w, r, cookie, resp.RefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }

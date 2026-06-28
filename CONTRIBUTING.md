@@ -72,7 +72,7 @@ make lint-all
 
 ## Code Simplification
 
-重构与简化遵循 [代码简化 Roadmap](docs/development/code-simplification-roadmap.md)：
+重构与简化遵循 [代码简化计划](docs/development/code-simplification-plan.md)：
 
 1. **行为不变** — 只改表达方式，不改语义
 2. **遵循项目约定** — 见上文测试约定与 ADR-021

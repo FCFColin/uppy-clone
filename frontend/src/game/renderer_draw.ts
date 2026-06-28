@@ -50,20 +50,78 @@ export function drawBird(): void {
   if (!bird || !bird.active) return;
   const bx: number = bird.x * $canvas.width;
   const by: number = (1 - bird.y) * $canvas.height;
-  const size: number = Math.min($canvas.width, $canvas.height) * 0.03;
+  const size: number = Math.min($canvas.width, $canvas.height) * 0.035;
 
+  // 飞行方向：根据水平速度决定朝向
+  const vx = state.balloon.x - bird.x;
+  const dir: number = vx >= 0 ? 1 : -1;
+
+  // 翅膀扇动动画（基于时间）
+  const flapPhase: number = Math.sin(Date.now() * 0.012);
+  const wingY: number = flapPhase * size * 0.5;
+
+  ctx.save();
+  ctx.translate(bx, by);
+  ctx.scale(dir, 1);
+
+  // ── 翅膀（后层）──
   ctx.beginPath();
-  ctx.moveTo(bx + size, by);
-  ctx.lineTo(bx - size, by - size * 0.7);
-  ctx.lineTo(bx - size, by + size * 0.7);
-  ctx.closePath();
-  ctx.fillStyle = '#fca311';
+  ctx.ellipse(-size * 0.15, -wingY * 0.6, size * 0.55, size * 0.28, -0.35, 0, Math.PI * 2);
+  const wingGrad: CanvasGradient = ctx.createLinearGradient(0, -size * 0.4, 0, size * 0.2);
+  wingGrad.addColorStop(0, '#e85d04');
+  wingGrad.addColorStop(1, '#dc2f02');
+  ctx.fillStyle = wingGrad;
   ctx.fill();
 
+  // ── 身体 ──
   ctx.beginPath();
-  ctx.arc(bx + size * 0.3, by - size * 0.1, size * 0.15, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, size * 0.6, size * 0.42, 0, 0, Math.PI * 2);
+  const bodyGrad: CanvasGradient = ctx.createRadialGradient(
+    -size * 0.15, -size * 0.15, size * 0.05,
+    0, 0, size * 0.6,
+  );
+  bodyGrad.addColorStop(0, '#ffba08');
+  bodyGrad.addColorStop(0.6, '#f48c06');
+  bodyGrad.addColorStop(1, '#e85d04');
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+
+  // ── 翅膀（前层，覆盖在身体上）──
+  ctx.beginPath();
+  ctx.ellipse(size * 0.05, wingY * 0.3, size * 0.45, size * 0.22, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = wingGrad;
+  ctx.fill();
+
+  // ── 尾巴 ──
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.5, 0);
+  ctx.lineTo(-size * 0.85, -size * 0.2);
+  ctx.lineTo(-size * 0.8, 0);
+  ctx.lineTo(-size * 0.85, size * 0.2);
+  ctx.closePath();
+  ctx.fillStyle = '#dc2f02';
+  ctx.fill();
+
+  // ── 喙 ──
+  ctx.beginPath();
+  ctx.moveTo(size * 0.55, -size * 0.05);
+  ctx.lineTo(size * 0.8, 0);
+  ctx.lineTo(size * 0.55, size * 0.1);
+  ctx.closePath();
+  ctx.fillStyle = '#ffba08';
+  ctx.fill();
+
+  // ── 眼睛 ──
+  ctx.beginPath();
+  ctx.arc(size * 0.32, -size * 0.12, size * 0.1, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(size * 0.35, -size * 0.12, size * 0.05, 0, Math.PI * 2);
   ctx.fillStyle = '#000';
   ctx.fill();
+
+  ctx.restore();
 }
 
 export function drawGhost(): void {

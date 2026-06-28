@@ -25,6 +25,37 @@ func TestInit_WrongLength(t *testing.T) {
 	}
 }
 
+func TestEncrypt_NotInitialized(t *testing.T) {
+	encKey = nil
+	if _, err := Encrypt("secret"); err == nil {
+		t.Fatal("expected not initialized error")
+	}
+}
+
+func TestDecrypt_InvalidHex(t *testing.T) {
+	if err := Init(testKeyHex); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decrypt("v1:not-valid-hex"); err == nil {
+		t.Fatal("expected hex decode error")
+	}
+}
+
+func TestDecrypt_LegacyRawHex(t *testing.T) {
+	if err := Init(testKeyHex); err != nil {
+		t.Fatal(err)
+	}
+	withPrefix, err := Encrypt("legacy-compat")
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	rawHex := strings.TrimPrefix(withPrefix, "v1:")
+	got, err := Decrypt(rawHex)
+	if err != nil || got != "legacy-compat" {
+		t.Fatalf("Decrypt legacy = %q, %v", got, err)
+	}
+}
+
 func TestEncryptDecrypt_RoundTrip(t *testing.T) {
 	if err := Init(testKeyHex); err != nil {
 		t.Fatal(err)

@@ -7,6 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// EnqueueEmail pushes an email job onto the Redis Stream outbox.
 func (s *RedisStore) EnqueueEmail(ctx context.Context, payload []byte) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		if err := s.rdb.XAdd(ctx, &redis.XAddArgs{
@@ -20,6 +21,7 @@ func (s *RedisStore) EnqueueEmail(ctx context.Context, payload []byte) error {
 	return err
 }
 
+// EnqueueGameResult pushes a game result job onto the Redis Stream outbox.
 func (s *RedisStore) EnqueueGameResult(ctx context.Context, payload []byte) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		if err := s.rdb.XAdd(ctx, &redis.XAddArgs{

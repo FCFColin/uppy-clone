@@ -46,15 +46,35 @@ func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Magic link sent"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Magic link sent"})
 }
 
-// VerifyMagicLink handles GET /api/v1/auth/verify
+// VerifyMagicLink handles GET /api/v1/auth/verify?token=...
 func (h *AuthHandler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
 	rec, w := metrics.BeginAuth("verify", w)
 	defer rec.End()
 
 	token := r.URL.Query().Get("token")
+	h.verifyMagicLinkToken(w, r, token)
+}
+
+// VerifyMagicLinkPost handles POST /api/v1/auth/verify with JSON body {"token":"..."}.
+// Prefer POST to avoid token leakage via Referer logs and browser history.
+func (h *AuthHandler) VerifyMagicLinkPost(w http.ResponseWriter, r *http.Request) {
+	rec, w := metrics.BeginAuth("verify", w)
+	defer rec.End()
+
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apierror.BadRequest("Invalid request body").Write(w)
+		return
+	}
+	h.verifyMagicLinkToken(w, r, body.Token)
+}
+
+func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Request, token string) {
 	if token == "" {
 		apierror.BadRequest("Token is required").Write(w)
 		return
@@ -66,7 +86,6 @@ func (h *AuthHandler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.redis == nil {
-		// Redis unavailable — cannot verify magic link token, suggest retry later
 		slog.Warn("degraded: Redis not available, cannot verify magic link")
 		WriteDegradedJSON(w, http.StatusServiceUnavailable,
 			map[string]interface{}{
@@ -76,15 +95,15 @@ func (h *AuthHandler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookie, resp, err := auth.VerifyMagicLink(h.redis, h.db, h.jwtMgr, h.refreshMgr, token)
+	cookie, resp, err := auth.VerifyMagicLink(h.redis, h.db, h.jwtMgr, h.refreshMgr, token, r)
 	if err != nil {
 		apierror.Unauthorized(err.Error()).Write(w)
 		return
 	}
 
-	http.SetCookie(w, cookie)
+	writeAuthCookies(w, r, cookie, resp.RefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }

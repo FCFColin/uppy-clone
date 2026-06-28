@@ -15,6 +15,7 @@ type RoomRepository interface {
 	LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*store.LobbyListResult, error)
 	CreateGameSession(ctx context.Context, gs *domain.GameSession) error
 	InsertOutboxEvent(ctx context.Context, aggregateType, aggregateID string, payload []byte) error
+	RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error
 }
 
 // SnapshotEncoder encodes game snapshots (future DI).

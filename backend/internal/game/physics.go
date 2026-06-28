@@ -16,7 +16,6 @@ const pi = math.Pi
 // bigOneShift53 is cached to avoid allocating a new big.Int on every randFloat64 call.
 var bigOneShift53 = big.NewInt(1 << 53)
 
-// randFloat64 返回 [0, 1) 的随机浮点数
 func randFloat64() float64 {
 	n, err := rand.Int(rand.Reader, bigOneShift53)
 	if err != nil {
@@ -24,15 +23,6 @@ func randFloat64() float64 {
 	}
 	return float64(n.Int64()) / float64(1<<53)
 }
-
-func cos(x float64) float64      { return math.Cos(x) }
-func sin(x float64) float64      { return math.Sin(x) }
-func sqrt(x float64) float64     { return math.Sqrt(x) }
-func atan2(y, x float64) float64 { return math.Atan2(y, x) }
-func abs(x float64) float64      { return math.Abs(x) }
-func log2(x float64) float64     { return math.Log2(x) }
-
-// ─── 气球物理 ────────────────────────────────────────────────────────
 
 // ApplyPhysics 应用气球物理，返回 gameOver 标志
 func ApplyPhysics(balloon *domain.BalloonState) bool {
@@ -61,11 +51,11 @@ func ApplyPhysics(balloon *domain.BalloonState) bool {
 	// 水平边界：反弹（速度减半）
 	if balloon.X <= 0 {
 		balloon.X = 0
-		balloon.VX = abs(balloon.VX) * 0.5
+		balloon.VX = math.Abs(balloon.VX) * 0.5
 	}
 	if balloon.X >= 1 {
 		balloon.X = 1
-		balloon.VX = -abs(balloon.VX) * 0.5
+		balloon.VX = -math.Abs(balloon.VX) * 0.5
 	}
 
 	return false
@@ -75,7 +65,7 @@ func ApplyPhysics(balloon *domain.BalloonState) bool {
 func ApplyTapForce(balloon *domain.BalloonState, tapX, tapY float64) bool {
 	dx := balloon.X - tapX
 	dy := balloon.Y - tapY
-	dist := sqrt(dx*dx + dy*dy)
+	dist := math.Sqrt(dx*dx + dy*dy)
 
 	// 超出有效范围
 	if dist > protocol.TapRange {
@@ -168,7 +158,7 @@ func UpdateBirdAI(bird *domain.BirdState, balloon *domain.BalloonState, tickCoun
 
 			dx := balloon.X - bird.X
 			dy := balloon.Y - bird.Y
-			dist := sqrt(dx*dx + dy*dy)
+			dist := math.Sqrt(dx*dx + dy*dy)
 			bird.VX = (dx / dist) * protocol.BirdSpeed
 			bird.VY = (dy / dist) * protocol.BirdSpeed
 		}
@@ -180,7 +170,7 @@ func UpdateBirdAI(bird *domain.BirdState, balloon *domain.BalloonState, tickCoun
 		if tickCount%30 == 0 {
 			dx := balloon.X - bird.X
 			dy := balloon.Y - bird.Y
-			dist := sqrt(dx*dx + dy*dy)
+			dist := math.Sqrt(dx*dx + dy*dy)
 			if dist > 0 {
 				bird.VX = (dx / dist) * protocol.BirdSpeed
 				bird.VY = (dy / dist) * protocol.BirdSpeed
@@ -202,7 +192,7 @@ func CheckBirdCollision(bird *domain.BirdState, balloon *domain.BalloonState) bo
 	}
 	dx := bird.X - balloon.X
 	dy := bird.Y - balloon.Y
-	distance := sqrt(dx*dx + dy*dy)
+	distance := math.Sqrt(dx*dx + dy*dy)
 	return distance < protocol.BirdCollisionRadius
 }
 
@@ -241,8 +231,18 @@ func UpdateGhostAI(state *domain.GameState) {
 	ghost.X += ghost.VX
 	ghost.Y += ghost.VY
 
-	// 离开屏幕：销毁
-	if ghost.X < -0.15 || ghost.X > 1.15 || ghost.Y < -0.15 || ghost.Y > 1.15 {
+	// Y 轴边界弹反：保持幽灵始终在可见范围内，避免飘到屏幕下方看不见
+	if ghost.Y < 0.02 {
+		ghost.Y = 0.02
+		ghost.VY = math.Abs(ghost.VY)
+	}
+	if ghost.Y > 0.98 {
+		ghost.Y = 0.98
+		ghost.VY = -math.Abs(ghost.VY)
+	}
+
+	// 离开屏幕（仅 X 轴）：销毁并等待重生
+	if ghost.X < -0.15 || ghost.X > 1.15 {
 		ghost.Active = false
 		ghost.SpawnTimer = int(protocol.GhostSpawnMin + randFloat64()*float64(protocol.GhostSpawnMax-protocol.GhostSpawnMin))
 	}
@@ -252,7 +252,7 @@ func applyGhostRepel(ghost *domain.GhostState, state *domain.GameState) {
 	ghost.RepelTimer--
 	dx := ghost.X - state.Balloon.X
 	dy := ghost.Y - state.Balloon.Y
-	dist := sqrt(dx*dx + dy*dy)
+	dist := math.Sqrt(dx*dx + dy*dy)
 	if dist == 0 {
 		dist = 1
 	}
@@ -263,7 +263,7 @@ func applyGhostRepel(ghost *domain.GhostState, state *domain.GameState) {
 func applyGhostAttractOrWander(ghost *domain.GhostState, state *domain.GameState) {
 	dx := state.Balloon.X - ghost.X
 	dy := state.Balloon.Y - ghost.Y
-	dist := sqrt(dx*dx + dy*dy)
+	dist := math.Sqrt(dx*dx + dy*dy)
 
 	if dist < protocol.GhostAttractRadius {
 		attractStrength := 0.5
@@ -274,35 +274,37 @@ func applyGhostAttractOrWander(ghost *domain.GhostState, state *domain.GameState
 
 	if state.TickCount%protocol.GhostWanderChangeInterval == 0 {
 		angle := randFloat64() * 2 * pi
-		ghost.VX = cos(angle) * protocol.GhostSpeed
-		ghost.VY = sin(angle) * protocol.GhostSpeed
+		ghost.VX = math.Cos(angle) * protocol.GhostSpeed
+		ghost.VY = math.Sin(angle) * protocol.GhostSpeed
 	}
 }
 
 func clampGhostVelocity(ghost *domain.GhostState) {
 	maxSpeed := protocol.GhostSpeed * 4
-	speed := sqrt(ghost.VX*ghost.VX + ghost.VY*ghost.VY)
+	speed := math.Sqrt(ghost.VX*ghost.VX + ghost.VY*ghost.VY)
 	if speed > maxSpeed {
 		ghost.VX = (ghost.VX / speed) * maxSpeed
 		ghost.VY = (ghost.VY / speed) * maxSpeed
 	}
 }
 
-// CheckGhostCollision 检查幽灵与气球的碰撞
+// CheckGhostCollision 检查幽灵与气球的碰撞（椭圆碰撞，左右方向更紧）
 func CheckGhostCollision(state *domain.GameState) bool {
 	if !state.Ghost.Active {
 		return false
 	}
 	dx := state.Balloon.X - state.Ghost.X
 	dy := state.Balloon.Y - state.Ghost.Y
-	dist := sqrt(dx*dx + dy*dy)
-	if dist < protocol.GhostCollisionRadius {
+	rx := protocol.GhostCollisionRadiusX
+	ry := protocol.GhostCollisionRadiusY
+	// 椭圆碰撞: (dx/rx)² + (dy/ry)² < 1
+	if (dx*dx)/(rx*rx)+(dy*dy)/(ry*ry) < 1 {
 		// 气球受到向下速度冲击
 		state.Balloon.VY -= protocol.GhostDamage
 		// 幽灵弹开
-		angle := atan2(dy, dx)
-		state.Ghost.VX = -cos(angle) * protocol.GhostSpeed * 3
-		state.Ghost.VY = -sin(angle) * protocol.GhostSpeed * 3
+		angle := math.Atan2(dy, dx)
+		state.Ghost.VX = -math.Cos(angle) * protocol.GhostSpeed * 3
+		state.Ghost.VY = -math.Sin(angle) * protocol.GhostSpeed * 3
 		return true
 	}
 	return false
@@ -315,7 +317,7 @@ func ApplyGhostRepel(state *domain.GameState, tapX, tapY float64) {
 	}
 	dx := state.Ghost.X - tapX
 	dy := state.Ghost.Y - tapY
-	dist := sqrt(dx*dx + dy*dy)
+	dist := math.Sqrt(dx*dx + dy*dy)
 	if dist < protocol.GhostRepelRadius {
 		state.Ghost.RepelTimer = protocol.GhostRepelDuration
 	}
@@ -335,7 +337,7 @@ func RandomSpawnTimer() int {
 //	cooldown_ms(N) = min(15000, round(1500 + 2032 · log₂(max(1, N))))
 func CalculateCooldown(playerCount int) int64 {
 	return int64(min(
-		int(math.Round(float64(protocol.CooldownBaseMs)+float64(protocol.CooldownLogCoeff)*log2(max(1, float64(playerCount))))),
+		int(math.Round(float64(protocol.CooldownBaseMs)+float64(protocol.CooldownLogCoeff)*math.Log2(max(1, float64(playerCount))))),
 		protocol.CooldownMaxMs,
 	))
 }

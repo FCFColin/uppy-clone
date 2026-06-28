@@ -3,6 +3,7 @@ import {
   state,
   updateInterpolation,
   resetInterpolation,
+  freezeInterpolation,
   getInterpolatedBalloon,
   getInterpolatedGhost,
   getInterpolatedBird,
@@ -262,6 +263,46 @@ describe('Physics interpolation - getInterpolatedBird', () => {
     expect(bird).not.toBeNull();
     expect(bird!.x).toBeCloseTo(0.22, 1);
     expect(bird!.y).toBeCloseTo(0.32, 1);
+  });
+
+  it('uses delay-buffer interpolation for balloon, ghost, and bird', () => {
+    state.balloon = { x: 0.1, y: 0.2, vx: 0.01, vy: 0.02 };
+    state.ghost = { x: 0.3, y: 0.4, active: true, repelTimer: 0 };
+    state.bird = { x: 0.5, y: 0.6, active: true };
+    updateInterpolation(1);
+    vi.advanceTimersByTime(TICK_MS);
+    state.balloon = { x: 0.15, y: 0.25, vx: 0.01, vy: 0.02 };
+    state.ghost = { x: 0.35, y: 0.45, active: true, repelTimer: 0 };
+    state.bird = { x: 0.55, y: 0.65, active: true };
+    updateInterpolation(2);
+    vi.advanceTimersByTime(PHYSICS.INTERP_DELAY_MS + TICK_MS / 2);
+    const balloon = getInterpolatedBalloon();
+    const ghost = getInterpolatedGhost();
+    const bird = getInterpolatedBird();
+    expect(balloon.x).toBeGreaterThan(0.1);
+    expect(ghost).not.toBeNull();
+    expect(bird).not.toBeNull();
+  });
+});
+
+describe('Physics interpolation - freezeInterpolation', () => {
+  beforeEach(() => {
+    resetInterpolation();
+    resetClientState();
+    state.balloon = { x: 0.2, y: 0.3, vx: 0, vy: 0 };
+    state.ghost = { x: 0.4, y: 0.5, active: true, repelTimer: 0 };
+    state.bird = { x: 0.6, y: 0.7, active: true };
+    updateInterpolation(1);
+  });
+
+  it('pins rendered entities to the current authoritative state', () => {
+    state.balloon = { x: 0.25, y: 0.35, vx: 0, vy: 0 };
+    state.ghost = { x: 0.45, y: 0.55, active: true, repelTimer: 0 };
+    state.bird = { x: 0.65, y: 0.75, active: true };
+    freezeInterpolation();
+    expect(getInterpolatedBalloon()).toEqual({ x: 0.25, y: 0.35 });
+    expect(getInterpolatedGhost()).toEqual({ x: 0.45, y: 0.55, active: true });
+    expect(getInterpolatedBird()).toEqual({ x: 0.65, y: 0.75, active: true });
   });
 });
 

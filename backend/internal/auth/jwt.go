@@ -89,6 +89,27 @@ func BuildAuthCookie(name, value string, maxAge int, secure bool) *http.Cookie {
 	}
 }
 
+// RefreshCookieName is the HttpOnly cookie storing the long-lived refresh token.
+const RefreshCookieName = "refresh"
+
+// BuildRefreshCookie creates the refresh-token HttpOnly cookie.
+func BuildRefreshCookie(value string, secure bool) *http.Cookie {
+	maxAge := int(config.RefreshTokenTTL.Seconds())
+	if value == "" {
+		maxAge = -1
+	}
+	return BuildAuthCookie(RefreshCookieName, value, maxAge, secure)
+}
+
+// RefreshTokenFromRequest reads the refresh token from the HttpOnly cookie.
+func RefreshTokenFromRequest(r *http.Request) string {
+	cookie, err := r.Cookie(RefreshCookieName)
+	if err != nil {
+		return ""
+	}
+	return cookie.Value
+}
+
 // ParseAuthCookie extracts and verifies JWT from the named cookie.
 func ParseAuthCookie(r *http.Request, cookieName string, jwtManager *JWTManager) (userId, nickname, jti string, err error) {
 	cookie, err := r.Cookie(cookieName)

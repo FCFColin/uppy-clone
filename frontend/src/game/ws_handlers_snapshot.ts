@@ -1,5 +1,3 @@
-import { textDecoder } from './constants.js';
-import { codeToPhase } from './message_codec.js';
 import {
   state, updateInterpolation, freezeInterpolation,
   isDuplicateSeq,
@@ -7,6 +5,7 @@ import {
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateScoresOnly } from './ui_update.js';
 import { updateWindIndicator } from './ui_wind.js';
+import { applySnapshot, decodeSnapshot } from './snapshot_decode.js';
 
 export { shouldApplySnapshotPhase } from './phase_sync.js';
 
@@ -17,68 +16,28 @@ export function handleSnapshot(view: DataView): void {
       return;
     }
 
-    let o: number = 1;
-    const timestamp: number = view.getUint32(o, true); o += 4;
-
-    if (isDuplicateSeq(timestamp)) {
+    const decoded = decodeSnapshot(view);
+    if (!decoded) {
       return;
     }
 
-    state.score = view.getUint32(o, true); o += 4;
-    const phaseCode: number = view.getUint8(o); o += 1;
-    const snapshotPhase = codeToPhase(phaseCode);
-    if (shouldApplySnapshotPhase(snapshotPhase)) {
-      applyPhaseChange(snapshotPhase);
+    if (isDuplicateSeq(decoded.timestamp)) {
+      return;
     }
 
-    state.balloon.x = view.getFloat32(o, true); o += 4;
-    state.balloon.y = view.getFloat32(o, true); o += 4;
-    state.balloon.vy = view.getFloat32(o, true); o += 4;
-    state.balloon.vx = view.getFloat32(o, true); o += 4;
+    applySnapshot(decoded, state);
 
-    const birdActive: boolean = view.getUint8(o) === 1; o += 1;
-    state.bird.active = birdActive;
-    if (birdActive) {
-      state.bird.x = view.getFloat32(o, true); o += 4;
-      state.bird.y = view.getFloat32(o, true); o += 4;
+    if (shouldApplySnapshotPhase(decoded.phase)) {
+      applyPhaseChange(decoded.phase);
     }
 
-    state.ghost.active = view.getUint8(o) === 1; o += 1;
-    state.ghost.x = view.getFloat32(o, true); o += 4;
-    state.ghost.y = view.getFloat32(o, true); o += 4;
-    state.ghost.repelTimer = view.getUint16(o, true); o += 2;
-
-    const playerCount: number = view.getUint8(o); o += 1;
-    state.players = [];
-    const now: number = Date.now();
-    for (let i = 0; i < playerCount; i++) {
-      const playerIndex: number = view.getUint16(o, true); o += 2;
-      const cooldownRemainingMs: number = view.getUint32(o, true); o += 4;
-      const palette: number = view.getUint32(o, true); o += 4;
-      const scoreContribution: number = view.getUint32(o, true); o += 4;
-      const nickLen: number = view.getUint8(o); o += 1;
-      const nickname: string = textDecoder.decode(new Uint8Array(view.buffer, view.byteOffset + o, nickLen));
-      o += nickLen;
-      state.players.push({ playerIndex, cooldownEndTime: now + cooldownRemainingMs, palette, scoreContribution, nickname });
+    if (decoded.ripples.length > 0) {
+      state.ripples = state.ripples.filter(r => r.isOptimistic);
+      state.ripples.push(...decoded.ripples);
     }
 
-    if (o < view.byteLength) {
-      const rippleCount: number = view.getUint8(o); o += 1;
-      const snapshotRipples = [];
-      for (let i = 0; i < rippleCount; i++) {
-        const pIdx: number = view.getUint16(o, true); o += 2;
-        const rx: number = view.getFloat32(o, true); o += 4;
-        const ry: number = view.getFloat32(o, true); o += 4;
-        snapshotRipples.push({ playerIndex: pIdx, x: rx, y: ry, time: Date.now() });
-      }
-      if (snapshotRipples.length > 0) {
-        state.ripples = state.ripples.filter(r => r.isOptimistic);
-        state.ripples.push(...snapshotRipples);
-      }
-    }
-
-    if (o < view.byteLength) {
-      state.wind = view.getFloat32(o, true); o += 4;
+    if (decoded.wind !== undefined) {
+      state.wind = decoded.wind;
       updateWindIndicator(state.wind);
     }
 
@@ -90,7 +49,7 @@ export function handleSnapshot(view: DataView): void {
     if (state.phase === 'ended') {
       freezeInterpolation();
     } else {
-      updateInterpolation(timestamp);
+      updateInterpolation(decoded.timestamp);
     }
     state.hasReceivedFirstSnapshot = true;
   } catch (e: unknown) {

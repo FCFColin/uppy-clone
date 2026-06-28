@@ -2,35 +2,35 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/idgen"
+	"github.com/uppy-clone/backend/internal/nicknames"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
 // QuickPlayResponse is returned after a successful quick-play registration.
 type QuickPlayResponse struct {
-	UserID       string `json:"userId"`
-	Nickname     string `json:"nickname"`
-	RefreshToken string `json:"refreshToken,omitempty"`
+	UserID   string `json:"userId"`
+	Nickname string `json:"nickname"`
+	// RefreshToken is set internally for HttpOnly cookie issuance; never serialized.
+	RefreshToken string `json:"-"`
 }
 
 // QuickPlay creates a temporary user and returns JWT cookie + user info.
 // If the request already carries a valid quickplay or session cookie,
 // the existing user is returned with a refreshed cookie (matching TS behavior).
-func QuickPlay(db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, nickname string, r *http.Request) (*http.Cookie, *QuickPlayResponse, error) {
+func QuickPlay(db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, revoker JWTRevocationChecker, nickname string, r *http.Request) (*http.Cookie, *QuickPlayResponse, error) {
 	ctx := r.Context()
 
 	// Check if already authenticated — reuse existing user (cookie or middleware context)
-	if uid, nick, ok := AuthenticatedUserFromRequest(r, jwtMgr); ok {
+	if uid, nick, ok := AuthenticatedUserFromRequestWithRevocation(r, jwtMgr, revoker); ok {
 		user, err := db.GetUserByID(ctx, uid)
 		if err != nil {
 			return nil, nil, fmt.Errorf("lookup existing user: %w", err)
@@ -74,7 +74,7 @@ func prepareQuickPlayNickname(nickname string) string {
 		nickname = string(runes[:config.MaxNicknameLen])
 	}
 	if nickname == "" {
-		nickname = generateRandomPlayerName()
+		nickname = nicknames.GenerateRandom(nil)
 	}
 	return nickname
 }
@@ -108,10 +108,4 @@ func ParseQuickPlayRequest(r *http.Request) string {
 		return ""
 	}
 	return body.Nickname
-}
-
-// generateRandomPlayerName produces "PlayerXXXX" with 1-9999.
-func generateRandomPlayerName() string {
-	n, _ := rand.Int(rand.Reader, big.NewInt(9999))
-	return fmt.Sprintf("Player%d", n.Int64())
 }

@@ -1,121 +1,139 @@
 package store
 
 import (
+	"context"
 	"errors"
-	"strings"
 	"testing"
+	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-// mockRows implements pgx.Rows for testing scanLobbyRows.
-type mockRows struct {
-	data    []domain.LobbyState
-	pos     int
-	closed  bool
-	err     error
-	scanErr error
-}
-
-func (m *mockRows) Close()                          { m.closed = true }
-func (m *mockRows) Err() error                      { return m.err }
-func (m *mockRows) CommandTag() pgconn.CommandTag    { return pgconn.CommandTag{} }
-func (m *mockRows) Conn() *pgx.Conn                 { return nil }
-func (m *mockRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (m *mockRows) Next() bool {
-	if m.err != nil || m.pos >= len(m.data) {
-		return false
-	}
-	m.pos++
-	return m.pos <= len(m.data)
-}
-func (m *mockRows) Scan(dest ...interface{}) error {
-	if m.scanErr != nil {
-		return m.scanErr
-	}
-	if m.pos == 0 || m.pos > len(m.data) {
-		return errors.New("scan called out of range")
-	}
-	ls := m.data[m.pos-1]
-	for i, d := range dest {
-		switch i {
-		case 0:
-			*d.(*string) = ls.ID
-		case 1:
-			*d.(*string) = ls.Code
-		case 2:
-			*d.(*string) = ls.State
-		case 3:
-			*d.(*int64) = ls.UpdatedAt
-		case 4:
-			*d.(*int64) = ls.CreatedAt
-		default:
-			return errors.New("unexpected dest index")
-		}
-	}
-	return nil
-}
-func (m *mockRows) RawValues() [][]byte    { return nil }
-func (m *mockRows) Values() ([]any, error) { return nil, nil }
-
-func TestScanLobbyRows(t *testing.T) {
+func TestBuildLobbyListResult_NoMore(t *testing.T) {
 	t.Parallel()
 
-	t.Run("scans multiple rows", func(t *testing.T) {
-		rows := &mockRows{
-			data: []domain.LobbyState{
-				{ID: "id1", Code: "A1", State: "waiting", UpdatedAt: 100, CreatedAt: 50},
-				{ID: "id2", Code: "B2", State: "playing", UpdatedAt: 200, CreatedAt: 100},
-			},
-		}
-		result, err := scanLobbyRows(rows)
-		if err != nil {
-			t.Fatalf("scanLobbyRows error: %v", err)
-		}
-		if len(result) != 2 {
-			t.Fatalf("got %d rows, want 2", len(result))
-		}
-		if result[0].Code != "A1" || result[1].Code != "B2" {
-			t.Errorf("unexpected rows: %+v", result)
+	lobbies := []domain.LobbyState{
+		{Code: "A", UpdatedAt: 3},
+		{Code: "B", UpdatedAt: 2},
+	}
+	result := buildLobbyListResult(lobbies, 2, 10)
+	if result.HasMore {
+		t.Fatal("HasMore should be false")
+	}
+	if result.NextCursor != "" {
+		t.Errorf("NextCursor = %q, want empty", result.NextCursor)
+	}
+	if len(result.Lobbies) != 2 || result.Total != 2 {
+		t.Errorf("result = %+v", result)
+	}
+}
+
+func TestBuildLobbyListResult_Empty(t *testing.T) {
+	t.Parallel()
+
+	result := buildLobbyListResult(nil, 0, 20)
+	if result.HasMore || result.NextCursor != "" || len(result.Lobbies) != 0 {
+		t.Errorf("result = %+v", result)
+	}
+}
+
+func TestLeaderboardQuery_Scopes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("all-time", func(t *testing.T) {
+		query, args := leaderboardQuery("all", 25)
+		if query == "" || len(args) != 1 || args[0] != 25 {
+			t.Errorf("query=%q args=%v", query, args)
 		}
 	})
 
-	t.Run("empty result", func(t *testing.T) {
-		rows := &mockRows{data: nil}
-		result, err := scanLobbyRows(rows)
-		if err != nil {
-			t.Fatalf("scanLobbyRows error: %v", err)
+	t.Run("weekly", func(t *testing.T) {
+		before := time.Now().Add(-7 * 24 * time.Hour).UnixMilli()
+		query, args := leaderboardQuery("weekly", 10)
+		if query == "" || len(args) != 2 {
+			t.Fatalf("query=%q args=%v", query, args)
 		}
-		if len(result) != 0 {
-			t.Errorf("expected empty, got %d rows", len(result))
+		cutoff, ok := args[0].(int64)
+		if !ok {
+			t.Fatalf("cutoff type = %T", args[0])
 		}
-	})
-
-	t.Run("scan error propagates", func(t *testing.T) {
-		rows := &mockRows{
-			data:    []domain.LobbyState{{ID: "id1"}},
-			scanErr: errors.New("scan failed"),
+		if cutoff < before-1000 || cutoff > time.Now().UnixMilli() {
+			t.Errorf("cutoff = %d, expected near %d", cutoff, before)
 		}
-		_, err := scanLobbyRows(rows)
-		if err == nil || !contains(err.Error(), "scan failed") {
-			t.Errorf("expected scan error, got %v", err)
-		}
-	})
-
-	t.Run("rows.Err propagates", func(t *testing.T) {
-		rows := &mockRows{
-			data: []domain.LobbyState{{ID: "id1"}},
-			err:  errors.New("iteration error"),
-		}
-		_, err := scanLobbyRows(rows)
-		if err == nil || !contains(err.Error(), "iteration error") {
-			t.Errorf("expected iteration error, got %v", err)
+		if args[1] != 10 {
+			t.Errorf("limit arg = %v, want 10", args[1])
 		}
 	})
 }
 
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
+func TestLoadAllActiveLobbies_DefaultLimit(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
+		WithArgs(51).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}))
+
+	result, err := s.LoadAllActiveLobbies(ctx, 0, "")
+	if err != nil {
+		t.Fatalf("LoadAllActiveLobbies: %v", err)
+	}
+	if result == nil || result.Total != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestLoadAllActiveLobbies_CappedLimit(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(5))
+	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
+		WithArgs(101).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}))
+
+	result, err := s.LoadAllActiveLobbies(ctx, 500, "")
+	if err != nil {
+		t.Fatalf("LoadAllActiveLobbies: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected result")
+	}
+}
+
+func TestLoadAllActiveLobbies_WithCursor(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(10))
+	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
+		WithArgs(int64(100), "CODE1", 6).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
+			AddRow("id1", "CODE1", "waiting", int64(99), int64(50)))
+
+	result, err := s.LoadAllActiveLobbies(ctx, 5, "100|CODE1")
+	if err != nil {
+		t.Fatalf("LoadAllActiveLobbies: %v", err)
+	}
+	if result == nil || result.Total != 10 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestCountAllLobbies_Error(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+		WillReturnError(errors.New("count failed"))
+
+	_, err := s.countAllLobbies(ctx)
+	if err == nil {
+		t.Fatal("expected error")
+	}
 }

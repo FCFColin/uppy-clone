@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
     wind: 0,
     hasReceivedFirstSnapshot: false,
     nicknameSubmitted: true,
+    pendingNickname: null as string | null,
   },
   applyPhaseChange: vi.fn(() => true),
   updateInterpolation: vi.fn(),
@@ -60,6 +61,15 @@ vi.mock('./ui_update.js', () => ({
   updateScoresOnly: mocks.updateScoresOnly,
 }));
 
+vi.mock('./snapshot_decode.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./snapshot_decode.js')>();
+  return {
+    ...actual,
+    decodeSnapshot: vi.fn(actual.decodeSnapshot),
+  };
+});
+
+import { decodeSnapshot } from './snapshot_decode.js';
 import { handleSnapshot } from './ws_handlers_snapshot.js';
 
 describe('handleSnapshot', () => {
@@ -96,13 +106,83 @@ describe('handleSnapshot', () => {
   });
 
   // Adversarial: malformed trailing data must not crash the client.
-  it('handles parse errors without throwing', () => {
-    const bad = new ArrayBuffer(37);
-    const dv = new DataView(bad);
-    dv.setUint8(0, 0x10);
-    dv.setUint32(1, 1, true);
+  it('handles Error parse failures', () => {
+    vi.mocked(decodeSnapshot).mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => handleSnapshot(dv)).not.toThrow();
+    handleSnapshot(new DataView(buildMinimalSnapshot(1, 405)));
+    expect(err).toHaveBeenCalledWith('[snapshot] parse error:', 'boom');
     err.mockRestore();
+  });
+
+  it('handles parse errors without throwing', () => {
+    vi.mocked(decodeSnapshot).mockImplementationOnce(() => {
+      throw 'string failure';
+    });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    handleSnapshot(new DataView(buildMinimalSnapshot(1, 404)));
+    expect(err).toHaveBeenCalledWith('[snapshot] parse error:', 'string failure');
+    err.mockRestore();
+  });
+
+  it('ignores undecodable snapshots', () => {
+    vi.mocked(decodeSnapshot).mockReturnValueOnce(null);
+    handleSnapshot(new DataView(buildMinimalSnapshot(1, 400)));
+    expect(mocks.state.hasReceivedFirstSnapshot).toBe(false);
+    expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
+  });
+
+  it('skips blocked phase transitions from snapshot', () => {
+    mocks.state.phase = 'countdown';
+    handleSnapshot(new DataView(buildMinimalSnapshot(2, 401)));
+    expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
+  });
+
+  it('keeps pending nickname until player appears in roster', () => {
+    mocks.state.pendingNickname = 'Ghost';
+    handleSnapshot(new DataView(buildMinimalSnapshot(1, 402)));
+    expect(mocks.state.pendingNickname).toBe('Ghost');
+  });
+
+  it('applies wind, ripples, pending nickname, and freezes on ended phase', () => {
+    mocks.state.phase = 'ended';
+    mocks.state.pendingNickname = 'Bob';
+    mocks.state.ripples = [{ playerIndex: -2, x: 0.1, y: 0.1, time: 1, isOptimistic: true }];
+    const nick = 'Bob';
+    const nickBytes = new TextEncoder().encode(nick);
+    const buf = new ArrayBuffer(80);
+    const dv = new DataView(buf);
+    let o = 1;
+    dv.setUint32(o, 500, true); o += 4;
+    dv.setUint32(o, 99, true); o += 4;
+    dv.setUint8(o, 2); o += 1;
+    dv.setFloat32(o, 0.5, true); o += 4;
+    dv.setFloat32(o, 0.6, true); o += 4;
+    dv.setFloat32(o, 0, true); o += 4;
+    dv.setFloat32(o, 0, true); o += 4;
+    dv.setUint8(o, 0); o += 1;
+    dv.setUint8(o, 0); o += 1;
+    dv.setFloat32(o, 0.5, true); o += 4;
+    dv.setFloat32(o, 0.5, true); o += 4;
+    dv.setUint16(o, 0, true); o += 2;
+    dv.setUint8(o, 1); o += 1;
+    dv.setUint16(o, 4, true); o += 2;
+    dv.setUint32(o, 100, true); o += 4;
+    dv.setUint32(o, 1, true); o += 4;
+    dv.setUint32(o, 20, true); o += 4;
+    dv.setUint8(o, nickBytes.length); o += 1;
+    new Uint8Array(buf, o).set(nickBytes); o += nickBytes.length;
+    dv.setUint8(o, 1); o += 1;
+    dv.setUint16(o, 4, true); o += 2;
+    dv.setFloat32(o, 0.2, true); o += 4;
+    dv.setFloat32(o, 0.3, true); o += 4;
+    dv.setFloat32(o, -0.4, true);
+
+    handleSnapshot(new DataView(buf, 0, o + 4));
+    expect(mocks.state.wind).toBeCloseTo(-0.4);
+    expect(mocks.state.ripples.some((r) => r.playerIndex === 4)).toBe(true);
+    expect(mocks.state.pendingNickname).toBeNull();
+    expect(mocks.freezeInterpolation).toHaveBeenCalled();
   });
 });

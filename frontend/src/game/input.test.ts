@@ -10,6 +10,7 @@ vi.mock('./state.js', () => ({
     players: [{ nickname: 'p1' }],
     restartVotes: { yes: 0, total: 1, countdownMs: 0 },
     restartClicked: false,
+    balloon: { x: 0.5, y: 0.5 },
   },
 }));
 vi.mock('./websocket.js', () => ({
@@ -28,7 +29,7 @@ vi.mock('../shared/audio.js', () => ({
 }));
 vi.mock('./ui.js', () => ({ updateUI: vi.fn() }));
 
-import { handleTap, requestRestart } from './input.js';
+import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
 import { state } from './state.js';
 import { sendOrQueue, getWs } from './websocket.js';
 
@@ -38,6 +39,16 @@ describe('input', () => {
     state.myCooldownEnd = 0;
     state.ripples = [];
     vi.clearAllMocks();
+  });
+
+  it('handleTap uses player count for optimistic cooldown', () => {
+    state.players = [
+      { playerIndex: 0, nickname: 'a', palette: 0, cooldownEndTime: 0, scoreContribution: 0 },
+      { playerIndex: 1, nickname: 'b', palette: 0, cooldownEndTime: 0, scoreContribution: 0 },
+    ];
+    handleTap(50, 50);
+    expect(state.myCooldownEnd).toBeGreaterThan(Date.now());
+    expect(sendOrQueue).toHaveBeenCalledOnce();
   });
 
   it('handleTap sends binary tap message when playing', () => {
@@ -75,5 +86,46 @@ describe('input', () => {
     requestRestart();
     expect(sendOrQueue).not.toHaveBeenCalled();
     expect(document.getElementById('restart-progress')?.textContent).toContain('断开');
+  });
+
+  it('requestRestart shows message when game has not ended', () => {
+    document.body.innerHTML = '<div id="restart-progress"></div>';
+    state.phase = 'playing';
+    requestRestart();
+    expect(sendOrQueue).not.toHaveBeenCalled();
+    expect(document.getElementById('restart-progress')?.textContent).toContain('尚未结束');
+  });
+
+  it('requestRestart submits vote when socket is open', () => {
+    document.body.innerHTML = '<div id="restart-progress"></div>';
+    state.phase = 'ended';
+    vi.mocked(getWs).mockReturnValue({ readyState: 1 } as WebSocket);
+    requestRestart();
+    expect(sendOrQueue).toHaveBeenCalledOnce();
+    expect(document.getElementById('restart-progress')?.textContent).toContain('提交');
+  });
+
+  it('tapAtBalloonCenter sends tap at balloon position', () => {
+    document.body.innerHTML = '<canvas id="game-canvas" width="100" height="100"></canvas>';
+    const canvas = document.getElementById('game-canvas')!;
+    canvas.getBoundingClientRect = () => ({
+      left: 0, top: 0, width: 100, height: 100,
+      right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}),
+    });
+    tapAtBalloonCenter();
+    expect(sendOrQueue).toHaveBeenCalledOnce();
+  });
+
+  it('tapAtBalloonCenter no-ops when canvas is missing', () => {
+    document.body.innerHTML = '';
+    tapAtBalloonCenter();
+    expect(sendOrQueue).not.toHaveBeenCalled();
+  });
+
+  it('tapAtBalloonCenter no-ops outside playing phase', () => {
+    document.body.innerHTML = '<canvas id="game-canvas" width="100" height="100"></canvas>';
+    state.phase = 'waiting';
+    tapAtBalloonCenter();
+    expect(sendOrQueue).not.toHaveBeenCalled();
   });
 });

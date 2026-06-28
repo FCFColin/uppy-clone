@@ -12,8 +12,6 @@ import (
 )
 
 func (h *LobbyHandler) startWSPumps(room *game.Room, userId string, conn *websocket.Conn, reqCtx context.Context) {
-	h.hub.IncrementWSConnection()
-
 	if err := room.HandleJoin(userId, conn); err != nil {
 		h.logger.Error("handle join failed", "error", err)
 		h.hub.DecrementWSConnection()

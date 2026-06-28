@@ -1,3 +1,4 @@
+// Package server wires HTTP routes, middleware, and the application lifecycle.
 package server
 
 import (

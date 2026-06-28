@@ -22,18 +22,18 @@ const maskedKey = "••••••••"
 
 // AdminHandler handles admin endpoints.
 type AdminHandler struct {
-	db     *store.PostgresStore
-	jwtMgr *auth.JWTManager
-	redis  *store.RedisStore
+	db          *store.PostgresStore
+	adminJwtMgr *auth.JWTManager
+	redis       *store.RedisStore
 }
 
 // NewAdminHandler creates a new AdminHandler.
 // redis is used for failed-login lockout tracking; may be nil in tests.
-func NewAdminHandler(db *store.PostgresStore, jwtMgr *auth.JWTManager, redis *store.RedisStore) *AdminHandler {
+func NewAdminHandler(db *store.PostgresStore, adminJwtMgr *auth.JWTManager, redis *store.RedisStore) *AdminHandler {
 	return &AdminHandler{
-		db:     db,
-		jwtMgr: jwtMgr,
-		redis:  redis,
+		db:          db,
+		adminJwtMgr: adminJwtMgr,
+		redis:       redis,
 	}
 }
 
@@ -102,7 +102,7 @@ func (h *AdminHandler) signAdminToken() (string, error) {
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(h.jwtMgr.Secret())
+	return token.SignedString(h.adminJwtMgr.Secret())
 }
 
 // VerifyAdminToken checks if the request carries a valid admin JWT.
@@ -122,7 +122,7 @@ func (h *AdminHandler) VerifyAdminTokenClaims(r *http.Request) (*adminClaims, bo
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
 		}
-		return h.jwtMgr.Secret(), nil
+		return h.adminJwtMgr.Secret(), nil
 	})
 	if err != nil {
 		return nil, false

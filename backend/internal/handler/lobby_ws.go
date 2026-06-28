@@ -11,6 +11,7 @@ import (
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 )
 
+// WebSocket handles GET /lobby/{code}/ws upgrades for authenticated players.
 func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 	code := chi.URLParam(r, "code")
 	if code == "" {
@@ -30,11 +31,6 @@ func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.checkWSRateLimit(w, r) {
-		metrics.RecordWSConnection("rejected")
-		return
-	}
-
 	room := h.hub.GetRoom(code)
 	if room == nil {
 		metrics.RecordWSConnection("rejected")
@@ -42,8 +38,14 @@ func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.reserveWSConnection(w) {
+		metrics.RecordWSConnection("rejected")
+		return
+	}
+
 	conn, ok := h.upgradeWSConnection(w, r)
 	if !ok {
+		h.hub.DecrementWSConnection()
 		metrics.RecordWSConnection("rejected")
 		return
 	}
@@ -56,7 +58,7 @@ func (h *LobbyHandler) upgradeWSConnection(w http.ResponseWriter, r *http.Reques
 	reqUpgrader := websocket.Upgrader{
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
-		CheckOrigin:     func(r *http.Request) bool { return true },
+		CheckOrigin:     func(_ *http.Request) bool { return true },
 	}
 	conn, err := reqUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -78,8 +80,8 @@ func (h *LobbyHandler) validateWSOrigin(w http.ResponseWriter, r *http.Request) 
 	return true
 }
 
-func (h *LobbyHandler) checkWSRateLimit(w http.ResponseWriter, r *http.Request) bool {
-	if !h.hub.CanAcceptWSConnection() {
+func (h *LobbyHandler) reserveWSConnection(w http.ResponseWriter) bool {
+	if !h.hub.TryReserveWSConnection() {
 		apierror.New(http.StatusServiceUnavailable, "Service Unavailable",
 			"WebSocket connection limit reached, please try again later").Write(w)
 		return false

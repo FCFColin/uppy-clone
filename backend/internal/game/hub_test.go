@@ -520,6 +520,29 @@ func TestHub_WSConnectionLimit_RejectsWhenFull(t *testing.T) {
 	}
 }
 
+func TestHub_TryReserveWSConnection_Atomic(t *testing.T) {
+	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 3, 50, nil)
+	reserved := 0
+	done := make(chan struct{})
+	for i := 0; i < 10; i++ {
+		go func() {
+			if h.TryReserveWSConnection() {
+				reserved++
+			}
+			done <- struct{}{}
+		}()
+	}
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+	if reserved != 3 {
+		t.Fatalf("reserved = %d, want 3", reserved)
+	}
+	if h.WSConnCount() != 3 {
+		t.Fatalf("WSConnCount = %d, want 3", h.WSConnCount())
+	}
+}
+
 func TestHub_WSConnectionLimit_AcceptsAfterDecrement(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	h := NewHub(nil, nil, timeouts, 3, 50, nil)
@@ -1021,6 +1044,186 @@ func TestHub_ResolveRoom_ProxyWhenOwnerDiffers(t *testing.T) {
 	}
 	if decision.Address != "10.0.0.2:8080" {
 		t.Fatalf("Address = %q", decision.Address)
+	}
+}
+
+func TestHub_CreateRoom_CodeConflict(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+	h.rooms["CONFL"] = NewRoom("CONFL", h, nil, timeouts, 0)
+
+	restore := SetGenerateRoomCodeHook(func() string { return "CONFL" })
+	defer restore()
+
+	_, err := h.CreateRoom(context.Background())
+	if err != ErrRoomCodeConflict {
+		t.Fatalf("CreateRoom error = %v, want ErrRoomCodeConflict", err)
+	}
+}
+
+func TestHub_CreateRoom_WithRedisAndBroadcaster(t *testing.T) {
+	h, redisStore := setupHubWithMiniredis(t, nil)
+	bc := newMockBroadcaster()
+	h.broadcaster = bc
+
+	code, err := h.CreateRoom(context.Background())
+	if err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+	if h.GetRoom(code) == nil {
+		t.Fatal("room should exist after CreateRoom")
+	}
+
+	ctx := context.Background()
+	info, err := redisStore.GetRoomRegistry(ctx, code)
+	if err != nil {
+		t.Fatalf("GetRoomRegistry: %v", err)
+	}
+	if info == nil || info.Code != code {
+		t.Fatalf("registry info = %+v, want code %q", info, code)
+	}
+
+	h.mu.RLock()
+	_, subscribed := h.subscriptions[code]
+	h.mu.RUnlock()
+	if !subscribed {
+		t.Fatal("expected broadcaster subscription after CreateRoom")
+	}
+}
+
+func TestHub_RemoveRoom_DeletesFromStore(t *testing.T) {
+	repo := newMockRoomRepository()
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(repo, nil, timeouts, 0, 0, nil)
+
+	code, err := h.CreateRoom(context.Background())
+	if err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+	h.RemoveRoom(context.Background(), code)
+
+	if repo.deleteCount != 1 {
+		t.Fatalf("deleteCount = %d, want 1", repo.deleteCount)
+	}
+	if h.RoomCount() != 0 {
+		t.Fatalf("RoomCount = %d, want 0", h.RoomCount())
+	}
+}
+
+func TestHub_RemoveRoom_WithRedis(t *testing.T) {
+	h, redisStore := setupHubWithMiniredis(t, newMockRoomRepository())
+	code, err := h.CreateRoom(context.Background())
+	if err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	h.RemoveRoom(context.Background(), code)
+	if h.RoomCount() != 0 {
+		t.Fatalf("RoomCount = %d, want 0", h.RoomCount())
+	}
+
+	info, _ := redisStore.GetRoomRegistry(context.Background(), code)
+	if info != nil {
+		t.Fatal("room should be unregistered from redis after RemoveRoom")
+	}
+}
+
+func TestHub_CleanupLoop_RemovesAllDisconnectedExpired(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+
+	code, _ := h.CreateRoom(context.Background())
+	room := h.GetRoom(code)
+	disconnectedAt := time.Now().UnixMilli() - protocol.ReconnectGraceMs - 1000
+	room.mu.Lock()
+	room.state.Players["p1"] = &domain.PlayerState{
+		ID:             "p1",
+		Nickname:       "gone",
+		Disconnected:   true,
+		DisconnectedAt: &disconnectedAt,
+	}
+	room.mu.Unlock()
+
+	h.cleanupOnce()
+	if h.RoomCount() != 0 {
+		t.Fatalf("expected expired disconnected room removed, got %d rooms", h.RoomCount())
+	}
+}
+
+func TestHub_CleanupLoop_RemovesZeroPlayerRoom(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+
+	code, _ := h.CreateRoom(context.Background())
+	room := h.GetRoom(code)
+	room.mu.Lock()
+	room.state.Phase = domain.PhasePlaying
+	room.mu.Unlock()
+
+	h.cleanupOnce()
+	if h.RoomCount() != 0 {
+		t.Fatalf("expected zero-player room removed, got %d rooms", h.RoomCount())
+	}
+}
+
+func TestHub_CleanupLoop_KeepsDisconnectedInGrace(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0, nil)
+
+	code, _ := h.CreateRoom(context.Background())
+	room := h.GetRoom(code)
+	disconnectedAt := time.Now().UnixMilli() - 1000
+	room.mu.Lock()
+	room.state.Phase = domain.PhasePlaying
+	room.state.Players["p1"] = &domain.PlayerState{
+		ID:             "p1",
+		Nickname:       "grace",
+		Disconnected:   true,
+		DisconnectedAt: &disconnectedAt,
+	}
+	room.mu.Unlock()
+
+	h.cleanupOnce()
+	if h.RoomCount() != 1 {
+		t.Fatalf("room in grace period should survive cleanup, got %d rooms", h.RoomCount())
+	}
+}
+
+func TestMatchRoom_SkipsRoomWithFullConnections(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 2, 2, nil)
+
+	code1, _ := h.CreateRoom(context.Background())
+	room1 := h.GetRoom(code1)
+	room1.mu.Lock()
+	room1.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
+	room1.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 4)}
+	room1.mu.Unlock()
+
+	code2, err := h.MatchRoom(context.Background())
+	if err != nil {
+		t.Fatalf("MatchRoom: %v", err)
+	}
+	if code2 == code1 {
+		t.Fatal("MatchRoom should skip room at connection capacity")
+	}
+}
+
+func TestRoomJoinable_RequiresWaitingPhase(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	room := NewRoom("TEST1", nil, nil, timeouts, 4)
+	room.state.Phase = domain.PhasePlaying
+	if roomJoinable(room, 4) {
+		t.Fatal("playing room should not be joinable")
+	}
+}
+
+func TestHub_removeRooms_EmptyBatch(t *testing.T) {
+	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	h.removeRooms(nil, removeRoomOptions{pgDelete: true})
+	h.removeRooms([]string{"MISSING"}, removeRoomOptions{pgDelete: true})
+	if h.RoomCount() != 0 {
+		t.Fatalf("RoomCount = %d, want 0", h.RoomCount())
 	}
 }
 

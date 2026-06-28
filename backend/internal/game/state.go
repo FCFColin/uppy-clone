@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"math"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
@@ -11,6 +12,7 @@ import (
 func NewGameState(lobbyCode string) *domain.GameState {
 	spawnTimer := RandomSpawnTimer()
 	ghost := spawnGhost()
+	wind, windTarget := initialWind()
 
 	return &domain.GameState{
 		Phase:               domain.PhaseWaiting,
@@ -23,8 +25,8 @@ func NewGameState(lobbyCode string) *domain.GameState {
 		StartedAt:           0,
 		SessionID:           "",
 		LobbyCode:           lobbyCode,
-		Wind:                0,
-		WindTarget:          0,
+		Wind:                wind,
+		WindTarget:          windTarget,
 		WindChangeCountdown: 112, // 225 的 50%，首次大变化在 7.5s 左右
 		WindMicroCountdown:  10,
 		WindMidCountdown:    75,
@@ -41,9 +43,10 @@ func ResetGameEntities(state *domain.GameState, spawnTimer int) {
 	state.Ghost = spawnGhost()
 	state.TickCount = 0
 
-	// 重置风场
-	state.Wind = 0
-	state.WindTarget = 0
+	// 重置风场（游戏开始即有初始风速和风向）
+	wind, windTarget := initialWind()
+	state.Wind = wind
+	state.WindTarget = windTarget
 	state.WindChangeCountdown = 112
 	state.WindMicroCountdown = 10
 	state.WindMidCountdown = 75
@@ -79,6 +82,21 @@ func DeserializeState(data []byte) (*domain.GameState, error) {
 
 // --- 内部辅助函数 ---
 
+// initialWind 生成随机初始风速和风向。
+// 游戏一开始就应有风场，让玩家立即感受到环境互动。
+func initialWind() (wind, windTarget float64) {
+	windTarget = (randFloat64() - 0.5) * protocol.WindTargetSpan
+	// 初始风速设为目标值的 60%，使风场立即可感知但不至于过强
+	wind = windTarget * 0.6
+	if wind > protocol.WindClamp {
+		wind = protocol.WindClamp
+	}
+	if wind < -protocol.WindClamp {
+		wind = -protocol.WindClamp
+	}
+	return wind, windTarget
+}
+
 // createInitialBalloon 创建初始气球状态
 func createInitialBalloon() domain.BalloonState {
 	return domain.BalloonState{
@@ -111,8 +129,8 @@ func spawnGhost() domain.GhostState {
 
 	// 初始速度：随机方向漫步
 	angle := randFloat64() * 2 * pi
-	vx := cos(angle) * protocol.GhostSpeed
-	vy := sin(angle) * protocol.GhostSpeed
+	vx := math.Cos(angle) * protocol.GhostSpeed
+	vy := math.Sin(angle) * protocol.GhostSpeed
 
 	return domain.GhostState{
 		X:          x,

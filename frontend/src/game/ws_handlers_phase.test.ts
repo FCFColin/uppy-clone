@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     lastTapY: null,
     restartClicked: false,
     countdownTimerInterval: null,
+    endReason: 0,
+    score: 0,
   },
   applyPhaseChange: vi.fn(() => true),
   shouldApplySnapshotPhase: vi.fn(() => true),
@@ -33,8 +35,8 @@ vi.mock('../shared/audio.js', () => ({
   vibrate: vi.fn(),
 }));
 vi.mock('../shared/best_score_cookie.js', () => ({
-  updateBestScore: vi.fn(() => ({ best: 0, isNewRecord: false })),
-  fetchUserBestScore: vi.fn(() => Promise.resolve(0)),
+  updateBestScore: vi.fn((score: number) => ({ best: score - 10, isNewRecord: false })),
+  fetchUserBestScore: vi.fn(() => Promise.resolve(999)),
 }));
 
 import { handleGameStateChange, handleRestartStatus } from './ws_handlers_phase.js';
@@ -71,6 +73,32 @@ describe('handleGameStateChange', () => {
     await vi.waitFor(() => {
       expect(mocks.applyPhaseChange).toHaveBeenCalledWith('countdown', 6);
     });
+  });
+
+  it('handles ended phase with end reason and score banner', async () => {
+    mocks.state.score = 88;
+    document.body.innerHTML = '<div id="personal-best"></div>';
+    const buf = new ArrayBuffer(3);
+    const dv = new DataView(buf);
+    dv.setUint8(1, 2);
+    dv.setUint8(2, 1);
+    handleGameStateChange(dv);
+    expect(mocks.state.endReason).toBe(1);
+    await vi.waitFor(() => {
+      expect(document.getElementById('personal-best')?.textContent).toContain('本局 88');
+      expect(document.getElementById('personal-best')?.textContent).toContain('个人最佳 999');
+    });
+  });
+
+  it('skips end-screen update when personal-best element is missing', async () => {
+    document.body.innerHTML = '';
+    const buf = new ArrayBuffer(3);
+    const dv = new DataView(buf);
+    dv.setUint8(1, 2);
+    dv.setUint8(2, 1);
+    handleGameStateChange(dv);
+    await Promise.resolve();
+    expect(document.getElementById('personal-best')).toBeNull();
   });
 });
 

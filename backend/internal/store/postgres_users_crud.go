@@ -71,6 +71,11 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u *domain.User) error {
 		return err
 	}
 
+	logUserCreateAudit(ctx, u)
+	return nil
+}
+
+func logUserCreateAudit(ctx context.Context, u *domain.User) {
 	audit.Log(ctx, audit.AuditEntry{
 		Action:   "user.create",
 		ActorID:  u.ID,
@@ -80,6 +85,4 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u *domain.User) error {
 			"nickname": u.Nickname,
 		},
 	})
-
-	return nil
 }

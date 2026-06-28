@@ -1,0 +1,26 @@
+# Full codebase self-check baseline (2026-06-27, post-Bugbot remediation)
+BASE_SHA=07c34acb6095ba89c6d3b9aa5437d1bfeeb98583
+HEAD_SHA=265ce1a08ae81a1a215c8edc4d43931c7d99a8f4
+BRANCH=main
+NOTE=Large WIP commit: security hardening, Bugbot fixes, frontend coverage gate script.
+
+## Phase 1 automation evidence (2026-06-27)
+PASS: verify-release-config.ps1, verify-required-checks.ps1, self-check-layers.ps1,
+      golangci-lint, frontend npm run test:frontend (251 tests, Vitest 100%),
+      bash scripts/ci/check-coverage.sh frontend (Git Bash; BRDA/path fix),
+      npm audit --audit-level=high, check-repo-layout, ExtractClientIP test,
+      backend internal/game + handler + config targeted tests
+PARTIAL: backend unit gate 73.4% < 100% (CI go-ci.yml; backlog)
+SKIP: go test -race on Windows (CGO gcc not in PATH; CI Linux runs -race)
+PARTIAL: make e2e local — Playwright webServer 120s timeout (PG on 5434, Redis 6380);
+         rely on CI e2e job for release gate
+
+## Bugbot (2421addc) remediations
+- hub_restore: shouldLocalMaterializeRoom filter + registerRoomInRedis on restore/lazy load
+- room_tick: cooldown uses len(Players) per cooldown_contract.json
+- room_outbound: critical enqueue 100ms timeout (regression test)
+- store: TryClaimRoomRegistry for atomic miss claim
+
+## Security Review (63ac5b5b) remediations
+- validateTrustedProxyCIDRs in production Validate()
+- admin lockout Redis read fail-closed → 503

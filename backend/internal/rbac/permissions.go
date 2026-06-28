@@ -1,3 +1,4 @@
+// Package rbac provides lightweight role-based access control middleware.
 package rbac
 
 // permissions holds the in-memory RBAC policy (ADR-026 lightweight RBAC).

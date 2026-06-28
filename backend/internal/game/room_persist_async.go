@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/metrics"
 )
 
@@ -81,13 +79,7 @@ func (r *Room) writePersistJob(job persistJob) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
 	defer cancel()
-	ls := &domain.LobbyState{
-		ID:        idgen.UUID(),
-		Code:      job.code,
-		State:     string(job.stateJSON),
-		UpdatedAt: time.Now().UnixMilli(),
-		CreatedAt: time.Now().UnixMilli(),
-	}
+	ls := newLobbyState(job.code, job.stateJSON)
 	err := r.store.SaveLobbyState(ctx, ls)
 	if err != nil {
 		r.logger.Error("async save state", "error", err)

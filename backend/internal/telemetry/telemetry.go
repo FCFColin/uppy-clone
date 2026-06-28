@@ -1,3 +1,4 @@
+// Package telemetry configures OpenTelemetry tracing for the server.
 package telemetry
 
 import (
@@ -40,7 +41,7 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
 		slog.Info("OpenTelemetry disabled: OTEL_EXPORTER_OTLP_ENDPOINT not set")
-		return func(ctx context.Context) error { return nil }, nil
+		return func(_ context.Context) error { return nil }, nil
 	}
 
 	exporter, err := otlptracegrpc.New(ctx,

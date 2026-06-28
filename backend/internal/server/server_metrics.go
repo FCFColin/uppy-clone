@@ -10,11 +10,14 @@ import (
 	"github.com/uppy-clone/backend/internal/store"
 )
 
+// metricsCollectInterval controls ticker cadence; tests may shorten it for -short runs.
+var metricsCollectInterval = appConfig.MetricsInterval
+
 // startMetricsCollector starts all 3 Prometheus metrics goroutines.
 func startMetricsCollector(ctx context.Context, hub *game.Hub, db *store.PostgresStore, redis *store.RedisStore) {
 	// Periodically update business metrics for Prometheus
 	go func() {
-		ticker := time.NewTicker(appConfig.MetricsInterval)
+		ticker := time.NewTicker(metricsCollectInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -42,7 +45,7 @@ func startMetricsCollector(ctx context.Context, hub *game.Hub, db *store.Postgre
 	// Periodically update DB pool metrics for Prometheus
 	// Includes DBPoolAcquireDuration observation via delta sampling.
 	go func() {
-		ticker := time.NewTicker(appConfig.MetricsInterval)
+		ticker := time.NewTicker(metricsCollectInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -56,7 +59,7 @@ func startMetricsCollector(ctx context.Context, hub *game.Hub, db *store.Postgre
 
 	// Periodically update Redis pool metrics for Prometheus
 	go func() {
-		ticker := time.NewTicker(appConfig.MetricsInterval)
+		ticker := time.NewTicker(metricsCollectInterval)
 		defer ticker.Stop()
 		for {
 			select {

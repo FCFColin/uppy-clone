@@ -15,6 +15,15 @@ var (
 	whitespaceRegex     = regexp.MustCompile(`\s+`)
 )
 
+// NicknameInputRejected reports whether raw input contains characters that must not
+// be accepted as a client-provided nickname (control/HTML chars). Matches legacy game
+// dangerousCharsRegex behavior for GenerateUniqueNickname.
+func NicknameInputRejected(raw string) bool {
+	return nicknameInputRejectedRegex.MatchString(raw)
+}
+
+var nicknameInputRejectedRegex = regexp.MustCompile(`[\x00-\x1f<>"'&]`)
+
 // Nickname sanitizes a player nickname.
 // Removes control characters, zero-width chars, HTML special chars,
 // trims whitespace, limits length to protocol.MaxNicknameLen runes, and collapses whitespace.

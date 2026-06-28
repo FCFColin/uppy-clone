@@ -6,15 +6,12 @@ export interface AdminConfig {
 }
 
 export async function loadConfig(
-  adminToken: string,
   onUnauthorized: () => void,
   showToast: (msg: string, type: 'success' | 'error') => void,
   applyConfig: (config: AdminConfig) => void,
 ): Promise<void> {
   try {
-    const res: Response = await fetch('/api/v1/admin/config', {
-      headers: { 'Authorization': `Bearer ${adminToken}` },
-    });
+    const res: Response = await fetch('/api/v1/admin/config', { credentials: 'include' });
     if (res.status === 401) {
       onUnauthorized();
       return;
@@ -27,7 +24,6 @@ export async function loadConfig(
 }
 
 export async function saveConfig(
-  adminToken: string,
   config: AdminConfig,
   showToast: (msg: string, type: 'success' | 'error') => void,
   onSaved: () => void,
@@ -35,10 +31,8 @@ export async function saveConfig(
   try {
     const res: Response = await fetch('/api/v1/admin/config', {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${adminToken}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(config),
     });
     if (res.ok) {

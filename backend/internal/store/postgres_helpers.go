@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/resilience"
@@ -35,8 +36,13 @@ func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
 	return defaultVal
 }
 
+// ObservePoolStats publishes pgx pool saturation metrics to Prometheus.
 func (s *PostgresStore) ObservePoolStats() {
-	stat := s.pool.Stat()
+	p, ok := s.pool.(*pgxpool.Pool)
+	if !ok {
+		return
+	}
+	stat := p.Stat()
 	metrics.DBPoolIdleConns.Set(float64(stat.IdleConns()))
 	metrics.DBPoolInUseConns.Set(float64(stat.AcquiredConns()))
 	currentDuration := stat.AcquireDuration().Seconds()

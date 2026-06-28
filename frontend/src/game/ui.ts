@@ -6,7 +6,7 @@ import {
 } from './ui_elements.js';
 import { showToast } from '../shared/toast.js';
 import { playCountdownTick } from '../shared/audio.js';
-import { measureLayoutInsets } from './renderer_canvas.js';
+import { resizeCanvas } from './renderer.js';
 
 export {
   $waitingScreen, $endedScreen, $gameHud,
@@ -61,11 +61,6 @@ export function showCountdownOverlay(): void {
   document.getElementById('countdown-overlay')?.classList.remove('hidden');
 }
 
-export function hideLoadingOverlay(): void {
-  const loadingOverlay: HTMLElement | null = document.getElementById('loading-overlay');
-  if (loadingOverlay) loadingOverlay.style.display = 'none';
-}
-
 export function generateRandomNickname(): string {
   return pickRandomNickname();
 }
@@ -81,7 +76,7 @@ export async function copyCode(): Promise<void> {
 }
 
 export function refreshLayout(): void {
-  measureLayoutInsets();
+  resizeCanvas();
 }
 
 export function showFallbackErrorScreen(message: string): void {

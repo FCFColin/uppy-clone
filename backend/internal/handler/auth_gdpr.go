@@ -28,7 +28,7 @@ func (h *AuthHandler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(exportData)
+	_ = json.NewEncoder(w).Encode(exportData)
 }
 
 // DeleteUserData handles DELETE /api/v1/user/data
@@ -42,14 +42,18 @@ func (h *AuthHandler) DeleteUserData(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := auth.DeleteUserData(ctx, h.jwtMgr, h.refreshMgr, h.redis, h.db, userId, r); err != nil {
 		slog.Error("failed to delete user data", "userId", userId, "error", err)
+		apierror.InternalError("Failed to delete user data").Write(w)
+		return
 	}
 
-	http.SetCookie(w, auth.BuildAuthCookie("quickplay", "", -1, true))
-	http.SetCookie(w, auth.BuildAuthCookie("session", "", -1, true))
+	secure := auth.IsSecure(r)
+	http.SetCookie(w, auth.BuildAuthCookie("quickplay", "", -1, secure))
+	http.SetCookie(w, auth.BuildAuthCookie("session", "", -1, secure))
+	http.SetCookie(w, auth.BuildRefreshCookie("", secure))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"message": "User data deletion scheduled. All sessions have been revoked.",
 	})
 }

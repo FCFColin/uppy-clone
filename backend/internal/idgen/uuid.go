@@ -1,3 +1,4 @@
+// Package idgen generates opaque identifiers for users and sessions.
 package idgen
 
 import (

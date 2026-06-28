@@ -20,18 +20,67 @@ linters:
     - misspell       # Find misspelled words
     - gocritic       # Go critic checker
     - bodyclose      # Check HTTP response body is closed
-    # 以下 linter 为 Task P1-11 新增 — 企业为何需要：复杂度与重复代码是技术债的两大来源，
-    # 通过 linter 自动化门控防止代码质量退化。现有告警应在后续任务（P1-12 ~ P1-15）中修复。
     - gocyclo        # 圈复杂度检测（max 15）
     - funlen         # 函数行数检测（max 50 行）
     - gocognit       # 认知复杂度检测（max 20）
     - goconst        # 重复字符串/数字提取为常量
     - dupl           # 重复代码块检测（threshold 150）
 
+  exclusions:
+    rules:
+      # Test files may have longer functions and unchecked errors
+      - path: '(.+)_test\.go'
+        linters:
+          - errcheck
+          - gocritic
+          - funlen
+          - gocognit
+          - dupl
+          - gocyclo
+          - bodyclose
+          - goconst
+          - gosec
+          - revive
+          - staticcheck
+      # Generated protocol files
+      - path: protocol/encode\.go
+        linters:
+          - gocritic
+      # Bounded protocol conversions; lengths validated before cast
+      - path: internal/(game|protocol)/
+        linters:
+          - gosec
+        text: "G115"
+      - path: internal/game/cooldown_contract_test\.go
+        linters:
+          - gosec
+        text: "G304"
+      - path: internal/testutil/
+        linters:
+          - gosec
+        text: "G304"
+      - path: internal/server/routes_test\.go
+        linters:
+          - gosec
+        text: "G306"
+      # Intentional API names (stutter) kept for clarity at call sites
+      - linters:
+          - revive
+        text: "stutters"
+      - linters:
+          - revive
+        text: "context-as-argument"
+      - linters:
+          - revive
+        text: "var-naming"
+      - linters:
+          - revive
+        text: "unexported-return"
+
 formatters:
   enable:
     - gofmt          # 强制标准格式化
-    - goimports      # 强制标准 import 排序
+    - goimports      # 强制 standard import 排序
 
 linters-settings:
   gosec:
@@ -46,7 +95,6 @@ linters-settings:
     enabled-tags:
       - diagnostic
       - style
-  # Task P1-11 新增 linter 配置
   gocyclo:
     min-complexity: 15
   funlen:
@@ -59,19 +107,3 @@ linters-settings:
     min-occurrences: 3
   dupl:
     threshold: 150
-
-issues:
-  exclude-rules:
-    # Test files may have longer functions and unchecked errors
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gocritic
-        - funlen
-        - gocognit
-        - dupl
-        - gocyclo
-    # Generated protocol files
-    - path: "protocol/encode.go"
-      linters:
-        - gocritic

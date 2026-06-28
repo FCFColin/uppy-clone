@@ -2,7 +2,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; background: #1a1a2e; color: #eee; font-family: 'Segoe UI', system-ui, sans-serif; }
 body.game-page { height: 100%; overflow: hidden; }
-body.landing-page { min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+body.landing-page { height: 100dvh; overflow: hidden; }
 .hidden { display: none !important; }
 
 /* ===== Canvas ===== */
@@ -11,6 +11,7 @@ body.landing-page { min-height: 100%; overflow-x: hidden; overflow-y: auto; }
   left: 0;
   right: 0;
   width: 100%;
+  z-index: 1;
   display: block;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
@@ -25,6 +26,7 @@ body.landing-page { min-height: 100%; overflow-x: hidden; overflow-y: auto; }
 .overlay {
   position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(26,26,46,.85); z-index: 10000; animation: fadeIn .3s ease;
+  pointer-events: auto;
 }
 .overlay-content { text-align: center; padding: 2rem; max-height: 85vh; overflow-y: auto; }
 .overlay-content h2 { font-size: 1.8rem; margin-bottom: 1rem; color: #e94560; }
@@ -40,6 +42,23 @@ body.landing-page { min-height: 100%; overflow-x: hidden; overflow-y: auto; }
   color: #eee; cursor: pointer; font-size: .85rem; transition: background .2s;
 }
 .btn-small:hover { background: #e94560; }
+.btn-secondary {
+  display: inline-block;
+  padding: .65rem 1.5rem;
+  border: 1px solid rgba(233, 69, 96, 0.4);
+  border-radius: .5rem;
+  background: rgba(15, 52, 96, 0.5);
+  color: #eee;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background .2s, border-color .2s;
+}
+.btn-secondary:hover {
+  background: rgba(233, 69, 96, 0.2);
+  border-color: #e94560;
+}
 .btn-icon { background: none; border: none; font-size: 1rem; cursor: pointer; }
 .btn-primary {
   padding: .75rem 2rem;

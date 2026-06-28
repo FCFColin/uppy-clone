@@ -5,6 +5,7 @@ import { updateUI } from './ui.js';
 import { runTutorialIfNeeded } from './tutorial.js';
 import { playGameOverSound, vibrate } from '../shared/audio.js';
 import { updateBestScore, fetchUserBestScore } from '../shared/best_score_cookie.js';
+import { syncRestartVoteUI } from './restart_vote_ui.js';
 
 export function handleGameStateChange(view: DataView): void {
   const phaseCode: number = view.getUint8(1);
@@ -57,37 +58,11 @@ export function handleRestartStatus(view: DataView): void {
   const total: number = view.getUint8(2);
   const countdownMs: number = view.getUint32(3, true);
   state.restartVotes = {
-    yes: yes,
-    total: total,
-    countdownMs: countdownMs,
+    yes,
+    total,
+    countdownMs,
     receivedAt: Date.now(),
   };
-  if (countdownMs > 0 && !window._restartCountdownTimer) {
-    window._restartCountdownTimer = setInterval(() => {
-      if (state.restartVotes && state.restartVotes.countdownMs > 0) {
-        const elapsed: number = Date.now() - (state.restartVotes.receivedAt ?? 0);
-        const remaining: number = Math.max(0, state.restartVotes.countdownMs - elapsed);
-        const $restartCountdown: HTMLElement | null = document.getElementById('restart-countdown');
-        if ($restartCountdown && remaining > 0) {
-          $restartCountdown.textContent = `${Math.ceil(remaining / 1000)} 秒后自动重启`;
-        } else if ($restartCountdown) {
-          $restartCountdown.textContent = '';
-          clearInterval(window._restartCountdownTimer!);
-          window._restartCountdownTimer = null;
-        }
-      }
-    }, 1000);
-  }
-
-  const $restartProgress: HTMLElement | null = document.getElementById('restart-progress');
-  if ($restartProgress && state.phase === 'ended') {
-    if (yes >= total && total > 0) {
-      $restartProgress.textContent = '正在重启游戏...';
-    } else {
-      const need = total - yes;
-      $restartProgress.textContent = `${yes}/${total} 人已投票，还差 ${need} 人`;
-    }
-  }
-
+  syncRestartVoteUI();
   updateUI(true);
 }

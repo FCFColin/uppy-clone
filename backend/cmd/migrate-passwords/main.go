@@ -15,8 +15,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/crypto"
 	_ "github.com/lib/pq"
+	"github.com/uppy-clone/backend/internal/crypto"
 	"golang.org/x/crypto/bcrypt"
 )
 

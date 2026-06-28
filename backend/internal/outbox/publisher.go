@@ -1,3 +1,4 @@
+// Package outbox publishes transactional outbox events to Redis Streams.
 package outbox
 
 import (
@@ -7,17 +8,30 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/metrics"
 )
 
+type pgPool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 // Publisher polls outbox_events and publishes to Redis Streams.
 type Publisher struct {
-	db        *pgxpool.Pool
+	db        pgPool
 	rdb       *redis.Client
 	batchSize int
 	interval  time.Duration
+}
+
+type outboxRow struct {
+	id        int64
+	aggType   string
+	aggID     string
+	payload   []byte
+	createdAt int64
 }
 
 // NewPublisher creates a new Outbox Publisher.
@@ -52,14 +66,7 @@ func (p *Publisher) Start(ctx context.Context) {
 	}
 }
 
-func (p *Publisher) publishBatch(ctx context.Context) {
-	tx, err := p.db.Begin(ctx)
-	if err != nil {
-		slog.Error("outbox publisher: begin tx", "error", err)
-		return
-	}
-	defer tx.Rollback(ctx)
-
+func (p *Publisher) readPendingBatch(ctx context.Context, tx pgx.Tx) ([]outboxRow, int64) {
 	rows, err := tx.Query(ctx,
 		`SELECT id, aggregate_type, aggregate_id, payload, created_at
 		 FROM outbox_events
@@ -69,20 +76,14 @@ func (p *Publisher) publishBatch(ctx context.Context) {
 		 FOR UPDATE SKIP LOCKED`, p.batchSize)
 	if err != nil {
 		slog.Error("outbox publisher: query", "error", err)
-		return
+		return nil, 0
 	}
+	defer rows.Close()
 
-	type row struct {
-		id        int64
-		aggType   string
-		aggID     string
-		payload   []byte
-		createdAt int64
-	}
-	var batch []row
+	var batch []outboxRow
 	var oldest int64
 	for rows.Next() {
-		var r row
+		var r outboxRow
 		if err := rows.Scan(&r.id, &r.aggType, &r.aggID, &r.payload, &r.createdAt); err != nil {
 			slog.Error("outbox publisher: scan", "error", err)
 			continue
@@ -92,8 +93,18 @@ func (p *Publisher) publishBatch(ctx context.Context) {
 		}
 		batch = append(batch, r)
 	}
-	rows.Close()
+	return batch, oldest
+}
 
+func (p *Publisher) publishBatch(ctx context.Context) {
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		slog.Error("outbox publisher: begin tx", "error", err)
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	batch, oldest := p.readPendingBatch(ctx, tx)
 	if len(batch) == 0 {
 		return
 	}

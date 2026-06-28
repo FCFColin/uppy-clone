@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"testing"
 
 	appConfig "github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/handler"
 )
 
 func TestParseLogLevel(t *testing.T) {
@@ -50,6 +52,46 @@ func TestGetEnv_PrefersServerEnv(t *testing.T) {
 	}
 	if got := getEnv("PORT", "8080"); got != "3000" {
 		t.Errorf("PORT = %q", got)
+	}
+}
+
+func TestMetricsAuthMiddleware_ForbiddenInProduction(t *testing.T) {
+	t.Setenv("ENABLE_HSTS", "true")
+	t.Setenv("METRICS_USER", "")
+	t.Setenv("METRICS_PASSWORD", "")
+	t.Cleanup(func() {
+		os.Unsetenv("ENABLE_HSTS")
+		os.Unsetenv("METRICS_USER")
+		os.Unsetenv("METRICS_PASSWORD")
+	})
+
+	handler := metricsAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 when metrics auth not configured in production", rec.Code)
+	}
+}
+
+func TestMetricsAuthMiddleware_WrongPassword(t *testing.T) {
+	t.Setenv("METRICS_USER", "metrics")
+	t.Setenv("METRICS_PASSWORD", "secret")
+	t.Cleanup(func() {
+		os.Unsetenv("METRICS_USER")
+		os.Unsetenv("METRICS_PASSWORD")
+	})
+
+	handler := metricsAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.SetBasicAuth("metrics", "wrong")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }
 
@@ -111,10 +153,27 @@ func TestMetricsAuthMiddleware_DevModeOpen(t *testing.T) {
 	}
 }
 
-func TestValidateConfig_RejectsMissingEnv(t *testing.T) {
-	serverEnv = &appConfig.Env{}
+func TestGetEnvInt_PrefersServerEnv(t *testing.T) {
+	serverEnv = &appConfig.Env{MaxWSConnections: 200, MaxPlayersPerRoom: 16}
 	t.Cleanup(func() { serverEnv = nil })
-	if err := serverEnv.Validate(); err == nil {
-		t.Fatal("expected validation error for missing env")
+	if got := getEnvInt("MAX_WS_CONNECTIONS", 42); got != 200 {
+		t.Errorf("MAX_WS_CONNECTIONS = %d", got)
+	}
+	if got := getEnvInt("MAX_PLAYERS_PER_ROOM", 8); got != 16 {
+		t.Errorf("MAX_PLAYERS_PER_ROOM = %d", got)
+	}
+}
+
+func TestValidateConfig_ExitsOnInvalidEnv(t *testing.T) {
+	if os.Getenv("TEST_VALIDATE_CONFIG_SUBPROCESS") == "1" {
+		serverEnv = &appConfig.Env{}
+		validateConfig(&handler.Config{}, slog.Default())
+		os.Exit(0)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestValidateConfig_ExitsOnInvalidEnv$", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_VALIDATE_CONFIG_SUBPROCESS=1")
+	err := cmd.Run()
+	if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() == 0 {
+		t.Fatalf("validateConfig should exit non-zero, got %v", err)
 	}
 }

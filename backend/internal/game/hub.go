@@ -3,16 +3,12 @@ package game
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
@@ -25,33 +21,32 @@ type RoomInfo struct {
 }
 
 // Hub 管理所有游戏房间（对应 TS Registry）
-//
-// 企业为何需要：舱壁隔离（Bulkhead）防止单类资源耗尽拖垮整体。WebSocket 连接洪水可耗尽文件描述符和内存，
-// 导致 REST API 也无法响应。连接上限是 DoS 防御的基本措施。
-//
-// P3-3.5: 未来重构应通过依赖注入传入 RoomRepository 与 SnapshotEncoder 接口，
-// 移除对 store/protocol 包的直接依赖（见 repository.go）。
 type Hub struct {
 	mu                sync.RWMutex
-	rooms             map[string]*Room // lobbyCode → Room
+	rooms             map[string]*Room
 	store             RoomRepository
 	redis             *store.RedisStore
 	timeouts          config.TimeoutConfig
 	logger            *slog.Logger
-	maxWSConnections  int   // 全局 WebSocket 连接上限
-	wsConnCount       int64 // 当前 WebSocket 连接数（atomic 操作）
-	maxPlayersPerRoom int   // 每房间最大玩家数
+	maxWSConnections  int
+	wsConnCount       int64
+	maxPlayersPerRoom int
+	broadcaster       Broadcaster
+	instanceID        string
+	subscriptions     map[string]func()
+}
 
-	// broadcaster 用于跨实例广播（ADR-005）。nil 表示单实例模式。
-	broadcaster Broadcaster
-	// instanceID 标识当前实例，用于过滤 Pub/Sub 回环消息。
-	instanceID string
-	// subscriptions 存储每个房间的取消订阅函数（roomCode → unsubscribe）。
-	subscriptions map[string]func()
+// generateRoomCodeFn generates room codes; tests may replace it to simulate conflicts.
+var generateRoomCodeFn = GenerateRoomCode
+
+// SetGenerateRoomCodeHook overrides room code generation in tests and returns a restore func.
+func SetGenerateRoomCodeHook(fn func() string) (restore func()) {
+	prev := generateRoomCodeFn
+	generateRoomCodeFn = fn
+	return func() { generateRoomCodeFn = prev }
 }
 
 // NewHub 创建房间注册中心
-// broadcaster 可为 nil（单实例模式/测试场景）。
 func NewHub(pgStore RoomRepository, redisStore *store.RedisStore, timeouts config.TimeoutConfig, maxWSConnections, maxPlayersPerRoom int, broadcaster Broadcaster) *Hub {
 	if maxWSConnections <= 0 {
 		maxWSConnections = config.MaxWSConnections
@@ -79,7 +74,7 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 
 	var code string
 	for i := 0; i < 10; i++ {
-		code = GenerateRoomCode()
+		code = generateRoomCodeFn()
 		if _, exists := h.rooms[code]; !exists {
 			break
 		}
@@ -106,6 +101,9 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 	})
 
 	h.logger.Info("room created", "code", code)
+	if _, err := domain.NewRoomCode(code); err != nil {
+		h.logger.Error("generated invalid room code", "code", code, "error", err)
+	}
 	return code, nil
 }
 
@@ -121,42 +119,16 @@ func (h *Hub) GetRoom(code string) *Room {
 }
 
 // RemoveRoom 移除房间
-// 企业为何需要：传入请求 context 以便审计日志关联 trace_id/request_id，
-// 满足 SOC2 审计追溯要求。原 context.Background() 丢失了请求链路信息。
 func (h *Hub) RemoveRoom(ctx context.Context, code string) {
-	var room *Room
-	h.mu.Lock()
-	if r, ok := h.rooms[code]; ok {
-		room = r
-		delete(h.rooms, code)
-		h.unsubscribeRoomLocked(code)
-		audit.Log(ctx, audit.AuditEntry{
-			Action:   "room.delete",
-			ActorID:  "system",
-			Resource: "room/" + code,
-			Before:   map[string]interface{}{"code": code},
-		})
-		h.logger.Info("room removed", "code", code)
-	}
-	h.mu.Unlock()
-
-	if room != nil {
-		room.Close()
-	}
-
-	if h.store != nil {
-		pctx, cancel := context.WithTimeout(context.Background(), h.timeouts.PGQueryTimeout)
-		defer cancel()
-		_ = h.store.DeleteLobbyState(pctx, code)
-	}
-
-	h.unregisterRoomFromRedis(code)
-	h.invalidateLobbyReadCaches(code)
+	h.removeSingleRoom(ctx, code, removeRoomOptions{
+		audit:    true,
+		pgDelete: true,
+		cache:    true,
+		logMsg:   "room removed",
+	})
 }
 
 // CloseAllRooms closes all active rooms, ensuring state is persisted.
-// 企业为何需要：优雅关闭时必须持久化所有房间状态，避免数据丢失。
-// 在服务器收到 SIGTERM 时调用，确保 tick goroutine 退出且状态写入 DB。
 func (h *Hub) CloseAllRooms() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -185,239 +157,6 @@ func (h *Hub) CheckRoom(code string) (*RoomInfo, error) {
 		PlayerCount: len(room.state.Players),
 		CreatedAt:   room.state.StartedAt,
 	}, nil
-}
-
-// RestoreRooms 从 PostgreSQL 加载所有活跃房间（启动时调用）
-func (h *Hub) RestoreRooms() error {
-	if h.store == nil {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.PGRequestTimeout)
-	defer cancel()
-
-	cursor := ""
-	const pageSize = 100
-	restored := 0
-
-	for {
-		result, err := h.store.LoadAllActiveLobbies(ctx, pageSize, cursor)
-		if err != nil {
-			return err
-		}
-		if len(result.Lobbies) == 0 {
-			break
-		}
-
-		var toSubscribe []string
-		h.mu.Lock()
-		for _, ls := range result.Lobbies {
-			if _, ok := h.rooms[ls.Code]; ok {
-				continue
-			}
-			room, err := h.deserializeAndMaterialize(ls.Code, []byte(ls.State))
-			if err != nil {
-				h.logger.Error("deserialize lobby state on restore", "code", ls.Code, "error", err)
-				continue
-			}
-			h.rooms[ls.Code] = room
-			toSubscribe = append(toSubscribe, ls.Code)
-			restored++
-			h.logger.Info("restored room", "code", ls.Code, "phase", room.state.Phase)
-		}
-		h.mu.Unlock()
-
-		for _, code := range toSubscribe {
-			h.subscribeRoom(code)
-		}
-
-		if len(result.Lobbies) < pageSize {
-			break
-		}
-		cursor = result.Lobbies[len(result.Lobbies)-1].Code
-	}
-
-	h.logger.Info("rooms restored", "count", restored)
-	return nil
-}
-
-// materializeRoom creates a Room from deserialized state (caller handles map registration).
-func (h *Hub) materializeRoom(code string, state *domain.GameState) *Room {
-	room := NewRoom(code, h, h.store, h.timeouts, h.maxPlayersPerRoom)
-	room.state = state
-	for _, p := range state.Players {
-		room.usedNames[p.Nickname] = true
-	}
-	return room
-}
-
-// deserializeAndMaterialize deserializes lobby state JSON into a Room without registering it.
-func (h *Hub) deserializeAndMaterialize(code string, stateJSON []byte) (*Room, error) {
-	state, err := DeserializeState(stateJSON)
-	if err != nil {
-		return nil, err
-	}
-	return h.materializeRoom(code, state), nil
-}
-
-// registerRoomLocked registers a room under h.mu (caller must hold the lock).
-func (h *Hub) registerRoomLocked(code string, room *Room) *Room {
-	if existing, ok := h.rooms[code]; ok {
-		return existing
-	}
-	h.rooms[code] = room
-	return room
-}
-
-// loadOrMaterializeRoom loads a room from the store if not already in memory.
-func (h *Hub) loadOrMaterializeRoom(code string) *Room {
-	if h.store == nil {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.PGQueryTimeout)
-	defer cancel()
-
-	ls, err := h.store.LoadLobbyState(ctx, code)
-	if err != nil || ls == nil {
-		return nil
-	}
-
-	room, err := h.deserializeAndMaterialize(code, []byte(ls.State))
-	if err != nil {
-		h.logger.Error("deserialize lobby state", "code", code, "error", err)
-		return nil
-	}
-
-	h.mu.Lock()
-	room = h.registerRoomLocked(code, room)
-	h.mu.Unlock()
-	h.subscribeRoom(code)
-	return room
-}
-
-// CleanupLoop 定期清理空房间
-func (h *Hub) CleanupLoop(ctx context.Context) {
-	ticker := time.NewTicker(config.CleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			h.cleanupOnce()
-		}
-	}
-}
-
-// cleanupOnce 执行一次空房间清理
-//
-// P4-3: 采用"快照 + 锁外处理"模式，减少 hub 写锁持有时间。
-// 原实现全程持有 h.mu.Lock()，阻塞 CreateRoom/GetRoom。
-// 新实现分三步：(1) RLock 快照房间码；(2) 锁外逐个检查房间状态；
-// (3) 短暂 Lock 删除空房间。检查阶段不阻塞读写操作。
-func (h *Hub) cleanupOnce() {
-	// Step 1: Snapshot room codes with read lock
-	codes := h.snapshotRoomCodes()
-
-	now := time.Now().UnixMilli()
-
-	// Step 2: Check each room without holding hub lock
-	var toCleanup []string
-	for _, code := range codes {
-		h.mu.RLock()
-		room, ok := h.rooms[code]
-		h.mu.RUnlock()
-		if !ok {
-			continue
-		}
-
-		if shouldCleanupRoom(room, now) {
-			toCleanup = append(toCleanup, code)
-		}
-	}
-
-	// Step 3: Delete empty rooms with brief write lock
-	h.deleteRooms(toCleanup)
-}
-
-// snapshotRoomCodes returns a snapshot of all room codes under a read lock.
-func (h *Hub) snapshotRoomCodes() []string {
-	h.mu.RLock()
-	codes := make([]string, 0, len(h.rooms))
-	for code := range h.rooms {
-		codes = append(codes, code)
-	}
-	h.mu.RUnlock()
-	return codes
-}
-
-// shouldCleanupRoom determines whether a room should be cleaned up based on its
-// phase, player count, and connection/disconnection state.
-func shouldCleanupRoom(room *Room, now int64) bool {
-	room.mu.RLock()
-	defer room.mu.RUnlock()
-
-	phase := room.state.Phase
-	playerCount := len(room.state.Players)
-	hasConnections := len(room.connections) > 0
-
-	// 清理条件：waiting 阶段且无连接
-	if phase == domain.PhaseWaiting && !hasConnections {
-		return true
-	}
-
-	// 无玩家且无连接
-	if playerCount == 0 && !hasConnections {
-		return true
-	}
-
-	// 检查是否所有玩家都已断连超过优雅期
-	if !hasConnections && playerCount > 0 {
-		return allPlayersDisconnectedExpired(room.state.Players, now)
-	}
-	return false
-}
-
-// allPlayersDisconnectedExpired returns true if every player is disconnected
-// and has been so for longer than the 60-second grace period.
-func allPlayersDisconnectedExpired(players map[string]*domain.PlayerState, now int64) bool {
-	for _, p := range players {
-		if p.Disconnected && p.DisconnectedAt != nil {
-			if now-*p.DisconnectedAt <= 60_000 { // 60 秒额外宽限
-				return false
-			}
-		} else {
-			return false
-		}
-	}
-	return true
-}
-
-// deleteRooms removes the given room codes under a brief write lock.
-func (h *Hub) deleteRooms(codes []string) {
-	if len(codes) == 0 {
-		return
-	}
-	var toClose []*Room
-	h.mu.Lock()
-	for _, code := range codes {
-		if room, ok := h.rooms[code]; ok {
-			toClose = append(toClose, room)
-			delete(h.rooms, code)
-			h.unsubscribeRoomLocked(code)
-			h.logger.Info("cleaned up empty room", "code", code)
-		}
-	}
-	h.mu.Unlock()
-
-	for _, room := range toClose {
-		room.Close()
-	}
-	for _, code := range codes {
-		h.unregisterRoomFromRedis(code)
-	}
 }
 
 // RoomCount 返回当前房间数量
@@ -459,153 +198,9 @@ func (h *Hub) Timeouts() config.TimeoutConfig {
 	return h.timeouts
 }
 
-// registerRoomInRedis stores room metadata in Redis for multi-instance discovery.
-// Enterprise rationale: Room state in Redis enables multi-instance deployment.
-// When Hub instance A creates a room, instance B can discover it via Redis.
-// This is the first step toward horizontal scaling per ADR-005.
-// Trade-off: Extra Redis round-trip per room create/destroy, but enables
-// future multi-instance deployment.
-func (h *Hub) registerRoomInRedis(code string) {
-	if h.redis == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.RedisConnectTimeout)
-	defer cancel()
-
-	data, _ := json.Marshal(store.RoomRegistryInfo{
-		Code:      code,
-		Instance:  h.instanceID,
-		Address:   instanceAddress(),
-		CreatedAt: time.Now().UnixMilli(),
-	})
-	_ = h.redis.RegisterRoom(ctx, code, data, 24*time.Hour)
-}
-
-// unregisterRoomFromRedis removes room metadata from Redis.
-func (h *Hub) unregisterRoomFromRedis(code string) {
-	if h.redis == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.RedisConnectTimeout)
-	defer cancel()
-	_ = h.redis.UnregisterRoom(ctx, code)
-}
-
-// subscribeRoom 订阅房间的跨实例广播频道。broadcaster 为 nil 时为空操作。
-func (h *Hub) subscribeRoom(code string) {
-	if h.broadcaster == nil {
-		return
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, exists := h.subscriptions[code]; exists {
-		return
-	}
-	unsub, err := h.broadcaster.Subscribe(code, func(msg BroadcastMessage) {
-		h.handleRemoteBroadcast(code, msg)
-	})
-	if err != nil {
-		h.logger.Warn("subscribe room broadcast failed", "code", code, "error", err)
-		return
-	}
-	h.subscriptions[code] = unsub
-}
-
-// unsubscribeRoom 取消房间的跨实例广播订阅。
-func (h *Hub) unsubscribeRoom(code string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.unsubscribeRoomLocked(code)
-}
-
-func (h *Hub) unsubscribeRoomLocked(code string) {
-	if unsub, ok := h.subscriptions[code]; ok {
-		unsub()
-		delete(h.subscriptions, code)
-	}
-}
-
-// handleRemoteBroadcast 处理来自其他实例的 Redis Pub/Sub 广播消息。
-func (h *Hub) handleRemoteBroadcast(roomCode string, msg BroadcastMessage) {
-	if msg.ExcludeInstance == h.instanceID {
-		return
-	}
-	h.mu.RLock()
-	room, ok := h.rooms[roomCode]
-	h.mu.RUnlock()
-	if !ok {
-		return
-	}
-	room.mu.Lock()
-	room.broadcastLocal(msg.Payload, msg.ExcludePlayer)
-	room.mu.Unlock()
-}
-
-// 错误定义
 // ErrRoomCodeConflict is returned when a room code collision occurs.
 var ErrRoomCodeConflict = &roomCodeConflictError{}
 
 type roomCodeConflictError struct{}
 
 func (e *roomCodeConflictError) Error() string { return "room code conflict after 10 retries" }
-
-// ErrWSConnectionLimit 全局 WebSocket 连接数已达上限
-var ErrWSConnectionLimit = &wsConnectionLimitError{}
-
-type wsConnectionLimitError struct{}
-
-func (e *wsConnectionLimitError) Error() string { return "websocket connection limit reached" }
-
-// CanAcceptWSConnection 检查是否可以接受新的 WebSocket 连接
-func (h *Hub) CanAcceptWSConnection() bool {
-	return atomic.LoadInt64(&h.wsConnCount) < int64(h.maxWSConnections)
-}
-
-// ReserveWSConnection atomically reserves a WS slot before upgrade.
-// Call release() if join fails or connection closes without increment path.
-func (h *Hub) ReserveWSConnection() (release func(), ok bool) {
-	for {
-		cur := atomic.LoadInt64(&h.wsConnCount)
-		if cur >= int64(h.maxWSConnections) {
-			return nil, false
-		}
-		if atomic.CompareAndSwapInt64(&h.wsConnCount, cur, cur+1) {
-			metrics.WSConnections.Set(float64(cur + 1))
-			released := false
-			return func() {
-				if released {
-					return
-				}
-				released = true
-				h.DecrementWSConnection()
-			}, true
-		}
-	}
-}
-
-// IncrementWSConnection 原子递增 WebSocket 连接计数
-func (h *Hub) IncrementWSConnection() {
-	count := atomic.AddInt64(&h.wsConnCount, 1)
-	metrics.WSConnections.Set(float64(count))
-}
-
-// DecrementWSConnection 原子递减 WebSocket 连接计数
-func (h *Hub) DecrementWSConnection() {
-	count := atomic.AddInt64(&h.wsConnCount, -1)
-	metrics.WSConnections.Set(float64(count))
-}
-
-// WSConnCount 返回当前 WebSocket 连接数
-func (h *Hub) WSConnCount() int64 {
-	return atomic.LoadInt64(&h.wsConnCount)
-}
-
-// MaxWSConnections 返回全局 WebSocket 连接上限
-func (h *Hub) MaxWSConnections() int {
-	return h.maxWSConnections
-}
-
-// MaxPlayersPerRoom 返回每房间最大玩家数
-func (h *Hub) MaxPlayersPerRoom() int {
-	return h.maxPlayersPerRoom
-}

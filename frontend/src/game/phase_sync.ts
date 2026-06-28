@@ -9,6 +9,7 @@ import {
   hideCountdownOverlay, showCountdownOverlay,
   startCooldownUpdater, stopCooldownUpdater,
 } from './ui.js';
+import { tryEntryHandoff } from './entry_flow.js';
 
 /**
  * Whether a snapshot phase transition is allowed from the current client phase.
@@ -45,6 +46,58 @@ function hideNicknameUI(): void {
   if (inline) inline.classList.add('hidden');
 }
 
+function clearRestartCountdownTimer(): void {
+  if (state.countdownTimerInterval !== null) {
+    clearInterval(state.countdownTimerInterval);
+    state.countdownTimerInterval = null;
+  }
+  if (window._restartCountdownTimer) {
+    clearInterval(window._restartCountdownTimer);
+    window._restartCountdownTimer = null;
+  }
+}
+
+function onEnterPlaying(): void {
+  state.endReason = null;
+  resetRoundClientState();
+  seenSeqs.clear();
+  hideCountdownOverlay();
+  clearRestartCountdownTimer();
+  hideNicknameUI();
+  resetInterpolation();
+  startCooldownUpdater();
+}
+
+function onEnterCountdown(countdownSeconds: number): void {
+  stopCooldownUpdater();
+  resetRoundClientState();
+  seenSeqs.clear();
+  hideNicknameUI();
+  resetInterpolation();
+  showCountdownOverlay();
+  startCountdownTimer(countdownSeconds);
+}
+
+function onEnterEnded(): void {
+  stopCooldownUpdater();
+  hideCountdownOverlay();
+  hideNicknameUI();
+  freezeInterpolation();
+  state.restartVotes = { yes: 0, total: state.players.length, countdownMs: 0 };
+}
+
+function onEnterWaiting(): void {
+  stopCooldownUpdater();
+  hideCountdownOverlay();
+}
+
+const phaseEnterHooks: Record<GamePhase, (countdownSeconds: number) => void> = {
+  playing: () => onEnterPlaying(),
+  countdown: (countdownSeconds) => onEnterCountdown(countdownSeconds),
+  ended: () => onEnterEnded(),
+  waiting: () => onEnterWaiting(),
+};
+
 /**
  * Apply side effects when game phase changes (from GAME_STATE_CHANGE or snapshot).
  * Returns true when the phase actually changed.
@@ -53,11 +106,11 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
   const prevPhase = state.phase;
   if (nextPhase === prevPhase) return false;
 
-  // Don't enter gameplay until the player clicked "进入游戏" (restart from ended is OK).
+  // Don't enter gameplay (or ended) until the player clicked「进入游戏」.
   if (
     !state.nicknameSubmitted
     && prevPhase === 'waiting'
-    && (nextPhase === 'countdown' || nextPhase === 'playing')
+    && (nextPhase === 'countdown' || nextPhase === 'playing' || nextPhase === 'ended')
   ) {
     return false;
   }
@@ -65,43 +118,8 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
   state.phase = nextPhase;
   window.__gamePhase = nextPhase;
 
-  if (nextPhase === 'playing') {
-    state.endReason = null;
-    resetRoundClientState();
-    // Clear seenSeqs so the first playing snapshot (which may share the same
-    // tick-count/seq as the preceding countdown snapshot) is not dropped as a
-    // duplicate. This is critical after a restart where TickCount resets to 0.
-    seenSeqs.clear();
-    hideCountdownOverlay();
-    if (state.countdownTimerInterval !== null) {
-      clearInterval(state.countdownTimerInterval);
-      state.countdownTimerInterval = null;
-    }
-    if (window._restartCountdownTimer) {
-      clearInterval(window._restartCountdownTimer);
-      window._restartCountdownTimer = null;
-    }
-    hideNicknameUI();
-    resetInterpolation();
-    startCooldownUpdater();
-  } else if (nextPhase === 'countdown') {
-    stopCooldownUpdater();
-    resetRoundClientState();
-    seenSeqs.clear();
-    hideNicknameUI();
-    resetInterpolation();
-    showCountdownOverlay();
-    startCountdownTimer(countdownSeconds);
-  } else if (nextPhase === 'ended') {
-    stopCooldownUpdater();
-    hideCountdownOverlay();
-    hideNicknameUI();
-    freezeInterpolation();
-    state.restartVotes = { yes: 0, total: state.players.length, countdownMs: 0 };
-  } else if (nextPhase === 'waiting') {
-    stopCooldownUpdater();
-    hideCountdownOverlay();
-  }
+  tryEntryHandoff(nextPhase);
+  phaseEnterHooks[nextPhase](countdownSeconds);
 
   updateUI(true);
   return true;
