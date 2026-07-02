@@ -1,5 +1,5 @@
 import { PALETTE_COLORS } from './constants.js';
-import type { GamePhase } from '../shared/types.js';
+import type { GamePhase } from '../shared/game/types.js';
 import { state } from './state.js';
 import {
   $waitingScreen, $endedScreen, $gameHud, $cooldownIndicator,

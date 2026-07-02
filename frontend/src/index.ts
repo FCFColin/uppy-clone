@@ -1,7 +1,6 @@
 export {};
 
-import { establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/session.js';
-import { fetchWithRetry } from './shared/fetch.js';
+import { establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/network/session.js';
 import { initCollapsibleLeaderboard } from './index_leaderboard.js';
 
 normalizeAuthHost();

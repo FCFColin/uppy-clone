@@ -18,7 +18,7 @@ vi.mock('./ui_elements.js', () => ({
   $cooldownBar: mocks.bar,
   $cooldownText: mocks.text,
 }));
-vi.mock('../shared/audio.js', () => ({
+vi.mock('../shared/ui/audio.js', () => ({
   playReadySound: vi.fn(),
   vibrate: vi.fn(),
 }));

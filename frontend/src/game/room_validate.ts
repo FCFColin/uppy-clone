@@ -1,4 +1,4 @@
-import { fetchWithRefresh } from '../shared/auth.js';
+import { fetchWithRefresh } from '../shared/network/auth.js';
 
 export type RoomValidateResult =
   | { ok: true }

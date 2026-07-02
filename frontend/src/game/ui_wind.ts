@@ -1,4 +1,4 @@
-import { isTutorialDone } from '../shared/tutorial_cookie.js';
+import { isTutorialDone } from '../shared/data/tutorial_cookie.js';
 import { PHYSICS } from './constants.js';
 import { state } from './state.js';
 

@@ -1,4 +1,4 @@
-import { establishGameSession } from '../shared/session.js';
+import { establishGameSession } from '../shared/network/session.js';
 
 export async function ensureAuth(): Promise<boolean> {
   const result = await establishGameSession();

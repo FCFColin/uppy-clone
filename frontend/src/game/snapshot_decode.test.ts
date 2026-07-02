@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { PHASE_CODE } from '../shared/protocol.js';
+import { PHASE_CODE } from '../shared/game/protocol.js';
 import { textEncoder, applySnapshot, decodeSnapshot } from './message_codec.js';
 
 function buildSnapshotBuffer(extraBytes = 0): ArrayBuffer {
-  return new ArrayBuffer(40 + extraBytes);
+  return new ArrayBuffer(44 + extraBytes);
 }
 
 function writeBaseSnapshot(dv: DataView, phaseCode: number, timestamp = 100, score = 42): number {
@@ -21,11 +21,13 @@ function writeBaseSnapshot(dv: DataView, phaseCode: number, timestamp = 100, sco
   dv.setFloat32(o, 0.5, true); o += 4;
   dv.setUint16(o, 0, true); o += 2;
   dv.setUint8(o, 0); o += 1;
+  dv.setUint8(o, 0); o += 1;
+  dv.setFloat32(o, 0.5, true); o += 4;
   return o;
 }
 
 describe('decodeSnapshot', () => {
-  it('returns null for buffers shorter than 37 bytes', () => {
+  it('returns null for buffers shorter than 44 bytes', () => {
     expect(decodeSnapshot(new DataView(new ArrayBuffer(10)))).toBeNull();
   });
 
@@ -39,7 +41,7 @@ describe('decodeSnapshot', () => {
     expect(decoded!.score).toBe(42);
     expect(decoded!.balloon.y).toBeCloseTo(0.6);
     expect(decoded!.ripples).toEqual([]);
-    expect(decoded!.wind).toBeUndefined();
+    expect(decoded!.wind).toBeCloseTo(0.5);
   });
 
   it('applySnapshot copies decoded entities into client state', () => {
@@ -89,10 +91,10 @@ describe('decodeSnapshot', () => {
     const nickBytes = textEncoder.encode(nick);
     const playerBytes = 2 + 4 + 4 + 4 + 1 + nickBytes.length;
     const tailBytes = 1 + 2 + 4 + 4 + 4;
-    const buf = new ArrayBuffer(40 + playerBytes + tailBytes);
+    const buf = new ArrayBuffer(44 + playerBytes + tailBytes);
     const dv = new DataView(buf);
-    const baseEnd = writeBaseSnapshot(dv, PHASE_CODE.PLAYING);
-    let o = baseEnd - 1;
+    writeBaseSnapshot(dv, PHASE_CODE.PLAYING);
+    let o = 38;
     dv.setUint8(o, 1); o += 1;
     dv.setUint16(o, 3, true); o += 2;
     dv.setUint32(o, 500, true); o += 4;

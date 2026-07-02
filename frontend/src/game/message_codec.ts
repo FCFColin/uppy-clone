@@ -1,5 +1,5 @@
-import type { GamePhase } from '../shared/types.js';
-import { PHASE_CODE } from '../shared/protocol.js';
+import type { GamePhase } from '../shared/game/types.js';
+import { PHASE_CODE } from '../shared/game/protocol.js';
 import { COOLDOWN, CLIENT_MSG } from './constants.js';
 
 export const textEncoder: TextEncoder = new TextEncoder();
@@ -66,7 +66,7 @@ export interface DecodedSnapshot {
 }
 
 export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
-  if (view.byteLength < 37) {
+  if (view.byteLength < 44) {
     return null;
   }
 

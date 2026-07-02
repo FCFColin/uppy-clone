@@ -1,4 +1,4 @@
-import { playReadySound, vibrate } from '../shared/audio.js';
+import { playReadySound, vibrate } from '../shared/ui/audio.js';
 import { state } from './state.js';
 import { calculateCooldown } from './message_codec.js';
 import { $cooldownBar, $cooldownText } from './ui_elements.js';

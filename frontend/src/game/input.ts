@@ -3,8 +3,7 @@ import { calculateCooldown } from './message_codec.js';
 import { state } from './state.js';
 import { sendOrQueue, getWs } from './websocket.js';
 import { clientToNormalized } from './renderer_canvas.js';
-import { pushFloatingText } from './visual_helpers.js';
-import { playTapSound, vibrate } from '../shared/audio.js';
+import { playTapSound } from '../shared/ui/audio.js';
 import { updateUI } from './ui.js';
 
 export function handleTap(clientX: number, clientY: number): void {

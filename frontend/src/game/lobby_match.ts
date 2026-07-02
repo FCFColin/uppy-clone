@@ -1,4 +1,4 @@
-import { fetchWithRefresh } from '../shared/auth.js';
+import { fetchWithRefresh } from '../shared/network/auth.js';
 
 export async function resolveLobbyCode(): Promise<string | null> {
   const params: URLSearchParams = new URLSearchParams(window.location.search);

@@ -3,8 +3,8 @@ import { state } from './state.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateUI } from './ui.js';
 import { runTutorialIfNeeded } from './tutorial.js';
-import { playGameOverSound, vibrate } from '../shared/audio.js';
-import { updateBestScore, fetchUserBestScore } from '../shared/best_score_cookie.js';
+import { playGameOverSound, vibrate } from '../shared/ui/audio.js';
+import { updateBestScore, fetchUserBestScore } from '../shared/data/best_score_cookie.js';
 import { syncRestartVoteUI } from './restart_vote_ui.js';
 
 export function handleGameStateChange(view: DataView): void {

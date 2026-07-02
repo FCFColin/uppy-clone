@@ -1,4 +1,4 @@
-import { markTutorialDone, shouldShowTutorial } from '../shared/tutorial_cookie.js';
+import { markTutorialDone, shouldShowTutorial } from '../shared/data/tutorial_cookie.js';
 
 const STEPS = [
   '在气球附近点击，把它往上推（点太远无效）',

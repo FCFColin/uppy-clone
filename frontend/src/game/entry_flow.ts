@@ -1,4 +1,4 @@
-import type { GamePhase } from '../shared/types.js';
+import type { GamePhase } from '../shared/game/types.js';
 import { state } from './state.js';
 import {
   type EntryStep,

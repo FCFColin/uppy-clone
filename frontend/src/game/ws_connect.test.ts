@@ -22,7 +22,7 @@ class MockWebSocket {
 }
 
 const connectMocks = vi.hoisted(() => ({
-  establishGameSession: vi.fn(async (): Promise<import('../shared/session.js').SessionResult> => ({ ok: true })),
+  establishGameSession: vi.fn(async (): Promise<import('../shared/network/session.js').SessionResult> => ({ ok: true })),
   validateRoomCode: vi.fn(async (): Promise<import('./room_validate.js').RoomValidateResult> => ({ ok: true })),
   resolveLobbyCode: vi.fn(async (): Promise<string | null> => 'ROOM2'),
   getLobbyCodeFromUrl: vi.fn((): string | null => 'URL22'),
@@ -34,7 +34,7 @@ const connectMocks = vi.hoisted(() => ({
   roomPreChecked: false,
 }));
 
-vi.mock('../shared/session.js', () => ({
+vi.mock('../shared/network/session.js', () => ({
   establishGameSession: connectMocks.establishGameSession,
   sessionErrorMessage: () => 'auth failed',
 }));
@@ -111,7 +111,7 @@ describe('connectWebSocket', () => {
 
   it('shows error when session establishment fails', async () => {
     const { showConnectionError } = await import('./ws_connection.js');
-    connectMocks.establishGameSession.mockResolvedValueOnce({ ok: false, reason: 'network' } as import('../shared/session.js').SessionResult);
+    connectMocks.establishGameSession.mockResolvedValueOnce({ ok: false, reason: 'network' } as import('../shared/network/session.js').SessionResult);
     await connectWebSocket();
     expect(showConnectionError).toHaveBeenCalled();
   });
@@ -215,7 +215,7 @@ describe('connectWebSocket', () => {
   });
 
   it('ignores connect while another connect is in flight', async () => {
-    let resolveSession: (value: import('../shared/session.js').SessionResult) => void = () => {};
+    let resolveSession: (value: import('../shared/network/session.js').SessionResult) => void = () => {};
     connectMocks.establishGameSession.mockImplementation(
       () => new Promise((resolve) => { resolveSession = resolve; }),
     );

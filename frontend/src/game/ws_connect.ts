@@ -1,6 +1,6 @@
 import { CLIENT_MSG } from './constants.js';
 import { state, resetInterpolation, seenSeqs } from './state.js';
-import { establishGameSession, sessionErrorMessage } from '../shared/session.js';
+import { establishGameSession, sessionErrorMessage } from '../shared/network/session.js';
 import {
   onLobbyCodeReady,
   onWebSocketOpen,

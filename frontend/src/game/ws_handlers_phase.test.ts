@@ -30,11 +30,11 @@ vi.mock('./ui.js', () => ({ updateUI: mocks.updateUI }));
 vi.mock('./tutorial.js', () => ({
   runTutorialIfNeeded: vi.fn(() => Promise.resolve()),
 }));
-vi.mock('../shared/audio.js', () => ({
+vi.mock('../shared/ui/audio.js', () => ({
   playGameOverSound: vi.fn(),
   vibrate: vi.fn(),
 }));
-vi.mock('../shared/best_score_cookie.js', () => ({
+vi.mock('../shared/data/best_score_cookie.js', () => ({
   updateBestScore: vi.fn((score: number) => ({ best: score - 10, isNewRecord: false })),
   fetchUserBestScore: vi.fn(() => Promise.resolve(999)),
 }));
@@ -91,7 +91,7 @@ describe('handleGameStateChange', () => {
   });
 
   it('marks new record when cookie best is fresh', async () => {
-    const bestScoreModule = await import('../shared/best_score_cookie.js');
+    const bestScoreModule = await import('../shared/data/best_score_cookie.js');
     vi.mocked(bestScoreModule.updateBestScore).mockReturnValueOnce({ best: 50, isNewRecord: true });
     mocks.state.score = 88;
     document.body.innerHTML = '<div id="personal-best"></div>';
@@ -105,7 +105,7 @@ describe('handleGameStateChange', () => {
   });
 
   it('shows new record when score exceeds server best', async () => {
-    const bestScoreModule = await import('../shared/best_score_cookie.js');
+    const bestScoreModule = await import('../shared/data/best_score_cookie.js');
     vi.mocked(bestScoreModule.updateBestScore).mockReturnValueOnce({ best: 10, isNewRecord: false });
     vi.mocked(bestScoreModule.fetchUserBestScore).mockResolvedValueOnce(5);
     mocks.state.score = 88;

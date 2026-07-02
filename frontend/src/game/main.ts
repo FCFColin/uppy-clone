@@ -1,8 +1,8 @@
 import { encodeSetNickname } from './message_codec.js';
-import { state, seenSeqs, getInterpState } from './state.js';
-import { normalizeAuthHost } from '../shared/session.js';
-import { resumeAudioContext } from '../shared/audio.js';
-import { showToast } from '../shared/toast.js';
+import { state } from './state.js';
+import { normalizeAuthHost } from '../shared/network/session.js';
+import { resumeAudioContext } from '../shared/ui/audio.js';
+import { showToast } from '../shared/ui/toast.js';
 import { resizeCanvas, gameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
 import {
   updateUI, generateRandomNickname, copyCode, refreshLayout,

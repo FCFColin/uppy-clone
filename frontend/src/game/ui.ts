@@ -1,11 +1,7 @@
 import { state } from './state.js';
-import {
-  $waitingScreen, $endedScreen, $gameHud,
-  $cooldownIndicator, $hudScore,
-  pickRandomNickname,
-} from './ui_elements.js';
-import { showToast } from '../shared/toast.js';
-import { playCountdownTick } from '../shared/audio.js';
+import { pickRandomNickname } from './ui_elements.js';
+import { showToast } from '../shared/ui/toast.js';
+import { playCountdownTick } from '../shared/ui/audio.js';
 import { resizeCanvas } from './renderer.js';
 
 export {

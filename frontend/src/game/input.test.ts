@@ -23,7 +23,7 @@ vi.mock('./renderer_canvas.js', () => ({
 vi.mock('./visual_helpers.js', () => ({
   pushFloatingText: vi.fn(),
 }));
-vi.mock('../shared/audio.js', () => ({
+vi.mock('../shared/ui/audio.js', () => ({
   playTapSound: vi.fn(),
   vibrate: vi.fn(),
 }));

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MSG_TYPE } from './constants.js';
-import { PHASE_CODE } from '../shared/protocol.js';
+import { PHASE_CODE } from '../shared/game/protocol.js';
 
 const mocks = vi.hoisted(() => ({
   state: {
@@ -47,11 +47,11 @@ vi.mock('./ui.js', () => ({ updateUI: mocks.updateUI }));
 vi.mock('./ui_update.js', () => ({ updateScoresOnly: mocks.updateScoresOnly }));
 vi.mock('./ui_wind.js', () => ({ updateWindIndicator: mocks.updateWindIndicator }));
 vi.mock('./tutorial.js', () => ({ runTutorialIfNeeded: vi.fn(() => Promise.resolve()) }));
-vi.mock('../shared/audio.js', () => ({
+vi.mock('../shared/ui/audio.js', () => ({
   playGameOverSound: vi.fn(),
   vibrate: vi.fn(),
 }));
-vi.mock('../shared/best_score_cookie.js', () => ({
+vi.mock('../shared/data/best_score_cookie.js', () => ({
   updateBestScore: vi.fn(() => ({ best: 0, isNewRecord: false })),
   fetchUserBestScore: vi.fn(() => Promise.resolve(0)),
 }));
@@ -59,7 +59,7 @@ vi.mock('./visual_helpers.js', () => ({ pushFloatingText: vi.fn() }));
 vi.mock('./restart_vote_ui.js', () => ({ syncRestartVoteUI: mocks.syncRestartVoteUI }));
 
 import { handleBinaryMessage } from './ws_handlers.js';
-import { playGameOverSound } from '../shared/audio.js';
+import { playGameOverSound } from '../shared/ui/audio.js';
 import { pushFloatingText } from './visual_helpers.js';
 import { buildMinimalSnapshot } from './test_fixtures/snapshot.js';
 

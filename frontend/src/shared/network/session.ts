@@ -63,5 +63,5 @@ export function sessionErrorMessage(result: SessionResult): string {
   if (result.reason === 'network') {
     return '网络错误，请确认后端已启动并重试';
   }
-  return '认证失败，请用 http://localhost:3000 打开并强制刷新（Ctrl+Shift+R）';
+  return '认证失败，请用正确的地址打开并强制刷新（Ctrl+Shift+R）';
 }

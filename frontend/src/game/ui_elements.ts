@@ -1,7 +1,7 @@
 import {
   NICKNAME_ADJECTIVES,
   NICKNAME_CATEGORIES,
-} from '../shared/nickname_pools_gen.js';
+} from '../shared/assets/nickname_pools_gen.js';
 
 // DOM element references — guaranteed by HTML templates, use ! to assert non-null.
 export const $waitingScreen: HTMLElement = document.getElementById('waiting-screen')!;
