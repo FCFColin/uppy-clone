@@ -67,6 +67,7 @@ export interface ClientState {
   countdownTimerInterval: ReturnType<typeof setInterval> | null;
   endReason: number | null;
   wasEverConnected: boolean;
+  blockGameRender: boolean;
 }
 
 export const state: ClientState = {
@@ -92,4 +93,5 @@ export const state: ClientState = {
   countdownTimerInterval: null,
   endReason: null,
   wasEverConnected: false,
+  blockGameRender: false,
 };

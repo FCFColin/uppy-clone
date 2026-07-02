@@ -40,6 +40,7 @@ const INITIAL_STATE: ClientState = {
   countdownTimerInterval: null,
   endReason: null,
   wasEverConnected: false,
+  blockGameRender: false,
 };
 
 export function createInitialState(): ClientState {

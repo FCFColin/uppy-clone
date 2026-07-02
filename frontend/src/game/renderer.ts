@@ -1,6 +1,5 @@
 import { getState } from './store.js';
 import { commitRenderedState } from './state_interp.js';
-import { $endedScreen, $nicknameSetupScreen, $waitingScreen } from './ui_elements.js';
 import { $canvas, getCtx, resizeCanvas as resizeCanvasBase } from './renderer_canvas.js';
 import { drawBackground, invalidateBackgroundStaticCache } from './renderer_background.js';
 import { drawBalloon, drawBird, drawGhost, drawRipples, drawExplosion } from './renderer_draw.js';
@@ -37,14 +36,7 @@ export function gameLoop(_timestamp: number): void {
 }
 
 function overlayBlocksGameRender(): boolean {
-  if ($endedScreen && !$endedScreen.classList.contains('hidden')) return true;
-  if ($nicknameSetupScreen && !$nicknameSetupScreen.classList.contains('hidden') && !getState().nicknameSubmitted) return true;
-  if ($waitingScreen && !$waitingScreen.classList.contains('hidden') && getState().nicknameSubmitted && getState().phase === 'waiting') {
-    return true;
-  }
-  const tutorial = document.getElementById('tutorial-overlay');
-  if (tutorial && !tutorial.classList.contains('hidden')) return true;
-  return false;
+  return getState().blockGameRender;
 }
 
 function render(): void {

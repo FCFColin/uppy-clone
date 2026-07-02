@@ -1,6 +1,7 @@
 import { PALETTE_COLORS } from './local_constants.js';
 import type { GamePhase } from '../shared/game/types.js';
-import { getState } from './store.js';
+import { dispatch, getState } from './store.js';
+import { state } from './state_types.js';
 import {
   $waitingScreen, $endedScreen, $gameHud, $cooldownIndicator,
   $hudScore, $hudPlayers, $finalScore, $hudPlayerList,
@@ -64,6 +65,15 @@ function setOverlayVisibility(): void {
     const hideNick = phase === 'countdown' || phase === 'playing' || phase === 'ended';
     if ($nicknameSetupScreen && hideNick) $nicknameSetupScreen.classList.add('hidden');
   }
+
+  const tutorialEl = document.getElementById('tutorial-overlay');
+  dispatch({ type: 'SET_STATE', partial: {
+    blockGameRender:
+      (!$endedScreen.classList.contains('hidden')) ||
+      (!!$nicknameSetupScreen && !$nicknameSetupScreen.classList.contains('hidden') && !state.nicknameSubmitted) ||
+      (!$waitingScreen.classList.contains('hidden') && state.nicknameSubmitted && state.phase === 'waiting') ||
+      (!!tutorialEl && !tutorialEl.classList.contains('hidden'))
+  }});
 }
 
 function displayNickname(p: { playerIndex: number; nickname: string }): string {
