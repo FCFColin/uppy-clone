@@ -117,6 +117,33 @@ func validateTrustedProxyCIDRs(raw string) error {
 	return nil
 }
 
+// GetJWTSecret returns the JWT secret.
+func (e *Env) GetJWTSecret() string { return e.JWTSecret }
+
+// GetAdminJWTSecret returns the admin JWT secret.
+func (e *Env) GetAdminJWTSecret() string { return e.AdminJWTSecret }
+
+// GetEncryptionKey returns the encryption key.
+func (e *Env) GetEncryptionKey() string { return e.EncryptionKey }
+
+// GetAuditSecret returns the audit secret.
+func (e *Env) GetAuditSecret() string { return e.AuditSecret }
+
+// GetDatabaseURL returns the database URL.
+func (e *Env) GetDatabaseURL() string { return e.DatabaseURL }
+
+// GetRedisURL returns the Redis URL.
+func (e *Env) GetRedisURL() string { return e.RedisURL }
+
+// GetPort returns the server port.
+func (e *Env) GetPort() string { return e.Port }
+
+// GetEnableHSTS returns whether HSTS is enabled.
+func (e *Env) GetEnableHSTS() bool { return e.EnableHSTS }
+
+// GetMaxPlayersPerRoom returns the max players per room.
+func (e *Env) GetMaxPlayersPerRoom() int { return e.MaxPlayersPerRoom }
+
 // AdminJWTSecretOrUser returns ADMIN_JWT_SECRET, falling back to JWT_SECRET for local dev.
 func (e *Env) AdminJWTSecretOrUser() string {
 	if e.AdminJWTSecret != "" {
