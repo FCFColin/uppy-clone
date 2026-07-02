@@ -23,7 +23,7 @@
 | Docker digest 锁定 | `bash scripts/ci/check-docker-digests.sh` |
 | 仓库布局 | `make check-repo-layout` |
 | Go 测试 + race | `cd backend && go test ./... -race -short` |
-| golangci-lint (gosec) | `make lint` |
+| govulncheck（生产路径） | `cd backend && govulncheck -test=false ./cmd/... ./internal/...`；`GO-2026-5746` 仅经 testcontainers → docker client 传递依赖，生产镜像无此链 |
 | 前端 audit | `cd frontend && npm audit --audit-level=high` |
 | 前端测试 | `cd frontend && npm test` |
 | Pre-commit | `pre-commit run --all-files` |
