@@ -1,33 +1,35 @@
 // Package protocol defines the binary protocol for game communication.
 package protocol
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	"github.com/uppy-clone/backend/internal/constants"
+)
 
 // le is the package-level little-endian byte order for binary encoding.
 var le = binary.LittleEndian
 
 // ─── 客户端消息类型（浏览器 → 服务端） ──────────────────────────────
 
-// Message type constants.
 const (
-	MsgTap         = 0x10
-	MsgSetNickname = 0x11
-	MsgRestartVote = 0x12
-	MsgPing        = 0x20
+	MsgTap         = constants.MsgTap
+	MsgSetNickname = constants.MsgSetNickname
+	MsgRestartVote = constants.MsgRestartVote
+	MsgPing        = constants.MsgPing
 )
 
 // ─── 服务端消息类型（服务端 → 浏览器） ──────────────────────────────
 
-// Message type constants.
 const (
-	MsgSnapshot        = 0x01
-	MsgPlayerJoin      = 0x02
-	MsgPlayerLeave     = 0x03
-	MsgTapAccepted     = 0x04
-	MsgTapRejected     = 0x05
-	MsgGameStateChange = 0x06
-	MsgRestartStatus   = 0x07
-	MsgPong            = 0x21
+	MsgSnapshot        = constants.MsgSnapshot
+	MsgPlayerJoin      = constants.MsgPlayerJoin
+	MsgPlayerLeave     = constants.MsgPlayerLeave
+	MsgTapAccepted     = constants.MsgTapAccepted
+	MsgTapRejected     = constants.MsgTapRejected
+	MsgGameStateChange = constants.MsgGameStateChange
+	MsgRestartStatus   = constants.MsgRestartStatus
+	MsgPong            = constants.MsgPong
 )
 
 // ─── 游戏阶段编码 ────────────────────────────────────────────────────

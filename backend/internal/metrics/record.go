@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/protocol"
+	"github.com/uppy-clone/backend/internal/constants"
 )
 
 // statusWriter captures the HTTP status code written by handlers.
@@ -94,13 +94,13 @@ func SetRoomPersistLag(roomCode string, lag time.Duration) {
 // WSMessageTypeName maps protocol message type bytes to metric labels.
 func WSMessageTypeName(msgType byte) string {
 	switch msgType {
-	case protocol.MsgTap:
+	case constants.MsgTap:
 		return "tap"
-	case protocol.MsgSetNickname:
+	case constants.MsgSetNickname:
 		return "set_nickname"
-	case protocol.MsgRestartVote:
+	case constants.MsgRestartVote:
 		return "restart_vote"
-	case protocol.MsgPing:
+	case constants.MsgPing:
 		return "ping"
 	default:
 		return "unknown"

@@ -8,7 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/protocol"
+	"github.com/uppy-clone/backend/internal/constants"
 )
 
 func TestRecordRoomCreation(t *testing.T) {
@@ -40,10 +40,10 @@ func TestSetRoomPersistLag(t *testing.T) {
 
 func TestWSMessageTypeName_AllCases(t *testing.T) {
 	cases := map[byte]string{
-		protocol.MsgTap:         "tap",
-		protocol.MsgSetNickname: "set_nickname",
-		protocol.MsgRestartVote: "restart_vote",
-		protocol.MsgPing:        "ping",
+		constants.MsgTap:         "tap",
+		constants.MsgSetNickname: "set_nickname",
+		constants.MsgRestartVote: "restart_vote",
+		constants.MsgPing:        "ping",
 		0xFF:                    "unknown",
 	}
 	for msgType, want := range cases {
