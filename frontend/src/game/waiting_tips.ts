@@ -1,5 +1,5 @@
 import { calculateCooldown } from './message_codec.js';
-import { state } from './state.js';
+import { state } from './state_types.js';
 
 export function initWaitingTips(): void {
   const toggle = document.getElementById('waiting-tips-toggle');

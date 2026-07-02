@@ -1,5 +1,6 @@
 import { CLIENT_MSG } from '../shared/game/protocol.js';
-import { state, resetInterpolation, seenSeqs } from './state.js';
+import { state } from './state_types.js';
+import { resetInterpolation, seenSeqs } from './state_interp.js';
 import { establishGameSession, sessionErrorMessage } from '../shared/network/session.js';
 import {
   onLobbyCodeReady,

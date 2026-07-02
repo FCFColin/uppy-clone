@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { state } from './state.js';
+import { state } from './state_types.js';
 import {
   balloonBuffer,
   birdBuffer,

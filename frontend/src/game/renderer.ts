@@ -1,4 +1,5 @@
-import { state, commitRenderedState } from './state.js';
+import { state } from './state_types.js';
+import { commitRenderedState } from './state_interp.js';
 import { $endedScreen, $nicknameSetupScreen, $waitingScreen } from './ui_elements.js';
 import { $canvas, getCtx, resizeCanvas as resizeCanvasBase } from './renderer_canvas.js';
 import { drawBackground, invalidateBackgroundStaticCache } from './renderer_background.js';

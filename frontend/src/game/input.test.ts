@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('./state.js', () => ({
+vi.mock('./state_types.js', () => ({
   state: {
     phase: 'playing',
     myCooldownEnd: 0,
@@ -13,7 +13,7 @@ vi.mock('./state.js', () => ({
     balloon: { x: 0.5, y: 0.5 },
   },
 }));
-vi.mock('./websocket.js', () => ({
+vi.mock('./ws_connection.js', () => ({
   sendOrQueue: vi.fn(),
   getWs: vi.fn(() => ({ readyState: 1 })),
 }));
@@ -30,8 +30,8 @@ vi.mock('../shared/ui/audio.js', () => ({
 vi.mock('./ui.js', () => ({ updateUI: vi.fn() }));
 
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
-import { state } from './state.js';
-import { sendOrQueue, getWs } from './websocket.js';
+import { state } from './state_types.js';
+import { sendOrQueue, getWs } from './ws_connection.js';
 
 describe('input', () => {
   beforeEach(() => {

@@ -1,7 +1,5 @@
-import {
-  state, updateInterpolation, freezeInterpolation,
-  isDuplicateSeq,
-} from './state.js';
+import { state } from './state_types.js';
+import { updateInterpolation, freezeInterpolation, isDuplicateSeq } from './state_interp.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateScoresOnly } from './ui_update.js';
 import { updateWindIndicator } from './ui_wind.js';

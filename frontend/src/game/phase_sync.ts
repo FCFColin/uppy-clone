@@ -1,8 +1,6 @@
 import type { GamePhase } from '../shared/game/types.js';
-import {
-  state, resetInterpolation, freezeInterpolation,
-  seenSeqs,
-} from './state.js';
+import { state } from './state_types.js';
+import { resetInterpolation, freezeInterpolation, seenSeqs } from './state_interp.js';
 import { resetRoundClientState } from './state_reset.js';
 import {
   updateUI, startCountdownTimer,

@@ -4,7 +4,7 @@ import {
   HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS,
   MAX_PENDING_QUEUE,
 } from './local_constants.js';
-import { outboundMessageQueue } from './state.js';
+import { outboundMessageQueue } from './state_interp.js';
 import {
   showReconnectBanner, updatePingDisplay,
   showConnectionError as showConnectionErrorUI, type ConnectionErrorOptions,
@@ -126,7 +126,7 @@ export function setReconnectTimer(timer: ReturnType<typeof setTimeout> | null): 
 export function scheduleReconnect(): void {
   clearReconnectTimer();
   if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    void import('./state.js').then(({ state: s }) => {
+    void import('./state_types.js').then(({ state: s }) => {
       showConnectionError(
         s.wasEverConnected ? '对局连接已中断，请检查网络后重试' : '连接失败，请检查网络后重试',
         { showActions: true, midGameDisconnect: s.wasEverConnected },

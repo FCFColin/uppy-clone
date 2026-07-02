@@ -1,7 +1,7 @@
 import { PALETTE_COLORS } from './local_constants.js';
 import { $canvas, getCtx } from './renderer_canvas.js';
 import { gameImages } from './renderer_background.js';
-import { state } from './state.js';
+import { state } from './state_types.js';
 
 const RIPPLE_DURATION_S = 0.6;
 

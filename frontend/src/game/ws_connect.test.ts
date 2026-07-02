@@ -228,7 +228,7 @@ describe('connectWebSocket', () => {
 
   it('fires onopen handlers and restart vote after ended phase', async () => {
     const { sendOrQueue } = await import('./ws_connection.js');
-    const { state } = await import('./state.js');
+    const { state } = await import('./state_types.js');
     state.phase = 'ended';
     state.restartClicked = true;
     await connectWebSocket();

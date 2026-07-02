@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   updateUI: vi.fn(),
 }));
 
-vi.mock('./state.js', () => ({ state: mocks.state }));
+vi.mock('./state_types.js', () => ({ state: mocks.state }));
 vi.mock('./phase_sync.js', () => ({
   applyPhaseChange: mocks.applyPhaseChange,
   shouldApplySnapshotPhase: mocks.shouldApplySnapshotPhase,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { outboundMessageQueue } from './state.js';
+import { outboundMessageQueue } from './state_interp.js';
 
 vi.mock('./local_constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./local_constants.js')>();

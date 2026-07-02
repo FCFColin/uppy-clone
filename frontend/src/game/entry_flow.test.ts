@@ -37,7 +37,7 @@ vi.mock('./ui_elements.js', () => ({
   $hudCode: dom.elements.get('hud-code')!,
 }));
 
-import { state } from './state.js';
+import { state } from './state_types.js';
 import {
   applyEntryStep,
   getEntryStep,

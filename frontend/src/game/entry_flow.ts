@@ -1,5 +1,5 @@
 import type { GamePhase } from '../shared/game/types.js';
-import { state } from './state.js';
+import { state } from './state_types.js';
 import {
   type EntryStep,
   type EntryFullScreenErrorOptions,

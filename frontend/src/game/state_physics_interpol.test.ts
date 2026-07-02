@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { state } from './state_types.js';
 import {
-  state,
   updateInterpolation,
   resetInterpolation,
   freezeInterpolation,
@@ -9,10 +9,10 @@ import {
   getInterpolatedBird,
   isDuplicateSeq,
   seenSeqs,
-  resetClientState,
   getInterpState,
   commitRenderedState,
-} from './state.js';
+} from './state_interp.js';
+import { resetClientState } from './state_reset.js';
 import { MAX_SEEN_SEQS } from './local_constants.js';
 import { PHYSICS } from '../shared/game/constants.js';
 

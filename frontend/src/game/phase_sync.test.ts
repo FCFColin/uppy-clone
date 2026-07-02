@@ -28,8 +28,10 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('./state.js', () => ({
+vi.mock('./state_types.js', () => ({
   state: mocks.state,
+}));
+vi.mock('./state_interp.js', () => ({
   resetInterpolation: mocks.resetInterpolation,
   freezeInterpolation: mocks.freezeInterpolation,
   seenSeqs: mocks.seenSeqs,

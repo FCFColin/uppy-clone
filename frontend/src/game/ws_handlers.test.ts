@@ -33,8 +33,10 @@ const mocks = vi.hoisted(() => ({
   isDuplicateSeq: vi.fn(() => false),
 }));
 
-vi.mock('./state.js', () => ({
+vi.mock('./state_types.js', () => ({
   state: mocks.state,
+}));
+vi.mock('./state_interp.js', () => ({
   updateInterpolation: mocks.updateInterpolation,
   freezeInterpolation: mocks.freezeInterpolation,
   isDuplicateSeq: mocks.isDuplicateSeq,

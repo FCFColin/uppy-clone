@@ -1,5 +1,5 @@
 import { $canvas, getCtx } from './renderer_canvas.js';
-import { state } from './state.js';
+import { state } from './state_types.js';
 import {
   bgState,
   cloudImages,

@@ -1,6 +1,7 @@
 import { PHYSICS } from '../shared/game/constants.js';
 import { $canvas, getCtx } from './renderer_canvas.js';
-import { state, getInterpolatedBalloon, getInterpolatedBird, getInterpolatedGhost } from './state.js';
+import { state } from './state_types.js';
+import { getInterpolatedBalloon, getInterpolatedBird, getInterpolatedGhost } from './state_interp.js';
 import { isRangeCircleVisible } from './tutorial.js';
 
 interface FloatingText {

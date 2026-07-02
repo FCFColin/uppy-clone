@@ -12,7 +12,7 @@ const { mockState } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('./state.js', () => ({ state: mockState }));
+vi.mock('./state_types.js', () => ({ state: mockState }));
 vi.mock('./ui.js', () => ({ updateUI: vi.fn() }));
 vi.mock('./visual_helpers.js', () => ({
   pushFloatingText: vi.fn(),

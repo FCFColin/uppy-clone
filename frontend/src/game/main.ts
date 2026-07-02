@@ -1,5 +1,5 @@
 import { encodeSetNickname } from './message_codec.js';
-import { state } from './state.js';
+import { state } from './state_types.js';
 import { normalizeAuthHost } from '../shared/network/session.js';
 import { resumeAudioContext } from '../shared/ui/audio.js';
 import { showToast } from '../shared/ui/toast.js';
@@ -10,10 +10,8 @@ import {
   $copyCodeBtn, $hudCopyBtn,
   $setupNicknameInput,
 } from './ui.js';
-import {
-  connectWebSocket, sendOrQueue,
-  stopHeartbeat, getWs, showConnectionError,
-} from './websocket.js';
+import { connectWebSocket, showConnectionError } from './ws_connect.js';
+import { sendOrQueue, stopHeartbeat, getWs } from './ws_connection.js';
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
 import { initWaitingTips } from './waiting_tips.js';
 import { bindReconnectRetry } from './connection_ui.js';

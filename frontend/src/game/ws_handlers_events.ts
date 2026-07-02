@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { state } from './state_types.js';
 import { pushFloatingText } from './visual_helpers.js';
 
 export function handleTapAccepted(view: DataView): void {

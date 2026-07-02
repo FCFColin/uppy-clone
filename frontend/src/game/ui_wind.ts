@@ -1,6 +1,6 @@
 import { isTutorialDone } from '../shared/data/tutorial_cookie.js';
 import { PHYSICS } from '../shared/game/constants.js';
-import { state } from './state.js';
+import { state } from './state_types.js';
 
 const WIND_CLAMP = PHYSICS.WIND_CLAMP;
 const STRONG_WIND_THRESHOLD = 0.55;

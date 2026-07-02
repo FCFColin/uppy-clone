@@ -1,7 +1,7 @@
 import { CLIENT_MSG } from '../shared/game/protocol.js';
 import { calculateCooldown } from './message_codec.js';
-import { state } from './state.js';
-import { sendOrQueue, getWs } from './websocket.js';
+import { state } from './state_types.js';
+import { sendOrQueue, getWs } from './ws_connection.js';
 import { clientToNormalized } from './renderer_canvas.js';
 import { playTapSound } from '../shared/ui/audio.js';
 import { updateUI } from './ui.js';

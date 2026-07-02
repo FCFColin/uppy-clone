@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { state } from './state_types.js';
 import { pickRandomNickname } from './ui_elements.js';
 import { showToast } from '../shared/ui/toast.js';
 import { playCountdownTick } from '../shared/ui/audio.js';

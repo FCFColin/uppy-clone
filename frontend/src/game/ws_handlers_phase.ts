@@ -1,5 +1,5 @@
 import { codeToPhase } from './message_codec.js';
-import { state } from './state.js';
+import { state } from './state_types.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateUI } from './ui.js';
 import { runTutorialIfNeeded } from './tutorial.js';

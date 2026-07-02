@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { state } from './state_types.js';
 
 export function syncRestartVoteProgress(): void {
   if (state.phase !== 'ended' || !state.restartVotes) return;

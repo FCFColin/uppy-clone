@@ -1,6 +1,6 @@
 import { PALETTE_COLORS } from './local_constants.js';
 import type { GamePhase } from '../shared/game/types.js';
-import { state } from './state.js';
+import { state } from './state_types.js';
 import {
   $waitingScreen, $endedScreen, $gameHud, $cooldownIndicator,
   $hudScore, $hudPlayers, $finalScore, $hudPlayerList,

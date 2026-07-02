@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { state } from './state_types.js';
 import { $canvas } from './renderer_canvas.js';
 import { $lobbyCode, $hudCode } from './ui_elements.js';
 import { matchNewRoomCode } from './room_validate.js';

@@ -1,6 +1,7 @@
 import { $canvas, getCtx } from './renderer_canvas.js';
 import { gameImages } from './renderer_background.js';
-import { state, getInterpolatedBalloon, getInterpolatedGhost, getInterpolatedBird } from './state.js';
+import { state } from './state_types.js';
+import { getInterpolatedBalloon, getInterpolatedGhost, getInterpolatedBird } from './state_interp.js';
 
 let _cachedBirdSize = 0;
 let _wingGrad: CanvasGradient | null = null;

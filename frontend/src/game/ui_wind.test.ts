@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { state } from './state.js';
+import { state } from './state_types.js';
 import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
 
 describe('ui_wind', () => {

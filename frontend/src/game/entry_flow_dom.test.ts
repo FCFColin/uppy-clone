@@ -31,7 +31,7 @@ const mockState = vi.hoisted(() => ({
   players: [] as Array<{ playerIndex: number; nickname: string; palette: number; cooldownEndTime: number; scoreContribution: number }>,
 }));
 
-vi.mock('./state.js', () => ({
+vi.mock('./state_types.js', () => ({
   state: mockState,
 }));
 
