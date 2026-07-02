@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pashagolub/pgxmock/v4"
+	"github.com/uppy-clone/backend/internal/crypto"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func TestGetUserByEmail_Found(t *testing.T) {
@@ -97,5 +100,65 @@ func TestGetUserByID_NotFound(t *testing.T) {
 	}
 	if user != nil {
 		t.Fatalf("expected nil, got %+v", user)
+	}
+}
+
+func TestGetUserByEmail_DecryptError(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
+	if err := crypto.InitFromEnv(); err != nil {
+		t.Fatalf("crypto.InitFromEnv: %v", err)
+	}
+
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	lastLogin := int64(2)
+	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
+		AddRow("user-1", "v1:00112233445566778899aabbccddeeff", "Bad", 0, int64(1), &lastLogin)
+	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
+		WithArgs(pgxmock.AnyArg(), "bad@example.com").
+		WillReturnRows(rows)
+
+	_, err := s.GetUserByEmail(ctx, "bad@example.com")
+	if err == nil || !strings.Contains(err.Error(), "decrypt email") {
+		t.Fatalf("GetUserByEmail = %v, want decrypt error", err)
+	}
+}
+
+func TestGetUserByID_ScanError(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
+		AddRow("id-42", 123, "Bad", 0, int64(1), int64(2))
+	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
+		WithArgs("id-42").
+		WillReturnRows(rows)
+
+	_, err := s.GetUserByID(ctx, "id-42")
+	if err == nil {
+		t.Fatal("expected scan error")
+	}
+}
+
+func TestGetUserByID_DecryptError(t *testing.T) {
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
+	if err := crypto.InitFromEnv(); err != nil {
+		t.Fatalf("crypto.InitFromEnv: %v", err)
+	}
+
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	lastLogin := int64(2)
+	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
+		AddRow("id-42", "v1:00112233445566778899aabbccddeeff", "Bad", 0, int64(1), &lastLogin)
+	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
+		WithArgs("id-42").
+		WillReturnRows(rows)
+
+	_, err := s.GetUserByID(ctx, "id-42")
+	if err == nil || !strings.Contains(err.Error(), "decrypt email") {
+		t.Fatalf("GetUserByID = %v, want decrypt error", err)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 type mockUserDataStore struct {
@@ -169,7 +170,7 @@ func TestDeleteUserData_RevokesTokensFromRequest(t *testing.T) {
 	}
 	defer redisStore.Close()
 
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	ctx := context.Background()
 

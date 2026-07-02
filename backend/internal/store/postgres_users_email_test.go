@@ -1,10 +1,12 @@
 package store
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/uppy-clone/backend/internal/crypto"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func TestPrepareEmailForStorage(t *testing.T) {
@@ -26,7 +28,7 @@ func TestPrepareEmailForStorage(t *testing.T) {
 }
 
 func TestPrepareEmailForStorage_WithEncryptionKey(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	if err := crypto.InitFromEnv(); err != nil {
 		t.Fatalf("crypto.InitFromEnv: %v", err)
 	}
@@ -59,7 +61,7 @@ func TestEmailFromStorage_PlaintextLegacy(t *testing.T) {
 }
 
 func TestEmailFromStorage_EncryptedRoundTrip(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	if err := crypto.InitFromEnv(); err != nil {
 		t.Fatalf("crypto.InitFromEnv: %v", err)
 	}
@@ -77,8 +79,24 @@ func TestEmailFromStorage_EncryptedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPrepareEmailForStorage_EncryptError(t *testing.T) {
+	orig := encryptEmailForStorageFn
+	t.Cleanup(func() { encryptEmailForStorageFn = orig })
+	encryptEmailForStorageFn = func(string) (string, error) {
+		return "", fmt.Errorf("encrypt failed")
+	}
+
+	_, _, err := prepareEmailForStorage("fail@example.com")
+	if err == nil {
+		t.Fatal("expected encrypt error")
+	}
+	if !strings.Contains(err.Error(), "encrypt email") {
+		t.Errorf("error = %v, want encrypt email wrapper", err)
+	}
+}
+
 func TestEmailFromStorage_CorruptedCiphertext(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	if err := crypto.InitFromEnv(); err != nil {
 		t.Fatalf("crypto.InitFromEnv: %v", err)
 	}

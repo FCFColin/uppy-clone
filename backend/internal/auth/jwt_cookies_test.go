@@ -9,6 +9,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func TestNewJWTManagerWithRotation(t *testing.T) {
@@ -44,7 +45,7 @@ func TestNewJWTManagerWithRotation(t *testing.T) {
 }
 
 func TestJWTManager_Secret(t *testing.T) {
-	secret := "test-secret-key-padded-to-32-bytes!!"
+	secret := testsecrets.TestJWTSecret
 	mgr := NewJWTManager(secret)
 	if got := string(mgr.Secret()); got != secret {
 		t.Fatalf("Secret = %q, want %q", got, secret)
@@ -79,5 +80,20 @@ func TestBuildAuthCookie_Insecure(t *testing.T) {
 	cookie := BuildAuthCookie("session", "token", config.CookieMaxAge, false)
 	if cookie.Secure {
 		t.Fatal("Secure should be false when isSecure=false")
+	}
+}
+
+func TestVerifyToken_RotationBothKeysFail(t *testing.T) {
+	mgr := NewJWTManagerWithRotation(
+		"primary-secret-key-padded-to-32-bytes!!",
+		"previous-secret-key-padded-to-32-bytes!",
+	)
+	alien := NewJWTManager("third-secret-key-padded-to-32-bytes!!")
+	token, err := alien.SignToken("user-1", "Nick")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := mgr.VerifyToken(token); err == nil {
+		t.Fatal("expected verify failure when neither primary nor previous key matches")
 	}
 }

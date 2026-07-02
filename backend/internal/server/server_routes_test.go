@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,7 @@ import (
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/rbac"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
@@ -28,12 +31,12 @@ func newTestRouter(t *testing.T) *chi.Mux {
 
 	prevEnv := serverEnv
 	serverEnv = &appConfig.Env{
-		JWTSecret:         "test-secret-key-0123456789abcdef0123456789",
+		JWTSecret:         testsecrets.TestJWTSecret,
 		TrustedProxyCIDRs: "127.0.0.1/32",
 	}
 	t.Cleanup(func() { serverEnv = prevEnv })
 
-	jwtSecret := "test-secret-key-0123456789abcdef0123456789"
+	jwtSecret := testsecrets.TestJWTSecret
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 	adminJwtMgr := auth.NewJWTManager(jwtSecret)
 	timeouts := appConfig.DefaultTimeoutConfig()
@@ -119,7 +122,7 @@ func TestSetupRoutes_AdminPutConfigUnauthorized(t *testing.T) {
 }
 
 func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
-	jwtSecret := "test-secret-key-0123456789abcdef0123456789"
+	jwtSecret := testsecrets.TestJWTSecret
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 
 	mock, err := pgxmock.NewPool()
@@ -209,7 +212,7 @@ func TestSetupRoutes_MagicLinkRequestBadRequest(t *testing.T) {
 }
 
 func TestAuthMiddlewareWrapper_RejectsMissingAuth(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	mw := authMiddlewareWrapper(jwtMgr, nil)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -223,7 +226,7 @@ func TestAuthMiddlewareWrapper_RejectsMissingAuth(t *testing.T) {
 }
 
 func TestAdminAuthMiddleware_RejectsMissingToken(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	adminHandler := handler.NewAdminHandler(nil, jwtMgr, nil)
 	mw := adminAuthMiddleware(adminHandler)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +265,7 @@ func TestInitHandlers(t *testing.T) {
 	serverEnv = &appConfig.Env{AllowedOrigins: "http://localhost"}
 	t.Cleanup(func() { serverEnv = prevEnv })
 
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	cfg := &handler.Config{}
 	hub := game.NewHub(nil, nil, appConfig.DefaultTimeoutConfig(), 0, 0, nil)
 	redisStore := testutil.SetupMiniredisStore(t)
@@ -284,7 +287,7 @@ func TestValidateConfig_ValidEnv(t *testing.T) {
 		JWTSecret:         "strong-secret-key-at-least-32-bytes-long!!",
 		AdminJWTSecret:    "another-strong-secret-key-32-bytes!!",
 		DatabaseURL:       "postgres://localhost/test",
-		EncryptionKey:     "0123456789abcdef0123456789abcdef",
+		EncryptionKey:     testsecrets.TestEncryptionKeyHex,
 		TrustedProxyCIDRs: "127.0.0.1/32",
 	}
 	t.Cleanup(func() { serverEnv = nil })
@@ -314,10 +317,73 @@ func TestStartServer_StartsAndShutsDown(t *testing.T) {
 
 func TestSetupStatsRoutes_NilHandlerSkipsRoutes(t *testing.T) {
 	r := chi.NewRouter()
-	setupStatsRoutes(r, nil, nil, auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789"), rbac.NewEnforcer())
+	setupStatsRoutes(r, nil, nil, auth.NewJWTManager(testsecrets.TestJWTSecret), rbac.NewEnforcer())
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 when stats handler nil", rec.Code)
+	}
+}
+
+func TestSetupStaticRoutes_ServesFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log(1)"), 0o644); err != nil {
+		t.Fatalf("write app.js: %v", err)
+	}
+
+	r := chi.NewRouter()
+	setupStaticRoutes(r, &handler.Config{FrontendDir: dir})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/ status = %d, want 200", rec.Code)
+	}
+
+	rec2 := httptest.NewRecorder()
+	r.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/app.js", nil))
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("/app.js status = %d, want 200", rec2.Code)
+	}
+	if !strings.Contains(rec2.Header().Get("Cache-Control"), "max-age=") {
+		t.Fatalf("Cache-Control = %q, want max-age for static asset", rec2.Header().Get("Cache-Control"))
+	}
+}
+
+func TestSetupStaticRoutes_PathTraversalBlocked(t *testing.T) {
+	dir := t.TempDir()
+	r := chi.NewRouter()
+	setupStaticRoutes(r, &handler.Config{FrontendDir: dir})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/../../etc/passwd", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 for traversal", rec.Code)
+	}
+}
+
+func TestAuthMiddlewareWrapper_AcceptsValidToken(t *testing.T) {
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	redisStore := testutil.SetupMiniredisStore(t)
+	token, err := jwtMgr.SignToken("user-wrap", "Nick")
+	if err != nil {
+		t.Fatalf("SignToken: %v", err)
+	}
+	mw := authMiddlewareWrapper(jwtMgr, redisStore)
+	called := false
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/registry/create", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if !called || rec.Code != http.StatusOK {
+		t.Fatalf("called=%v status=%d", called, rec.Code)
 	}
 }

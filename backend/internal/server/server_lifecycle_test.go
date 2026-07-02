@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -16,13 +18,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pashagolub/pgxmock/v4"
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
+
+// serverLifecycleMu serializes tests that start runServer/Run (shared audit logger).
+var serverLifecycleMu sync.Mutex
 
 func tryPostgresURL(t *testing.T) string {
 	t.Helper()
@@ -41,7 +48,7 @@ func tryPostgresURL(t *testing.T) string {
 }
 
 func TestInitCrypto(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	if err := initCrypto(&handler.Config{}); err != nil {
 		t.Fatalf("initCrypto: %v", err)
 	}
@@ -66,6 +73,177 @@ func TestInitProfiling(t *testing.T) {
 	initProfiling()
 }
 
+func TestInitProfiling_NoAddress(t *testing.T) {
+	t.Setenv("ENABLE_PYROSCOPE", "true")
+	t.Setenv("PYROSCOPE_SERVER_ADDRESS", "")
+	initProfiling() // should return early without panicking
+}
+
+func TestInitDB_MigrationWarnEmptyDatabaseURL(t *testing.T) {
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	origPG := newPostgresStoreFn
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	t.Cleanup(func() { newPostgresStoreFn = origPG })
+
+	origRun := store.SetRunMigrationsHook(func(context.Context, string, string) error {
+		return errors.New("migration failed")
+	})
+	t.Cleanup(origRun)
+
+	cfg := &handler.Config{DatabaseURL: ""}
+	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("initDB should warn-not-fail when DatabaseURL empty: %v", err)
+	}
+	defer db.Close()
+}
+
+func TestInitDB_MigrationFailsNonEmptyURL(t *testing.T) {
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	origPG := newPostgresStoreFn
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	t.Cleanup(func() { newPostgresStoreFn = origPG })
+
+	origRun := store.SetRunMigrationsHook(func(context.Context, string, string) error {
+		return errors.New("migration failed")
+	})
+	t.Cleanup(origRun)
+
+	cfg := &handler.Config{DatabaseURL: "postgres://mock/mock?sslmode=disable"}
+	_, err = initDB(cfg, appConfig.DefaultTimeoutConfig())
+	if err == nil {
+		t.Fatal("expected migration error when DatabaseURL set")
+	}
+}
+
+func TestWaitForShutdown_AlreadyClosedServer(t *testing.T) {
+	sigCh := make(chan os.Signal, 1)
+	prev := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prev })
+
+	redisStore := testutil.SetupMiniredisStore(t)
+	broadcaster := game.NewPubSubBroadcaster(redisStore.Client())
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, broadcaster)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		waitForShutdown(srv.Config, cancel, hub, broadcaster)
+		close(done)
+	}()
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitForShutdown did not complete")
+	}
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("expected context cancelled after shutdown")
+	}
+}
+
+func TestWaitForShutdown_NilBroadcaster(t *testing.T) {
+	sigCh := make(chan os.Signal, 1)
+	prev := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prev })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	hub := game.NewHub(nil, nil, appConfig.DefaultTimeoutConfig(), 0, 0, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		waitForShutdown(srv.Config, cancel, hub, nil)
+		close(done)
+	}()
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitForShutdown did not complete")
+	}
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("expected context cancelled")
+	}
+}
+
+func TestWaitForShutdown_BroadcasterCloseError(t *testing.T) {
+	sigCh := make(chan os.Signal, 1)
+	prev := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prev })
+
+	redisStore := testutil.SetupMiniredisStore(t)
+	broadcaster := game.NewPubSubBroadcaster(redisStore.Client())
+	t.Cleanup(game.SetPubsubCloseErrForTest(errors.New("broadcaster close failed")))
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, broadcaster)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		waitForShutdown(srv.Config, cancel, hub, broadcaster)
+		close(done)
+	}()
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitForShutdown did not complete")
+	}
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("expected context cancelled after shutdown")
+	}
+}
+
 func TestInitDB_InvalidURL(t *testing.T) {
 	cfg := &handler.Config{DatabaseURL: "postgres://invalid-host:59999/nodb?sslmode=disable&connect_timeout=1"}
 	_, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
@@ -87,11 +265,329 @@ func TestInitDB_MigrationFails(t *testing.T) {
 	}
 }
 
+func TestInitDB_SuccessMocked(t *testing.T) {
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	origPG := newPostgresStoreFn
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	t.Cleanup(func() { newPostgresStoreFn = origPG })
+
+	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
+	t.Cleanup(restoreMig)
+
+	prevEnv := serverEnv
+	serverEnv = &appConfig.Env{MigrationsDir: "migrations"}
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	cfg := &handler.Config{DatabaseURL: "postgres://mock/mock?sslmode=disable"}
+	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+}
+
+func TestInitDB_MigrationsDirFromEnv(t *testing.T) {
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	origPG := newPostgresStoreFn
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	t.Cleanup(func() { newPostgresStoreFn = origPG })
+
+	origRun := store.SetRunMigrationsHook(func(_ context.Context, _, path string) error {
+		if path != "custom-migrations" {
+			t.Fatalf("migrations path = %q, want custom-migrations", path)
+		}
+		return nil
+	})
+	t.Cleanup(origRun)
+
+	prevEnv := serverEnv
+	serverEnv = &appConfig.Env{MigrationsDir: "custom-migrations"}
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	cfg := &handler.Config{DatabaseURL: "postgres://mock/mock?sslmode=disable"}
+	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+}
+
+func TestRunServer_MockDeps(t *testing.T) {
+	serverLifecycleMu.Lock()
+	t.Cleanup(func() { serverLifecycleMu.Unlock() })
+
+	redisStore := testutil.SetupMiniredisStore(t)
+	addr := redisStore.Client().Options().Addr
+
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	origPG := newPostgresStoreFn
+	origRedis := newRedisStoreFn
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+		return redisStore, nil
+	}
+	t.Cleanup(func() {
+		newPostgresStoreFn = origPG
+		newRedisStoreFn = origRedis
+	})
+
+	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
+	t.Cleanup(restoreMig)
+
+	t.Setenv("ENABLE_HSTS", "false")
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
+	t.Setenv("REDIS_URL", addr)
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
+
+	prevEnv := serverEnv
+	serverEnv = appConfig.Load()
+	serverEnv.EnableHSTS = false
+	serverEnv.MigrationsDir = "migrations"
+	serverEnv.AllowedOrigins = "http://localhost"
+	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	t.Setenv("PORT", strconv.Itoa(port))
+
+	sigCh := make(chan os.Signal, 1)
+	prev := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prev })
+
+	done := make(chan error, 1)
+	go func() { done <- runServer(slog.Default()) }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServer: %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("runServer did not shut down")
+	}
+}
+
+func TestRun_SuccessMocked(t *testing.T) {
+	serverLifecycleMu.Lock()
+	t.Cleanup(func() { serverLifecycleMu.Unlock() })
+
+	origPG := newPostgresStoreFn
+	origRedis := newRedisStoreFn
+	origExit := exitFunc
+	exitFunc = func(code int) {
+		t.Fatalf("unexpected exit %d", code)
+	}
+	t.Cleanup(func() {
+		newPostgresStoreFn = origPG
+		newRedisStoreFn = origRedis
+		exitFunc = origExit
+	})
+
+	redisStore := testutil.SetupMiniredisStore(t)
+
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+		return redisStore, nil
+	}
+	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
+	t.Cleanup(restoreMig)
+
+	t.Setenv("ENABLE_HSTS", "false")
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
+	t.Setenv("REDIS_URL", redisStore.Client().Options().Addr)
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
+
+	prevEnv := serverEnv
+	serverEnv = appConfig.Load()
+	serverEnv.EnableHSTS = false
+	serverEnv.MigrationsDir = "migrations"
+	serverEnv.AllowedOrigins = "http://localhost"
+	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	t.Setenv("PORT", strconv.Itoa(port))
+
+	sigCh := make(chan os.Signal, 1)
+	prev := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prev })
+
+	done := make(chan struct{})
+	go func() {
+		Run()
+		close(done)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	sigCh <- syscall.SIGTERM
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Run did not complete")
+	}
+}
+
+func TestInitDB_Success(t *testing.T) {
+	dbURL := tryPostgresURL(t)
+	prevEnv := serverEnv
+	serverEnv = &appConfig.Env{MigrationsDir: "migrations"}
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	cfg := &handler.Config{DatabaseURL: dbURL}
+	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+	if db.Pool() == nil {
+		t.Fatal("expected non-nil pool")
+	}
+}
+
+func TestRunServer_FullHappyPath(t *testing.T) {
+	dbURL := tryPostgresURL(t)
+	redisStore := testutil.SetupMiniredisStore(t)
+	addr := redisStore.Client().Options().Addr
+
+	t.Setenv("ENABLE_HSTS", "false")
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("DATABASE_URL", dbURL)
+	t.Setenv("REDIS_URL", addr)
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
+
+	prevEnv := serverEnv
+	serverEnv = appConfig.Load()
+	serverEnv.EnableHSTS = false
+	serverEnv.MigrationsDir = "migrations"
+	serverEnv.AllowedOrigins = "http://localhost"
+	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	t.Setenv("PORT", strconv.Itoa(port))
+
+	sigCh := make(chan os.Signal, 1)
+	prev := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prev })
+
+	done := make(chan error, 1)
+	go func() { done <- runServer(slog.Default()) }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServer: %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("runServer did not shut down")
+	}
+}
+
 func TestRunServer_InvalidDatabase(t *testing.T) {
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", "dev-only-test-secret-32bytes!!")
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
 	t.Setenv("DATABASE_URL", "postgres://invalid-host:59999/nodb?sslmode=disable&connect_timeout=1")
-	t.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	t.Setenv("REDIS_URL", "127.0.0.1:6379")
 
 	prevEnv := serverEnv
@@ -124,6 +620,9 @@ func TestStartServer_ListenErrorExits(t *testing.T) {
 }
 
 func TestStartMetricsCollector_TickInShort(t *testing.T) {
+	serverLifecycleMu.Lock()
+	t.Cleanup(func() { serverLifecycleMu.Unlock() })
+
 	prev := metricsCollectInterval
 	metricsCollectInterval = 15 * time.Millisecond
 	t.Cleanup(func() { metricsCollectInterval = prev })
@@ -136,9 +635,6 @@ func TestStartMetricsCollector_TickInShort(t *testing.T) {
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
 	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
-	if _, err := hub.CreateRoom(context.Background()); err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	startMetricsCollector(ctx, hub, db, redisStore)
@@ -273,12 +769,41 @@ func TestStartMetricsCollector_Cancel(t *testing.T) {
 }
 
 func TestRunServer_RedisInitFail(t *testing.T) {
-	dbURL := tryPostgresURL(t)
+	serverLifecycleMu.Lock()
+	t.Cleanup(func() { serverLifecycleMu.Unlock() })
+
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	origPG := newPostgresStoreFn
+	origRedis := newRedisStoreFn
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+		return nil, errors.New("redis unavailable")
+	}
+	t.Cleanup(func() {
+		newPostgresStoreFn = origPG
+		newRedisStoreFn = origRedis
+	})
+
+	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
+	t.Cleanup(restoreMig)
+
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", "dev-only-test-secret-32bytes!!")
-	t.Setenv("DATABASE_URL", dbURL)
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
 	t.Setenv("REDIS_URL", "127.0.0.1:59999")
-	t.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 
 	prevEnv := serverEnv
 	t.Cleanup(func() { serverEnv = prevEnv })
@@ -286,7 +811,7 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 
-	err := runServer(slog.Default())
+	err = runServer(slog.Default())
 	if err == nil {
 		t.Fatal("expected runServer to fail on invalid redis")
 	}
@@ -294,7 +819,7 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 
 func TestRunServer_InitCryptoFail(t *testing.T) {
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", "dev-only-test-secret-32bytes!!")
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("ENCRYPTION_KEY", "not-valid-hex")
 	prevEnv := serverEnv
@@ -316,7 +841,13 @@ func TestRunServer_FailsWithoutEnv(t *testing.T) {
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestRunServer_FailsWithoutEnv$", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_RUN_SERVER_SUBPROCESS=1")
+	cmd.Env = []string{
+		"TEST_RUN_SERVER_SUBPROCESS=1",
+		"PATH=" + os.Getenv("PATH"),
+		"SYSTEMROOT=" + os.Getenv("SYSTEMROOT"),
+		"TEMP=" + os.Getenv("TEMP"),
+		"TMP=" + os.Getenv("TMP"),
+	}
 	err := cmd.Run()
 	if exitErr, ok := err.(*exec.ExitError); !ok {
 		t.Fatalf("expected exit error, got %v", err)
@@ -326,16 +857,43 @@ func TestRunServer_FailsWithoutEnv(t *testing.T) {
 }
 
 func TestRun_ExitsOnFailure(t *testing.T) {
-	if os.Getenv("TEST_SERVER_RUN_SUBPROCESS") == "1" {
-		serverEnv = &appConfig.Env{}
-		Run()
-		return
+	origExit := exitFunc
+	var exitCode int
+	exitFunc = func(code int) { exitCode = code }
+	t.Cleanup(func() { exitFunc = origExit })
+
+	prevEnv := serverEnv
+	serverEnv = &appConfig.Env{}
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	Run()
+	if exitCode != 1 {
+		t.Fatalf("Run should exit 1, got %d", exitCode)
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestRun_ExitsOnFailure$", "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_SERVER_RUN_SUBPROCESS=1")
-	err := cmd.Run()
-	if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
-		t.Fatalf("Run should exit 1, got %v", err)
+}
+
+func TestRun_ExitsOnInitCryptoFailure(t *testing.T) {
+	origExit := exitFunc
+	var exitCode int
+	exitFunc = func(code int) { exitCode = code }
+	t.Cleanup(func() { exitFunc = origExit })
+
+	t.Setenv("ENABLE_HSTS", "false")
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("ADMIN_JWT_SECRET", "test-admin-jwt-secret-padded-32bytes!")
+	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
+	t.Setenv("REDIS_URL", "127.0.0.1:6379")
+	t.Setenv("ENCRYPTION_KEY", "not-valid-hex")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+
+	prevEnv := serverEnv
+	serverEnv = appConfig.Load()
+	serverEnv.EnableHSTS = false
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	Run()
+	if exitCode != 1 {
+		t.Fatalf("Run should exit 1 on init crypto failure, got %d", exitCode)
 	}
 }
 
@@ -377,6 +935,9 @@ func TestWaitForShutdown_Graceful(t *testing.T) {
 }
 
 func TestServe_StartsAndStops(t *testing.T) {
+	serverLifecycleMu.Lock()
+	t.Cleanup(func() { serverLifecycleMu.Unlock() })
+
 	sigCh := make(chan os.Signal, 1)
 	prev := shutdownSignals
 	shutdownSignals = func() <-chan os.Signal { return sigCh }
@@ -415,7 +976,7 @@ func TestServe_StartsAndStops(t *testing.T) {
 
 	cfg := &handler.Config{
 		Port:      strconv.Itoa(port),
-		JWTSecret: "test-secret-key-padded-to-32-bytes!!",
+		JWTSecret: testsecrets.TestJWTSecret,
 	}
 	timeouts := appConfig.DefaultTimeoutConfig()
 	ctx := context.Background()
@@ -444,5 +1005,201 @@ func TestServe_StartsAndStops(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("serve did not shut down in time")
+	}
+}
+
+func TestShutdownSignals_ReturnsChannel(t *testing.T) {
+	ch := shutdownSignals()
+	if ch == nil {
+		t.Fatal("shutdownSignals returned nil channel")
+	}
+}
+
+func TestRunServer_TracerInitError(t *testing.T) {
+	serverLifecycleMu.Lock()
+	t.Cleanup(func() { serverLifecycleMu.Unlock() })
+
+	prevTracer := initTracerFn
+	initTracerFn = func(context.Context, string, string) (func(context.Context) error, error) {
+		return nil, errors.New("tracer init failed")
+	}
+	t.Cleanup(func() { initTracerFn = prevTracer })
+
+	redisStore := testutil.SetupMiniredisStore(t)
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	origPG := newPostgresStoreFn
+	origRedis := newRedisStoreFn
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+		return redisStore, nil
+	}
+	t.Cleanup(func() {
+		newPostgresStoreFn = origPG
+		newRedisStoreFn = origRedis
+	})
+	t.Cleanup(store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil }))
+
+	t.Setenv("ENABLE_HSTS", "false")
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
+	t.Setenv("REDIS_URL", redisStore.Client().Options().Addr)
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
+
+	prevEnv := serverEnv
+	serverEnv = appConfig.Load()
+	serverEnv.EnableHSTS = false
+	serverEnv.MigrationsDir = "migrations"
+	serverEnv.AllowedOrigins = "http://localhost"
+	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	t.Setenv("PORT", strconv.Itoa(port))
+
+	sigCh := make(chan os.Signal, 1)
+	prevSig := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prevSig })
+
+	done := make(chan error, 1)
+	go func() { done <- runServer(slog.Default()) }()
+	time.Sleep(300 * time.Millisecond)
+	sigCh <- syscall.SIGTERM
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServer: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runServer did not shut down")
+	}
+}
+
+func TestRunServer_TracerShutdownError(t *testing.T) {
+	serverLifecycleMu.Lock()
+	t.Cleanup(func() { serverLifecycleMu.Unlock() })
+
+	prevTracer := initTracerFn
+	initTracerFn = func(context.Context, string, string) (func(context.Context) error, error) {
+		return func(context.Context) error { return errors.New("tracer shutdown failed") }, nil
+	}
+	t.Cleanup(func() { initTracerFn = prevTracer })
+
+	redisStore := testutil.SetupMiniredisStore(t)
+	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	origPG := newPostgresStoreFn
+	origRedis := newRedisStoreFn
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+		return store.NewPostgresStoreWithPool(pool), nil
+	}
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+		return redisStore, nil
+	}
+	t.Cleanup(func() {
+		newPostgresStoreFn = origPG
+		newRedisStoreFn = origRedis
+	})
+	t.Cleanup(store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil }))
+
+	t.Setenv("ENABLE_HSTS", "false")
+	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
+	t.Setenv("REDIS_URL", redisStore.Client().Options().Addr)
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
+
+	prevEnv := serverEnv
+	serverEnv = appConfig.Load()
+	serverEnv.EnableHSTS = false
+	serverEnv.MigrationsDir = "migrations"
+	serverEnv.AllowedOrigins = "http://localhost"
+	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	t.Cleanup(func() { serverEnv = prevEnv })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	t.Setenv("PORT", strconv.Itoa(port))
+
+	sigCh := make(chan os.Signal, 1)
+	prevSig := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prevSig })
+
+	done := make(chan error, 1)
+	go func() { done <- runServer(slog.Default()) }()
+	time.Sleep(300 * time.Millisecond)
+	sigCh <- syscall.SIGTERM
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServer: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runServer did not shut down")
+	}
+}
+
+func TestWaitForShutdown_ServerShutdownError(t *testing.T) {
+	sigCh := make(chan os.Signal, 1)
+	prevSig := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prevSig })
+
+	prevShutdown := serverShutdownFn
+	serverShutdownFn = func(*http.Server, context.Context) error {
+		return errors.New("shutdown failed")
+	}
+	t.Cleanup(func() { serverShutdownFn = prevShutdown })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	redisStore := testutil.SetupMiniredisStore(t)
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
+
+	_, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		waitForShutdown(srv.Config, cancel, hub, nil)
+		close(done)
+	}()
+
+	sigCh <- syscall.SIGTERM
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitForShutdown did not complete")
 	}
 }

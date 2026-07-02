@@ -21,7 +21,7 @@ bash scripts/ci/check-coverage.sh frontend
 
 ## 排除规则
 
-**Go 单元 profile**（`make test-cover` / `unit.out`）：仅 `./internal/...`，不含 `./cmd/...`（CLI 入口）与 `internal/testutil`（测试辅助包）。
+**Go 单元 profile**（`make test-cover` / `unit.out`）：仅 `./internal/...`，不含 `./cmd/...`（CLI 入口）、`internal/testutil`（测试辅助包）与 `internal/testsecrets`（测试常量包）。
 
 **Go per-file 额外排除**（`EXCLUDE_PATTERNS`）：`cmd/server/main.go`、`constants.go`、`testutil/`、`degradation_deps.go` 等。
 
