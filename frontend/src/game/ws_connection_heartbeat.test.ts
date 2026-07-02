@@ -18,7 +18,7 @@ vi.mock('./constants.js', async (importOriginal) => {
 });
 
 import { HEARTBEAT_INTERVAL_MS } from './constants.js';
-import { startWsHeartbeat, setWs, stopHeartbeat } from './ws_connection.js';
+import { startHeartbeat, setWs, stopHeartbeat } from './ws_connection.js';
 
 class MockWebSocket {
   static OPEN = 1;
@@ -46,7 +46,7 @@ describe('ws_connection heartbeat reset', () => {
     const socket = new MockWebSocket() as unknown as WebSocket;
     const closeSpy = vi.spyOn(socket, 'close');
     setWs(socket);
-    startWsHeartbeat();
+    startHeartbeat();
     await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS * 2);
     expect(closeSpy).not.toHaveBeenCalled();
   });

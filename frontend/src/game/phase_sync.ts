@@ -3,13 +3,30 @@ import {
   state, resetInterpolation, freezeInterpolation,
   seenSeqs,
 } from './state.js';
-import { resetRoundClientState } from './client_state_reset.js';
+import { resetRoundClientState } from './state_reset.js';
 import {
   updateUI, startCountdownTimer,
   hideCountdownOverlay, showCountdownOverlay,
   startCooldownUpdater, stopCooldownUpdater,
 } from './ui.js';
 import { tryEntryHandoff } from './entry_flow.js';
+
+export const END_REASON = {
+  NONE: 0,
+  GROUND: 1,
+  BIRD: 2,
+  GHOST: 3,
+} as const;
+
+const END_REASON_LABELS: Record<number, string> = {
+  [END_REASON.GROUND]: '气球落地',
+  [END_REASON.BIRD]: '被鸟撞到',
+  [END_REASON.GHOST]: '被幽灵碰到',
+};
+
+export function endReasonLabel(code: number): string {
+  return END_REASON_LABELS[code] ?? '';
+}
 
 /**
  * Whether a snapshot phase transition is allowed from the current client phase.

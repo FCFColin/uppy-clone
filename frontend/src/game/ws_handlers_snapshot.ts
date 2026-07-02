@@ -5,7 +5,7 @@ import {
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateScoresOnly } from './ui_update.js';
 import { updateWindIndicator } from './ui_wind.js';
-import { applySnapshot, decodeSnapshot } from './snapshot_decode.js';
+import { applySnapshot, decodeSnapshot } from './message_codec.js';
 
 export { shouldApplySnapshotPhase } from './phase_sync.js';
 

@@ -25,7 +25,7 @@ vi.mock('./connection_ui.js', () => ({
   showConnectionError: vi.fn(),
 }));
 
-import { getWs, setWs, stopHeartbeat, startWsHeartbeat, handlePong, sendOrQueue, flushPendingQueue, resetReconnectAttempts, scheduleReconnect, waitForWebSocket, showConnectionError, setRoomPreChecked, wasRoomPreChecked, setReconnectTimer, clearReconnectTimer, getWsEverOpened, setWsEverOpened } from './ws_connection.js';
+import { getWs, setWs, stopHeartbeat, startHeartbeat, handlePong, sendOrQueue, flushPendingQueue, resetReconnectAttempts, scheduleReconnect, waitForWebSocket, showConnectionError, setRoomPreChecked, wasRoomPreChecked, setReconnectTimer, clearReconnectTimer, getWsEverOpened, setWsEverOpened } from './ws_connection.js';
 import {
   showConnectionError as showConnectionErrorUI,
   showReconnectBanner,
@@ -91,7 +91,7 @@ describe('ws_connection', () => {
   it('handlePong clears heartbeat timeout without closing socket', () => {
     const socket = new MockWebSocket() as unknown as WebSocket;
     setWs(socket);
-    startWsHeartbeat();
+    startHeartbeat();
     vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
     handlePong();
     vi.advanceTimersByTime(HEARTBEAT_TIMEOUT_MS - 1);
@@ -102,7 +102,7 @@ describe('ws_connection', () => {
     const socket = new MockWebSocket() as unknown as WebSocket;
     const closeSpy = vi.spyOn(socket, 'close');
     setWs(socket);
-    startWsHeartbeat();
+    startHeartbeat();
     await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS + HEARTBEAT_TIMEOUT_MS + 1);
     expect(closeSpy).toHaveBeenCalled();
   });
@@ -152,7 +152,7 @@ describe('ws_connection', () => {
   it('handlePong updates ping display when ping was sent', () => {
     const socket = new MockWebSocket() as unknown as WebSocket;
     setWs(socket);
-    startWsHeartbeat();
+    startHeartbeat();
     vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
     handlePong();
     expect(vi.mocked(updatePingDisplay)).toHaveBeenCalled();

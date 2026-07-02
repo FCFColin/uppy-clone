@@ -13,9 +13,9 @@ import {
 } from './interp_buffers.js';
 import { state } from './state_types.js';
 
-let prevTick: number = 0;
-let currTick: number = 0;
-let currSnapshotAt: number = 0;
+let prevTick = 0;
+let currTick = 0;
+let currSnapshotAt = 0;
 let prevBalloon: InterpPoint | null = null;
 let currBalloon: InterpPoint = { x: 0.5, y: 0.95 };
 let currBalloonVx = 0;
@@ -35,7 +35,7 @@ function interpolateBalloonPrevCurr(): InterpPoint {
   if (prevBalloon === null) return currBalloon;
   const t = lerpT();
   const tClamp = Math.min(1, t);
-  const pos: InterpPoint = {
+  const pos = {
     x: prevBalloon.x + (currBalloon.x - prevBalloon.x) * tClamp,
     y: prevBalloon.y + (currBalloon.y - prevBalloon.y) * tClamp,
   };

@@ -8,7 +8,7 @@ import {
   $nicknameSetupScreen,
 } from './ui_elements.js';
 import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
-import { endReasonLabel } from './end_reason.js';
+import { endReasonLabel } from './phase_sync.js';
 import { refreshLayout } from './ui.js';
 import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff, getWaitingTitleText } from './entry_flow.js';

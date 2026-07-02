@@ -1,6 +1,6 @@
 import { state, commitRenderedState } from './state.js';
 import { $endedScreen, $nicknameSetupScreen, $waitingScreen } from './ui_elements.js';
-import { $canvas, ctx, resizeCanvas as resizeCanvasBase } from './renderer_canvas.js';
+import { $canvas, getCtx, resizeCanvas as resizeCanvasBase } from './renderer_canvas.js';
 import { drawBackground, invalidateBackgroundStaticCache } from './renderer_background.js';
 import { drawBalloon, drawBird, drawGhost, drawRipples, drawExplosion } from './renderer_draw.js';
 import {
@@ -15,7 +15,7 @@ export function resizeCanvas(): void {
   invalidateBackgroundStaticCache();
 }
 
-let renderActive: boolean = true;
+let renderActive = true;
 
 export function setRenderActive(active: boolean): void {
   renderActive = active;
@@ -48,8 +48,8 @@ function overlayBlocksGameRender(): boolean {
 
 function render(): void {
   try {
-    ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, $canvas.width, $canvas.height);
+    getCtx().fillStyle = '#1a1a2e';
+    getCtx().fillRect(0, 0, $canvas.width, $canvas.height);
 
     drawBackground();
 

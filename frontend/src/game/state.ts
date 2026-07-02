@@ -13,4 +13,4 @@ export {
   outboundMessageQueue,
   getInterpState,
 } from './state_interp.js';
-export { resetClientState, resetRoundClientState } from './client_state_reset.js';
+export { resetClientState, resetRoundClientState } from './state_reset.js';

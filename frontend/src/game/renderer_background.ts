@@ -1,4 +1,4 @@
-import { $canvas, ctx } from './renderer_canvas.js';
+import { $canvas, getCtx } from './renderer_canvas.js';
 import { state } from './state.js';
 import {
   bgState,
@@ -145,10 +145,10 @@ function drawStars(time: number): void {
   for (const star of bgState.stars) {
     if (star.y > 0.62) continue;
     const alpha = 0.55 + Math.sin(time * 1.4 + star.twinkle) * 0.35;
-    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-    ctx.beginPath();
-    ctx.arc(star.x * $canvas.width, star.y * $canvas.height, star.size, 0, Math.PI * 2);
-    ctx.fill();
+    getCtx().fillStyle = `rgba(255, 255, 255, ${alpha})`;
+    getCtx().beginPath();
+    getCtx().arc(star.x * $canvas.width, star.y * $canvas.height, star.size, 0, Math.PI * 2);
+    getCtx().fill();
   }
 }
 
@@ -162,7 +162,7 @@ function drawCloudLayer(time: number, windDir: number): void {
     const cy = yNorm * $canvas.height;
     const cw = cloud.width * $canvas.width;
 
-    drawCloudSprite(ctx, cloud, cx, cy, cw);
+    drawCloudSprite(getCtx(), cloud, cx, cy, cw);
   }
 }
 
@@ -177,10 +177,10 @@ function drawParticles(windDir: number): void {
       p.life = 1;
     }
     const alpha = p.life * 0.3;
-    ctx.fillStyle = `rgba(200, 220, 255, ${alpha})`;
-    ctx.beginPath();
-    ctx.arc(p.x * $canvas.width, p.y * $canvas.height, p.size, 0, Math.PI * 2);
-    ctx.fill();
+    getCtx().fillStyle = `rgba(200, 220, 255, ${alpha})`;
+    getCtx().beginPath();
+    getCtx().arc(p.x * $canvas.width, p.y * $canvas.height, p.size, 0, Math.PI * 2);
+    getCtx().fill();
   }
 }
 
@@ -189,7 +189,7 @@ export function drawBackground(): void {
   ensureStaticLayer();
 
   if (staticCanvas) {
-    ctx.drawImage(staticCanvas, 0, 0);
+    getCtx().drawImage(staticCanvas, 0, 0);
   }
 
   const time = Date.now() * 0.001;

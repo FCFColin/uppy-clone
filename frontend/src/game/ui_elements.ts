@@ -3,6 +3,7 @@ import {
   NICKNAME_CATEGORIES,
 } from '../shared/nickname_pools_gen.js';
 
+// DOM element references — guaranteed by HTML templates, use ! to assert non-null.
 export const $waitingScreen: HTMLElement = document.getElementById('waiting-screen')!;
 export const $endedScreen: HTMLElement = document.getElementById('ended-screen')!;
 export const $gameHud: HTMLElement = document.getElementById('game-hud')!;

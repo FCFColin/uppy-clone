@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { state } from './state.js';
 import { outboundMessageQueue, seenSeqs } from './state.js';
-import { resetClientState, resetRoundClientState } from './client_state_reset.js';
+import { resetClientState, resetRoundClientState } from './state_reset.js';
 
 describe('client_state_reset', () => {
   beforeEach(() => {

@@ -14,20 +14,20 @@ export { type ConnectionErrorOptions } from './connection_ui.js';
 export { hideReconnectBanner } from './connection_ui.js';
 
 let ws: WebSocket | null = null;
-let reconnectAttempts: number = 0;
+let reconnectAttempts = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let wsEverOpened: boolean = false;
-let roomPreChecked: boolean = false;
+let wsEverOpened = false;
+let roomPreChecked = false;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
-let lastPingTime: number = 0;
+let lastPingTime = 0;
 
 export function showConnectionError(message: string, options?: ConnectionErrorOptions): void {
   clearReconnectTimer();
   showConnectionErrorUI(message, options);
 }
 
-function startHeartbeat(): void {
+export function startHeartbeat(): void {
   stopHeartbeat();
   heartbeatInterval = setInterval(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -53,10 +53,6 @@ export function stopHeartbeat(): void {
     clearTimeout(heartbeatTimeout);
     heartbeatTimeout = null;
   }
-}
-
-export function startWsHeartbeat(): void {
-  startHeartbeat();
 }
 
 export function handlePong(): void {
@@ -138,7 +134,7 @@ export function scheduleReconnect(): void {
     });
     return;
   }
-  const delay: number = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts), 30000);
+  const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts), 30000);
   reconnectAttempts++;
   showReconnectBanner(reconnectAttempts);
   reconnectTimer = setTimeout(() => {
@@ -147,10 +143,10 @@ export function scheduleReconnect(): void {
   }, delay);
 }
 
-export function waitForWebSocket(maxWaitMs: number = 5000): Promise<void> {
+export function waitForWebSocket(maxWaitMs = 5000): Promise<void> {
   return new Promise((resolve: () => void) => {
     if (ws && ws.readyState === WebSocket.OPEN) return resolve();
-    const start: number = Date.now();
+    const start = Date.now();
     const check: ReturnType<typeof setInterval> = setInterval(() => {
       if ((ws && ws.readyState === WebSocket.OPEN) || Date.now() - start > maxWaitMs) {
         clearInterval(check);

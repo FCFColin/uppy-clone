@@ -1,4 +1,4 @@
-import { $canvas, ctx } from './renderer_canvas.js';
+import { $canvas, getCtx, setOnResize } from './renderer_canvas.js';
 
 interface ImageEntry {
   img: HTMLImageElement;
@@ -29,6 +29,8 @@ export function registerStaticCacheInvalidate(fn: StaticCacheInvalidateFn): void
   staticCacheInvalidateFn = fn;
 }
 
+setOnResize(refreshBackgroundGradient);
+
 function loadImageEntry(entry: ImageEntry, cacheKey: string): void {
   entry.img.onload = () => {
     entry.loaded = true;
@@ -43,11 +45,13 @@ function loadImageEntry(entry: ImageEntry, cacheKey: string): void {
   entry.img.src = entry.url;
 }
 
-for (const key in gameImages) {
-  loadImageEntry(gameImages[key]!, key);
-}
-for (const entry of cloudImages) {
-  loadImageEntry(entry, entry.url);
+export function initImages(): void {
+  for (const key in gameImages) {
+    loadImageEntry(gameImages[key]!, key);
+  }
+  for (const entry of cloudImages) {
+    loadImageEntry(entry, entry.url);
+  }
 }
 
 /** Normalized vertical band where clouds may appear (above mountains). */
@@ -138,6 +142,7 @@ export function spawnCloud(layerCfg: CloudLayerConfig, x?: number): Cloud {
 }
 
 export function initBackground(): void {
+  initImages();
   bgState.stars = [];
   for (let i = 0; i < 60; i++) {
     bgState.stars.push({
@@ -173,7 +178,7 @@ export function initBackground(): void {
     });
   }
 
-  bgState.gradient = ctx.createLinearGradient(0, 0, 0, $canvas.height);
+  bgState.gradient = getCtx().createLinearGradient(0, 0, 0, $canvas.height);
   bgState.gradient.addColorStop(0, '#0f1729');
   bgState.gradient.addColorStop(0.5, '#16213e');
   bgState.gradient.addColorStop(1, '#1a1a2e');
@@ -181,7 +186,7 @@ export function initBackground(): void {
 
 /** Rebuild sky gradient after canvas resize without resetting parallax elements. */
 export function refreshBackgroundGradient(): void {
-  bgState.gradient = ctx.createLinearGradient(0, 0, 0, $canvas.height);
+  bgState.gradient = getCtx().createLinearGradient(0, 0, 0, $canvas.height);
   bgState.gradient.addColorStop(0, '#0f1729');
   bgState.gradient.addColorStop(0.5, '#16213e');
   bgState.gradient.addColorStop(1, '#1a1a2e');

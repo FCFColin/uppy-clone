@@ -35,7 +35,7 @@ vi.mock('./state.js', () => ({
   seenSeqs: mocks.seenSeqs,
 }));
 
-vi.mock('./client_state_reset.js', () => ({
+vi.mock('./state_reset.js', () => ({
   resetRoundClientState: () => {
     mocks.state.ripples = [];
     mocks.state.explosionEffect = null;

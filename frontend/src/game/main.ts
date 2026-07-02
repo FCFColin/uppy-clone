@@ -28,13 +28,7 @@ localStorage.setItem('uppy-game-url', window.location.href);
 
 if (import.meta.env.DEV) {
   window.state = state;
-  window.__gamePhase = state.phase;
-  window.__seenSeqs = seenSeqs;
-  window.__interp = getInterpState();
 }
-
-window.requestRestart = requestRestart;
-window.generateRandomNickname = generateRandomNickname;
 
 function submitSetupNickname(): Promise<void> {
   const input: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
@@ -53,7 +47,6 @@ function submitSetupNickname(): Promise<void> {
   showToast(`欢迎，${nickname}！`);
   return Promise.resolve();
 }
-window.submitSetupNickname = submitSetupNickname;
 
 const savedNickname: string | null = localStorage.getItem('uppy-nickname');
 if (savedNickname && $setupNicknameInput) {

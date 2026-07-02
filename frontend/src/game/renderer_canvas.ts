@@ -1,5 +1,3 @@
-import { refreshBackgroundGradient } from './renderer_background_data.js';
-
 /** Canvas layout: reserves space for HUD and cooldown bar (portrait-friendly). */
 export interface CanvasLayout {
   top: number;
@@ -47,27 +45,23 @@ export const $canvas: HTMLCanvasElement = (document.getElementById('game-canvas'
   return fallbackCanvas;
 })()) as HTMLCanvasElement;
 
+let _onResize: (() => void) | null = null;
+
+export function setOnResize(fn: (() => void) | null): void {
+  _onResize = fn;
+}
+
 function resolveCtx(): CanvasRenderingContext2D {
   const c = $canvas.getContext('2d');
   if (!c) throw new Error('game canvas 2d context unavailable');
   return c;
 }
 
-export const ctx: CanvasRenderingContext2D = new Proxy({} as CanvasRenderingContext2D, {
-  get(_target, prop) {
-    const realCtx = resolveCtx();
-    const value = Reflect.get(realCtx, prop, realCtx);
-    if (typeof value === 'function') {
-      return value.bind(realCtx);
-    }
-    return value;
-  },
-  set(_target, prop, value) {
-    const realCtx = resolveCtx();
-    Reflect.set(realCtx, prop, value, realCtx);
-    return true;
-  },
-});
+export function getCtx(): CanvasRenderingContext2D {
+  const c = $canvas.getContext('2d');
+  if (!c) throw new Error('game canvas 2d context unavailable');
+  return c;
+}
 
 export function resizeCanvas(): void {
   measureLayoutInsets();
@@ -78,7 +72,7 @@ export function resizeCanvas(): void {
     $canvas.style.bottom = `${layout.bottom}px`;
     $canvas.style.height = `${layout.height}px`;
   }
-  refreshBackgroundGradient();
+  _onResize?.();
 }
 
 /** Map client coords to normalized game space accounting for canvas offset. */

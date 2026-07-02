@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolveLobbyCode } from './ws_connect_lobby.js';
+import { resolveLobbyCode } from './lobby_match.js';
 
 describe('resolveLobbyCode', () => {
   beforeEach(() => {

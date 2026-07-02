@@ -6,6 +6,5 @@ export {
   sendOrQueue,
   getWs,
   getWsEverOpened,
-  waitForWebSocket,
   stopHeartbeat,
 } from './ws_connection.js';

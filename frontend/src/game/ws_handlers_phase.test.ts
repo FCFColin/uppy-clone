@@ -90,6 +90,35 @@ describe('handleGameStateChange', () => {
     });
   });
 
+  it('marks new record when cookie best is fresh', async () => {
+    const bestScoreModule = await import('../shared/best_score_cookie.js');
+    vi.mocked(bestScoreModule.updateBestScore).mockReturnValueOnce({ best: 50, isNewRecord: true });
+    mocks.state.score = 88;
+    document.body.innerHTML = '<div id="personal-best"></div>';
+    const dv = new DataView(new ArrayBuffer(3));
+    dv.setUint8(1, 2);
+    dv.setUint8(2, 1);
+    handleGameStateChange(dv);
+    await vi.waitFor(() => {
+      expect(document.getElementById('personal-best')?.textContent).toContain('新纪录');
+    });
+  });
+
+  it('shows new record when score exceeds server best', async () => {
+    const bestScoreModule = await import('../shared/best_score_cookie.js');
+    vi.mocked(bestScoreModule.updateBestScore).mockReturnValueOnce({ best: 10, isNewRecord: false });
+    vi.mocked(bestScoreModule.fetchUserBestScore).mockResolvedValueOnce(5);
+    mocks.state.score = 88;
+    document.body.innerHTML = '<div id="personal-best"></div>';
+    const dv = new DataView(new ArrayBuffer(3));
+    dv.setUint8(1, 2);
+    dv.setUint8(2, 1);
+    handleGameStateChange(dv);
+    await vi.waitFor(() => {
+      expect(document.getElementById('personal-best')?.textContent).toContain('新纪录');
+    });
+  });
+
   it('skips end-screen update when personal-best element is missing', async () => {
     document.body.innerHTML = '';
     const buf = new ArrayBuffer(3);
