@@ -12,7 +12,7 @@ import {
   tryBalloonFromDelayBuffer,
   tryEntityFromDelayBuffer,
 } from './interp_buffers.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 
 let currSnapshotAt = 0;
 let prevBalloon: InterpPoint | null = null;
@@ -69,9 +69,10 @@ function resolvePrevBalloon(newBalloon: InterpPoint): InterpPoint {
 }
 
 export function updateInterpolation(tickCount: number): void {
-  const newBalloon: InterpPoint = { x: state.balloon.x, y: state.balloon.y };
-  const newGhost: InterpGhostPoint = { x: state.ghost.x, y: state.ghost.y, active: state.ghost.active };
-  const newBird: InterpBirdPoint = { x: state.bird.x, y: state.bird.y, active: state.bird.active };
+  const s = getState();
+  const newBalloon: InterpPoint = { x: s.balloon.x, y: s.balloon.y };
+  const newGhost: InterpGhostPoint = { x: s.ghost.x, y: s.ghost.y, active: s.ghost.active };
+  const newBird: InterpBirdPoint = { x: s.bird.x, y: s.bird.y, active: s.bird.active };
 
   if (prevBalloon === null) {
     prevBalloon = { ...newBalloon };
@@ -80,8 +81,8 @@ export function updateInterpolation(tickCount: number): void {
     currGhost = { ...newGhost };
     prevBird = { ...newBird };
     currBird = { ...newBird };
-    currBalloonVx = state.balloon.vx;
-    currBalloonVy = state.balloon.vy;
+    currBalloonVx = s.balloon.vx;
+    currBalloonVy = s.balloon.vy;
     currSnapshotAt = Date.now();
     pushAnchors(tickCount);
     return;
@@ -102,8 +103,8 @@ export function updateInterpolation(tickCount: number): void {
   currBalloon = newBalloon;
   currGhost = newGhost;
   currBird = newBird;
-  currBalloonVx = state.balloon.vx;
-  currBalloonVy = state.balloon.vy;
+  currBalloonVx = s.balloon.vx;
+  currBalloonVy = s.balloon.vy;
   currSnapshotAt = Date.now();
   pushAnchors(tickCount);
 }
@@ -137,14 +138,15 @@ export function resetInterpolation(): void {
 }
 
 export function freezeInterpolation(): void {
-  const bx = state.balloon.x;
-  const by = state.balloon.y;
+  const s = getState();
+  const bx = s.balloon.x;
+  const by = s.balloon.y;
   prevBalloon = { x: bx, y: by };
   currBalloon = { x: bx, y: by };
-  prevGhost = { x: state.ghost.x, y: state.ghost.y, active: state.ghost.active };
-  currGhost = { x: state.ghost.x, y: state.ghost.y, active: state.ghost.active };
-  prevBird = { x: state.bird.x, y: state.bird.y, active: state.bird.active };
-  currBird = { x: state.bird.x, y: state.bird.y, active: state.bird.active };
+  prevGhost = { x: s.ghost.x, y: s.ghost.y, active: s.ghost.active };
+  currGhost = { x: s.ghost.x, y: s.ghost.y, active: s.ghost.active };
+  prevBird = { x: s.bird.x, y: s.bird.y, active: s.bird.active };
+  currBird = { x: s.bird.x, y: s.bird.y, active: s.bird.active };
   lastRenderedBalloon = { x: bx, y: by };
 }
 

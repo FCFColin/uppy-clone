@@ -1,6 +1,6 @@
 import { PALETTE_COLORS } from './local_constants.js';
 import type { GamePhase } from '../shared/game/types.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 import {
   $waitingScreen, $endedScreen, $gameHud, $cooldownIndicator,
   $hudScore, $hudPlayers, $finalScore, $hudPlayerList,
@@ -19,40 +19,41 @@ let lastPlayerListKey = '';
 let lastEndListKey = '';
 
 function playerListKey(): string {
-  return state.players
+  return getState().players
     .map(p => `${p.playerIndex}:${p.nickname}:${p.palette}`)
     .join('|');
 }
 
 function endListKey(): string {
-  return state.players
+  return getState().players
     .map(p => `${p.playerIndex}:${p.scoreContribution}:${p.nickname}:${p.palette}`)
     .sort()
     .join('|');
 }
 
 function isCurrentPlayer(p: { nickname: string }): boolean {
-  const saved = localStorage.getItem('uppy-nickname') || state.pendingNickname || '';
+  const saved = localStorage.getItem('uppy-nickname') || getState().pendingNickname || '';
   return saved !== '' && p.nickname === saved;
 }
 
 function setOverlayVisibility(): void {
+  const phase = getState().phase;
   if (isEntryHandoff()) {
-    $waitingScreen.classList.toggle('hidden', state.phase !== 'waiting');
+    $waitingScreen.classList.toggle('hidden', phase !== 'waiting');
   }
 
-  $endedScreen.classList.toggle('hidden', state.phase !== 'ended');
-  $gameHud.classList.toggle('hidden', state.phase !== 'playing');
-  $cooldownIndicator.classList.toggle('hidden', state.phase !== 'playing');
+  $endedScreen.classList.toggle('hidden', phase !== 'ended');
+  $gameHud.classList.toggle('hidden', phase !== 'playing');
+  $cooldownIndicator.classList.toggle('hidden', phase !== 'playing');
   refreshLayout();
 
-  if (state.phase === 'playing') {
-    updateWindIndicator(state.wind);
+  if (phase === 'playing') {
+    updateWindIndicator(getState().wind);
   } else {
     hideWindIndicator();
   }
 
-  if (state.phase === 'waiting' && isEntryHandoff()) {
+  if (phase === 'waiting' && isEntryHandoff()) {
     const waitingTitle: HTMLElement | null = document.getElementById('waiting-title');
     if (waitingTitle) {
       waitingTitle.textContent = getWaitingTitleText();
@@ -60,19 +61,21 @@ function setOverlayVisibility(): void {
   }
 
   if (isEntryHandoff()) {
-    const hideNick = state.phase === 'countdown' || state.phase === 'playing' || state.phase === 'ended';
+    const hideNick = phase === 'countdown' || phase === 'playing' || phase === 'ended';
     if ($nicknameSetupScreen && hideNick) $nicknameSetupScreen.classList.add('hidden');
   }
 }
 
 function displayNickname(p: { playerIndex: number; nickname: string }): string {
+  const players = getState().players;
+  const pending = getState().pendingNickname;
   let name: string;
   if (
-    state.pendingNickname
-    && state.players.length === 1
-    && state.players[0]?.playerIndex === p.playerIndex
+    pending
+    && players.length === 1
+    && players[0]?.playerIndex === p.playerIndex
   ) {
-    name = state.pendingNickname;
+    name = pending;
   } else {
     name = p.nickname || 'P' + p.playerIndex;
   }
@@ -83,7 +86,7 @@ function displayNickname(p: { playerIndex: number; nickname: string }): string {
 function renderPlayerItems(
   container: HTMLElement,
   includeScore: boolean,
-  players = state.players,
+  players = getState().players,
 ): void {
   container.textContent = '';
   for (const p of players) {
@@ -110,7 +113,7 @@ function renderPlayerItems(
 
 function syncHudPlayerScores(): void {
   const items = $hudPlayerList.querySelectorAll('.player-item');
-  state.players.forEach((p, i) => {
+  getState().players.forEach((p, i) => {
     const item = items[i];
     if (!item) return;
     const scoreEl = item.querySelector('.player-score');
@@ -120,7 +123,7 @@ function syncHudPlayerScores(): void {
 
 function syncHudOrWaitingPlayerList(force: boolean, phaseChanged: boolean): void {
   const pk = playerListKey();
-  if (state.phase === 'playing' || state.phase === 'countdown') {
+  if (getState().phase === 'playing' || getState().phase === 'countdown') {
     if (force || phaseChanged || pk !== lastPlayerListKey) {
       lastPlayerListKey = pk;
       renderPlayerItems($hudPlayerList, true);
@@ -129,7 +132,7 @@ function syncHudOrWaitingPlayerList(force: boolean, phaseChanged: boolean): void
     }
     return;
   }
-  if (state.phase === 'waiting' && (force || phaseChanged || pk !== lastPlayerListKey)) {
+  if (getState().phase === 'waiting' && (force || phaseChanged || pk !== lastPlayerListKey)) {
     lastPlayerListKey = pk;
     renderPlayerItems($playerListWaiting, false);
   }
@@ -139,35 +142,36 @@ function renderEndPlayerList(force: boolean, phaseChanged: boolean): void {
   const ek = endListKey();
   if (!force && !phaseChanged && ek === lastEndListKey) return;
   lastEndListKey = ek;
-  const sorted = [...state.players].sort((a, b) => b.scoreContribution - a.scoreContribution);
+  const sorted = [...getState().players].sort((a, b) => b.scoreContribution - a.scoreContribution);
   renderPlayerItems($endPlayerList, true, sorted);
 }
 
 export function updateUI(force = false): void {
-  const phaseChanged = state.phase !== lastPhase;
+  const phaseChanged = getState().phase !== lastPhase;
   if (phaseChanged || force) {
-    lastPhase = state.phase;
+    lastPhase = getState().phase;
     setOverlayVisibility();
   }
 
-  $hudScore.textContent = String(state.score);
+  $hudScore.textContent = String(getState().score);
   $hudScore.classList.toggle('score-danger', isLowHeightDanger());
-  $hudPlayers.textContent = String(state.players.length);
+  $hudPlayers.textContent = String(getState().players.length);
 
-  if (state.phase === 'ended') {
-    $finalScore.textContent = String(state.score);
+  if (getState().phase === 'ended') {
+    $finalScore.textContent = String(getState().score);
     const reasonEl = document.getElementById('end-reason');
     if (reasonEl) {
-      const label = state.endReason != null ? endReasonLabel(state.endReason) : '';
+      const endReason = getState().endReason;
+      const label = endReason != null ? endReasonLabel(endReason) : '';
       reasonEl.textContent = label;
       reasonEl.style.display = label ? 'block' : 'none';
     }
     renderEndPlayerList(force, phaseChanged);
   }
 
-  if (state.phase === 'ended' && state.restartVotes) {
+  if (getState().phase === 'ended' && getState().restartVotes) {
     syncRestartVoteProgress();
-    if (state.restartVotes.countdownMs <= 0) {
+    if (getState().restartVotes.countdownMs <= 0) {
       const $restartCountdown: HTMLElement | null = document.getElementById('restart-countdown');
       if ($restartCountdown) $restartCountdown.textContent = '';
     }
@@ -177,14 +181,14 @@ export function updateUI(force = false): void {
 }
 
 export function updateScoresOnly(): void {
-  $hudScore.textContent = String(state.score);
+  $hudScore.textContent = String(getState().score);
   $hudScore.classList.toggle('score-danger', isLowHeightDanger());
-  $hudPlayers.textContent = String(state.players.length);
+  $hudPlayers.textContent = String(getState().players.length);
 
   syncHudOrWaitingPlayerList(false, false);
 
-  if (state.phase === 'ended') {
-    $finalScore.textContent = String(state.score);
+  if (getState().phase === 'ended') {
+    $finalScore.textContent = String(getState().score);
     renderEndPlayerList(true, false);
   }
 }

@@ -1,5 +1,5 @@
 import type { GamePhase } from '../shared/game/types.js';
-import { state } from './state_types.js';
+import { dispatch, getState } from './store.js';
 import { $canvas } from './renderer_canvas.js';
 import { $lobbyCode, $hudCode } from './ui_elements.js';
 import { matchNewRoomCode } from './room_validate.js';
@@ -60,7 +60,7 @@ function syncOverlays(): void {
 
 /** Shared waiting-screen title during entry and post-handoff waiting phase. */
 export function getWaitingTitleText(): string {
-  if (state.players.length > 1) {
+  if (getState().players.length > 1) {
     return '等待其他玩家确认昵称…';
   }
   return '即将开始…';
@@ -101,7 +101,7 @@ export function onLobbyCodeReady(lobbyCode: string): void {
   if (entryStep === 'waiting' || entryStep === 'handoff') return;
   if (lobbyPublished && entryStep !== 'connecting' && entryStep !== 'error') return;
 
-  state.lobbyCode = lobbyCode;
+  dispatch({ type: 'SET_STATE', partial: { lobbyCode } });
   setLobbyCodeDisplay(lobbyCode);
   lobbyPublished = true;
   applyEntryStep('nickname');
@@ -110,7 +110,7 @@ export function onLobbyCodeReady(lobbyCode: string): void {
 /** User clicked「进入游戏」. */
 export function onNicknameSubmit(): void {
   if (entryStep !== 'nickname') return;
-  state.nicknameSubmitted = true;
+  dispatch({ type: 'SET_STATE', partial: { nicknameSubmitted: true } });
   lobbyPublished = true;
   applyEntryStep('waiting');
   startStartCountdown();
@@ -162,7 +162,7 @@ export function onWebSocketOpen(): void {
       updateWaitingStatusLine(overlayContext());
     }
   } else if (entryStep === 'nickname') {
-    nicknameReadyStatus(state.lobbyCode, wsConnected);
+    nicknameReadyStatus(getState().lobbyCode, wsConnected);
   }
 }
 
@@ -171,14 +171,14 @@ export function onWebSocketClosed(): void {
   if (entryStep === 'waiting') {
     updateWaitingStatusLine(overlayContext());
   } else if (entryStep === 'nickname') {
-    const code = state.lobbyCode || '-----';
+    const code = getState().lobbyCode || '-----';
     setNicknameStatus(`连接已断开 · 房间 ${code} · 仍可点击「进入游戏」（将自动重连）`);
   }
 }
 
 /** Enter handoff when server phase moves into active gameplay. */
 export function tryEntryHandoff(phase: GamePhase): void {
-  if (!state.nicknameSubmitted) return;
+  if (!getState().nicknameSubmitted) return;
   if (phase === 'countdown' || phase === 'playing') {
     applyEntryStep('handoff');
   }
@@ -206,7 +206,7 @@ export function initEntryFlow(): void {
   wsConnected = false;
   const code = new URLSearchParams(window.location.search).get('code')?.trim();
   if (code) {
-    state.lobbyCode = code;
+    dispatch({ type: 'SET_STATE', partial: { lobbyCode: code } });
     setLobbyCodeDisplay(code);
     lobbyPublished = true;
     entryStep = 'nickname';
@@ -267,7 +267,7 @@ export function hideLoadingOverlay(): void {
 }
 
 function syncCanvasPointerEvents(entryStep: EntryStep): void {
-  $canvas.style.pointerEvents = entryStep === 'handoff' && state.phase === 'playing' ? 'auto' : 'none';
+  $canvas.style.pointerEvents = entryStep === 'handoff' && getState().phase === 'playing' ? 'auto' : 'none';
 }
 
 function ensureEntryOverlayOnTop(entryStep: EntryStep): void {
@@ -317,7 +317,7 @@ export function syncEntryOverlays(ctx: EntryOverlayContext): void {
   ensureEntryOverlayOnTop(ctx.entryStep);
 
   if (showNickname) {
-    nicknameReadyStatus(state.lobbyCode, ctx.wsConnected);
+    nicknameReadyStatus(getState().lobbyCode, ctx.wsConnected);
   }
 
   if (showWaiting) {

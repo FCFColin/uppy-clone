@@ -1,13 +1,14 @@
-import { state } from './state_types.js';
+import { dispatch, getState } from './store.js';
 import { pickRandomNickname } from './ui_elements.js';
 import { showToast } from '../shared/ui/toast.js';
 import { playCountdownTick } from '../shared/ui/audio.js';
 import { resizeCanvas } from './renderer.js';
 
 export function startCountdownTimer(seconds: number): void {
-  if (state.countdownTimerInterval !== null) {
-    clearInterval(state.countdownTimerInterval);
-    state.countdownTimerInterval = null;
+  const existing = getState().countdownTimerInterval;
+  if (existing !== null) {
+    clearInterval(existing);
+    dispatch({ type: 'SET_STATE', partial: { countdownTimerInterval: null } });
   }
   const countdownEl: HTMLElement | null = document.getElementById('countdown-overlay');
   if (!countdownEl) return;
@@ -22,11 +23,11 @@ export function startCountdownTimer(seconds: number): void {
   playCountdownTick();
   countdownEl.classList.remove('hidden');
 
-  state.countdownTimerInterval = setInterval(() => {
+  const timer = setInterval(() => {
     remaining--;
     if (remaining <= 0) {
-      clearInterval(state.countdownTimerInterval!);
-      state.countdownTimerInterval = null;
+      clearInterval(timer);
+      dispatch({ type: 'SET_STATE', partial: { countdownTimerInterval: null } });
       countdownEl.classList.add('hidden');
     } else {
       if (numberEl) {
@@ -38,6 +39,7 @@ export function startCountdownTimer(seconds: number): void {
       playCountdownTick();
     }
   }, 1000);
+  dispatch({ type: 'SET_STATE', partial: { countdownTimerInterval: timer } });
 }
 
 export function hideCountdownOverlay(): void {
@@ -53,7 +55,7 @@ export function generateRandomNickname(): string {
 }
 
 export async function copyCode(): Promise<void> {
-  const url: string = `${window.location.origin}/play.html?code=${state.lobbyCode}`;
+  const url: string = `${window.location.origin}/play.html?code=${getState().lobbyCode}`;
   try {
     await navigator.clipboard.writeText(url);
     showToast('已复制邀请链接');

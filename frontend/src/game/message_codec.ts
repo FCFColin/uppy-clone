@@ -139,18 +139,16 @@ export interface SnapshotApplyTarget {
   players: DecodedPlayer[];
 }
 
-export function applySnapshot(decoded: DecodedSnapshot, target: SnapshotApplyTarget): void {
-  target.score = decoded.score;
-  target.balloon.x = decoded.balloon.x;
-  target.balloon.y = decoded.balloon.y;
-  target.balloon.vx = decoded.balloon.vx;
-  target.balloon.vy = decoded.balloon.vy;
-  target.bird.active = decoded.bird.active;
-  target.bird.x = decoded.bird.x;
-  target.bird.y = decoded.bird.y;
-  target.ghost.active = decoded.ghost.active;
-  target.ghost.x = decoded.ghost.x;
-  target.ghost.y = decoded.ghost.y;
-  target.ghost.repelTimer = decoded.ghost.repelTimer;
-  target.players = decoded.players;
+export function applySnapshot(decoded: DecodedSnapshot, target?: SnapshotApplyTarget): SnapshotApplyTarget {
+  const result: SnapshotApplyTarget = {
+    score: decoded.score,
+    balloon: { ...decoded.balloon },
+    bird: { ...decoded.bird },
+    ghost: { ...decoded.ghost },
+    players: decoded.players,
+  };
+  if (target) {
+    Object.assign(target, result);
+  }
+  return result;
 }

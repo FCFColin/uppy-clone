@@ -1,6 +1,6 @@
 import { PHYSICS } from '../shared/game/constants.js';
 import { $canvas, getCtx } from './renderer_canvas.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 import { getInterpolatedBalloon, getInterpolatedBird, getInterpolatedGhost } from './state_interp.js';
 import { isRangeCircleVisible } from './tutorial.js';
 
@@ -56,7 +56,7 @@ function _ensureVignetteGradients(ctx: CanvasRenderingContext2D): void {
 }
 
 export function drawDangerVignettes(now: number): void {
-  if (state.phase !== 'playing') return;
+  if (getState().phase !== 'playing') return;
 
   _ensureVignetteGradients(getCtx());
 
@@ -99,5 +99,5 @@ export function drawFloatingTexts(now: number): void {
 }
 
 export function isLowHeightDanger(): boolean {
-  return state.phase === 'playing' && state.balloon.y < 0.15;
+  return getState().phase === 'playing' && getState().balloon.y < 0.15;
 }

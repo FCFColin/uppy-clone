@@ -1,5 +1,5 @@
 import { calculateCooldown } from './message_codec.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 
 export function initWaitingTips(): void {
   const toggle = document.getElementById('waiting-tips-toggle');
@@ -13,8 +13,8 @@ export function initWaitingTips(): void {
   });
 
   setInterval(() => {
-    if (state.phase !== 'waiting' || !summary) return;
-    const n = Math.max(1, state.players.length);
+    if (getState().phase !== 'waiting' || !summary) return;
+    const n = Math.max(1, getState().players.length);
     const cd = (calculateCooldown(n) / 1000).toFixed(1);
     summary.textContent = `当前 ${n} 人 · 冷却约 ${cd} 秒`;
   }, 500);

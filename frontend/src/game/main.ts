@@ -1,5 +1,5 @@
 import { encodeSetNickname } from './message_codec.js';
-import { state } from './state_types.js';
+import { dispatch, getState } from './store.js';
 import { normalizeAuthHost } from '../shared/network/session.js';
 import { resumeAudioContext } from '../shared/ui/audio.js';
 import { showToast } from '../shared/ui/toast.js';
@@ -24,10 +24,6 @@ normalizeAuthHost();
 // Save current game URL so the leaderboard page can offer a "返回游戏" button.
 localStorage.setItem('uppy-game-url', window.location.href);
 
-if (import.meta.env.DEV) {
-  window.state = state;
-}
-
 function submitSetupNickname(): Promise<void> {
   const input: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
   let nickname: string = input ? input.value.trim() : '';
@@ -35,7 +31,7 @@ function submitSetupNickname(): Promise<void> {
     nickname = generateRandomNickname();
   }
   localStorage.setItem('uppy-nickname', nickname);
-  state.pendingNickname = nickname;
+  dispatch({ type: 'SET_STATE', partial: { pendingNickname: nickname } });
   onNicknameSubmit();
 
   const msg: ArrayBuffer = encodeSetNickname(nickname);
@@ -123,7 +119,7 @@ document.getElementById('restart-btn')?.addEventListener('click', requestRestart
 
 document.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === ' ' || e.key === 'Enter') {
-    if (state.phase === 'playing' && document.activeElement?.tagName !== 'INPUT') {
+    if (getState().phase === 'playing' && document.activeElement?.tagName !== 'INPUT') {
       e.preventDefault();
       tapAtBalloonCenter();
     }
@@ -149,7 +145,7 @@ window.addEventListener('online', () => {
   if (getWs()?.readyState !== WebSocket.OPEN) void connectWebSocket();
 });
 window.addEventListener('offline', () => {
-  state.connectionError = '网络已断开';
+  dispatch({ type: 'SET_STATE', partial: { connectionError: '网络已断开' } });
 });
 
 window.addEventListener('beforeunload', () => {

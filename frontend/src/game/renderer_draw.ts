@@ -1,6 +1,6 @@
 import { $canvas, getCtx } from './renderer_canvas.js';
 import { gameImages } from './renderer_background.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 import { getInterpolatedBalloon, getInterpolatedGhost, getInterpolatedBird } from './state_interp.js';
 
 let _cachedBirdSize = 0;
@@ -29,7 +29,7 @@ export function drawBalloon(now: number = Date.now()): void {
     const img: HTMLImageElement = gameImages['balloon']!.img;
     const w = radius * 2.5;
     const h = w * (img.height / img.width);
-    const tilt = Math.max(-5, Math.min(5, state.wind * 40)) * (Math.PI / 180);
+    const tilt = Math.max(-5, Math.min(5, getState().wind * 40)) * (Math.PI / 180);
     getCtx().save();
     getCtx().translate(bx, by);
     getCtx().rotate(tilt);
@@ -69,7 +69,7 @@ export function drawBird(now: number): void {
   const by: number = (1 - bird.y) * $canvas.height;
   const size: number = Math.min($canvas.width, $canvas.height) * 0.035;
 
-  const vx = state.balloon.x - bird.x;
+  const vx = getState().balloon.x - bird.x;
   const dir = vx >= 0 ? 1 : -1;
 
   const flapPhase = Math.sin(now * 0.012);
@@ -135,7 +135,7 @@ export function drawGhost(now: number): void {
   const gx = interpGhost.x * $canvas.width;
   const gy = (1 - interpGhost.y) * $canvas.height;
 
-  const isRepelled = state.ghost.repelTimer > 0;
+  const isRepelled = getState().ghost.repelTimer > 0;
   const baseColor = isRepelled ? '255, 100, 100' : '180, 100, 255';
 
   if (gameImages['ghost']!.loaded) {

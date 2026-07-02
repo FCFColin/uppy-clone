@@ -1,5 +1,5 @@
 import { PHYSICS } from '../shared/game/constants.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 
 
 
@@ -52,27 +52,28 @@ export function getRenderTime(): number {
 
 export function pushAnchors(tickCount: number): void {
   const receivedAt = Date.now();
+  const s = getState();
   balloonBuffer.push({
     tick: tickCount,
     receivedAt,
-    x: state.balloon.x,
-    y: state.balloon.y,
-    vx: state.balloon.vx,
-    vy: state.balloon.vy,
+    x: s.balloon.x,
+    y: s.balloon.y,
+    vx: s.balloon.vx,
+    vy: s.balloon.vy,
   });
   ghostBuffer.push({
     tick: tickCount,
     receivedAt,
-    x: state.ghost.x,
-    y: state.ghost.y,
-    active: state.ghost.active,
+    x: s.ghost.x,
+    y: s.ghost.y,
+    active: s.ghost.active,
   });
   birdBuffer.push({
     tick: tickCount,
     receivedAt,
-    x: state.bird.x,
-    y: state.bird.y,
-    active: state.bird.active,
+    x: s.bird.x,
+    y: s.bird.y,
+    active: s.bird.active,
   });
   while (balloonBuffer.length > MAX_SNAPSHOT_BUFFER) balloonBuffer.shift();
   while (ghostBuffer.length > MAX_SNAPSHOT_BUFFER) ghostBuffer.shift();

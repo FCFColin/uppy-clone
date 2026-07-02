@@ -1,5 +1,5 @@
 import { playReadySound, vibrate } from '../shared/ui/audio.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 import { calculateCooldown } from './message_codec.js';
 import { $cooldownBar, $cooldownText } from './ui_elements.js';
 
@@ -21,15 +21,15 @@ export function stopCooldownUpdater(): void {
 let wasReady = false;
 
 export function updateCooldownBar(): void {
-  if (state.phase !== 'playing') {
+  if (getState().phase !== 'playing') {
     wasReady = false;
     return;
   }
   const now = Date.now();
-  if (now < state.myCooldownEnd) {
+  if (now < getState().myCooldownEnd) {
     wasReady = false;
-    const remaining = state.myCooldownEnd - now;
-    const total = calculateCooldown(state.players.length);
+    const remaining = getState().myCooldownEnd - now;
+    const total = calculateCooldown(getState().players.length);
     const pct = Math.min(100, (remaining / total) * 100);
     $cooldownBar.style.width = pct + '%';
     $cooldownBar.classList.remove('ready');

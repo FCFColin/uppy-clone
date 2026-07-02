@@ -1,29 +1,28 @@
 import { CLIENT_MSG } from '../shared/game/protocol.js';
 import { calculateCooldown } from './message_codec.js';
-import { state } from './state_types.js';
+import { dispatch, getState } from './store.js';
 import { sendOrQueue, getWs } from './ws_connection.js';
 import { clientToNormalized } from './renderer_canvas.js';
 import { playTapSound } from '../shared/ui/audio.js';
 import { updateUI } from './ui.js';
 
 export function handleTap(clientX: number, clientY: number): void {
-  if (state.phase !== 'playing') return;
+  if (getState().phase !== 'playing') return;
 
   const { x, y } = clientToNormalized(clientX, clientY);
 
   const now: number = Date.now();
-  if (now < state.myCooldownEnd) {
-    state.ripples.push({ playerIndex: -1, x, y, time: now, rejected: true });
+  if (now < getState().myCooldownEnd) {
+    dispatch({ type: 'ADD_RIPPLE', ripple: { playerIndex: -1, x, y, time: now, rejected: true } });
     return;
   }
 
-  state.lastTapX = x;
-  state.lastTapY = y;
+  dispatch({ type: 'SET_STATE', partial: { lastTapX: x, lastTapY: y } });
 
-  const optimisticCooldown: number = calculateCooldown(state.players.length || 1);
-  state.myCooldownEnd = now + optimisticCooldown;
+  const optimisticCooldown: number = calculateCooldown(getState().players.length || 1);
+  dispatch({ type: 'SET_STATE', partial: { myCooldownEnd: now + optimisticCooldown } });
 
-  state.ripples.push({ playerIndex: -2, x, y, time: now, isOptimistic: true });
+  dispatch({ type: 'ADD_RIPPLE', ripple: { playerIndex: -2, x, y, time: now, isOptimistic: true } });
 
   const buf: ArrayBuffer = new ArrayBuffer(9);
   const dv: DataView = new DataView(buf);
@@ -35,27 +34,27 @@ export function handleTap(clientX: number, clientY: number): void {
 }
 
 export function tapAtBalloonCenter(): void {
-  if (state.phase !== 'playing') return;
+  if (getState().phase !== 'playing') return;
   const canvas = document.getElementById('game-canvas');
   const rect = canvas?.getBoundingClientRect();
   if (!rect) return;
-  handleTap(rect.left + rect.width * state.balloon.x, rect.top + rect.height * (1 - state.balloon.y));
+  handleTap(rect.left + rect.width * getState().balloon.x, rect.top + rect.height * (1 - getState().balloon.y));
 }
 
 export function requestRestart(): void {
   const $restartProgress: HTMLElement | null = document.getElementById('restart-progress');
-  if (state.phase !== 'ended') {
+  if (getState().phase !== 'ended') {
     if ($restartProgress) $restartProgress.textContent = '游戏尚未结束';
     return;
   }
   const ws = getWs();
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    state.restartClicked = true;
+    dispatch({ type: 'SET_STATE', partial: { restartClicked: true } });
     if ($restartProgress) $restartProgress.textContent = '连接已断开，正在重连…';
     updateUI(true);
     return;
   }
-  state.restartClicked = true;
+  dispatch({ type: 'SET_STATE', partial: { restartClicked: true } });
   if ($restartProgress) {
     $restartProgress.textContent = '正在提交重启投票...';
   }

@@ -1,7 +1,7 @@
 import { PALETTE_COLORS } from './local_constants.js';
 import { $canvas, getCtx } from './renderer_canvas.js';
 import { gameImages } from './renderer_background.js';
-import { state } from './state_types.js';
+import { dispatch, getState } from './store.js';
 
 const RIPPLE_DURATION_S = 0.6;
 
@@ -30,14 +30,13 @@ function rippleColor(
 }
 
 export function drawRipples(now: number, playerMap: Map<number, { palette: number }>): void {
-  for (let i = state.ripples.length - 1; i >= 0; i--) {
-    const ripple = state.ripples[i]!;
-    if (now - ripple.time > RIPPLE_DURATION_S * 1000) {
-      state.ripples.splice(i, 1);
-    }
+  const currentRipples = getState().ripples;
+  const remaining = currentRipples.filter(r => now - r.time <= RIPPLE_DURATION_S * 1000);
+  if (remaining.length !== currentRipples.length) {
+    dispatch({ type: 'SET_STATE', partial: { ripples: remaining } });
   }
 
-  for (const ripple of state.ripples) {
+  for (const ripple of remaining) {
     const age = (now - ripple.time) / 1000;
     const t = Math.min(1, age / RIPPLE_DURATION_S);
     if (t >= 1) continue;
@@ -74,18 +73,19 @@ export function drawRipples(now: number, playerMap: Map<number, { palette: numbe
 }
 
 export function drawExplosion(now: number): void {
-  if (!state.explosionEffect) return;
-  const elapsed = now - state.explosionEffect.startTime;
+  const explosion = getState().explosionEffect;
+  if (!explosion) return;
+  const elapsed = now - explosion.startTime;
   const duration = 500;
   if (elapsed > duration) {
-    state.explosionEffect = null;
+    dispatch({ type: 'SET_STATE', partial: { explosionEffect: null } });
     return;
   }
   if (!gameImages['explosion']!.loaded) return;
 
   const progress = elapsed / duration;
-  const ex = state.explosionEffect.x * $canvas.width;
-  const ey = (1 - state.explosionEffect.y) * $canvas.height;
+  const ex = explosion.x * $canvas.width;
+  const ey = (1 - explosion.y) * $canvas.height;
   const baseSize = Math.min($canvas.width, $canvas.height) * 0.15;
   const size = baseSize * (0.5 + progress * 0.5);
   getCtx().globalAlpha = 1 - progress;

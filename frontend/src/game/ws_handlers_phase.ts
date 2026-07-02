@@ -1,5 +1,5 @@
 import { codeToPhase } from './message_codec.js';
-import { state } from './state_types.js';
+import { dispatch, getState } from './store.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateUI } from './ui.js';
 import { runTutorialIfNeeded } from './tutorial.js';
@@ -10,10 +10,10 @@ import { syncRestartVoteUI } from './restart_vote_ui.js';
 export function handleGameStateChange(view: DataView): void {
   const phaseCode: number = view.getUint8(1);
   const nextPhase = codeToPhase(phaseCode);
-  console.log(`[game-state-change] newPhase=${nextPhase} prevPhase=${state.phase}`);
+  console.log(`[game-state-change] newPhase=${nextPhase} prevPhase=${getState().phase}`);
 
   if (nextPhase === 'ended' && view.byteLength >= 3) {
-    state.endReason = view.getUint8(2);
+    dispatch({ type: 'SET_END_REASON', reason: view.getUint8(2) });
     playGameOverSound();
     vibrate(200);
     void updateEndScreenRecords();
@@ -40,7 +40,7 @@ export function handleGameStateChange(view: DataView): void {
 async function updateEndScreenRecords(): Promise<void> {
   const bestEl = document.getElementById('personal-best');
   if (!bestEl) return;
-  const score = state.score;
+  const score = getState().score;
   const cookieBest = updateBestScore(score);
   let best = cookieBest.best;
   try {
@@ -57,12 +57,9 @@ export function handleRestartStatus(view: DataView): void {
   const yes: number = view.getUint8(1);
   const total: number = view.getUint8(2);
   const countdownMs: number = view.getUint32(3, true);
-  state.restartVotes = {
-    yes,
-    total,
-    countdownMs,
-    receivedAt: Date.now(),
-  };
+  dispatch({ type: 'SET_STATE', partial: {
+    restartVotes: { yes, total, countdownMs, receivedAt: Date.now() },
+  }});
   syncRestartVoteUI();
   updateUI(true);
 }

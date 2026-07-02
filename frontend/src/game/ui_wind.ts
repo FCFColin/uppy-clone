@@ -1,6 +1,6 @@
 import { isTutorialDone } from '../shared/data/tutorial_cookie.js';
 import { PHYSICS } from '../shared/game/constants.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 
 const WIND_CLAMP = PHYSICS.WIND_CLAMP;
 const STRONG_WIND_THRESHOLD = 0.55;
@@ -31,7 +31,7 @@ export function updateWindIndicator(wind: number): void {
   ensureElements();
   if (!$windIndicator || !$windDirection || !$windMeterFill || !$windStrength) return;
 
-  const visible = state.phase === 'playing';
+  const visible = getState().phase === 'playing';
   $windIndicator.classList.toggle('hidden', !visible);
   if (!visible) return;
 

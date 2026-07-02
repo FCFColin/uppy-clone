@@ -1,5 +1,5 @@
 import { CLIENT_MSG } from '../shared/game/protocol.js';
-import { state } from './state_types.js';
+import { dispatch, getState } from './store.js';
 import { resetInterpolation, seenSeqs } from './state_interp.js';
 import { establishGameSession, sessionErrorMessage } from '../shared/network/session.js';
 import {
@@ -88,7 +88,7 @@ function openGameSocket(wsCode: string): void {
 
   socket.onopen = () => {
     setWsEverOpened(true);
-    state.wasEverConnected = true;
+    dispatch({ type: 'SET_STATE', partial: { wasEverConnected: true } });
     resetReconnectAttempts();
     hideReconnectBanner();
     clearWaitingInlineError();
@@ -98,9 +98,9 @@ function openGameSocket(wsCode: string): void {
     flushPendingQueue();
     seenSeqs.clear();
     resetInterpolation();
-    state.connectionError = null;
+    dispatch({ type: 'SET_STATE', partial: { connectionError: null } });
     setReconnectTimer(null);
-    if (state.phase === 'ended' && state.restartClicked) {
+    if (getState().phase === 'ended' && getState().restartClicked) {
       const restartBuf: ArrayBuffer = new ArrayBuffer(1);
       new DataView(restartBuf).setUint8(0, CLIENT_MSG.RESTART_VOTE);
       sendOrQueue(restartBuf);

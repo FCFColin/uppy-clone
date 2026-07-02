@@ -1,4 +1,4 @@
-import { state } from './state_types.js';
+import { getState } from './store.js';
 import { commitRenderedState } from './state_interp.js';
 import { $endedScreen, $nicknameSetupScreen, $waitingScreen } from './ui_elements.js';
 import { $canvas, getCtx, resizeCanvas as resizeCanvasBase } from './renderer_canvas.js';
@@ -38,8 +38,8 @@ export function gameLoop(_timestamp: number): void {
 
 function overlayBlocksGameRender(): boolean {
   if ($endedScreen && !$endedScreen.classList.contains('hidden')) return true;
-  if ($nicknameSetupScreen && !$nicknameSetupScreen.classList.contains('hidden') && !state.nicknameSubmitted) return true;
-  if ($waitingScreen && !$waitingScreen.classList.contains('hidden') && state.nicknameSubmitted && state.phase === 'waiting') {
+  if ($nicknameSetupScreen && !$nicknameSetupScreen.classList.contains('hidden') && !getState().nicknameSubmitted) return true;
+  if ($waitingScreen && !$waitingScreen.classList.contains('hidden') && getState().nicknameSubmitted && getState().phase === 'waiting') {
     return true;
   }
   const tutorial = document.getElementById('tutorial-overlay');
@@ -59,18 +59,18 @@ function render(): void {
       return;
     }
 
-    if (state.phase === 'playing' || state.phase === 'ended') {
-      if (state.hasReceivedFirstSnapshot) {
+    if (getState().phase === 'playing' || getState().phase === 'ended') {
+      if (getState().hasReceivedFirstSnapshot) {
         drawTutorialRangeCircle(now);
         drawBalloon(now);
         drawBird(now);
         drawGhost(now);
         drawDangerVignettes(now);
-        if (state.phase === 'playing') {
+        if (getState().phase === 'playing') {
           commitRenderedState(now);
         }
       }
-      const playerMap = new Map(state.players.map(p => [p.playerIndex, p]));
+      const playerMap = new Map(getState().players.map(p => [p.playerIndex, p]));
       drawRipples(now, playerMap);
       drawFloatingTexts(now);
       drawExplosion(now);

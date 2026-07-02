@@ -1,5 +1,5 @@
 import { $canvas, getCtx } from './renderer_canvas.js';
-import { state } from './state_types.js';
+import { getState } from './store.js';
 import {
   bgState,
   cloudImages,
@@ -192,7 +192,7 @@ export function drawBackground(now: number): void {
   }
 
   const time = now * 0.001;
-  const windDir = state.wind || 0;
+  const windDir = getState().wind || 0;
 
   drawStars(time);
   drawCloudLayer(time, windDir);

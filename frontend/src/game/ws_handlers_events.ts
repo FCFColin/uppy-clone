@@ -1,4 +1,4 @@
-import { state } from './state_types.js';
+import { dispatch, getState } from './store.js';
 import { pushFloatingText } from './visual_helpers.js';
 
 export function handleTapAccepted(view: DataView): void {
@@ -7,25 +7,28 @@ export function handleTapAccepted(view: DataView): void {
   const cooldownRemainingMs: number = view.getUint32(o, true); o += 4;
   const _balloonX: number = view.getFloat32(o, true); o += 4;
   const _balloonY: number = view.getFloat32(o, true);
-  state.myCooldownEnd = Date.now() + cooldownRemainingMs;
-  state.ripples = state.ripples.filter(r => !r.isOptimistic);
-  const tapX = state.lastTapX ?? _balloonX;
-  const tapY = state.lastTapY ?? _balloonY;
-  state.ripples.push({ playerIndex, x: tapX, y: tapY, time: Date.now() });
-  state.explosionEffect = { x: tapX, y: tapY, startTime: Date.now() };
+  dispatch({ type: 'SET_STATE', partial: { myCooldownEnd: Date.now() + cooldownRemainingMs } });
+  const tapX = getState().lastTapX ?? _balloonX;
+  const tapY = getState().lastTapY ?? _balloonY;
+  dispatch({ type: 'SET_STATE', partial: {
+    ripples: [...getState().ripples.filter(r => !r.isOptimistic), { playerIndex, x: tapX, y: tapY, time: Date.now() }],
+    explosionEffect: { x: tapX, y: tapY, startTime: Date.now() },
+  }});
 }
 
 export function handleTapRejected(): void {
-  state.myCooldownEnd = 0;
-  state.ripples = state.ripples.filter(r => !r.isOptimistic);
-  if (state.lastTapX !== null) {
-    state.ripples.push({
+  const lastTapX = getState().lastTapX;
+  const lastTapY = getState().lastTapY;
+  const remaining = getState().ripples.filter(r => !r.isOptimistic);
+  if (lastTapX !== null) {
+    remaining.push({
       playerIndex: -1,
-      x: state.lastTapX,
-      y: state.lastTapY!,
+      x: lastTapX,
+      y: lastTapY!,
       time: Date.now(),
       rejected: true,
     });
-    pushFloatingText(state.lastTapX, state.lastTapY!, '太远了');
+    pushFloatingText(lastTapX, lastTapY!, '太远了');
   }
+  dispatch({ type: 'SET_STATE', partial: { myCooldownEnd: 0, ripples: remaining } });
 }
