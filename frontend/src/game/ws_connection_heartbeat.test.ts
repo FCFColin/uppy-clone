@@ -8,8 +8,8 @@ vi.mock('./connection_ui.js', () => ({
   showConnectionError: vi.fn(),
 }));
 
-vi.mock('./constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./constants.js')>();
+vi.mock('./local_constants.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./local_constants.js')>();
   return {
     ...actual,
     HEARTBEAT_INTERVAL_MS: 1000,
@@ -17,7 +17,7 @@ vi.mock('./constants.js', async (importOriginal) => {
   };
 });
 
-import { HEARTBEAT_INTERVAL_MS } from './constants.js';
+import { HEARTBEAT_INTERVAL_MS } from './local_constants.js';
 import { startHeartbeat, setWs, stopHeartbeat } from './ws_connection.js';
 
 class MockWebSocket {

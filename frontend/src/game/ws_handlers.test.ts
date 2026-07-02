@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MSG_TYPE } from './constants.js';
+import { MSG_TYPE } from '../shared/game/protocol.js';
 import { PHASE_CODE } from '../shared/game/protocol.js';
 
 const mocks = vi.hoisted(() => ({

@@ -1,4 +1,4 @@
-import { PALETTE_COLORS } from './constants.js';
+import { PALETTE_COLORS } from './local_constants.js';
 import { $canvas, getCtx } from './renderer_canvas.js';
 import { gameImages } from './renderer_background.js';
 import { state } from './state.js';

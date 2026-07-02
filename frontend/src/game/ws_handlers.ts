@@ -1,4 +1,4 @@
-import { MSG_TYPE } from './constants.js';
+import { MSG_TYPE } from '../shared/game/protocol.js';
 import { handlePong } from './ws_connection.js';
 import { handleSnapshot } from './ws_handlers_snapshot.js';
 import { handleGameStateChange, handleRestartStatus } from './ws_handlers_phase.js';

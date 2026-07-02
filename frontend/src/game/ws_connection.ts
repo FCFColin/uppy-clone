@@ -1,9 +1,9 @@
+import { CLIENT_MSG } from '../shared/game/protocol.js';
 import {
-  CLIENT_MSG,
   MAX_RECONNECT_ATTEMPTS, BASE_RECONNECT_DELAY,
   HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS,
   MAX_PENDING_QUEUE,
-} from './constants.js';
+} from './local_constants.js';
 import { outboundMessageQueue } from './state.js';
 import {
   showReconnectBanner, updatePingDisplay,

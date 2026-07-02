@@ -13,7 +13,8 @@ import {
   getInterpState,
   commitRenderedState,
 } from './state.js';
-import { MAX_SEEN_SEQS, PHYSICS } from './constants.js';
+import { MAX_SEEN_SEQS } from './local_constants.js';
+import { PHYSICS } from '../shared/game/constants.js';
 
 const TICK_MS = PHYSICS.TICK_INTERVAL;
 

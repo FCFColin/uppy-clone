@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { codeToPhase, calculateCooldown, encodeSetNickname, truncateNickname } from './message_codec.js';
-import { CLIENT_MSG } from './constants.js';
+import { CLIENT_MSG } from '../shared/game/protocol.js';
 import { COOLDOWN } from '../shared/game/constants.js';
 
 describe('Protocol parsing - codeToPhase', () => {

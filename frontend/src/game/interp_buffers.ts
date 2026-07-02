@@ -1,4 +1,4 @@
-import { PHYSICS } from './constants.js';
+import { PHYSICS } from '../shared/game/constants.js';
 import { state } from './state_types.js';
 
 

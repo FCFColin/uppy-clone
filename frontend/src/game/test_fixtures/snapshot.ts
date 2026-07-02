@@ -1,4 +1,4 @@
-import { MSG_TYPE } from '../constants.js';
+import { MSG_TYPE } from '../../shared/game/protocol.js';
 
 /** Minimal binary snapshot frame for WS handler integration tests. */
 export function buildMinimalSnapshot(phaseCode: number, timestamp = 100): ArrayBuffer {

@@ -1,5 +1,5 @@
 import { isTutorialDone } from '../shared/data/tutorial_cookie.js';
-import { PHYSICS } from './constants.js';
+import { PHYSICS } from '../shared/game/constants.js';
 import { state } from './state.js';
 
 const WIND_CLAMP = PHYSICS.WIND_CLAMP;

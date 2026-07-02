@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { outboundMessageQueue } from './state.js';
 
-vi.mock('./constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./constants.js')>();
+vi.mock('./local_constants.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./local_constants.js')>();
   return {
     ...actual,
     HEARTBEAT_INTERVAL_MS: 1000,
@@ -15,7 +15,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_TIMEOUT_MS,
   MAX_RECONNECT_ATTEMPTS,
-} from './constants.js';
+} from './local_constants.js';
 
 vi.mock('./ws_connect.js', () => ({ connectWebSocket: vi.fn() }));
 vi.mock('./connection_ui.js', () => ({

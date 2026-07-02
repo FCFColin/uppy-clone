@@ -1,4 +1,4 @@
-import { CLIENT_MSG } from './constants.js';
+import { CLIENT_MSG } from '../shared/game/protocol.js';
 import { state, resetInterpolation, seenSeqs } from './state.js';
 import { establishGameSession, sessionErrorMessage } from '../shared/network/session.js';
 import {

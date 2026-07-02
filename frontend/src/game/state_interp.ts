@@ -1,4 +1,5 @@
-import { MAX_SEEN_SEQS, PHYSICS } from './constants.js';
+import { MAX_SEEN_SEQS } from './local_constants.js';
+import { PHYSICS } from '../shared/game/constants.js';
 import type { InterpBirdPoint, InterpGhostPoint, InterpPoint } from './interp_buffers.js';
 import {
   TELEPORT_THRESHOLD,

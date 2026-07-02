@@ -1,4 +1,4 @@
-import { CLIENT_MSG } from './constants.js';
+import { CLIENT_MSG } from '../shared/game/protocol.js';
 import { calculateCooldown } from './message_codec.js';
 import { state } from './state.js';
 import { sendOrQueue, getWs } from './websocket.js';

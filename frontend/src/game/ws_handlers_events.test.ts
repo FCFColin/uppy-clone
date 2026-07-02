@@ -20,7 +20,7 @@ vi.mock('./visual_helpers.js', () => ({
 
 import { handleTapAccepted, handleTapRejected } from './ws_handlers_events.js';
 import { pushFloatingText } from './visual_helpers.js';
-import { MSG_TYPE } from './constants.js';
+import { MSG_TYPE } from '../shared/game/protocol.js';
 
 describe('ws_handlers_events', () => {
   beforeEach(() => {

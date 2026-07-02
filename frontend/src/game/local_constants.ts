@@ -1,6 +1,3 @@
-export { COOLDOWN, PHYSICS } from '../shared/game/constants.js';
-export { MSG_TYPE, CLIENT_MSG, PHASE_CODE } from '../shared/game/protocol.js';
-
 export const PALETTE_COLORS: readonly string[] = [
   '#e94560', '#0f3460', '#533483', '#00b4d8',
   '#06d6a0', '#ffd166', '#ef476f', '#118ab2',

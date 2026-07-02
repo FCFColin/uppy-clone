@@ -1,4 +1,4 @@
-import { PHYSICS } from './constants.js';
+import { PHYSICS } from '../shared/game/constants.js';
 import { $canvas, getCtx } from './renderer_canvas.js';
 import { state, getInterpolatedBalloon, getInterpolatedBird, getInterpolatedGhost } from './state.js';
 import { isRangeCircleVisible } from './tutorial.js';
