@@ -1,4 +1,4 @@
-import { refreshAccessToken } from '../shared/auth.js';
+import { fetchWithRefresh } from '../shared/auth.js';
 
 export type RoomValidateResult =
   | { ok: true }
@@ -10,14 +10,24 @@ interface RoomCheckResponse {
   degraded?: boolean;
 }
 
+export const ROOM_CODE_RE = /^[A-Z2-9]{5}$/;
+
 export function getLobbyCodeFromUrl(): string | null {
   const params = new URLSearchParams(window.location.search);
-  return params.get('code');
+  const code = params.get('code');
+  if (code && !ROOM_CODE_RE.test(code)) {
+    return null;
+  }
+  return code;
 }
 
 export async function validateRoomCode(code: string): Promise<RoomValidateResult> {
+  if (!ROOM_CODE_RE.test(code)) {
+    return { ok: false, reason: 'not_found' };
+  }
   try {
-    const res = await fetch(`/api/v1/registry/check/${code}`);
+    const encoded = encodeURIComponent(code);
+    const res = await fetch(`/api/v1/registry/check/${encoded}`);
     if (res.status === 404) {
       return { ok: false, reason: 'not_found' };
     }
@@ -43,21 +53,10 @@ export function roomErrorMessage(reason: 'not_found' | 'ended'): string {
 
 export async function matchNewRoomCode(): Promise<string | null> {
   try {
-    let res = await fetch('/api/v1/registry/match', {
+    const res = await fetchWithRefresh('/api/v1/registry/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
     });
-    if (res.status === 401) {
-      const refreshed = await refreshAccessToken();
-      if (refreshed) {
-        res = await fetch('/api/v1/registry/match', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-        });
-      }
-    }
     if (!res.ok) return null;
     const data = (await res.json()) as { lobbyCode: string };
     return data.lobbyCode ?? null;

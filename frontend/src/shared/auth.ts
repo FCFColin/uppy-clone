@@ -83,6 +83,5 @@ export async function logout(): Promise<void> {
   } catch {
     // 忽略网络错误
   }
-  localStorage.removeItem('uppy-player-id');
   window.location.href = '/';
 }

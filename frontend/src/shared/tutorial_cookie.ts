@@ -6,7 +6,8 @@ export function isTutorialDone(): boolean {
 }
 
 export function markTutorialDone(): void {
-  document.cookie = `${TUTORIAL_COOKIE}=done; path=/; max-age=${TUTORIAL_MAX_AGE_SEC}; samesite=lax`;
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${TUTORIAL_COOKIE}=done; path=/; max-age=${TUTORIAL_MAX_AGE_SEC}; samesite=lax${secure}`;
 }
 
 export async function shouldShowTutorial(): Promise<boolean> {

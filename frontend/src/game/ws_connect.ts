@@ -1,6 +1,6 @@
 import { CLIENT_MSG } from './constants.js';
 import { state, resetInterpolation, seenSeqs } from './state.js';
-import { establishGameSession, sessionErrorMessage, type SessionResult } from '../shared/session.js';
+import { establishGameSession, sessionErrorMessage } from '../shared/session.js';
 import {
   onLobbyCodeReady,
   onWebSocketOpen,
@@ -8,16 +8,17 @@ import {
   clearWaitingInlineError,
   getEntryStep,
 } from './entry_flow.js';
-import { resolveLobbyCode } from './ws_connect_lobby.js';
+import { resolveLobbyCode } from './lobby_match.js';
 import {
   getLobbyCodeFromUrl,
   validateRoomCode,
   roomErrorMessage,
+  ROOM_CODE_RE,
 } from './room_validate.js';
 import {
   setWs, getWs, getWsEverOpened, setWsEverOpened,
   resetReconnectAttempts, setReconnectTimer,
-  startWsHeartbeat, stopHeartbeat, sendOrQueue, flushPendingQueue,
+  startHeartbeat, stopHeartbeat, sendOrQueue, flushPendingQueue,
   hideReconnectBanner, scheduleReconnect, showConnectionError,
   wasRoomPreChecked, setRoomPreChecked,
 } from './ws_connection.js';
@@ -33,10 +34,6 @@ function shouldSkipConnect(lobbyCode: string): boolean {
   if (!ws) return false;
   if (connectedLobbyCode !== lobbyCode) return false;
   return ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN;
-}
-
-async function ensureSession(): Promise<SessionResult> {
-  return establishGameSession();
 }
 
 async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
@@ -68,22 +65,25 @@ async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
   return matched;
 }
 
-function openGameSocket(wsCode: string, savedPlayerId: string | null): void {
+function openGameSocket(wsCode: string): void {
   const existing = getWs();
   if (existing && existing.readyState !== WebSocket.CLOSED) {
     existing.onclose = null;
     existing.close();
   }
 
+  if (!ROOM_CODE_RE.test(wsCode)) {
+    showConnectionError('无效的房间码', { showActions: true });
+    return;
+  }
+
   const protocol: string = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const playerIdParam: string = savedPlayerId ? `?playerId=${savedPlayerId}` : '';
-  const wsUrl: string = `${protocol}//${window.location.host}/api/v1/lobby/${wsCode}/ws${playerIdParam}`;
+  const wsUrl: string = `${protocol}//${window.location.host}/api/v1/lobby/${wsCode}/ws`;
 
   const socket = new WebSocket(wsUrl);
   socket.binaryType = 'arraybuffer';
   connectedLobbyCode = wsCode;
   setWs(socket);
-  window.__ws = socket;
 
   socket.onopen = () => {
     setWsEverOpened(true);
@@ -93,7 +93,7 @@ function openGameSocket(wsCode: string, savedPlayerId: string | null): void {
     clearWaitingInlineError();
     onWebSocketOpen();
     window.dispatchEvent(new Event('game-ws-open'));
-    startWsHeartbeat();
+    startHeartbeat();
     flushPendingQueue();
     seenSeqs.clear();
     resetInterpolation();
@@ -145,10 +145,8 @@ export async function connectWebSocket(): Promise<void> {
   connectInFlight = true;
 
   try {
-    // Run session establishment and room validation in parallel to cut latency.
-    const savedPlayerId: string | null = localStorage.getItem('uppy-player-id');
     const [session, resolvedCode] = await Promise.all([
-      ensureSession(),
+      establishGameSession(),
       resolveRoomCode(urlCode),
     ]);
 
@@ -163,7 +161,7 @@ export async function connectWebSocket(): Promise<void> {
       return; /* v8 ignore next -- defensive skip after async resolve */
     }
 
-    openGameSocket(lobbyCode, savedPlayerId);
+    openGameSocket(lobbyCode);
   } finally {
     connectInFlight = false;
   }

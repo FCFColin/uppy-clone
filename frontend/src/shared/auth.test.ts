@@ -76,12 +76,10 @@ describe('auth token refresh', () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
 
-  it('logout clears player id and redirects', async () => {
-    localStorage.setItem('uppy-player-id', 'p1');
+  it('logout redirects to home', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
     Object.defineProperty(window, 'location', { value: { href: '' }, writable: true });
     await logout();
-    expect(localStorage.getItem('uppy-player-id')).toBeNull();
     expect(window.location.href).toBe('/');
   });
 });

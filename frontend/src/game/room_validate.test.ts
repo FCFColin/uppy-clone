@@ -3,8 +3,20 @@ import { getLobbyCodeFromUrl, validateRoomCode, roomErrorMessage } from './room_
 
 describe('getLobbyCodeFromUrl', () => {
   it('reads code query param', () => {
-    vi.stubGlobal('location', { search: '?code=ROOM123' });
-    expect(getLobbyCodeFromUrl()).toBe('ROOM123');
+    vi.stubGlobal('location', { search: '?code=ROOMX' });
+    expect(getLobbyCodeFromUrl()).toBe('ROOMX');
+    vi.unstubAllGlobals();
+  });
+
+  it('returns null when code param fails regex', () => {
+    vi.stubGlobal('location', { search: '?code=BAD' });
+    expect(getLobbyCodeFromUrl()).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('returns null when no code param', () => {
+    vi.stubGlobal('location', { search: '' });
+    expect(getLobbyCodeFromUrl()).toBeNull();
     vi.unstubAllGlobals();
   });
 });
@@ -16,7 +28,7 @@ describe('validateRoomCode', () => {
 
   it('returns not_found for 404', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 404 }));
-    await expect(validateRoomCode('X')).resolves.toEqual({ ok: false, reason: 'not_found' });
+    await expect(validateRoomCode('ABCDE')).resolves.toEqual({ ok: false, reason: 'not_found' });
     vi.unstubAllGlobals();
   });
 
@@ -24,13 +36,13 @@ describe('validateRoomCode', () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ phase: 'ended' }), { status: 200 }),
     );
-    await expect(validateRoomCode('X')).resolves.toEqual({ ok: false, reason: 'ended' });
+    await expect(validateRoomCode('ABCDE')).resolves.toEqual({ ok: false, reason: 'ended' });
     vi.unstubAllGlobals();
   });
 
   it('returns degraded when response is not ok', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 503 }));
-    await expect(validateRoomCode('X')).resolves.toEqual({ ok: true, degraded: true });
+    await expect(validateRoomCode('ABCDE')).resolves.toEqual({ ok: true, degraded: true });
     vi.unstubAllGlobals();
   });
 
@@ -38,13 +50,13 @@ describe('validateRoomCode', () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ degraded: true }), { status: 200 }),
     );
-    await expect(validateRoomCode('X')).resolves.toEqual({ ok: true, degraded: true });
+    await expect(validateRoomCode('ABCDE')).resolves.toEqual({ ok: true, degraded: true });
     vi.unstubAllGlobals();
   });
 
   it('returns degraded on network error', async () => {
     vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'));
-    await expect(validateRoomCode('X')).resolves.toEqual({ ok: true, degraded: true });
+    await expect(validateRoomCode('ABCDE')).resolves.toEqual({ ok: true, degraded: true });
     vi.unstubAllGlobals();
   });
 
@@ -52,7 +64,19 @@ describe('validateRoomCode', () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ phase: 'waiting' }), { status: 200 }),
     );
-    await expect(validateRoomCode('X')).resolves.toEqual({ ok: true });
+    await expect(validateRoomCode('ABCDE')).resolves.toEqual({ ok: true });
+    vi.unstubAllGlobals();
+  });
+
+  it('returns not_found for invalid code format without API call', async () => {
+    await expect(validateRoomCode('BAD')).resolves.toEqual({ ok: false, reason: 'not_found' });
+    expect(fetch).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('returns not_found for code containing excluded chars', async () => {
+    await expect(validateRoomCode('AB01O')).resolves.toEqual({ ok: false, reason: 'not_found' });
+    expect(fetch).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 });
@@ -122,6 +146,13 @@ describe('matchNewRoomCode', () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ refreshed: false }), { status: 401 }));
+    await expect(matchNewRoomCode()).resolves.toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('returns null when network throws', async () => {
+    const { matchNewRoomCode } = await import('./room_validate.js');
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('network error'));
     await expect(matchNewRoomCode()).resolves.toBeNull();
     vi.unstubAllGlobals();
   });

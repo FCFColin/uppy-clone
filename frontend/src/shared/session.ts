@@ -49,8 +49,6 @@ export async function establishGameSession(): Promise<SessionResult> {
       return { ok: false, status: res.status, reason: 'server' };
     }
 
-    const data: { userId?: string } = await res.json() as { userId?: string };
-    if (data.userId) localStorage.setItem('uppy-player-id', data.userId);
     return { ok: true };
   } catch {
     return { ok: false, reason: 'network' };

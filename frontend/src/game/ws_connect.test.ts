@@ -24,8 +24,8 @@ class MockWebSocket {
 const connectMocks = vi.hoisted(() => ({
   establishGameSession: vi.fn(async (): Promise<import('../shared/session.js').SessionResult> => ({ ok: true })),
   validateRoomCode: vi.fn(async (): Promise<import('./room_validate.js').RoomValidateResult> => ({ ok: true })),
-  resolveLobbyCode: vi.fn(async (): Promise<string | null> => 'ROOM1'),
-  getLobbyCodeFromUrl: vi.fn((): string | null => 'URL1'),
+  resolveLobbyCode: vi.fn(async (): Promise<string | null> => 'ROOM2'),
+  getLobbyCodeFromUrl: vi.fn((): string | null => 'URL22'),
   enqueueBinaryMessage: vi.fn(),
   onLobbyCodeReady: vi.fn(),
   getEntryStep: vi.fn((): import('./entry_flow.js').EntryStep => 'connecting'),
@@ -40,12 +40,13 @@ vi.mock('../shared/session.js', () => ({
 }));
 
 vi.mock('./room_validate.js', () => ({
+  ROOM_CODE_RE: /^[A-Z2-9]{5}$/,
   getLobbyCodeFromUrl: connectMocks.getLobbyCodeFromUrl,
   validateRoomCode: connectMocks.validateRoomCode,
   roomErrorMessage: () => 'bad room',
 }));
 
-vi.mock('./ws_connect_lobby.js', () => ({
+vi.mock('./lobby_match.js', () => ({
   resolveLobbyCode: connectMocks.resolveLobbyCode,
 }));
 
@@ -64,7 +65,7 @@ vi.mock('./ws_connection.js', () => ({
   setWsEverOpened: vi.fn((value: boolean) => { connectMocks.wsEverOpened = value; }),
   resetReconnectAttempts: vi.fn(),
   setReconnectTimer: vi.fn(),
-  startWsHeartbeat: vi.fn(),
+  startHeartbeat: vi.fn(),
   stopHeartbeat: vi.fn(),
   sendOrQueue: vi.fn(),
   flushPendingQueue: vi.fn(),
@@ -94,11 +95,11 @@ describe('connectWebSocket', () => {
     connectMocks.ws = null;
     connectMocks.wsEverOpened = false;
     connectMocks.roomPreChecked = false;
-    connectMocks.getLobbyCodeFromUrl.mockReturnValue('URL1');
+    connectMocks.getLobbyCodeFromUrl.mockReturnValue('URL22');
     connectMocks.getEntryStep.mockReturnValue('connecting');
     connectMocks.establishGameSession.mockResolvedValue({ ok: true });
     connectMocks.validateRoomCode.mockResolvedValue({ ok: true });
-    connectMocks.resolveLobbyCode.mockResolvedValue('ROOM1');
+    connectMocks.resolveLobbyCode.mockResolvedValue('ROOM2');
   });
 
   it('routes inbound frames through the message queue', async () => {
@@ -125,7 +126,7 @@ describe('connectWebSocket', () => {
       return { ok: true as const };
     });
     await connectWebSocket();
-    expect(order[0]).toBe('ready:URL1');
+    expect(order[0]).toBe('ready:URL22');
     expect(order[1]).toBe('session');
   });
 
@@ -158,9 +159,9 @@ describe('connectWebSocket', () => {
 
   it('publishes matched lobby code before opening socket', async () => {
     connectMocks.getLobbyCodeFromUrl.mockReturnValueOnce(null);
-    connectMocks.resolveLobbyCode.mockResolvedValueOnce('MATCHED');
+    connectMocks.resolveLobbyCode.mockResolvedValueOnce('MATCH2');
     await connectWebSocket();
-    expect(connectMocks.onLobbyCodeReady).toHaveBeenCalledWith('MATCHED');
+    expect(connectMocks.onLobbyCodeReady).toHaveBeenCalledWith('MATCH2');
   });
 
   it('skips reconnect when socket already open for same lobby', async () => {
@@ -172,7 +173,7 @@ describe('connectWebSocket', () => {
   });
 
   it('uses fresh match sessionStorage without re-validating room', async () => {
-    sessionStorage.setItem('uppy-fresh-match', 'URL1');
+    sessionStorage.setItem('uppy-fresh-match', 'URL22');
     await connectWebSocket();
     expect(connectMocks.validateRoomCode).not.toHaveBeenCalled();
     expect(connectMocks.roomPreChecked).toBe(true);
@@ -247,10 +248,10 @@ describe('connectWebSocket', () => {
 
   it('skips second connect when socket already open after room resolve', async () => {
     connectMocks.getEntryStep.mockReturnValue('waiting');
-    connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM1');
+    connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM2');
     await connectWebSocket();
     const first = lastSocket;
-    connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM1');
+    connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM2');
     await connectWebSocket();
     expect(lastSocket).toBe(first);
   });
@@ -280,7 +281,7 @@ describe('connectWebSocket', () => {
 
   it('skips reconnect after match when socket is already open', async () => {
     connectMocks.getLobbyCodeFromUrl.mockReturnValue(null);
-    connectMocks.resolveLobbyCode.mockResolvedValue('MATCHED');
+    connectMocks.resolveLobbyCode.mockResolvedValue('MATCH2');
     connectMocks.getEntryStep.mockReturnValue('waiting');
     await connectWebSocket();
     const first = lastSocket;
@@ -288,15 +289,14 @@ describe('connectWebSocket', () => {
     expect(lastSocket).toBe(first);
   });
 
-  it('uses wss and playerId when reconnecting over https', async () => {
+  it('uses wss protocol when page is served over https', async () => {
     vi.stubGlobal('location', {
       ...window.location,
       protocol: 'https:',
       host: 'game.test',
     });
-    vi.mocked(localStorage.getItem).mockReturnValueOnce('player-9');
     await connectWebSocket();
-    expect(lastSocket?.url).toBe('wss://game.test/api/v1/lobby/URL1/ws?playerId=player-9');
+    expect(lastSocket?.url).toBe('wss://game.test/api/v1/lobby/URL22/ws');
     vi.unstubAllGlobals();
   });
 });

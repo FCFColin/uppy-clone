@@ -73,10 +73,13 @@ tabWeekly.addEventListener('click', () => setScope('weekly'));
 const backBtn = document.getElementById('back-to-game-btn');
 const gameUrl = localStorage.getItem('uppy-game-url');
 if (backBtn && gameUrl) {
-  backBtn.hidden = false;
-  backBtn.addEventListener('click', () => {
-    window.location.href = gameUrl;
-  });
+  const isSafeUrl = gameUrl.startsWith('/') || gameUrl.startsWith(window.location.origin);
+  if (isSafeUrl) {
+    backBtn.hidden = false;
+    backBtn.addEventListener('click', () => {
+      window.location.href = gameUrl;
+    });
+  }
 }
 
 void load();

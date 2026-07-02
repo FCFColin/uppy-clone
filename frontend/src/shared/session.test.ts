@@ -53,13 +53,23 @@ describe('establishGameSession', () => {
     await expect(establishGameSession()).resolves.toEqual({ ok: true });
   });
 
-  it('returns ok via quickplay and stores player id', async () => {
+  it('returns ok via quickplay', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ refreshed: false }), { status: 401 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ userId: 'player-42' }), { status: 200 }));
     await expect(establishGameSession()).resolves.toEqual({ ok: true });
-    expect(localStorage.getItem('uppy-player-id')).toBe('player-42');
+  });
+
+  it('falls through to quickplay when refresh succeeds but recheck fails', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ refreshed: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    await expect(establishGameSession()).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(4);
+    vi.unstubAllGlobals();
   });
 
   it('uses quick auth check when session flag is set', async () => {

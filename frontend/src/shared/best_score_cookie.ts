@@ -9,7 +9,8 @@ export function getCookieBestScore(): number {
 }
 
 export function setCookieBestScore(score: number): void {
-  document.cookie = `${BEST_SCORE_COOKIE}=${score}; path=/; max-age=${BEST_MAX_AGE_SEC}; samesite=lax`;
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${BEST_SCORE_COOKIE}=${score}; path=/; max-age=${BEST_MAX_AGE_SEC}; samesite=lax${secure}`;
 }
 
 export async function fetchUserBestScore(): Promise<number> {
