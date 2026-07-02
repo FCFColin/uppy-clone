@@ -9,7 +9,7 @@ import {
 } from './ui_elements.js';
 import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
 import { endReasonLabel } from './phase_sync.js';
-import { refreshLayout } from './ui.js';
+import { refreshLayout } from './ui_utils.js';
 import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff, getWaitingTitleText } from './entry_flow.js';
 import { syncRestartVoteProgress } from './restart_vote_ui.js';

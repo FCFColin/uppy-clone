@@ -60,15 +60,15 @@ import {
   setLobbyCodeDisplay,
   renderEntryFullScreenError,
   renderStartCountdownTitle,
-  resetEntryDomForTest,
-} from './entry_flow_dom.js';
-import type { EntryOverlayContext } from './entry_flow_dom.js';
+  resetEntryFlowForTest,
+} from './entry_flow.js';
+import type { EntryOverlayContext } from './entry_flow.js';
 
 describe('entry_flow_dom', () => {
   beforeEach(() => {
     mockState.lobbyCode = 'ABC12';
     mockState.phase = 'waiting';
-    resetEntryDomForTest();
+    resetEntryFlowForTest();
   });
 
   describe('setNicknameStatus', () => {
