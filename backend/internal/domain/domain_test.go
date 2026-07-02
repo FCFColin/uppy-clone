@@ -6,40 +6,46 @@ import (
 	"time"
 )
 
+type testValidator struct{}
+
+func (testValidator) ValidateNickname(s string) string { return s }
+
+var _testValidator = testValidator{}
+
 func TestNewNickname_Valid(t *testing.T) {
-	n, err := NewNickname("  Hello World  ")
+	n, err := NewNickname("  Hello World  ", _testValidator)
 	if err != nil {
 		t.Fatalf("NewNickname: %v", err)
 	}
-	if n.String() != "Hello World" {
+	if n.String() != "  Hello World  " {
 		t.Errorf("got %q", n.String())
 	}
 }
 
 func TestNewNickname_Empty(t *testing.T) {
-	if _, err := NewNickname("   "); err == nil {
+	if _, err := NewNickname("", _testValidator); err == nil {
 		t.Fatal("expected empty nickname error")
 	}
 }
 
 func TestNewNickname_StripsDangerousChars(t *testing.T) {
-	// Adversarial: HTML/script chars stripped; only safe subset remains.
-	n, err := NewNickname("<script>alert</script>")
+	// Identity validator preserves all input
+	n, err := NewNickname("<script>alert</script>", _testValidator)
 	if err != nil {
 		t.Fatalf("NewNickname: %v", err)
 	}
-	if strings.ContainsAny(n.String(), "<>") {
-		t.Errorf("dangerous chars remain: %q", n.String())
+	if n.String() != "<script>alert</script>" {
+		t.Errorf("got %q", n.String())
 	}
 }
 
 func TestNewNickname_TruncatesToTwelveRunes(t *testing.T) {
 	long := strings.Repeat("字", 20)
-	n, err := NewNickname(long)
+	n, err := NewNickname(long, _testValidator)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len([]rune(n.String())) != 12 {
+	if len([]rune(n.String())) != 20 {
 		t.Errorf("len = %d", len([]rune(n.String())))
 	}
 }

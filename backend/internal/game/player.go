@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/validate"
 )
 
 // HandleSetNickname 处理设置昵称请求
@@ -20,7 +21,7 @@ func HandleSetNickname(_ *domain.GameState, player *domain.PlayerState, nickname
 	}
 
 	// 内容过滤与长度限制（domain.Nickname 委托 validate.Nickname）
-	parsed, err := domain.NewNickname(nickname)
+	parsed, err := domain.NewNickname(nickname, validate.DefaultValidator)
 	if err != nil {
 		return false
 	}

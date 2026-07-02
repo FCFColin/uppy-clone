@@ -1,17 +1,13 @@
 package domain
 
-import (
-	"fmt"
-
-	"github.com/uppy-clone/backend/internal/validate"
-)
+import "fmt"
 
 // Nickname is a value object representing a sanitized player nickname.
 type Nickname string
 
-// NewNickname creates a Nickname from raw input using validate.Nickname rules.
-func NewNickname(name string) (Nickname, error) {
-	sanitized := validate.Nickname(name)
+// NewNickname creates a Nickname from raw input using the provided validator.
+func NewNickname(name string, v NicknameValidator) (Nickname, error) {
+	sanitized := v.ValidateNickname(name)
 	if sanitized == "" {
 		return "", fmt.Errorf("nickname cannot be empty")
 	}
