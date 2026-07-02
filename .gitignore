@@ -21,33 +21,15 @@ bin/
 coverage/
 test-results/
 playwright-report/
-backend/coverage.out
-backend/coverage.html
-backend/coverage.txt
-backend/coverage
-backend/coverage_*
-backend/cov_*
+backend/*.out
+backend/**/*.out
+backend/*cov*
+backend/**/*cov*
 
 # Build artifacts
-backend/server
-backend/server.exe
 backend/*.exe
 backend/*.test
 backend/bin/
-backend/store/
-
-# Coverage & test binaries (ad-hoc profiles dropped by `go test -coverprofile`)
-backend/*.out
-backend/*cov*
-backend/*cover*
-# Ad-hoc coverprofile files without .out suffix (must not collide with package names)
-backend/migrate
-backend/seed
-backend/backfill
-backend/server
-backend/unit
-backend/handler
-backend/unit_focus
 backend/$out
 
 # Security/audit scan reports
@@ -58,11 +40,22 @@ staged_list.txt
 
 # Lint output
 lint-*.txt
-lint-output.txt
-lint-all.txt
-lint-detailed.txt
-lint-full.txt
-lint-json.txt
+
+# Build artifacts (Go binaries)
+backend/$out/
+backend/auth
+backend/crypto
+backend/game
+backend/handler
+backend/mw
+backend/server
+backend/sign
+backend/spawn
+backend/unit
+scripts/ci/*.exe
+
+# IDE working data
+.cursor/
 
 # Profiling output
 *.prof
