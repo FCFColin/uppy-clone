@@ -52,9 +52,9 @@ import {
   initEntryFlow,
   bindEntryUI,
   showEntryFullScreenError,
-  onConnectError,
+  routeConnectionError,
   clearWaitingInlineError,
-  clearStartCountdownForTest,
+  clearStartCountdown,
 } from './entry_flow.js';
 
 describe('entry_flow', () => {
@@ -170,23 +170,32 @@ describe('entry_flow', () => {
     expect(document.getElementById('waiting-title')!.textContent).toMatch(/即将开始 · \d…/);
   });
 
+  it('countdown timer clears itself after reaching zero', async () => {
+    vi.useFakeTimers();
+    onLobbyCodeReady('ABC12');
+    onNicknameSubmit();
+    vi.advanceTimersByTime(3000);
+    expect(document.getElementById('waiting-title')!.textContent).toBe('正在开始…');
+    vi.useRealTimers();
+  });
+
   it('onWebSocketClosed updates waiting title when on waiting step', () => {
     onLobbyCodeReady('ABC12');
     onNicknameSubmit();
     // 模拟倒计时已结束
-    clearStartCountdownForTest();
+    clearStartCountdown();
     onWebSocketOpen();
     onWebSocketClosed();
     expect(document.getElementById('waiting-title')!.textContent).toContain('正在连接服务器');
   });
 
-  it('onConnectError routes to nickname, waiting inline, or full-screen error', () => {
+  it('routeConnectionError routes to nickname, waiting inline, or full-screen error', () => {
     onLobbyCodeReady('ABC12');
-    onConnectError('昵称阶段错误');
+    routeConnectionError('昵称阶段错误');
     expect(document.getElementById('nickname-connect-status')!.textContent).toBe('昵称阶段错误');
 
     onNicknameSubmit();
-    onConnectError('等待阶段错误');
+    routeConnectionError('等待阶段错误');
     expect(document.getElementById('waiting-connect-error')!.textContent).toBe('等待阶段错误');
     expect(document.getElementById('waiting-connect-error')!.classList.contains('hidden')).toBe(false);
 
@@ -195,23 +204,23 @@ describe('entry_flow', () => {
 
     resetEntryFlowForTest();
     initEntryFlow();
-    onConnectError('连接超时，请重试', { showActions: true, midGameDisconnect: true });
+    routeConnectionError('连接超时，请重试', { showActions: true, midGameDisconnect: true });
     expect(getEntryStep()).toBe('error');
     expect(document.getElementById('loading-error-title')!.textContent).toBe('对局连接中断');
 
     resetEntryFlowForTest();
     initEntryFlow();
-    onConnectError('房间不存在');
+    routeConnectionError('房间不存在');
     expect(document.getElementById('loading-error-title')!.textContent).toBe('无法进入房间');
 
     resetEntryFlowForTest();
     initEntryFlow();
-    onConnectError('网络异常');
+    routeConnectionError('网络异常');
     expect(document.getElementById('loading-error-title')!.textContent).toBe('连接失败');
 
     resetEntryFlowForTest();
     initEntryFlow();
-    onConnectError('未知错误');
+    routeConnectionError('未知错误');
     expect(document.getElementById('loading-error-title')!.textContent).toBe('无法进入房间');
   });
 

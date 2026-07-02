@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { textEncoder } from './constants.js';
 import { PHASE_CODE } from '../shared/protocol.js';
-import { applySnapshot, decodeSnapshot } from './snapshot_decode.js';
+import { textEncoder, applySnapshot, decodeSnapshot } from './message_codec.js';
 
 function buildSnapshotBuffer(extraBytes = 0): ArrayBuffer {
   return new ArrayBuffer(40 + extraBytes);
