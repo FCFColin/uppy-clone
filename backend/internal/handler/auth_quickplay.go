@@ -6,14 +6,10 @@ import (
 
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/metrics"
 )
 
 // QuickPlay handles POST /api/v1/auth/quickplay
 func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
-	rec, w := metrics.BeginAuth("quickplay", w)
-	defer rec.End()
-
 	if !RequireDB(h.db, w) {
 		return
 	}

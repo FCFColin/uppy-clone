@@ -13,16 +13,19 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Enterprise: Audit logs are immutable records of sensitive operations.
-// They provide non-repudiation (不可否认性) and are required for SOC2/ISO27001 compliance.
-// Audit logs are written to a separate stream for SIEM collection.
-//
-// 企业为何需要：审计日志必须防篡改以提供不可否认性（non-repudiation），满足 SOC2/ISO27001 合规要求。
-// HMAC 链式哈希：每条记录的 this_hash = HMAC(secret, prev_hash || payload)，篡改任何记录会使后续所有 hash 验证失败。
+// auditDBPool is the subset of pgxpool.Pool used by the audit logger (mockable in tests).
+type auditDBPool interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+// Audit logs are tamper-proof immutable records for SOC2/ISO27001 compliance.
+// HMAC chain: this_hash = HMAC(secret, prev_hash || payload).
 
 var (
 	auditLogger *slog.Logger
@@ -30,7 +33,7 @@ var (
 )
 
 type dbAuditLogger struct {
-	pool     *pgxpool.Pool
+	pool     auditDBPool
 	secret   []byte
 	ch       chan dbEntry
 	done     chan struct{}
@@ -44,8 +47,6 @@ type dbEntry struct {
 }
 
 func init() {
-	// Separate audit logger writes to stdout with "audit" source attribute
-	// In production, this can be redirected to a separate file or SIEM endpoint
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})
@@ -64,13 +65,14 @@ type AuditEntry struct {
 	TraceID   string      `json:"trace_id,omitempty"`
 }
 
-// InitDBLogger initializes the database-backed audit logger.
-// Must be called after DB connection is established.
-// secret is used for HMAC chain hashing.
-// 企业为何需要：DB 持久化使审计日志可查询、可验证；HMAC 链使篡改可检测。
-func InitDBLogger(pool *pgxpool.Pool, secret string) {
+// InitDBLogger 初始化数据库审计日志。必须在 DB 连接建立后调用。
+// secret 用于 HMAC 链哈希。
+func InitDBLogger(pool auditDBPool, secret string) {
 	if pool == nil || secret == "" {
 		return
+	}
+	if dbLogger != nil {
+		CloseDBLogger()
 	}
 	dbLogger = &dbAuditLogger{
 		pool:   pool,
@@ -83,14 +85,14 @@ func InitDBLogger(pool *pgxpool.Pool, secret string) {
 	go dbLogger.processLoop()
 }
 
-// CloseDBLogger drains the channel and stops the background goroutine.
-// 企业为何需要：优雅关闭确保已入队但未写入的审计日志不丢失。
+// CloseDBLogger 排空 channel 并停止后台协程，确保已入队的审计日志不丢失。
 func CloseDBLogger() {
 	if dbLogger == nil {
 		return
 	}
 	close(dbLogger.ch)
 	<-dbLogger.done
+	dbLogger = nil
 }
 
 func (l *dbAuditLogger) loadLastHash() {
@@ -113,7 +115,6 @@ func (l *dbAuditLogger) processLoop() {
 func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
 	l.mu.Lock()
 	prevHash := l.lastHash
-	l.mu.Unlock()
 
 	// Compute payload for hashing
 	payload, _ := json.Marshal(entry)
@@ -127,18 +128,16 @@ func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
 		entry.Before, entry.After, entry.RequestID, entry.TraceID,
 		prevHash, thisHash)
 	if err != nil {
+		l.mu.Unlock()
 		slog.Error("failed to write audit log to DB", "error", err, "action", entry.Action)
 		return
 	}
 
-	l.mu.Lock()
 	l.lastHash = thisHash
 	l.mu.Unlock()
 }
 
-// computeHash computes this_hash = HMAC-SHA256(secret, prevHash || payload).
-// 企业为何需要：提取为独立函数使 HMAC 链计算可单元测试，无需 DB 依赖。
-// 这是审计日志防篡改的核心安全属性，必须有专门的测试覆盖。
+// computeHash = HMAC-SHA256(secret, prevHash || payload)。独立函数便于单元测试。
 func computeHash(secret []byte, prevHash string, payload []byte) string {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(prevHash))
@@ -146,17 +145,8 @@ func computeHash(secret []byte, prevHash string, payload []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// Log writes an audit entry to stdout (always) and DB (if initialized).
-// 企业为何需要：stdout 日志供 SIEM 实时采集；DB 持久化供事后查询与篡改验证。
-// DB 写入通过 buffered channel 异步执行，避免阻塞请求热路径。
-//
-// 审计日志防丢失策略（SOC2/ISO27001 合规要求）：
-// channel 满时绝不丢弃，而是同步回退写入 DB（100ms 超时）。
-// 宁可让请求稍慢也不能丢失审计记录——审计日志的完整性优先于请求延迟。
-// 100ms 超时上限避免 DB 长时间不可用时拖垮服务，超时则记录到 stderr 作为最后防线。
-//
-// request_id 和 trace_id 从 context 自动提取（若调用方未显式设置），确保审计日志
-// 关联请求链路，满足 SOC2 审计追溯要求。调用方显式设置的值优先保留。
+// Log 写入审计条目到 stdout（始终）和 DB（若已初始化）。
+// DB 写入通过 buffered channel 异步执行；channel 满时同步回退（100ms 超时），不丢弃记录。
 func Log(ctx context.Context, entry AuditEntry) {
 	// Auto-populate request_id and trace_id from context if not already set,
 	// so audit entries always carry request correlation metadata.
@@ -185,12 +175,8 @@ func Log(ctx context.Context, entry AuditEntry) {
 	if dbLogger != nil {
 		select {
 		case dbLogger.ch <- dbEntry{entry: entry, ctx: ctx}:
-			// sent async via buffered channel
-		default:
-			// Channel full — synchronous fallback with 100ms timeout.
-			// 企业为何需要：审计日志绝不能丢失（合规要求）。channel 满说明消费速度跟不上，
-			// 此时同步写入保证记录落库，宁可阻塞请求 100ms 也不能丢数据。
-			// 100ms 超时上限防止 DB 长时间不可用时拖垮整个服务。
+			default:
+			// Channel 满：同步回退写入 DB（100ms 超时），不丢弃记录。
 			slog.Warn("audit log channel full, falling back to synchronous write",
 				"action", entry.Action)
 			fbCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

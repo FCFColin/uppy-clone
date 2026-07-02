@@ -100,7 +100,11 @@ func (h *Hub) ListLobbiesCached(ctx context.Context, limit int, cursor string) (
 // CheckRoomCached checks room existence with Redis read-through cache per ADR-006.
 func (h *Hub) CheckRoomCached(ctx context.Context, code string) (*RoomInfo, error) {
 	if h.redis != nil {
-		if cached, ok, err := h.redis.GetCachedRoomCheck(ctx, code); ok && err == nil {
+		cached, ok, err := h.redis.GetCachedRoomCheck(ctx, code)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			var info RoomInfo
 			if json.Unmarshal(cached, &info) == nil {
 				return &info, nil

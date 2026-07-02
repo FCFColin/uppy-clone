@@ -37,23 +37,27 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
 		// 企业为何需要：Permissions-Policy 禁用浏览器不需要的 API，减少攻击面。
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
 		// 企业为何需要：CSP unsafe-inline 削弱 XSS 防御。Nonce-based CSP 允许已知脚本执行，阻止注入的恶意脚本。
-		// 权衡：style-src 保留 unsafe-inline 因为 Vite 注入的样式需要它。
+		// 权衡：开发环境（ENABLE_HSTS=false）保留 style-src unsafe-inline 因为 Vite 需要它进行热更新。
+		// 生产环境移除 unsafe-inline，因为 Vite 将 CSS 提取为独立文件。
 		nonce := generateNonce()
-		// Production: restrict WebSocket connections to same origin only.
-		// Dev (ENABLE_HSTS=false): allow wss:/ws: for Vite HMR and local tooling.
+		isDev := os.Getenv("ENABLE_HSTS") == "false"
+		// Dev: allow wss:/ws: for Vite HMR and local tooling.
 		connectSrc := "'self'"
-		if os.Getenv("ENABLE_HSTS") == "false" {
+		if isDev {
 			connectSrc = "'self' wss: ws:"
 		}
+		styleSrc := "'self'"
+		if isDev {
+			styleSrc = "'self' 'unsafe-inline'"
+		}
 		csp := "script-src 'self' 'nonce-" + nonce + "'; " +
-			"style-src 'self' 'unsafe-inline'; " +
+			"style-src " + styleSrc + "; " +
 			"connect-src " + connectSrc + "; " +
 			"img-src 'self' data:; " +
 			"default-src 'self'"
@@ -66,9 +70,11 @@ func SecurityHeaders(next http.Handler) http.Handler {
 }
 
 // generateNonce creates a cryptographically secure random nonce (16 bytes, hex-encoded).
+var nonceRandRead = rand.Read
+
 func generateNonce() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := nonceRandRead(b); err != nil {
 		panic("crypto/rand failed: " + err.Error())
 	}
 	return hex.EncodeToString(b)

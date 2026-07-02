@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres" // register postgres driver
@@ -46,11 +47,17 @@ BEGIN
 END $$;
 `
 
+// filepathAbs resolves an absolute path; tests may replace it to simulate errors.
+var filepathAbs = filepath.Abs
+
 // FileSourceURL builds a golang-migrate file source URL that works on Windows.
 // Use "file://" + forward-slash absolute path (not file:///D:/...) so migrate's
 // parseURL yields a valid OS path on Windows.
 func FileSourceURL(dir string) (string, error) {
-	abs, err := filepath.Abs(dir)
+	if dir == "" || strings.Contains(dir, "\x00") {
+		return "", fmt.Errorf("invalid migrations path")
+	}
+	abs, err := filepathAbs(dir)
 	if err != nil {
 		return "", err
 	}

@@ -128,7 +128,7 @@ func spawnGhost() domain.GhostState {
 	y := 0.3 + randFloat64()*0.45
 
 	// 初始速度：随机方向漫步
-	angle := randFloat64() * 2 * pi
+	angle := randFloat64() * 2 * math.Pi
 	vx := math.Cos(angle) * protocol.GhostSpeed
 	vy := math.Sin(angle) * protocol.GhostSpeed
 

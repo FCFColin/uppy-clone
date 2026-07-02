@@ -36,13 +36,6 @@ func TracingMiddleware(next http.Handler) http.Handler {
 		logger := slogctx.LoggerFromContext(r.Context()).With("trace_id", traceID)
 		ctx = slogctx.WithLogger(ctx, logger)
 
-		// Add http.route attribute using chi's RouteContext
-		if routeCtx := chi.RouteContext(ctx); routeCtx != nil {
-			if routePattern := routeCtx.RoutePattern(); routePattern != "" {
-				span.SetAttributes(attribute.String("http.route", routePattern))
-			}
-		}
-
 		// Add enduser.id if user_id is in context
 		if userID, _, ok := auth.GetAuthenticatedUser(r); ok && userID != "" {
 			span.SetAttributes(attribute.String("enduser.id", userID))
@@ -50,6 +43,13 @@ func TracingMiddleware(next http.Handler) http.Handler {
 
 		ww := &responseWriter{ResponseWriter: w, statusCode: 200}
 		next.ServeHTTP(ww, r.WithContext(ctx))
+
+		// Route pattern is populated by chi during ServeHTTP; read it from the request context.
+		if routeCtx := chi.RouteContext(r.Context()); routeCtx != nil {
+			if routePattern := routeCtx.RoutePattern(); routePattern != "" {
+				span.SetAttributes(attribute.String("http.route", routePattern))
+			}
+		}
 
 		span.SetAttributes(attribute.Int("http.status_code", ww.statusCode))
 		if ww.statusCode >= 400 {

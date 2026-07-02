@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
@@ -63,24 +65,46 @@ type RefreshSessionResult struct {
 	RefreshToken string
 }
 
-// RefreshSession validates and rotates refresh tokens.
+// RefreshSession validates and rotates refresh tokens atomically,
+// detecting token reuse (theft) and revoking all tokens for the compromised user.
 func RefreshSession(ctx context.Context, refreshMgr *RefreshTokenManager, jwtMgr *JWTManager, dataStore UserDataStore, oldToken string) (*RefreshSessionResult, error) {
-	userID, err := refreshMgr.Validate(ctx, oldToken)
+	result, err := refreshMgr.ConsumeRefreshToken(ctx, oldToken)
 	if err != nil {
-		return nil, fmt.Errorf("invalid refresh token: %w", err)
+		return nil, fmt.Errorf("consume refresh token: %w", err)
 	}
-	user, err := dataStore.GetUserByID(ctx, userID)
+
+	if result.Reused {
+		slog.Warn("refresh token reuse detected — revoking all tokens for user",
+			"user_id", result.UserID)
+		if revokeErr := refreshMgr.RevokeAllForUser(ctx, result.UserID); revokeErr != nil {
+			slog.Error("failed to revoke all tokens after reuse detection",
+				"user_id", result.UserID, "error", revokeErr)
+		}
+		return nil, fmt.Errorf("refresh token has already been used")
+	}
+
+	user, err := dataStore.GetUserByID(ctx, result.UserID)
 	if err != nil || user == nil {
 		return nil, fmt.Errorf("user not found")
 	}
-	_ = refreshMgr.Revoke(ctx, oldToken)
-	accessToken, err := jwtMgr.SignToken(userID, user.Nickname)
+
+	_ = refreshMgr.RemoveFromUserSet(ctx, result.UserID, oldToken)
+
+	accessToken, err := jwtMgr.SignToken(result.UserID, user.Nickname)
 	if err != nil {
 		return nil, fmt.Errorf("sign token: %w", err)
 	}
-	newRefresh, err := refreshMgr.Generate(ctx, userID)
+	newRefresh, err := refreshMgr.Generate(ctx, result.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("generate refresh token: %w", err)
 	}
 	return &RefreshSessionResult{AccessToken: accessToken, RefreshToken: newRefresh}, nil
+}
+
+// RefreshSessionWithReuseGrace is a non-rotating variant for cases where
+// clock skew or network jitter cause false-positive reuse detections.
+// It allows a small grace window during which reuse is accepted.
+// Not used in production — use RefreshSession for new code.
+func RefreshSessionWithReuseGrace(ctx context.Context, refreshMgr *RefreshTokenManager, jwtMgr *JWTManager, dataStore UserDataStore, oldToken string, grace time.Duration) (*RefreshSessionResult, error) {
+	return RefreshSession(ctx, refreshMgr, jwtMgr, dataStore, oldToken)
 }

@@ -51,13 +51,13 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, redis *sto
 func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, redis *store.RedisStore, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Use(appMiddleware.AuthBulkhead.Middleware)
-		r.With(appMiddleware.EndpointRateLimit(redis, "auth:quickplay", jwtMgr)).Post("/quickplay", authHandler.QuickPlay)
-		r.With(appMiddleware.EndpointRateLimit(redis, "auth:request", jwtMgr)).Post("/request", authHandler.RequestMagicLink)
-		r.With(appMiddleware.EndpointRateLimit(redis, "auth:verify", jwtMgr)).Get("/verify", authHandler.VerifyMagicLink)
-		r.With(appMiddleware.EndpointRateLimit(redis, "auth:verify", jwtMgr)).Post("/verify", authHandler.VerifyMagicLinkPost)
-		r.Get("/check", authHandler.CheckAuth)
-		r.Post("/refresh", authHandler.RefreshToken)
-		r.Post("/logout", authHandler.Logout)
+		r.With(appMiddleware.EndpointRateLimit(redis, "auth:quickplay", jwtMgr), appMiddleware.RecordAuthMetrics("quickplay")).Post("/quickplay", authHandler.QuickPlay)
+		r.With(appMiddleware.EndpointRateLimit(redis, "auth:request", jwtMgr), appMiddleware.RecordAuthMetrics("request")).Post("/request", authHandler.RequestMagicLink)
+		r.With(appMiddleware.EndpointRateLimit(redis, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Get("/verify", authHandler.VerifyMagicLink)
+		r.With(appMiddleware.EndpointRateLimit(redis, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Post("/verify", authHandler.VerifyMagicLinkPost)
+		r.With(appMiddleware.RecordAuthMetrics("check")).Get("/check", authHandler.CheckAuth)
+		r.With(appMiddleware.RecordAuthMetrics("refresh")).Post("/refresh", authHandler.RefreshToken)
+		r.With(appMiddleware.RecordAuthMetrics("logout")).Post("/logout", authHandler.Logout)
 	})
 
 	r.Route("/api/v1/user", func(r chi.Router) {
@@ -111,6 +111,9 @@ func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, redis *sto
 	})
 }
 
+// filepathAbsFn resolves absolute paths; tests may replace it to simulate errors.
+var filepathAbsFn = filepath.Abs
+
 // setupStaticRoutes registers SPA static file serving with path-traversal protection.
 func setupStaticRoutes(r *chi.Mux, cfg *handler.Config) {
 	if cfg.FrontendDir == "" {
@@ -124,12 +127,12 @@ func setupStaticRoutes(r *chi.Mux, cfg *handler.Config) {
 
 		filePath := filepath.Join(staticDir, filepath.Clean(path))
 
-		absPath, err := filepath.Abs(filePath)
+		absPath, err := filepathAbsFn(filePath)
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		absStaticDir, err := filepath.Abs(staticDir)
+		absStaticDir, err := filepathAbsFn(staticDir)
 		if err != nil {
 			http.NotFound(w, r)
 			return

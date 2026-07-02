@@ -8,6 +8,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// bcryptGenerate is replaceable in unit tests to simulate hashing failures.
+var bcryptGenerate = bcrypt.GenerateFromPassword
+
 // compareAdminPassword compares a plaintext password against a stored hash.
 // Only bcrypt hashes are supported — legacy plaintext fallback has been removed
 // to prevent timing attacks and enforce strong password storage.
@@ -23,7 +26,7 @@ func compareAdminPassword(plaintext, stored string) bool {
 
 // hashAdminPassword hashes a password using bcrypt.
 func hashAdminPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	bytes, err := bcryptGenerate([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
 	}

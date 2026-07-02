@@ -13,8 +13,16 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uppy-clone/backend/internal/crypto"
 )
+
+// backfillDB abstracts pgx for unit tests.
+type backfillDB interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Close(ctx context.Context) error
+}
 
 // encryptEmailFn is overridden in tests to simulate per-user encrypt failures.
 var encryptEmailFn = crypto.EncryptEmailForStorage
@@ -23,6 +31,11 @@ func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// pgxConnectFn opens PostgreSQL; tests may replace to inject fakes.
+var pgxConnectFn = func(ctx context.Context, connString string) (backfillDB, error) {
+	return pgx.Connect(ctx, connString)
 }
 
 func run() error {
@@ -37,7 +50,7 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	conn, err := pgx.Connect(ctx, databaseURL)
+	conn, err := pgxConnectFn(ctx, databaseURL)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}

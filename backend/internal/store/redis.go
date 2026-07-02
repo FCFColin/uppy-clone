@@ -3,8 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -25,8 +23,8 @@ func NewRedisStore(redisURL string, timeouts config.TimeoutConfig) (*RedisStore,
 	if err != nil {
 		return nil, err
 	}
-	poolSize := getEnvInt("REDIS_POOL_SIZE", 20)
-	minIdleConns := getEnvInt("REDIS_MIN_IDLE_CONNS", 5)
+	poolSize := config.GetEnvIntPositive("REDIS_POOL_SIZE", 20)
+	minIdleConns := config.GetEnvIntPositive("REDIS_MIN_IDLE_CONNS", 5)
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:            conn.Addr,
@@ -69,15 +67,3 @@ func (s *RedisStore) Client() *redis.Client { return s.rdb }
 
 // Close shuts down the Redis client and its connection pool.
 func (s *RedisStore) Close() error { return s.rdb.Close() }
-
-func getEnvInt(key string, defaultVal int) int {
-	val := os.Getenv(key)
-	if val == "" {
-		return defaultVal
-	}
-	n, err := strconv.Atoi(val)
-	if err != nil || n <= 0 {
-		return defaultVal
-	}
-	return n
-}

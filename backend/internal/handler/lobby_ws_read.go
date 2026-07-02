@@ -14,6 +14,11 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// handleMessageFn is replaceable in unit tests (readPump HandleMessage error path).
+var handleMessageFn = func(room *game.Room, playerID string, msgType byte, payload []byte) error {
+	return room.HandleMessage(playerID, msgType, payload)
+}
+
 func (h *LobbyHandler) readPump(room *game.Room, playerID string, conn *websocket.Conn, wsCtx context.Context, cancel context.CancelFunc) {
 	defer func() {
 		cancel()
@@ -43,7 +48,7 @@ func (h *LobbyHandler) readPump(room *game.Room, playerID string, conn *websocke
 		msgName := metrics.WSMessageTypeName(msgType)
 		handleStart := time.Now()
 		span := h.maybeStartReadSpan(wsCtx, room, playerID, msgType, &tapSpanCounter)
-		if err := room.HandleMessage(playerID, msgType, payload); err != nil {
+		if err := handleMessageFn(room, playerID, msgType, payload); err != nil {
 			if span != nil {
 				span.RecordError(err)
 			}
@@ -78,8 +83,6 @@ func (h *LobbyHandler) maybeStartReadSpan(wsCtx context.Context, room *game.Room
 		msgTypeName = "set_nickname"
 	case protocol.MsgRestartVote:
 		msgTypeName = "restart_vote"
-	case protocol.MsgPing:
-		msgTypeName = "ping"
 	default:
 		msgTypeName = "unknown"
 	}

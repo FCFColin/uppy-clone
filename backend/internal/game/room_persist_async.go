@@ -99,7 +99,7 @@ func (r *Room) requestPersist() {
 	if r.store == nil {
 		return
 	}
-	data, err := SerializeState(r.state)
+	data, err := serializeStateFn(r.state)
 	if err != nil {
 		r.logger.Error("serialize state for persist", "error", err)
 		return
@@ -127,7 +127,7 @@ func (r *Room) flushPersistSync() {
 		return
 	}
 	r.mu.Lock()
-	data, err := SerializeState(r.state)
+	data, err := serializeStateFn(r.state)
 	code := r.state.LobbyCode
 	r.mu.Unlock()
 	if err != nil {

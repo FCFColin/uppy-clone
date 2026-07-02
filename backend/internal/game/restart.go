@@ -21,10 +21,7 @@ func HandleRestartVote(room *Room, player *domain.PlayerState) error {
 
 	// 重复投票：若仍在 ended 且已达共识，允许重试（上次 RestartAndStart 可能失败）
 	if _, ok := room.state.RestartVotes[player.ID]; ok {
-		if room.state.Phase == domain.PhaseEnded {
-			return CheckRestartConsensus(room)
-		}
-		return nil
+		return CheckRestartConsensus(room)
 	}
 
 	room.state.RestartVotes[player.ID] = true
@@ -47,12 +44,12 @@ func CheckRestartConsensus(room *Room) error {
 		if remaining < 0 {
 			remaining = 0
 		}
-		countdownMs = uint32(remaining) //nolint:gosec // bounded by CountdownTicks
+		countdownMs = uint32(remaining) //nolint:gosec:G115 // bounded by CountdownTicks
 	}
 
 	room.broadcast(protocol.EncodeRestartStatus(
-		uint8(yesVotes),       //nolint:gosec // yesVotes <= connectedCount <= MaxPlayersPerRoom(50) < 256
-		uint8(connectedCount), //nolint:gosec // connectedCount <= MaxPlayersPerRoom(50) < 256
+		uint8(yesVotes),       //nolint:gosec:G115 // yesVotes <= connectedCount <= MaxPlayersPerRoom(50) < 256
+		uint8(connectedCount), //nolint:gosec:G115 // connectedCount <= MaxPlayersPerRoom(50) < 256
 		countdownMs,
 	), "")
 

@@ -12,8 +12,6 @@ import (
 )
 
 // HandleJoin 处理玩家加入/重连
-// 企业为何需要：舱壁隔离（Bulkhead）防止单类资源耗尽拖垮整体。WebSocket 连接洪水可耗尽文件描述符和内存，
-// 导致 REST API 也无法响应。连接上限是 DoS 防御的基本措施。
 func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 	start := time.Now()
 	r.mu.Lock()
@@ -54,19 +52,18 @@ func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 	return nil
 }
 
-// closeExistingConnection 关闭玩家已有的活跃连接（重连场景下替换旧连接）。
+// closeExistingConnection 关闭玩家已有连接（重连时替换旧连接）。
 func (r *Room) closeExistingConnection(playerID string, player *domain.PlayerState) {
 	if player == nil || player.Disconnected {
 		return
 	}
-	if oldConn, ok := r.connections[playerID]; ok {
+	if _, ok := r.connections[playerID]; ok {
 		r.logger.Info("closing old WebSocket for player", "playerID", playerID)
-		_ = oldConn.Conn.Close()
-		delete(r.connections, playerID)
+		r.removeConnectionLocked(playerID)
 	}
 }
 
-// reconnectPlayer 处理断连优雅期内的重连：恢复状态、发送快照、重置定时器。
+// reconnectPlayer 处理断连重连：恢复状态、发送快照、重置定时器。
 func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 	player.Disconnected = false
 	player.DisconnectedAt = nil
@@ -90,11 +87,11 @@ func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 
 func (r *Room) resumeCountdownForReconnect(playerID string) {
 	remaining := remainingCountdownMs(r.countdownStart)
-	r.sendToPlayer(playerID, protocol.EncodeGameStateChange(protocol.PhaseCountdown, uint32(remaining))) //nolint:gosec // bounded countdown
+	r.sendToPlayer(playerID, protocol.EncodeGameStateChange(protocol.PhaseCountdown, uint32(remaining))) //nolint:gosec:G115 // bounded countdown
 	r.setEndGameAlarm(time.Now().Add(time.Duration(remaining) * time.Millisecond))
 }
 
-// addNewPlayer 添加新玩家到房间，房间已满时返回 ErrRoomFull。
+// addNewPlayer 添加新玩家，房间满时返回 ErrRoomFull。
 func (r *Room) addNewPlayer(playerID string, conn *websocket.Conn) (*domain.PlayerState, error) {
 	if len(r.state.Players) >= r.maxPlayers {
 		delete(r.connections, playerID)
@@ -136,7 +133,7 @@ func (r *Room) notifyJoin(playerID string, player *domain.PlayerState, isReconne
 
 	r.sendToPlayer(playerID, r.buildSnapshot())
 
-	joinMsg := protocol.EncodePlayerJoin(uint16(player.PlayerIndex), player.Nickname, uint32(player.Palette)) //nolint:gosec // PlayerIndex < MaxPlayersPerRoom, Palette < 8
+	joinMsg := protocol.EncodePlayerJoin(uint16(player.PlayerIndex), player.Nickname, uint32(player.Palette)) //nolint:gosec:G115 // PlayerIndex < MaxPlayersPerRoom, Palette < 8
 	r.broadcast(joinMsg, playerID)
 
 	r.saveState()
@@ -208,7 +205,7 @@ func (r *Room) tryStartWhenAllReady() {
 	})
 }
 
-// HandleDisconnect 处理玩家断连
+// HandleDisconnect 处理玩家断开连接
 func (r *Room) HandleDisconnect(playerID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -283,7 +280,7 @@ func (r *Room) broadcastGameEnded(endReason uint8) {
 	r.saveState()
 }
 
-// setEndGameAlarm 设置 ended/countdown 阶段的定时器。
+// setEndGameAlarm 设置 ended/countdown 阶段的闹钟定时器。
 func (r *Room) setEndGameAlarm(when time.Time) {
 	if r.endGameTimer != nil {
 		r.endGameTimer.Stop()
@@ -310,13 +307,7 @@ func (r *Room) setEndGameAlarm(when time.Time) {
 func (r *Room) handleCountdownEnd() {
 	r.state.Phase = domain.PhasePlaying
 	r.startTick()
-	// Increment TickCount before building the snapshot so its seq differs from
-	// the countdown snapshot (which had TickCount=0). Without this, the client's
-	// duplicate-seq detector would drop the first playing snapshot, leaving the
-	// balloon stuck at the spawn position and the ghost invisible.
 	r.state.TickCount++
-	// Use broadcastCritical for the phase transition so it is delivered even
-	// when a client's send buffer is full (consistent with StartGame/EndGame).
 	r.broadcastCritical(protocol.EncodeGameStateChange(protocol.PhasePlaying))
 	r.broadcast(r.buildSnapshot(), "")
 
@@ -333,7 +324,7 @@ func (r *Room) handleCountdownEnd() {
 	r.saveState()
 }
 
-// handleAutoRestart 处理 ended 阶段的自动重启逻辑。
+// handleAutoRestart ended 阶段自动重启。
 func (r *Room) handleAutoRestart() {
 	for pid := range r.state.RestartVotes {
 		p, ok := r.state.Players[pid]

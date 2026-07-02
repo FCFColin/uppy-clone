@@ -18,6 +18,9 @@ import (
 // 500ms 足以检测本地网络内的 PG/Redis，超过则视为不可用（熔断器可能已 open）。
 const healthCheckTimeout = 500 * time.Millisecond
 
+// poolPingForTest, when non-nil, replaces pool.Ping in ReadyHandler (unit tests only).
+var poolPingForTest func(context.Context) error
+
 // Checker holds dependencies needed for health checks.
 type Checker struct {
 	pool        *pgxpool.Pool
@@ -65,7 +68,13 @@ func (c *Checker) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 	if c.pool != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), healthCheckTimeout)
 		defer cancel()
-		if err := c.pool.Ping(ctx); err != nil {
+		var err error
+		if poolPingForTest != nil {
+			err = poolPingForTest(ctx)
+		} else {
+			err = c.pool.Ping(ctx)
+		}
+		if err != nil {
 			checks["postgres"] = "unavailable"
 			pgOK = false
 		} else {

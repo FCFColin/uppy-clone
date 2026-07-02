@@ -121,6 +121,23 @@ func (r *Room) GetConnection(playerID string) *PlayerConn {
 	return r.connections[playerID]
 }
 
+// removeConnectionLocked 移除玩家连接（调用者须持有 r.mu）。
+func (r *Room) removeConnectionLocked(playerID string) {
+	if pc, ok := r.connections[playerID]; ok {
+		if pc.Conn != nil {
+			_ = pc.Conn.Close()
+		}
+		delete(r.connections, playerID)
+	}
+}
+
+// removeConnection 线程安全移除玩家连接。
+func (r *Room) removeConnection(playerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.removeConnectionLocked(playerID)
+}
+
 // Code returns the lobby code for this room.
 func (r *Room) Code() string {
 	return r.state.LobbyCode
@@ -143,10 +160,8 @@ func (r *Room) Close() {
 	if r.startDelayTimer != nil {
 		r.startDelayTimer.Stop()
 	}
-	for _, pc := range r.connections {
-		if pc.Conn != nil {
-			_ = pc.Conn.Close()
-		}
+	for pid, pc := range r.connections {
+		r.removeConnectionLocked(pid)
 		close(pc.Send)
 	}
 	r.connections = make(map[string]*PlayerConn)

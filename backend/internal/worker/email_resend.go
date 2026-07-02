@@ -10,6 +10,9 @@ import (
 	"net/http"
 )
 
+// emailJSONMarshal is replaceable in unit tests.
+var emailJSONMarshal = json.Marshal
+
 func truncateRespBody(resp *http.Response) string {
 	respBody, _ := io.ReadAll(resp.Body)
 	truncated := string(respBody)
@@ -27,7 +30,7 @@ func (w *EmailWorker) sendEmail(ctx context.Context, payload EmailPayload) error
 		"subject": payload.Subject,
 		"html":    payload.Body,
 	}
-	bodyBytes, err := json.Marshal(reqBody)
+	bodyBytes, err := emailJSONMarshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("marshal email request: %w", err)
 	}

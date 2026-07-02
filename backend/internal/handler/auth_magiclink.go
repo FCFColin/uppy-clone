@@ -9,13 +9,10 @@ import (
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/metrics"
 )
 
 // RequestMagicLink handles POST /api/v1/auth/request
 func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
-	rec, w := metrics.BeginAuth("request", w)
-	defer rec.End()
 	var body struct {
 		Email string `json:"email"`
 	}
@@ -51,9 +48,6 @@ func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 
 // VerifyMagicLink handles GET /api/v1/auth/verify?token=...
 func (h *AuthHandler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
-	rec, w := metrics.BeginAuth("verify", w)
-	defer rec.End()
-
 	token := r.URL.Query().Get("token")
 	h.verifyMagicLinkToken(w, r, token)
 }
@@ -61,9 +55,6 @@ func (h *AuthHandler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
 // VerifyMagicLinkPost handles POST /api/v1/auth/verify with JSON body {"token":"..."}.
 // Prefer POST to avoid token leakage via Referer logs and browser history.
 func (h *AuthHandler) VerifyMagicLinkPost(w http.ResponseWriter, r *http.Request) {
-	rec, w := metrics.BeginAuth("verify", w)
-	defer rec.End()
-
 	var body struct {
 		Token string `json:"token"`
 	}

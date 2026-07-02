@@ -48,7 +48,7 @@ func (s *PostgresStore) AnonymizeUser(ctx context.Context, userID string) error 
 	now := time.Now().Unix()
 	anonEmail := "deleted_" + userID + "@anonymized"
 	anonHash := crypto.EmailHMAC(anonEmail)
-	storedAnon, err := crypto.EncryptEmailForStorage(anonEmail)
+	storedAnon, err := encryptEmailForStorageFn(anonEmail)
 	if err != nil {
 		return fmt.Errorf("encrypt anonymized email: %w", err)
 	}

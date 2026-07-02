@@ -3,7 +3,6 @@ package server
 import (
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 
 	appConfig "github.com/uppy-clone/backend/internal/config"
@@ -32,9 +31,8 @@ func loadConfig() *handler.Config {
 func validateConfig(cfg *handler.Config, logger *slog.Logger) {
 	if err := serverEnv.Validate(); err != nil {
 		logger.Error("configuration validation failed", "error", err)
-		os.Exit(1)
+		exitFunc(1)
 	}
-	_ = cfg
 }
 
 // initCrypto initializes the AES encryption key from the environment.
@@ -77,12 +75,7 @@ func getEnvInt(key string, defaultVal int) int {
 	if val == "" {
 		return defaultVal
 	}
-	n, err := strconv.Atoi(val)
-	if err != nil {
-		slog.Warn("invalid env var, using default", "key", key, "value", val, "default", defaultVal)
-		return defaultVal
-	}
-	return n
+	return appConfig.GetEnvInt(key, defaultVal)
 }
 
 // parseLogLevel converts a log level string to slog.Level.

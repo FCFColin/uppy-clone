@@ -19,12 +19,9 @@ func roomJoinable(room *Room, maxPlayers int) bool {
 func (h *Hub) MatchRoom(ctx context.Context) (string, error) {
 	for _, code := range h.joinableRoomCodes() {
 		h.mu.RLock()
-		room, ok := h.rooms[code]
+		room := h.rooms[code]
 		h.mu.RUnlock()
-		if !ok {
-			continue
-		}
-		if roomJoinable(room, h.maxPlayersPerRoom) {
+		if room != nil && roomJoinable(room, h.maxPlayersPerRoom) {
 			return code, nil
 		}
 	}

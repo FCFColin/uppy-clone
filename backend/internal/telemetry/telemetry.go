@@ -26,6 +26,12 @@ import (
 
 var tracer trace.Tracer
 
+// otlpExporterFactory creates the OTLP exporter; tests may replace it.
+var otlpExporterFactory = otlptracegrpc.New
+
+// resourceFactory builds the OTel resource; tests may replace it.
+var resourceFactory = sdkresource.New
+
 func init() {
 	tracer = otel.Tracer("github.com/uppy-clone/backend")
 }
@@ -44,7 +50,7 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 		return func(_ context.Context) error { return nil }, nil
 	}
 
-	exporter, err := otlptracegrpc.New(ctx,
+	exporter, err := otlpExporterFactory(ctx,
 		otlptracegrpc.WithEndpoint(endpoint),
 		otlptracegrpc.WithInsecure(),
 	)
@@ -52,7 +58,7 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 		return nil, fmt.Errorf("create OTLP exporter: %w", err)
 	}
 
-	res, err := sdkresource.New(ctx,
+	res, err := resourceFactory(ctx,
 		sdkresource.WithAttributes(
 			semconv.ServiceNameKey.String(serviceName),
 			semconv.ServiceVersionKey.String(serviceVersion),

@@ -56,10 +56,10 @@ func (r *Room) buildSnapshot() []byte {
 			cooldownRemaining = p.CooldownEndTime - now
 		}
 		players = append(players, protocol.PlayerState{
-			PlayerIndex:       uint16(p.PlayerIndex),       //nolint:gosec // bounded
-			CooldownMs:        uint32(cooldownRemaining),   //nolint:gosec // bounded by cooldown duration
-			Palette:           uint32(p.Palette),           //nolint:gosec // Palette < 8
-			ScoreContribution: uint32(p.ScoreContribution), //nolint:gosec // game score, non-negative
+			PlayerIndex:       uint16(p.PlayerIndex),       //nolint:gosec:G115 // bounded
+			CooldownMs:        uint32(cooldownRemaining),   //nolint:gosec:G115 // bounded by cooldown duration
+			Palette:           uint32(p.Palette),           //nolint:gosec:G115 // Palette < 8
+			ScoreContribution: uint32(p.ScoreContribution), //nolint:gosec:G115 // game score, non-negative
 			Nickname:          p.Nickname,
 		})
 	}
@@ -67,7 +67,7 @@ func (r *Room) buildSnapshot() []byte {
 
 	return protocol.EncodeSnapshot(
 		modelPhaseToProtocol(r.state.Phase),
-		uint32(r.state.TickCount), //nolint:gosec // tick counter wraps naturally
+		uint32(r.state.TickCount), //nolint:gosec:G115 // tick counter wraps naturally
 		uint32(r.state.Balloon.Score),
 		protocol.BalloonState{
 			X:  float32(r.state.Balloon.X),
@@ -84,7 +84,7 @@ func (r *Room) buildSnapshot() []byte {
 			X:          float32(r.state.Ghost.X),
 			Y:          float32(r.state.Ghost.Y),
 			Active:     r.state.Ghost.Active,
-			RepelTimer: uint16(r.state.Ghost.RepelTimer), //nolint:gosec // bounded timer
+			RepelTimer: uint16(r.state.Ghost.RepelTimer), //nolint:gosec:G115 // bounded timer
 		},
 		players,
 		nil,

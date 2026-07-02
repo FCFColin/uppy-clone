@@ -126,38 +126,49 @@ func (r *Room) snapshotConnTargetsLocked(excludePlayerID string) []connTarget {
 func (r *Room) deliverToTargets(targets []connTarget, msg outboundMsg) {
 	for _, t := range targets {
 		if msg.critical {
-			select {
-			case t.send <- msg.payload:
-				*t.consecutiveDrops = 0
-			case <-time.After(100 * time.Millisecond):
-				slog.Error("critical message send timeout",
-					"user_id", t.playerID,
-					"room_code", r.state.LobbyCode)
-			}
+			r.deliverCritical(t, msg)
 			continue
 		}
-		select {
-		case t.send <- msg.payload:
-			*t.consecutiveDrops = 0
-		default:
-			metrics.WSMessagesDroppedTotal.WithLabelValues(r.state.LobbyCode).Inc()
-			*t.consecutiveDrops++
-			drops := *t.consecutiveDrops
-			if drops >= 3 {
-				slog.Warn("slow client: messages being dropped",
-					"user_id", t.playerID,
-					"drops", drops,
-					"room_code", r.state.LobbyCode)
-			}
-			if drops >= 10 {
-				slog.Warn("disconnecting slow client",
-					"user_id", t.playerID,
-					"drops", drops,
-					"room_code", r.state.LobbyCode)
-				*t.pendingDisconnect = true
-				t.connClose()
-			}
-		}
+		r.deliverNonCritical(t, msg)
+	}
+}
+
+func (r *Room) deliverCritical(t connTarget, msg outboundMsg) {
+	select {
+	case t.send <- msg.payload:
+		*t.consecutiveDrops = 0
+	case <-time.After(100 * time.Millisecond):
+		slog.Error("critical message send timeout",
+			"user_id", t.playerID,
+			"room_code", r.state.LobbyCode)
+	}
+}
+
+func (r *Room) deliverNonCritical(t connTarget, msg outboundMsg) {
+	select {
+	case t.send <- msg.payload:
+		*t.consecutiveDrops = 0
+	default:
+		metrics.WSMessagesDroppedTotal.WithLabelValues(r.state.LobbyCode).Inc()
+		*t.consecutiveDrops++
+		r.checkSlowClient(t)
+	}
+}
+
+func (r *Room) checkSlowClient(t connTarget) {
+	drops := *t.consecutiveDrops
+	if drops >= 10 {
+		slog.Warn("disconnecting slow client",
+			"user_id", t.playerID,
+			"drops", drops,
+			"room_code", r.state.LobbyCode)
+		*t.pendingDisconnect = true
+		t.connClose()
+	} else if drops >= 3 {
+		slog.Warn("slow client: messages being dropped",
+			"user_id", t.playerID,
+			"drops", drops,
+			"room_code", r.state.LobbyCode)
 	}
 }
 

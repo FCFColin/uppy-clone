@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"os"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sethvargo/go-retry"
@@ -27,15 +25,6 @@ func (s *PostgresStore) withRetryWrite(ctx context.Context, fn func(context.Cont
 	return err
 }
 
-func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return d
-		}
-	}
-	return defaultVal
-}
-
 // ObservePoolStats publishes pgx pool saturation metrics to Prometheus.
 func (s *PostgresStore) ObservePoolStats() {
 	p, ok := s.pool.(*pgxpool.Pool)
@@ -45,8 +34,10 @@ func (s *PostgresStore) ObservePoolStats() {
 	stat := p.Stat()
 	metrics.DBPoolIdleConns.Set(float64(stat.IdleConns()))
 	metrics.DBPoolInUseConns.Set(float64(stat.AcquiredConns()))
-	currentDuration := stat.AcquireDuration().Seconds()
-	currentCount := stat.AcquireCount()
+	s.recordAcquireDurationDelta(stat.AcquireDuration().Seconds(), stat.AcquireCount())
+}
+
+func (s *PostgresStore) recordAcquireDurationDelta(currentDuration float64, currentCount int64) {
 	if prevDur, ok := s.lastAcquireDuration.Load().(float64); ok && prevDur > 0 {
 		if prevCnt, ok := s.lastAcquireCount.Load().(int64); ok && currentCount > prevCnt {
 			delta := currentDuration - prevDur

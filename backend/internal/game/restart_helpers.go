@@ -2,16 +2,6 @@ package game
 
 import "github.com/uppy-clone/backend/internal/domain"
 
-func countConnectedPlayers(players map[string]*domain.PlayerState) int {
-	n := 0
-	for _, p := range players {
-		if !p.Disconnected {
-			n++
-		}
-	}
-	return n
-}
-
 func hasAnyConnectedPlayer(players map[string]*domain.PlayerState) bool {
 	for _, p := range players {
 		if !p.Disconnected {

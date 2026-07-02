@@ -40,11 +40,14 @@ func main() {
 	fmt.Println(status)
 }
 
+// connectDBFn is replaceable in unit tests.
+var connectDBFn = connectDB
+
 func runMigrate(databaseURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	db, err := connectDB(ctx, databaseURL)
+	db, err := connectDBFn(ctx, databaseURL)
 	if err != nil {
 		return "", err
 	}

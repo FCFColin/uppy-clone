@@ -8,7 +8,6 @@ import (
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/metrics"
 )
 
 func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email string, degraded bool) {
@@ -30,9 +29,6 @@ func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email strin
 
 // CheckAuth handles GET /api/v1/auth/check
 func (h *AuthHandler) CheckAuth(w http.ResponseWriter, r *http.Request) {
-	rec, w := metrics.BeginAuth("check", w)
-	defer rec.End()
-
 	var rev auth.JWTRevocationChecker
 	if h.redis != nil {
 		rev = h.redis
@@ -60,9 +56,6 @@ func (h *AuthHandler) CheckAuth(w http.ResponseWriter, r *http.Request) {
 
 // RefreshToken handles POST /api/v1/auth/refresh
 func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
-	rec, w := metrics.BeginAuth("refresh", w)
-	defer rec.End()
-
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 	}

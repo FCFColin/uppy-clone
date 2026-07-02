@@ -59,6 +59,12 @@ func channelName(roomCode string) string {
 	return "room:" + roomCode + ":broadcast"
 }
 
+// hostnameFn is injectable for unit tests (e.g. simulate os.Hostname failures).
+var hostnameFn = os.Hostname
+
+// marshalBroadcastFn is injectable for unit tests (e.g. simulate json.Marshal failures).
+var marshalBroadcastFn = json.Marshal
+
 // Publish 将消息序列化为 JSON 并发布到房间频道。
 // 当 connected 为 false（Redis 不可用）时返回错误，调用方回退到仅本地投递。
 func (b *PubSubBroadcaster) Publish(ctx context.Context, roomCode string, msg BroadcastMessage) error {
@@ -66,7 +72,7 @@ func (b *PubSubBroadcaster) Publish(ctx context.Context, roomCode string, msg Br
 		return fmt.Errorf("broadcaster not connected")
 	}
 	msg.RoomCode = roomCode
-	payload, err := json.Marshal(msg)
+	payload, err := marshalBroadcastFn(msg)
 	if err != nil {
 		return fmt.Errorf("marshal broadcast message: %w", err)
 	}
@@ -105,6 +111,16 @@ func (b *PubSubBroadcaster) Subscribe(roomCode string, handler func(BroadcastMes
 	return unsubscribe, nil
 }
 
+// pubsubCloseErrForTest, when non-nil, is returned from PubSubBroadcaster.Close (unit tests only).
+var pubsubCloseErrForTest error
+
+// SetPubsubCloseErrForTest configures Close() error return for unit tests.
+func SetPubsubCloseErrForTest(err error) func() {
+	prev := pubsubCloseErrForTest
+	pubsubCloseErrForTest = err
+	return func() { pubsubCloseErrForTest = prev }
+}
+
 // Close 关闭所有活跃订阅。
 func (b *PubSubBroadcaster) Close() error {
 	b.connected.Store(false)
@@ -115,6 +131,9 @@ func (b *PubSubBroadcaster) Close() error {
 		b.subs.Delete(key)
 		return true
 	})
+	if pubsubCloseErrForTest != nil {
+		return pubsubCloseErrForTest
+	}
 	return nil
 }
 
@@ -125,7 +144,7 @@ func defaultInstanceID() string {
 	if id := os.Getenv("INSTANCE_ID"); id != "" {
 		return id
 	}
-	hostname, err := os.Hostname()
+	hostname, err := hostnameFn()
 	if err != nil || hostname == "" {
 		return "unknown"
 	}

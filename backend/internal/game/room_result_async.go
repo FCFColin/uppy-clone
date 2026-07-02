@@ -10,6 +10,12 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
+// jsonMarshalGameResultFn is replaceable in unit tests.
+var jsonMarshalGameResultFn = json.Marshal
+
+// gameEndedOutboxPayloadFn is replaceable in unit tests.
+var gameEndedOutboxPayloadFn = auth.GameEndedOutboxPayload
+
 type gameResultJob struct {
 	sessionID string
 	roomCode  string
@@ -39,7 +45,9 @@ func (r *Room) enqueueGameResultAsync() {
 
 	// 直写 PostgreSQL 作为主路径，不依赖 Redis 队列。
 	if r.store != nil {
+		r.asyncWg.Add(1)
 		go func() {
+			defer r.asyncWg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
 			defer cancel()
 			if err := r.store.RecordGameResult(ctx, sessionID, roomCode, endedAt, finalScore, results); err != nil {
@@ -57,7 +65,7 @@ func (r *Room) enqueueGameResultAsync() {
 			"results":     resultsToMap(results),
 			"ended_at":    endedAt,
 		}
-		payloadJSON, err := json.Marshal(payload)
+		payloadJSON, err := jsonMarshalGameResultFn(payload)
 		if err != nil {
 			r.logger.Error("marshal game result payload", "error", err)
 			return
@@ -65,7 +73,7 @@ func (r *Room) enqueueGameResultAsync() {
 
 		var outboxPayload []byte
 		if r.store != nil {
-			outboxPayload, err = auth.GameEndedOutboxPayload(payload)
+			outboxPayload, err = gameEndedOutboxPayloadFn(payload)
 			if err != nil {
 				r.logger.Error("marshal game ended outbox payload", "error", err)
 			}
@@ -77,7 +85,11 @@ func (r *Room) enqueueGameResultAsync() {
 			payload:   payloadJSON,
 			outbox:    outboxPayload,
 		}
-		go r.runGameResultJob(job)
+		r.asyncWg.Add(1)
+		go func() {
+			defer r.asyncWg.Done()
+			r.runGameResultJob(job)
+		}()
 	}
 }
 
@@ -112,7 +124,9 @@ func (r *Room) createGameSessionAsync(session *domain.GameSession) {
 	if r.store == nil || session == nil {
 		return
 	}
+	r.asyncWg.Add(1)
 	go func() {
+		defer r.asyncWg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
 		defer cancel()
 		if err := r.store.CreateGameSession(ctx, session); err != nil {

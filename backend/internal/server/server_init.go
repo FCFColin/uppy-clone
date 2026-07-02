@@ -16,9 +16,12 @@ import (
 	"github.com/uppy-clone/backend/internal/worker"
 )
 
+// newPostgresStoreFn is replaceable in unit tests to inject pgxmock-backed stores.
+var newPostgresStoreFn = store.NewPostgresStore
+
 // initDB connects to PostgreSQL and runs migrations.
 func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.PostgresStore, error) {
-	db, err := store.NewPostgresStore(cfg.DatabaseURL, timeouts)
+	db, err := newPostgresStoreFn(cfg.DatabaseURL, timeouts)
 	if err != nil {
 		slog.Error("failed to connect to PostgreSQL", "error", err)
 		return nil, err
@@ -37,9 +40,12 @@ func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.Postg
 	return db, nil
 }
 
+// newRedisStoreFn is replaceable in unit tests.
+var newRedisStoreFn = store.NewRedisStore
+
 // initRedis connects to Redis.
 func initRedis(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.RedisStore, error) {
-	redis, err := store.NewRedisStore(cfg.RedisURL, timeouts)
+	redis, err := newRedisStoreFn(cfg.RedisURL, timeouts)
 	if err != nil {
 		slog.Error("failed to connect to Redis", "error", err)
 		return nil, err
@@ -59,27 +65,24 @@ func initHub(db *store.PostgresStore, redis *store.RedisStore, timeouts appConfi
 	return hub
 }
 
+func startWorker(ctx context.Context, name string, fn func(context.Context)) {
+	go fn(ctx)
+	slog.Info(name + " worker started")
+}
+
 // startWorkers starts async workers (EmailWorker, GameResultWorker, Outbox Publisher).
 // 企业为何需要：异步架构将慢操作（邮件发送、DB批量写入、事件发布）从请求热路径移出，提升响应延迟。
 func startWorkers(ctx context.Context, cfg *handler.Config, redis *store.RedisStore, db *store.PostgresStore, timeouts appConfig.TimeoutConfig) {
 	if cfg.ResendAPIKey != "" {
-		emailWorker := worker.NewEmailWorker(redis.Client(), cfg.ResendAPIKey, cfg.EmailFrom, timeouts)
-		go emailWorker.Start(ctx)
-		slog.Info("email worker started")
+		startWorker(ctx, "email worker", worker.NewEmailWorker(redis.Client(), cfg.ResendAPIKey, cfg.EmailFrom, timeouts).Start)
 	}
 
-	gameResultWorker := worker.NewGameResultWorker(redis.Client(), db.Pool())
-	go gameResultWorker.Start(ctx)
-	slog.Info("game result worker started")
-
-	outboxPublisher := outbox.NewPublisher(db.Pool(), redis.Client())
-	go outboxPublisher.Start(ctx)
-	slog.Info("outbox publisher started")
+	startWorker(ctx, "game result worker", worker.NewGameResultWorker(redis.Client(), db.Pool()).Start)
+	startWorker(ctx, "outbox publisher", outbox.NewPublisher(db.Pool(), redis.Client()).Start)
 
 	retentionDays := getEnvInt("GDPR_RETENTION_DAYS", 30)
 	cleanupInterval := time.Duration(getEnvInt("GDPR_CLEANUP_INTERVAL_HOURS", 24)) * time.Hour
-	gdprWorker := worker.NewGDPRCleanupWorker(db, retentionDays, cleanupInterval)
-	go gdprWorker.Start(ctx)
+	startWorker(ctx, "gdpr cleanup worker", worker.NewGDPRCleanupWorker(db, retentionDays, cleanupInterval).Start)
 	slog.Info("gdpr cleanup worker started", "retention_days", retentionDays)
 }
 

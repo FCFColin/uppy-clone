@@ -18,8 +18,13 @@ func (m *JWTManager) VerifyToken(tokenStr string) (userID, nickname, jti string,
 	return
 }
 
+type jwtParseFunc func(string, jwt.Claims, jwt.Keyfunc, ...jwt.ParserOption) (*jwt.Token, error)
+
+// jwtParseWithClaimsFn is injectable for unit tests (e.g. invalid claims paths).
+var jwtParseWithClaimsFn jwtParseFunc = jwt.ParseWithClaims
+
 func (m *JWTManager) verifyWithKey(tokenStr string, key []byte) (userID, nickname, jti string, err error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &customClaims{}, func(t *jwt.Token) (interface{}, error) {
+	token, err := jwtParseWithClaimsFn(tokenStr, &customClaims{}, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}

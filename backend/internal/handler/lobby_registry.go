@@ -18,6 +18,9 @@ import (
 	"github.com/uppy-clone/backend/internal/metrics"
 )
 
+// jsonMarshalFn is replaceable in unit tests (ListLobbies response encoding).
+var jsonMarshalFn = json.Marshal
+
 type registryRoomParams struct {
 	emptyKey      string
 	emptyVal      string
@@ -163,7 +166,7 @@ func (h *LobbyHandler) ListLobbies(w http.ResponseWriter, r *http.Request) {
 		"has_more":    result.HasMore,
 		"next_cursor": result.NextCursor,
 	}
-	bodyBytes, err := json.Marshal(response)
+	bodyBytes, err := jsonMarshalFn(response)
 	if err != nil {
 		slog.Warn("ListLobbies: failed to marshal response", "error", err)
 		writeDegradedLobbyList(w)

@@ -28,9 +28,17 @@ var shutdownSignals = func() <-chan os.Signal {
 	return done
 }
 
+// initTracerFn is replaceable in unit tests.
+var initTracerFn = telemetry.InitTracer
+
+// serverShutdownFn is replaceable in unit tests (http.Server.Shutdown).
+var serverShutdownFn = func(srv *http.Server, ctx context.Context) error {
+	return srv.Shutdown(ctx)
+}
+
 func runServer(logger *slog.Logger) error {
 	ctx := context.Background()
-	shutdown, err := telemetry.InitTracer(ctx, "balloon-game", "1.0.0")
+	shutdown, err := initTracerFn(ctx, "balloon-game", "1.0.0")
 	if err != nil {
 		slog.Error("failed to initialize tracer", "error", err)
 	}
@@ -130,7 +138,7 @@ func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub,
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), appConfig.ShutdownTimeout)
 	defer shutdownCancel()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	if err := serverShutdownFn(srv, shutdownCtx); err != nil {
 		slog.Error("server shutdown error", "error", err)
 	}
 
@@ -138,11 +146,14 @@ func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub,
 	slog.Info("server stopped")
 }
 
+// exitFunc is replaceable in unit tests (Run calls os.Exit on failure).
+var exitFunc = os.Exit
+
 // Run is the application entrypoint invoked from cmd/server/main.go.
 func Run() {
 	logger := initLogger()
 	if err := runServer(logger); err != nil {
 		logger.Error("server failed", "error", err)
-		os.Exit(1)
+		exitFunc(1)
 	}
 }

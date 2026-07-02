@@ -10,7 +10,7 @@ import (
 
 // CleanupLoop 定期清理空房间
 func (h *Hub) CleanupLoop(ctx context.Context) {
-	ticker := time.NewTicker(config.CleanupInterval)
+	ticker := time.NewTicker(cleanupLoopInterval())
 	defer ticker.Stop()
 
 	for {
@@ -47,7 +47,16 @@ func (h *Hub) cleanupOnce() {
 	})
 }
 
+// cleanupIntervalForTest overrides CleanupInterval in unit tests.
+var cleanupIntervalForTest time.Duration
+
+// snapshotRoomCodesHook, when set, replaces snapshotRoomCodes behavior in unit tests.
+var snapshotRoomCodesHook func(*Hub) []string
+
 func (h *Hub) snapshotRoomCodes() []string {
+	if snapshotRoomCodesHook != nil {
+		return snapshotRoomCodesHook(h)
+	}
 	h.mu.RLock()
 	codes := make([]string, 0, len(h.rooms))
 	for code := range h.rooms {
@@ -88,4 +97,11 @@ func allPlayersDisconnectedExpired(players map[string]*domain.PlayerState, now i
 		}
 	}
 	return true
+}
+
+func cleanupLoopInterval() time.Duration {
+	if cleanupIntervalForTest > 0 {
+		return cleanupIntervalForTest
+	}
+	return config.CleanupInterval
 }

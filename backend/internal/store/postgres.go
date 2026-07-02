@@ -40,6 +40,18 @@ type PostgresStore struct {
 	lastAcquireCount    atomic.Value // int64
 }
 
+// pgxNewWithConfigFn is replaceable in unit tests to avoid a live PostgreSQL instance.
+var pgxNewWithConfigFn = func(ctx context.Context, cfg *pgxpool.Config) (pgPool, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("nil pool config")
+	}
+	p, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 // NewPostgresStore creates a connection pool and validates connectivity.
 func NewPostgresStore(connString string, timeouts config.TimeoutConfig) (*PostgresStore, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeouts.PGConnectTimeout)
@@ -50,18 +62,18 @@ func NewPostgresStore(connString string, timeouts config.TimeoutConfig) (*Postgr
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	poolConfig.MaxConns = int32(getEnvInt("PG_POOL_MAX_CONNS", 25)) //nolint:gosec
-	poolConfig.MinConns = int32(getEnvInt("PG_POOL_MIN_CONNS", 5))  //nolint:gosec
-	poolConfig.MaxConnLifetime = getEnvDuration("PG_POOL_MAX_CONN_LIFETIME", 30*time.Minute)
-	poolConfig.MaxConnIdleTime = getEnvDuration("PG_POOL_MAX_CONN_IDLE_TIME", 5*time.Minute)
-	poolConfig.HealthCheckPeriod = getEnvDuration("PG_POOL_HEALTH_CHECK_PERIOD", 30*time.Second)
+	poolConfig.MaxConns = int32(config.GetEnvIntPositive("PG_POOL_MAX_CONNS", 25)) //nolint:gosec:G115
+	poolConfig.MinConns = int32(config.GetEnvIntPositive("PG_POOL_MIN_CONNS", 5))  //nolint:gosec:G115
+	poolConfig.MaxConnLifetime = config.GetEnvDuration("PG_POOL_MAX_CONN_LIFETIME", 30*time.Minute)
+	poolConfig.MaxConnIdleTime = config.GetEnvDuration("PG_POOL_MAX_CONN_IDLE_TIME", 5*time.Minute)
+	poolConfig.HealthCheckPeriod = config.GetEnvDuration("PG_POOL_HEALTH_CHECK_PERIOD", 30*time.Second)
 
 	poolConfig.PrepareConn = func(_ context.Context, _ *pgx.Conn) (bool, error) {
 		metrics.DBPoolAcquireCount.Inc()
 		return true, nil
 	}
 
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	pool, err := pgxNewWithConfigFn(ctx, poolConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)
 	}
@@ -104,6 +116,18 @@ func (s *PostgresStore) PoolStats() *pgxpool.Stat {
 	return nil
 }
 
+// runMigrationsFn is replaceable in unit tests to avoid a live PostgreSQL instance.
+var runMigrationsFn = migrateutil.RunMigrations
+
+// SetRunMigrationsHook replaces RunMigrations behavior in unit tests; returns restore.
+func SetRunMigrationsHook(fn func(context.Context, string, string) error) func() {
+	orig := runMigrationsFn
+	if fn != nil {
+		runMigrationsFn = fn
+	}
+	return func() { runMigrationsFn = orig }
+}
+
 // RunMigrations applies all pending migrations from the given directory.
 func (s *PostgresStore) RunMigrations(migrationsPath string) error {
 	p, ok := s.pool.(*pgxpool.Pool)
@@ -111,7 +135,7 @@ func (s *PostgresStore) RunMigrations(migrationsPath string) error {
 		return fmt.Errorf("migrations require a real pgxpool connection")
 	}
 	ctx := context.Background()
-	if err := migrateutil.RunMigrations(ctx, p.Config().ConnString(), migrationsPath); err != nil {
+	if err := runMigrationsFn(ctx, p.Config().ConnString(), migrationsPath); err != nil {
 		return err
 	}
 	return nil

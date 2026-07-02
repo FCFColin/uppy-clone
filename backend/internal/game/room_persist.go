@@ -29,7 +29,7 @@ func (r *Room) saveStateWithError() error {
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
 	defer cancel()
 
-	data, err := SerializeState(r.state)
+	data, err := serializeStateFn(r.state)
 	if err != nil {
 		return fmt.Errorf("serialize state: %w", err)
 	}

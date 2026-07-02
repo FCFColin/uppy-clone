@@ -28,7 +28,7 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u *domain.User) error {
 		return err
 	}
 
-	outboxPayload, err := json.Marshal(map[string]interface{}{
+	outboxPayload, err := jsonMarshalFn(map[string]interface{}{
 		"event_type": "user.created",
 		"user_id":    u.ID,
 		"email":      u.Email,
@@ -74,6 +74,8 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u *domain.User) error {
 	logUserCreateAudit(ctx, u)
 	return nil
 }
+
+var jsonMarshalFn = json.Marshal
 
 func logUserCreateAudit(ctx context.Context, u *domain.User) {
 	audit.Log(ctx, audit.AuditEntry{

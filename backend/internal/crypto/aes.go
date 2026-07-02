@@ -58,6 +58,22 @@ func MustInitFromEnv() {
 	}
 }
 
+// ResetKeyForTest clears the module encryption key. For tests only.
+func ResetKeyForTest() {
+	encKey = nil
+}
+
+// SetEncKeyForTest sets a raw encryption key. For tests only.
+func SetEncKeyForTest(key []byte) {
+	encKey = key
+}
+
+// aesRandRead is injectable for unit tests (e.g. simulate crypto/rand failures).
+var aesRandRead = rand.Read
+
+// aesNewGCM is injectable for unit tests (e.g. simulate cipher.NewGCM failures).
+var aesNewGCM = cipher.NewGCM
+
 // Encrypt encrypts plaintext using AES-256-GCM and returns versioned hex-encoded ciphertext.
 // Output format: "v1:hex_ciphertext" for versioned key rotation support.
 // 企业为何需要：版本前缀允许未来密钥轮换时区分新旧密文，批量重新加密可按版本筛选。
@@ -70,13 +86,13 @@ func Encrypt(plaintext string) (string, error) {
 		return "", fmt.Errorf("create cipher: %w", err)
 	}
 
-	gcm, err := cipher.NewGCM(block)
+	gcm, err := aesNewGCM(block)
 	if err != nil {
 		return "", fmt.Errorf("create GCM: %w", err)
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
+	if _, err := aesRandRead(nonce); err != nil {
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
 
@@ -107,7 +123,7 @@ func Decrypt(encoded string) (string, error) {
 		return "", fmt.Errorf("create cipher: %w", err)
 	}
 
-	gcm, err := cipher.NewGCM(block)
+	gcm, err := aesNewGCM(block)
 	if err != nil {
 		return "", fmt.Errorf("create GCM: %w", err)
 	}

@@ -156,3 +156,11 @@ func (s *PostgresStore) GetGameResultsByUserID(ctx context.Context, userID strin
 	}
 	return results, nil
 }
+
+// InsertSeedGameResult inserts a dev seed game result (idempotent on id conflict).
+func (s *PostgresStore) InsertSeedGameResult(ctx context.Context, result *domain.GameResult) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
+		result.ID, result.SessionID, result.UserID, result.ScoreContribution, result.TapsCount, result.CreatedAt)
+	return err
+}

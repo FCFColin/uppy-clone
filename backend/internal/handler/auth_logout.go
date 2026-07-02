@@ -5,14 +5,10 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/metrics"
 )
 
 // Logout handles POST /api/v1/auth/logout
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	rec, w := metrics.BeginAuth("logout", w)
-	defer rec.End()
-
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 	}

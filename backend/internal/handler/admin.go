@@ -88,8 +88,15 @@ func maskSensitiveFields(cfg map[string]interface{}) map[string]interface{} {
 	return masked
 }
 
+// signAdminTokenFn is replaceable in unit tests to simulate signing failures.
+var signAdminTokenFn = (*AdminHandler).signAdminTokenImpl
+
 // signAdminToken creates an admin JWT with 30-minute expiry.
 func (h *AdminHandler) signAdminToken() (string, error) {
+	return signAdminTokenFn(h)
+}
+
+func (h *AdminHandler) signAdminTokenImpl() (string, error) {
 	now := time.Now()
 	jti := uuid.NewString()
 	claims := adminClaims{

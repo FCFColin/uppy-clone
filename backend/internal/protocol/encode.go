@@ -38,24 +38,21 @@ func EncodeSnapshot(phase GamePhase, tickCount uint32, score uint32, balloon Bal
 	var b2 [2]byte
 
 	buf.WriteByte(MsgSnapshot)
-	le.PutUint32(b4[:], tickCount)
-	buf.Write(b4[:])
-	le.PutUint32(b4[:], score)
-	buf.Write(b4[:])
+	writeUint32(buf, b4[:], tickCount)
+	writeUint32(buf, b4[:], score)
 	buf.WriteByte(PhaseToCode(phase))
 
 	encodeBalloon(buf, b4[:], balloon)
 	encodeBird(buf, b4[:], bird)
 	encodeGhost(buf, b4[:], b2[:], ghost)
 
-	buf.WriteByte(uint8(len(players))) //nolint:gosec // players count bounded by MaxPlayersPerRoom(50) < 256
+	buf.WriteByte(uint8(len(players))) //nolint:gosec:G115 // players count bounded by MaxPlayersPerRoom(50) < 256
 	encodePlayers(buf, b2[:], b4[:], players)
 
 	buf.WriteByte(uint8(len(ripples)))
 	encodeRipples(buf, b2[:], b4[:], ripples)
 
-	le.PutUint32(b4[:], math.Float32bits(float32(wind)))
-	buf.Write(b4[:])
+	writeUint32(buf, b4[:], math.Float32bits(float32(wind)))
 
 	// Copy out the result because the pool buffer will be reused by subsequent
 	// EncodeSnapshot calls. The returned slice outlives this function (it is
@@ -83,26 +80,30 @@ func calcSnapshotSize(bird BirdState, players []PlayerState, ripples []Ripple) i
 	return size
 }
 
+func writeUint32(buf *bytes.Buffer, b4 []byte, v uint32) {
+	le.PutUint32(b4, v)
+	buf.Write(b4)
+}
+
+func writeUint16(buf *bytes.Buffer, b2 []byte, v uint16) {
+	le.PutUint16(b2, v)
+	buf.Write(b2)
+}
+
 // encodeBalloon writes the balloon state to the buffer.
 func encodeBalloon(buf *bytes.Buffer, b4 []byte, balloon BalloonState) {
-	le.PutUint32(b4, math.Float32bits(balloon.X))
-	buf.Write(b4)
-	le.PutUint32(b4, math.Float32bits(balloon.Y))
-	buf.Write(b4)
-	le.PutUint32(b4, math.Float32bits(balloon.Vy))
-	buf.Write(b4)
-	le.PutUint32(b4, math.Float32bits(balloon.Vx))
-	buf.Write(b4)
+	writeUint32(buf, b4, math.Float32bits(balloon.X))
+	writeUint32(buf, b4, math.Float32bits(balloon.Y))
+	writeUint32(buf, b4, math.Float32bits(balloon.Vy))
+	writeUint32(buf, b4, math.Float32bits(balloon.Vx))
 }
 
 // encodeBird writes the bird state to the buffer.
 func encodeBird(buf *bytes.Buffer, b4 []byte, bird BirdState) {
 	if bird.Active {
 		buf.WriteByte(1)
-		le.PutUint32(b4, math.Float32bits(bird.X))
-		buf.Write(b4)
-		le.PutUint32(b4, math.Float32bits(bird.Y))
-		buf.Write(b4)
+		writeUint32(buf, b4, math.Float32bits(bird.X))
+		writeUint32(buf, b4, math.Float32bits(bird.Y))
 	} else {
 		buf.WriteByte(0)
 	}
@@ -115,25 +116,18 @@ func encodeGhost(buf *bytes.Buffer, b4 []byte, b2 []byte, ghost GhostState) {
 	} else {
 		buf.WriteByte(0)
 	}
-	le.PutUint32(b4, math.Float32bits(ghost.X))
-	buf.Write(b4)
-	le.PutUint32(b4, math.Float32bits(ghost.Y))
-	buf.Write(b4)
-	le.PutUint16(b2, ghost.RepelTimer)
-	buf.Write(b2)
+	writeUint32(buf, b4, math.Float32bits(ghost.X))
+	writeUint32(buf, b4, math.Float32bits(ghost.Y))
+	writeUint16(buf, b2, ghost.RepelTimer)
 }
 
 // encodePlayers writes all player states to the buffer.
 func encodePlayers(buf *bytes.Buffer, b2 []byte, b4 []byte, players []PlayerState) {
 	for _, p := range players {
-		le.PutUint16(b2, p.PlayerIndex)
-		buf.Write(b2)
-		le.PutUint32(b4, p.CooldownMs)
-		buf.Write(b4)
-		le.PutUint32(b4, p.Palette)
-		buf.Write(b4)
-		le.PutUint32(b4, p.ScoreContribution)
-		buf.Write(b4)
+		writeUint16(buf, b2, p.PlayerIndex)
+		writeUint32(buf, b4, p.CooldownMs)
+		writeUint32(buf, b4, p.Palette)
+		writeUint32(buf, b4, p.ScoreContribution)
 		nickBytes := []byte(p.Nickname)
 		buf.WriteByte(uint8(len(nickBytes)))
 		buf.Write(nickBytes)
@@ -143,12 +137,9 @@ func encodePlayers(buf *bytes.Buffer, b2 []byte, b4 []byte, players []PlayerStat
 // encodeRipples writes all ripple states to the buffer.
 func encodeRipples(buf *bytes.Buffer, b2 []byte, b4 []byte, ripples []Ripple) {
 	for _, r := range ripples {
-		le.PutUint16(b2, r.PlayerIndex)
-		buf.Write(b2)
-		le.PutUint32(b4, math.Float32bits(r.X))
-		buf.Write(b4)
-		le.PutUint32(b4, math.Float32bits(r.Y))
-		buf.Write(b4)
+		writeUint16(buf, b2, r.PlayerIndex)
+		writeUint32(buf, b4, math.Float32bits(r.X))
+		writeUint32(buf, b4, math.Float32bits(r.Y))
 	}
 }
 
@@ -214,7 +205,7 @@ func EncodePlayerJoin(playerIndex uint16, nickname string, palette uint32) []byt
 	var buf bytes.Buffer
 	buf.WriteByte(MsgPlayerJoin)
 	_ = binary.Write(&buf, le, playerIndex)
-	buf.WriteByte(uint8(len(nickBytes))) //nolint:gosec // nickname length bounded by MaxNicknameLen
+	buf.WriteByte(uint8(len(nickBytes))) //nolint:gosec:G115 // nickname length bounded by MaxNicknameLen
 	buf.Write(nickBytes)
 	_ = binary.Write(&buf, le, palette)
 	return buf.Bytes()

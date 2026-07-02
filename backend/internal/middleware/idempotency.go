@@ -131,12 +131,15 @@ func SaveIdempotencyResponse(ctx context.Context, rdb *redis.Client, key string,
 		StatusCode: statusCode,
 		Body:       string(body),
 	}
-	data, err := json.Marshal(cached)
+	data, err := idempotencyJSONMarshal(cached)
 	if err != nil {
 		return err
 	}
 	return rdb.Set(ctx, key, data, ttl).Err()
 }
+
+// idempotencyJSONMarshal is injectable for unit tests.
+var idempotencyJSONMarshal = json.Marshal
 
 // GetIdempotencyKey returns the Redis key for storing the idempotent response.
 func GetIdempotencyKey(ctx context.Context) string {

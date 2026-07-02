@@ -41,10 +41,13 @@ func ExternalAPIRetry() retry.Backoff {
 // JitteredBackoff returns a backoff duration with random jitter to prevent
 // thundering herd effect. This is a standalone helper for manual retry loops.
 func JitteredBackoff(base time.Duration, attempt int) time.Duration {
-	backoff := base * time.Duration(1<<uint(attempt))        //nolint:gosec // attempt is bounded by maxRetries
-	jitter := time.Duration(rand.Int64N(int64(backoff) / 2)) //nolint:gosec // jitter uses math/rand intentionally, not security-sensitive
+	backoff := base * time.Duration(1<<uint(attempt))        //nolint:gosec:G115 // attempt is bounded by maxRetries
+	jitter := time.Duration(rand.Int64N(int64(backoff) / 2)) //nolint:gosec:G404 // jitter uses math/rand intentionally, not security-sensitive
 	return backoff + jitter
 }
+
+// pgconnTimeout is replaceable in unit tests (errTimeout is unexported in pgconn).
+var pgconnTimeout = pgconn.Timeout
 
 // isRetryable reports whether an error represents a transient failure that
 // is safe to retry for idempotent operations.
@@ -77,7 +80,7 @@ func isRetryable(err error) bool {
 		return true
 	}
 	// pgconn.Timeout reports whether the error is a timeout (query/connect).
-	if pgconn.Timeout(err) {
+	if pgconnTimeout(err) {
 		return true
 	}
 

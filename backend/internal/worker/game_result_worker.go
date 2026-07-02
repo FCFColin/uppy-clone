@@ -8,15 +8,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// gameResultDB begins transactions for persisting game results.
+type gameResultDB interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
 
 // GameResultWorker consumes game:results Redis Stream and batch-inserts into PostgreSQL.
 // 企业为何需要：游戏结束热路径不应被 PG 写入延迟阻塞，批量写入提升吞吐 10-50x。
 type GameResultWorker struct {
 	rdb *redis.Client
-	db  *pgxpool.Pool
+	db  gameResultDB
 }
 
 // NewGameResultWorker creates a new GameResultWorker.
@@ -101,6 +107,12 @@ func (w *GameResultWorker) processBatch(ctx context.Context, messages []redis.XM
 	}
 }
 
+func (w *GameResultWorker) ackMessage(ctx context.Context, id string) {
+	if w.rdb != nil {
+		w.rdb.XAck(ctx, "game:results", "result-workers", id)
+	}
+}
+
 // processMessage handles a single game result message in its own transaction.
 // 每条消息独立事务，避免一条失败导致整批事务中止（PostgreSQL 行为）。
 // 只有写入成功后才 XAck，保证 at-least-once 语义。
@@ -108,13 +120,18 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 	payloadStr, ok := msg.Values["payload"].(string)
 	if !ok {
 		slog.Error("game result worker: invalid payload", "id", msg.ID)
-		w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
+		w.ackMessage(ctx, msg.ID)
 		return
 	}
 	var payload GameResultPayload
 	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
 		slog.Error("game result worker: unmarshal", "error", err, "id", msg.ID)
-		w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
+		w.ackMessage(ctx, msg.ID)
+		return
+	}
+	if _, err := uuid.Parse(payload.GameID); err != nil {
+		slog.Error("game result worker: invalid game_id", "error", err, "id", msg.ID)
+		w.ackMessage(ctx, msg.ID)
 		return
 	}
 
@@ -153,5 +170,5 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 		return // 不 ACK，等待重试
 	}
 
-	w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
+	w.ackMessage(ctx, msg.ID)
 }

@@ -9,12 +9,14 @@ import (
 // prepareEmailForStorage returns HMAC hash and encrypted email for DB persistence.
 func prepareEmailForStorage(email string) (hash, stored string, err error) {
 	hash = crypto.EmailHMAC(email)
-	stored, err = crypto.EncryptEmailForStorage(email)
+	stored, err = encryptEmailForStorageFn(email)
 	if err != nil {
 		return "", "", fmt.Errorf("encrypt email: %w", err)
 	}
 	return hash, stored, nil
 }
+
+var encryptEmailForStorageFn = crypto.EncryptEmailForStorage
 
 // emailFromStorage decrypts a stored email value (legacy plaintext passes through).
 func emailFromStorage(stored string) (string, error) {

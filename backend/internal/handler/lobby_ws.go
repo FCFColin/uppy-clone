@@ -58,7 +58,9 @@ func (h *LobbyHandler) upgradeWSConnection(w http.ResponseWriter, r *http.Reques
 	reqUpgrader := websocket.Upgrader{
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
-		CheckOrigin:     func(_ *http.Request) bool { return true },
+		CheckOrigin: func(r *http.Request) bool {
+			return appMiddleware.IsOriginAllowed(r.Header.Get("Origin"), h.allowedOrigins)
+		},
 	}
 	conn, err := reqUpgrader.Upgrade(w, r, nil)
 	if err != nil {

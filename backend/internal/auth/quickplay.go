@@ -69,10 +69,6 @@ func QuickPlay(db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshT
 // and generates a random name if empty.
 func prepareQuickPlayNickname(nickname string) string {
 	nickname = sanitizePlayerName(nickname)
-	runes := []rune(nickname)
-	if len(runes) > config.MaxNicknameLen {
-		nickname = string(runes[:config.MaxNicknameLen])
-	}
 	if nickname == "" {
 		nickname = nicknames.GenerateRandom(nil)
 	}

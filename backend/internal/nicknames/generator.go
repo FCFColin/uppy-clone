@@ -13,30 +13,31 @@ func randomIndex(n int) int {
 		return 0
 	}
 	bigN := big.NewInt(int64(n))
-	r, err := rand.Int(rand.Reader, bigN)
+	r, err := randIntFn(rand.Reader, bigN)
 	if err != nil {
 		return 0
 	}
 	return int(r.Int64())
 }
 
+func pickRandomCombo() string {
+	adj := NicknameAdjectives[randomIndex(len(NicknameAdjectives))]
+	cat := NicknameCategories[randomIndex(len(NicknameCategories))]
+	noun := cat[randomIndex(len(cat))]
+	return adj + noun
+}
+
 // GenerateRandom produces a random nickname from the word pools.
 // If all attempts collide with usedNames, appends #N suffix or falls back to PlayerXXXX.
 func GenerateRandom(usedNames map[string]bool) string {
 	for i := 0; i < 10; i++ {
-		adj := NicknameAdjectives[randomIndex(len(NicknameAdjectives))]
-		cat := NicknameCategories[randomIndex(len(NicknameCategories))]
-		noun := cat[randomIndex(len(cat))]
-		candidate := adj + noun
+		candidate := pickRandomCombo()
 		if !usedNames[candidate] {
 			return candidate
 		}
 	}
 
-	adj := NicknameAdjectives[randomIndex(len(NicknameAdjectives))]
-	cat := NicknameCategories[randomIndex(len(NicknameCategories))]
-	noun := cat[randomIndex(len(cat))]
-	baseName := adj + noun
+	baseName := pickRandomCombo()
 	for i := 2; i < 100; i++ {
 		candidate := baseName + "#" + strconv.Itoa(i)
 		if len(candidate) <= maxNicknameLength && !usedNames[candidate] {

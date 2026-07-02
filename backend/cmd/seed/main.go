@@ -22,6 +22,9 @@ func main() {
 	log.Println("Seed completed: 3 users, 5 game sessions, 10 game results")
 }
 
+// newPostgresStoreFn is replaceable in unit tests.
+var newPostgresStoreFn = store.NewPostgresStore
+
 func runSeed(dbURL string) error {
 	if dbURL == "" {
 		return fmt.Errorf("DATABASE_URL required")
@@ -31,7 +34,7 @@ func runSeed(dbURL string) error {
 	}
 
 	timeouts := config.DefaultTimeoutConfig()
-	db, err := store.NewPostgresStore(dbURL, timeouts)
+	db, err := newPostgresStoreFn(dbURL, timeouts)
 	if err != nil {
 		return fmt.Errorf("connect DB: %w", err)
 	}
@@ -85,7 +88,6 @@ func seedSessions(ctx context.Context, db *store.PostgresStore, now int64) []str
 
 // seedResults inserts 10 game results (2 per session, cycling through users).
 func seedResults(ctx context.Context, db *store.PostgresStore, now int64, users []*domain.User, sessionIDs []string) {
-	pool := db.Pool()
 	for i := 0; i < 10; i++ {
 		sessionIdx := i / 2
 		userIdx := i % len(users)
@@ -103,10 +105,7 @@ func seedResults(ctx context.Context, db *store.PostgresStore, now int64, users 
 			TapsCount:         20 + i*3,
 			CreatedAt:         now - int64(i*60),
 		}
-		_, err := pool.Exec(ctx,
-			`INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
-			result.ID, result.SessionID, result.UserID, result.ScoreContribution, result.TapsCount, result.CreatedAt)
-		if err != nil {
+		if err := db.InsertSeedGameResult(ctx, result); err != nil {
 			log.Printf("create game result %d: %v (may already exist)", i, err)
 		}
 	}
