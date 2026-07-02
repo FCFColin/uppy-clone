@@ -42,7 +42,7 @@ test-all: test test-integration
 	cd frontend && npm test
 
 test-cover:
-	cd backend && go test $$(go list ./internal/... | grep -v /internal/testutil) -short -p 1 -coverprofile=unit.out -covermode=atomic -timeout 180s
+	cd backend && go test $$(go list ./internal/... | grep -v /internal/testutil | grep -v /internal/testsecrets) -short -p 1 -coverprofile=unit.out -covermode=atomic -timeout 180s
 	cd backend && go test -tags=integration ./tests/integration/... ./internal/outbox/... ./internal/worker/... -p 1 -coverprofile=int.out -covermode=atomic -timeout 180s
 	cd backend && go tool cover -func unit.out
 	bash scripts/ci/check-coverage.sh unit backend/unit.out
@@ -62,9 +62,6 @@ check: lint-all test-cover
 check-fast: lint-all test
 
 ci: check test-containers audit check-repo-layout
-
-sync-alert-rules:
-	bash scripts/ci/sync-alert-rules.sh
 
 check-repo-layout:
 	@bash scripts/ci/check-repo-layout.sh 2>/dev/null || powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/check-repo-layout.ps1

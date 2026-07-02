@@ -8,6 +8,10 @@ resources:
   - prometheus/deployment.yaml
   - alertmanager/config.yaml
   - alertmanager/deployment.yaml
-  - alertmanager/rules-configmap.yaml
   - grafana/datasource.yaml
   - thanos/querier.yaml
+
+configMapGenerator:
+  - name: alertmanager-rules
+    files:
+      - rules.yml=deploy/alertmanager/rules.yml
