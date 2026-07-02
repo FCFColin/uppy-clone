@@ -1,4 +1,4 @@
-import { MAX_SEEN_SEQS } from './constants.js';
+import { MAX_SEEN_SEQS, PHYSICS } from './constants.js';
 import type { InterpBirdPoint, InterpGhostPoint, InterpPoint } from './interp_buffers.js';
 import {
   TELEPORT_THRESHOLD,
@@ -13,8 +13,6 @@ import {
 } from './interp_buffers.js';
 import { state } from './state_types.js';
 
-let prevTick = 0;
-let currTick = 0;
 let currSnapshotAt = 0;
 let prevBalloon: InterpPoint | null = null;
 let currBalloon: InterpPoint = { x: 0.5, y: 0.95 };
@@ -26,14 +24,14 @@ let prevBird: InterpBirdPoint | null = null;
 let currBird: InterpBirdPoint = { x: 0, y: 0, active: false };
 let lastRenderedBalloon: InterpPoint | null = null;
 
-function lerpT(): number {
+function lerpT(now: number): number {
   if (prevBalloon === null) return 1;
-  return Math.max(0, (Date.now() - currSnapshotAt) / TICK_MS);
+  return Math.max(0, (now - currSnapshotAt) / TICK_MS);
 }
 
-function interpolateBalloonPrevCurr(): InterpPoint {
+function interpolateBalloonPrevCurr(now: number): InterpPoint {
   if (prevBalloon === null) return currBalloon;
-  const t = lerpT();
+  const t = lerpT(now);
   const tClamp = Math.min(1, t);
   const pos = {
     x: prevBalloon.x + (currBalloon.x - prevBalloon.x) * tClamp,
@@ -42,13 +40,13 @@ function interpolateBalloonPrevCurr(): InterpPoint {
   if (t > 1) {
     const extraTicks = t - 1;
     pos.x += currBalloonVx * extraTicks;
-    pos.y += currBalloonVy * extraTicks;
+    pos.y += currBalloonVy * extraTicks - 0.5 * PHYSICS.GRAVITY * extraTicks * extraTicks;
   }
   return pos;
 }
 
-function interpolatePointPrevCurr(prev: InterpPoint, curr: InterpPoint): InterpPoint {
-  const t = lerpT();
+function interpolatePointPrevCurr(prev: InterpPoint, curr: InterpPoint, now: number): InterpPoint {
+  const t = lerpT(now);
   const tClamp = Math.min(1, t);
   return {
     x: prev.x + (curr.x - prev.x) * tClamp,
@@ -83,8 +81,6 @@ export function updateInterpolation(tickCount: number): void {
     currBird = { ...newBird };
     currBalloonVx = state.balloon.vx;
     currBalloonVy = state.balloon.vy;
-    prevTick = tickCount;
-    currTick = tickCount;
     currSnapshotAt = Date.now();
     pushAnchors(tickCount);
     return;
@@ -102,8 +98,6 @@ export function updateInterpolation(tickCount: number): void {
     prevBird = { ...currBird };
   }
 
-  prevTick = currTick;
-  currTick = tickCount;
   currBalloon = newBalloon;
   currGhost = newGhost;
   currBird = newBird;
@@ -113,17 +107,17 @@ export function updateInterpolation(tickCount: number): void {
   pushAnchors(tickCount);
 }
 
-function getInterpolatedGhostPrevCurr(): InterpGhostPoint | null {
+function getInterpolatedGhostPrevCurr(now: number): InterpGhostPoint | null {
   if (!currGhost.active) return null;
   if (prevGhost === null) return currGhost;
-  const pos = interpolatePointPrevCurr(prevGhost, currGhost);
+  const pos = interpolatePointPrevCurr(prevGhost, currGhost, now);
   return { x: pos.x, y: pos.y, active: true };
 }
 
-function getInterpolatedBirdPrevCurr(): InterpBirdPoint | null {
+function getInterpolatedBirdPrevCurr(now: number): InterpBirdPoint | null {
   if (!currBird.active) return null;
   if (prevBird === null) return currBird;
-  const pos = interpolatePointPrevCurr(prevBird, currBird);
+  const pos = interpolatePointPrevCurr(prevBird, currBird, now);
   return { x: pos.x, y: pos.y, active: true };
 }
 
@@ -136,8 +130,6 @@ export function resetInterpolation(): void {
   currBird = { x: 0, y: 0, active: false };
   currBalloonVx = 0;
   currBalloonVy = 0;
-  currTick = 0;
-  prevTick = 0;
   currSnapshotAt = 0;
   lastRenderedBalloon = null;
   clearAnchorBuffers();
@@ -152,34 +144,33 @@ export function freezeInterpolation(): void {
   currGhost = { x: state.ghost.x, y: state.ghost.y, active: state.ghost.active };
   prevBird = { x: state.bird.x, y: state.bird.y, active: state.bird.active };
   currBird = { x: state.bird.x, y: state.bird.y, active: state.bird.active };
-  prevTick = currTick;
   lastRenderedBalloon = { x: bx, y: by };
 }
 
-export function getInterpolatedBalloon(): InterpPoint {
+export function getInterpolatedBalloon(now: number = Date.now()): InterpPoint {
   const buffered = tryBalloonFromDelayBuffer();
   if (buffered) return buffered;
-  return interpolateBalloonPrevCurr();
+  return interpolateBalloonPrevCurr(now);
 }
 
-export function getInterpolatedGhost(): InterpGhostPoint | null {
+export function getInterpolatedGhost(now: number = Date.now()): InterpGhostPoint | null {
   if (!currGhost.active) return null;
   const renderTime = getRenderTime();
   const buffered = tryEntityFromDelayBuffer(ghostBuffer, renderTime);
   if (buffered) return { x: buffered.x, y: buffered.y, active: true };
-  return getInterpolatedGhostPrevCurr();
+  return getInterpolatedGhostPrevCurr(now);
 }
 
-export function getInterpolatedBird(): InterpBirdPoint | null {
+export function getInterpolatedBird(now: number = Date.now()): InterpBirdPoint | null {
   if (!currBird.active) return null;
   const renderTime = getRenderTime();
   const buffered = tryEntityFromDelayBuffer(birdBuffer, renderTime);
   if (buffered) return { x: buffered.x, y: buffered.y, active: true };
-  return getInterpolatedBirdPrevCurr();
+  return getInterpolatedBirdPrevCurr(now);
 }
 
-export function commitRenderedState(): void {
-  lastRenderedBalloon = { ...getInterpolatedBalloon() };
+export function commitRenderedState(now: number = Date.now()): void {
+  lastRenderedBalloon = { ...getInterpolatedBalloon(now) };
 }
 
 export const seenSeqs: Set<number> = new Set();

@@ -1134,7 +1134,7 @@ func TestHub_CleanupLoop_RemovesAllDisconnectedExpired(t *testing.T) {
 
 	code, _ := h.CreateRoom(context.Background())
 	room := h.GetRoom(code)
-	disconnectedAt := time.Now().UnixMilli() - protocol.ReconnectGraceMs - 1000
+	disconnectedAt := time.Now().UnixMilli() - domain.ReconnectGraceMs - 1000
 	room.mu.Lock()
 	room.state.Players["p1"] = &domain.PlayerState{
 		ID:             "p1",

@@ -20,9 +20,9 @@ export function pushFloatingText(x: number, y: number, text: string): void {
   floatingTexts.push({ x, y, text, start: now });
 }
 
-export function drawTutorialRangeCircle(): void {
+export function drawTutorialRangeCircle(now: number = Date.now()): void {
   if (!isRangeCircleVisible()) return;
-  const interp = getInterpolatedBalloon();
+  const interp = getInterpolatedBalloon(now);
   const bx = interp.x * $canvas.width;
   const by = (1 - interp.y) * $canvas.height;
   const radius = PHYSICS.TAP_RANGE * Math.min($canvas.width, $canvas.height);
@@ -35,36 +35,51 @@ export function drawTutorialRangeCircle(): void {
   getCtx().setLineDash([]);
 }
 
-export function drawDangerVignettes(): void {
+let _vignetteGradLeft: CanvasGradient | null = null;
+let _vignetteGradRight: CanvasGradient | null = null;
+let _vignetteCachedW = 0;
+
+function _ensureVignetteGradients(ctx: CanvasRenderingContext2D): void {
+  if (!_vignetteGradLeft) {
+    _vignetteGradLeft = ctx.createLinearGradient(0, 0, 8, 0);
+    _vignetteGradLeft.addColorStop(0, 'rgba(233, 69, 96, 0.18)');
+    _vignetteGradLeft.addColorStop(1, 'rgba(233, 69, 96, 0)');
+  }
+  const w = $canvas.width;
+  if (!_vignetteGradRight || _vignetteCachedW !== w) {
+    _vignetteCachedW = w;
+    _vignetteGradRight = ctx.createLinearGradient(w, 0, w - 8, 0);
+    _vignetteGradRight.addColorStop(0, 'rgba(233, 69, 96, 0.18)');
+    _vignetteGradRight.addColorStop(1, 'rgba(233, 69, 96, 0)');
+  }
+}
+
+export function drawDangerVignettes(now: number): void {
   if (state.phase !== 'playing') return;
 
-  const bird = getInterpolatedBird();
+  _ensureVignetteGradients(getCtx());
+
+  const bird = getInterpolatedBird(now);
   if (bird?.active) {
     const edge = bird.x < 0.5 ? 'left' : 'right';
-    const grad = edge === 'left'
-      ? getCtx().createLinearGradient(0, 0, 8, 0)
-      : getCtx().createLinearGradient($canvas.width, 0, $canvas.width - 8, 0);
-    grad.addColorStop(0, 'rgba(233, 69, 96, 0.18)');
-    grad.addColorStop(1, 'rgba(233, 69, 96, 0)');
-    getCtx().fillStyle = grad;
+    getCtx().fillStyle = edge === 'left' ? _vignetteGradLeft! : _vignetteGradRight!;
     getCtx().fillRect(edge === 'left' ? 0 : $canvas.width - 8, 0, 8, $canvas.height);
   }
 
-  const ghost = getInterpolatedGhost();
+  const ghost = getInterpolatedGhost(now);
   if (ghost && ghost.active) {
-    const balloon = getInterpolatedBalloon();
+    const balloon = getInterpolatedBalloon(now);
     const dx = ghost.x - balloon.x;
     const dy = ghost.y - balloon.y;
     const dist = Math.hypot(dx, dy);
     if (dist < 0.12) {
-      getCtx().globalAlpha = 0.85 + 0.15 * Math.sin(Date.now() * 0.008);
+      getCtx().globalAlpha = 0.85 + 0.15 * Math.sin(now * 0.008);
     }
   }
   getCtx().globalAlpha = 1;
 }
 
-export function drawFloatingTexts(): void {
-  const now = Date.now();
+export function drawFloatingTexts(now: number): void {
   for (let i = floatingTexts.length - 1; i >= 0; i--) {
     const ft = floatingTexts[i]!;
     const age = now - ft.start;
@@ -73,11 +88,13 @@ export function drawFloatingTexts(): void {
       continue;
     }
     const alpha = 1 - age / 1500;
-    getCtx().fillStyle = `rgba(204, 204, 204, ${alpha * 0.9})`;
+    getCtx().globalAlpha = alpha * 0.9;
+    getCtx().fillStyle = '#ccc';
     getCtx().font = '13px system-ui, sans-serif';
     getCtx().textAlign = 'center';
     getCtx().fillText(ft.text, ft.x * $canvas.width, (1 - ft.y) * $canvas.height - 20);
   }
+  getCtx().globalAlpha = 1;
 }
 
 export function isLowHeightDanger(): boolean {

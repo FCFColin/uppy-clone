@@ -11,7 +11,7 @@ export { shouldApplySnapshotPhase } from './phase_sync.js';
 
 export function handleSnapshot(view: DataView): void {
   try {
-    if (view.byteLength < 37) {
+    if (view.byteLength < 44) {
       console.warn('[snapshot] message too short, ignoring');
       return;
     }

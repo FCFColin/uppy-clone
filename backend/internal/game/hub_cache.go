@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
@@ -32,7 +33,7 @@ func instanceAddress() string {
 	}
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = config.DefaultPort
 	}
 	return fmt.Sprintf("127.0.0.1:%s", port)
 }

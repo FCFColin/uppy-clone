@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 // HandleSetNickname 处理设置昵称请求
@@ -16,7 +15,7 @@ func HandleSetNickname(_ *domain.GameState, player *domain.PlayerState, nickname
 	now := time.Now().UnixMilli()
 
 	// 首次改名（lastNicknameChange === 0）跳过冷却
-	if player.LastNicknameChange != 0 && now-player.LastNicknameChange < protocol.NicknameCooldownMs {
+	if player.LastNicknameChange != 0 && now-player.LastNicknameChange < domain.NicknameCooldownMs {
 		return false
 	}
 

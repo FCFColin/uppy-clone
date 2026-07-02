@@ -113,13 +113,9 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 	}
 }
 
-// AuthenticatedUserFromRequest returns user info from request context (AuthMiddleware)
-// or from valid session/quickplay JWT cookies on routes without that middleware.
-func AuthenticatedUserFromRequest(r *http.Request, jwtMgr *JWTManager) (userID, nickname string, ok bool) {
-	return authenticatedUserFromCookies(r, jwtMgr, nil)
-}
-
 // AuthenticatedUserFromRequestWithRevocation rejects revoked JWT cookies (logout-safe).
+// Note: A separate AuthenticatedUserFromRequest without revocation was removed (H4)
+// because all callers must check revocation. Use this function with a revoker instead.
 func AuthenticatedUserFromRequestWithRevocation(r *http.Request, jwtMgr *JWTManager, rev JWTRevocationChecker) (userID, nickname string, ok bool) {
 	return authenticatedUserFromCookies(r, jwtMgr, rev)
 }

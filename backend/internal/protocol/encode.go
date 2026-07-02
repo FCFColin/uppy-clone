@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"bytes"
-	"encoding/binary"
 	"math"
 	"sync"
 )
@@ -147,12 +146,19 @@ func encodeRipples(buf *bytes.Buffer, b2 []byte, b4 []byte, ripples []Ripple) {
 //
 // Binary layout: msgType(1) + playerIndex(uint16) + cooldownMs(uint32) + x(float32) + y(float32)
 func EncodeTapAccepted(playerIndex uint16, cooldownMs uint32, balloonX float32, balloonY float32) []byte {
-	var buf bytes.Buffer
+	buf := new(bytes.Buffer)
+	buf.Grow(1 + 2 + 4 + 4 + 4)
 	buf.WriteByte(MsgTapAccepted)
-	_ = binary.Write(&buf, le, playerIndex)
-	_ = binary.Write(&buf, le, cooldownMs)
-	_ = binary.Write(&buf, le, balloonX)
-	_ = binary.Write(&buf, le, balloonY)
+	var b2 [2]byte
+	le.PutUint16(b2[:], playerIndex)
+	buf.Write(b2[:])
+	var b4 [4]byte
+	le.PutUint32(b4[:], cooldownMs)
+	buf.Write(b4[:])
+	le.PutUint32(b4[:], math.Float32bits(balloonX))
+	buf.Write(b4[:])
+	le.PutUint32(b4[:], math.Float32bits(balloonY))
+	buf.Write(b4[:])
 	return buf.Bytes()
 }
 
@@ -171,10 +177,13 @@ func EncodeTapRejected() []byte {
 //   - when phase=ended: + endReason(uint8)
 func EncodeGameStateChange(phase GamePhase, countdownRemainingMs ...uint32) []byte {
 	if phase == PhaseCountdown && len(countdownRemainingMs) > 0 {
-		var buf bytes.Buffer
+		buf := new(bytes.Buffer)
+		buf.Grow(1 + 1 + 4)
 		buf.WriteByte(MsgGameStateChange)
 		buf.WriteByte(PhaseToCode(phase))
-		_ = binary.Write(&buf, le, countdownRemainingMs[0])
+		var b4 [4]byte
+		le.PutUint32(b4[:], countdownRemainingMs[0])
+		buf.Write(b4[:])
 		return buf.Bytes()
 	}
 	return []byte{MsgGameStateChange, PhaseToCode(phase)}
@@ -189,11 +198,14 @@ func EncodeGameStateChangeEnded(endReason uint8) []byte {
 //
 // Binary layout: msgType(1) + yesVotes(uint8) + totalPlayers(uint8) + countdownMs(uint32)
 func EncodeRestartStatus(yesVotes uint8, totalPlayers uint8, countdownMs uint32) []byte {
-	var buf bytes.Buffer
+	buf := new(bytes.Buffer)
+	buf.Grow(1 + 1 + 1 + 4)
 	buf.WriteByte(MsgRestartStatus)
 	buf.WriteByte(yesVotes)
 	buf.WriteByte(totalPlayers)
-	_ = binary.Write(&buf, le, countdownMs)
+	var b4 [4]byte
+	le.PutUint32(b4[:], countdownMs)
+	buf.Write(b4[:])
 	return buf.Bytes()
 }
 
@@ -202,12 +214,17 @@ func EncodeRestartStatus(yesVotes uint8, totalPlayers uint8, countdownMs uint32)
 // Binary layout: msgType(1) + playerIndex(uint16) + nickLen(uint8) + nickname(bytes) + palette(uint32)
 func EncodePlayerJoin(playerIndex uint16, nickname string, palette uint32) []byte {
 	nickBytes := []byte(nickname)
-	var buf bytes.Buffer
+	buf := new(bytes.Buffer)
+	buf.Grow(1 + 2 + 1 + len(nickBytes) + 4)
 	buf.WriteByte(MsgPlayerJoin)
-	_ = binary.Write(&buf, le, playerIndex)
-	buf.WriteByte(uint8(len(nickBytes))) //nolint:gosec:G115 // nickname length bounded by MaxNicknameLen
+	var b2 [2]byte
+	le.PutUint16(b2[:], playerIndex)
+	buf.Write(b2[:])
+	buf.WriteByte(uint8(len(nickBytes))) //nolint:gosec:G115 // nickname length bounded by domain.MaxNicknameLen
 	buf.Write(nickBytes)
-	_ = binary.Write(&buf, le, palette)
+	var b4 [4]byte
+	le.PutUint32(b4[:], palette)
+	buf.Write(b4[:])
 	return buf.Bytes()
 }
 
@@ -215,9 +232,12 @@ func EncodePlayerJoin(playerIndex uint16, nickname string, palette uint32) []byt
 //
 // Binary layout: msgType(1) + playerIndex(uint16)
 func EncodePlayerLeave(playerIndex uint16) []byte {
-	var buf bytes.Buffer
+	buf := new(bytes.Buffer)
+	buf.Grow(1 + 2)
 	buf.WriteByte(MsgPlayerLeave)
-	_ = binary.Write(&buf, le, playerIndex)
+	var b2 [2]byte
+	le.PutUint16(b2[:], playerIndex)
+	buf.Write(b2[:])
 	return buf.Bytes()
 }
 

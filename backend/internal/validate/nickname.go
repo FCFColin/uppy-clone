@@ -4,9 +4,9 @@ package validate
 import (
 	"regexp"
 	"strings"
-
-	"github.com/uppy-clone/backend/internal/protocol"
 )
+
+const maxNicknameLen = 12
 
 var (
 	controlCharsRegex   = regexp.MustCompile(`[\x00-\x1F\x7F-\x9F]`)
@@ -26,7 +26,7 @@ var nicknameInputRejectedRegex = regexp.MustCompile(`[\x00-\x1f<>"'&]`)
 
 // Nickname sanitizes a player nickname.
 // Removes control characters, zero-width chars, HTML special chars,
-// trims whitespace, limits length to protocol.MaxNicknameLen runes, and collapses whitespace.
+// trims whitespace, limits length to maxNicknameLen runes, and collapses whitespace.
 func Nickname(raw string) string {
 	if raw == "" {
 		return ""
@@ -37,8 +37,8 @@ func Nickname(raw string) string {
 	raw = htmlCharsRegex.ReplaceAllString(raw, "")
 	raw = whitespaceRegex.ReplaceAllString(raw, " ")
 	runeSlice := []rune(raw)
-	if len(runeSlice) > protocol.MaxNicknameLen {
-		raw = string(runeSlice[:protocol.MaxNicknameLen])
+	if len(runeSlice) > maxNicknameLen {
+		raw = string(runeSlice[:maxNicknameLen])
 	}
 	return raw
 }

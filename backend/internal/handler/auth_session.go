@@ -89,8 +89,16 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preserve the original cookie name ("session" for magic-link users, "quickplay" for quick-play).
+	// Previously hardcoded "quickplay", causing magic-link users to get a "quickplay" cookie after
+	// their first refresh (C6).
+	cookieName := "session"
+	if _, err := r.Cookie("quickplay"); err == nil {
+		cookieName = "quickplay"
+	}
+
 	secure := auth.IsSecure(r)
-	writeAuthCookies(w, r, auth.BuildAuthCookie("quickplay", result.AccessToken, config.CookieMaxAge, secure), result.RefreshToken)
+	writeAuthCookies(w, r, auth.BuildAuthCookie(cookieName, result.AccessToken, config.CookieMaxAge, secure), result.RefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

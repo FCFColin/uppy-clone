@@ -51,22 +51,21 @@ export function setOnResize(fn: (() => void) | null): void {
   _onResize = fn;
 }
 
-function resolveCtx(): CanvasRenderingContext2D {
-  const c = $canvas.getContext('2d');
-  if (!c) throw new Error('game canvas 2d context unavailable');
-  return c;
-}
+let _ctx: CanvasRenderingContext2D | null = null;
 
 export function getCtx(): CanvasRenderingContext2D {
-  const c = $canvas.getContext('2d');
-  if (!c) throw new Error('game canvas 2d context unavailable');
-  return c;
+  if (!_ctx) {
+    _ctx = $canvas.getContext('2d');
+    if (!_ctx) throw new Error('game canvas 2d context unavailable');
+  }
+  return _ctx;
 }
 
 export function resizeCanvas(): void {
   measureLayoutInsets();
   $canvas.width = layout.width;
   $canvas.height = layout.height;
+  _ctx = null;
   if (document.getElementById('game-canvas')) {
     $canvas.style.top = `${layout.top}px`;
     $canvas.style.bottom = `${layout.bottom}px`;

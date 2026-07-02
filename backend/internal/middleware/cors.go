@@ -48,12 +48,7 @@ func IsOriginAllowed(origin string, allowedOrigins []string) bool {
 // AllowedOriginsFromEnv parses a comma-separated list of origins.
 func AllowedOriginsFromEnv(val string) []string {
 	if val == "" {
-		return []string{
-			"http://localhost:3000",
-			"http://localhost:5173",
-			"http://127.0.0.1:3000",
-			"http://127.0.0.1:5173",
-		}
+		return nil
 	}
 	parts := strings.Split(val, ",")
 	origins := make([]string, 0, len(parts))

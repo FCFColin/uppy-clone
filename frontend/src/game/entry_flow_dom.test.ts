@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const domSetup = vi.hoisted(() => {
+vi.hoisted(() => {
   document.body.innerHTML = `
     <div id="loading-overlay">
       <div class="loading-spinner"></div>

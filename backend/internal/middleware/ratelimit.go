@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,23 @@ import (
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 )
+
+func init() {
+	if v := os.Getenv("RATE_LIMIT_DEFAULT_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg := DefaultEndpointRateLimits["default"]
+			cfg.Requests = n
+			DefaultEndpointRateLimits["default"] = cfg
+		}
+	}
+	if v := os.Getenv("RATE_LIMIT_DEFAULT_WINDOW_SECS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg := DefaultEndpointRateLimits["default"]
+			cfg.Window = time.Duration(n) * time.Second
+			DefaultEndpointRateLimits["default"] = cfg
+		}
+	}
+}
 
 // setRateLimitHeaders writes the RFC 6585 Retry-After header and the optional
 // X-RateLimit-Limit header before a 429 response is emitted.

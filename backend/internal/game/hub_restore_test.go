@@ -11,7 +11,6 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/protocol"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
@@ -225,7 +224,7 @@ func TestHub_subscribeRoom_RemoteBroadcast(t *testing.T) {
 
 func TestAllPlayersDisconnectedExpired(t *testing.T) {
 	now := time.Now().UnixMilli()
-	expired := now - protocol.ReconnectGraceMs - 1000
+	expired := now - domain.ReconnectGraceMs - 1000
 	players := map[string]*domain.PlayerState{
 		"p1": {Disconnected: true, DisconnectedAt: &expired},
 	}

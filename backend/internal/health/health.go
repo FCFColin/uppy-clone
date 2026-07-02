@@ -17,6 +17,7 @@ import (
 // 企业为何需要：readiness 探测不应阻塞过久，否则 K8s 会因 probe timeout 杀死 pod。
 // 500ms 足以检测本地网络内的 PG/Redis，超过则视为不可用（熔断器可能已 open）。
 const healthCheckTimeout = 500 * time.Millisecond
+const unavailableStatus = "unavailable"
 
 // poolPingForTest, when non-nil, replaces pool.Ping in ReadyHandler (unit tests only).
 var poolPingForTest func(context.Context) error
@@ -75,7 +76,7 @@ func (c *Checker) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 			err = c.pool.Ping(ctx)
 		}
 		if err != nil {
-			checks["postgres"] = "unavailable"
+			checks["postgres"] = unavailableStatus
 			pgOK = false
 		} else {
 			checks["postgres"] = "ok"
@@ -87,7 +88,7 @@ func (c *Checker) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), healthCheckTimeout)
 		defer cancel()
 		if err := c.redis.Ping(ctx).Err(); err != nil {
-			checks["redis"] = "unavailable"
+			checks["redis"] = unavailableStatus
 			redisOK = false
 		} else {
 			checks["redis"] = "ok"

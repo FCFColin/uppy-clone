@@ -16,7 +16,7 @@ type RedisConn struct {
 func ParseRedisURL(raw string) (RedisConn, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return RedisConn{Addr: "localhost:6379"}, nil
+		return RedisConn{}, fmt.Errorf("REDIS_URL is empty")
 	}
 	if !strings.HasPrefix(raw, "redis://") && !strings.HasPrefix(raw, "rediss://") {
 		return RedisConn{Addr: raw}, nil

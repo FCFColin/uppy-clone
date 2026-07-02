@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
@@ -40,7 +39,7 @@ func CheckRestartConsensus(room *Room) error {
 	var countdownMs uint32
 	if room.state.RestartTimerStart != nil {
 		elapsed := time.Now().UnixMilli() - *room.state.RestartTimerStart
-		remaining := int64(protocol.RestartTimeoutMs) - elapsed
+		remaining := int64(domain.RestartTimeoutMs) - elapsed
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -68,7 +67,7 @@ func CheckRestartConsensus(room *Room) error {
 		room.state.RestartTimerStart = &now
 		// 设置定时器（通过 tick 循环或外部调度器处理）
 		// 在 Room 中，我们通过设置 endGameAlarm 来处理
-		room.setEndGameAlarm(time.Now().Add(time.Duration(protocol.RestartTimeoutMs) * time.Millisecond))
+		room.setEndGameAlarm(time.Now().Add(time.Duration(domain.RestartTimeoutMs) * time.Millisecond))
 	}
 
 	return nil
@@ -103,22 +102,13 @@ func RestartAndStart(room *Room) error {
 		return nil
 	}
 
-	// P4-6.1: Saga 补偿模式 — 先持久化再广播，失败时回滚内存状态。
-	// 捕获旧状态用于回滚
-	oldState := room.state
-
 	room.state = buildRestartState(room.state.LobbyCode, players, nextPlayerIndex)
 	ResetGameEntities(room.state, RandomSpawnTimer())
 	room.countdownStart = time.Now().UnixMilli()
 
 	room.scheduleCountdownFromNow()
 
-	// 先持久化，成功后再广播。持久化失败时回滚内存状态，不广播不一致的状态。
-	if err := room.saveStateWithError(); err != nil {
-		slog.Error("restart: failed to save state, aborting", "error", err)
-		room.state = oldState
-		return err
-	}
+	room.saveState()
 
 	room.broadcastCountdownPhase()
 

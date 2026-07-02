@@ -134,71 +134,97 @@ type Ripple struct {
 	Y           float32
 }
 
-// ─── 物理常量（必须与 src/types.ts PHYSICS 完全一致） ──────────────
+// ─── 物理常量（由 go generate 自动同步到前端 constants.ts） ──────
+//go:generate go run ../../cmd/gen-frontend-constants
 
 // Physics constants.
 const (
-	Gravity        = 0.0005
-	TapForce       = 0.025
-	TapRange       = 0.35
-	TickRate       = 15 // Hz
-	TickInterval   = 1000.0 / float64(TickRate)
-	MaxPlayers     = 100
-	CountdownTicks = 45  // 3s x 15Hz
-	EndResetTicks  = 450 // 30s x 15Hz
+	// @ts PHYSICS.GRAVITY
+	Gravity = 0.0005
+	// @ts PHYSICS.TAP_FORCE
+	TapForce = 0.025
+	// @ts PHYSICS.TAP_RANGE
+	TapRange = 0.35
+	// @ts PHYSICS.TICK_RATE
+	TickRate = 15 // Hz
+	// @ts PHYSICS.TICK_INTERVAL
+	TickInterval = 1000.0 / float64(TickRate) // ≈66.67ms
+	// @ts PHYSICS.MAX_PLAYERS
+	MaxPlayers = 100
+	// @ts PHYSICS.COUNTDOWN_DURATION
+	CountdownTicks = 45 // 3s x 15Hz
+	// @ts PHYSICS.GAME_RESET_DELAY
+	EndResetTicks = 450 // 30s x 15Hz
+	// @ts PHYSICS.BIRD_SPAWN_MIN
+	BirdSpawnMin = 15 // 1s x 15Hz
+	// @ts PHYSICS.BIRD_SPAWN_MAX
+	BirdSpawnMax = 30 // 2s x 15Hz
+	// @ts PHYSICS.BIRD_SPEED
+	BirdSpeed = 0.003
+	// @ts PHYSICS.BIRD_COLLISION_RADIUS
+	BirdCollisionRadius = 0.035
 
-	BirdSpawnMin        = 15  // 1s x 15Hz
-	BirdSpawnMax        = 30  // 2s x 15Hz
-	BirdSpeed           = 0.003
-	BirdCollisionRadius = 0.05
-
-	GhostSpawnMin             = 15 // 1s x 15Hz
-	GhostSpawnMax             = 30 // 2s x 15Hz
-	GhostSpeed                = 0.002
-	GhostAttractRadius        = 0.4
-	GhostCollisionRadiusX     = 0.05  // matches balloon visual radius for fair collision
-	GhostCollisionRadiusY     = 0.065 // slightly more forgiving vertical
-	GhostRepelRadius          = 0.15
-	GhostRepelDuration        = 30 // 2s x 15Hz
-	GhostRepelForce           = 0.01
+	// @ts PHYSICS.GHOST_SPAWN_MIN
+	GhostSpawnMin = 15 // 1s x 15Hz
+	// @ts PHYSICS.GHOST_SPAWN_MAX
+	GhostSpawnMax = 30 // 2s x 15Hz
+	// @ts PHYSICS.GHOST_SPEED
+	GhostSpeed = 0.002
+	// @ts PHYSICS.GHOST_ATTRACT_RADIUS
+	GhostAttractRadius = 0.4
+	// @ts PHYSICS.GHOST_COLLISION_RADIUS_X
+	GhostCollisionRadiusX = 0.035
+	// @ts PHYSICS.GHOST_COLLISION_RADIUS_Y
+	GhostCollisionRadiusY = 0.045
+	// @ts PHYSICS.GHOST_REPEL_RADIUS
+	GhostRepelRadius = 0.15
+	// @ts PHYSICS.GHOST_REPEL_DURATION
+	GhostRepelDuration = 30 // 2s x 15Hz
+	// @ts PHYSICS.GHOST_REPEL_FORCE
+	GhostRepelForce = 0.01
+	// @ts PHYSICS.GHOST_WANDER_CHANGE_INTERVAL
 	GhostWanderChangeInterval = 30
-	GhostDamage               = 0.015
+	// @ts PHYSICS.GHOST_DAMAGE
+	GhostDamage = 0.015
 
-	WindMax            = 0.0002
-	WindLerpRate       = 0.012
+	// @ts PHYSICS.WIND_MAX
+	WindMax = 0.0002
+	// @ts PHYSICS.WIND_LERP_RATE
+	WindLerpRate = 0.012
+	// @ts PHYSICS.WIND_CHANGE_INTERVAL
 	WindChangeInterval = 225
-	WindJitter         = 0.000025
-	WindMicroInterval  = 10
-	WindMidInterval    = 75
-	WindMidMagnitude   = 0.0002
-	WindClamp          = 0.65
-	WindTargetSpan     = 1.0
-	WindEdgeSoftZone   = 0.12
+	// @ts PHYSICS.WIND_JITTER
+	WindJitter = 0.000025
+	// @ts PHYSICS.WIND_MICRO_INTERVAL
+	WindMicroInterval = 10
+	// @ts PHYSICS.WIND_MID_INTERVAL
+	WindMidInterval = 75
+	// @ts PHYSICS.WIND_MID_MAGNITUDE
+	WindMidMagnitude = 0.0002
+	// @ts PHYSICS.WIND_CLAMP
+	WindClamp = 0.65
+	// @ts PHYSICS.WIND_TARGET_SPAN
+	WindTargetSpan = 1.0
+	// @ts PHYSICS.WIND_EDGE_SOFT_ZONE
+	WindEdgeSoftZone = 0.12
 
+	// @ts PHYSICS.HORIZONTAL_DRAG
 	HorizontalDrag = 0.98
+
+	// @ts PHYSICS.INTERP_DELAY_MS
+	InterpDelayMs = 100
 )
 
-// ─── 冷却公式参数（必须与 src/types.ts COOLDOWN 完全一致） ──────────
+// ─── 冷却公式参数（由 go generate 自动同步到前端） ────────────────
 
 // Cooldown constants.
 const (
-	CooldownBaseMs   = 1000
+	// @ts COOLDOWN.BASE_MS
+	CooldownBaseMs = 1000
+	// @ts COOLDOWN.LOG_COEFFICIENT
 	CooldownLogCoeff = 2032
-	CooldownMaxMs    = 15000
-)
-
-// ─── 游戏逻辑常量 ────────────────────────────────────────────────────
-
-// Score constants.
-const (
-	ScoreToWin         = 100
-	MaxScore           = 9999
-	ReconnectGraceMs   = 30000
-	RestartTimeoutMs   = 30000
-	AutoRestartMs      = 60000
-	MaxNicknameLen     = 12
-	NicknameCooldownMs = 30000
-	MessageRateLimit   = 100 // per minute
+	// @ts COOLDOWN.MAX_MS
+	CooldownMaxMs = 15000
 )
 
 // ─── 调色板颜色（10 色，与客户端 PALETTE_COLORS 对应） ──────────────

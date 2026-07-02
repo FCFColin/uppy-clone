@@ -61,7 +61,7 @@ describe('handleSnapshot', () => {
     mocks.isDuplicateSeq.mockReturnValue(false);
   });
 
-  it('ignores messages shorter than 37 bytes', () => {
+  it('ignores messages shorter than 44 bytes', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     handleSnapshot(new DataView(new ArrayBuffer(10)));
     expect(warn).toHaveBeenCalled();

@@ -7,7 +7,6 @@ import (
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 func TestHandleRestartVote_RecordsVoteInMap(t *testing.T) {
@@ -305,14 +304,14 @@ func TestRestartAndStart_ResetsPlayerStats(t *testing.T) {
 }
 
 func TestRestartProtocolConstants(t *testing.T) {
-	if protocol.RestartTimeoutMs != 30000 {
-		t.Errorf("RestartTimeoutMs = %d, want 30000", protocol.RestartTimeoutMs)
+	if domain.RestartTimeoutMs != 30000 {
+		t.Errorf("RestartTimeoutMs = %d, want 30000", domain.RestartTimeoutMs)
 	}
-	if protocol.MaxNicknameLen != 12 {
-		t.Errorf("MaxNicknameLen = %d, want 12", protocol.MaxNicknameLen)
+	if domain.MaxNicknameLen != 12 {
+		t.Errorf("MaxNicknameLen = %d, want 12", domain.MaxNicknameLen)
 	}
-	if protocol.NicknameCooldownMs != 30000 {
-		t.Errorf("NicknameCooldownMs = %d, want 30000", protocol.NicknameCooldownMs)
+	if domain.NicknameCooldownMs != 30000 {
+		t.Errorf("NicknameCooldownMs = %d, want 30000", domain.NicknameCooldownMs)
 	}
 }
 
@@ -324,14 +323,13 @@ func TestRestartAndStart_SaveError(t *testing.T) {
 	r.state.Phase = domain.PhaseEnded
 	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "P1"}
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-	oldPhase := r.state.Phase
 	err := RestartAndStart(r)
 	r.mu.Unlock()
-	if err == nil {
-		t.Fatal("expected save error")
+	if err != nil {
+		t.Fatalf("RestartAndStart should not return error for async save, got: %v", err)
 	}
-	if r.state.Phase != oldPhase {
-		t.Fatal("state should roll back on save failure")
+	if r.state.Phase != domain.PhaseCountdown {
+		t.Fatalf("state phase = %v, want %v", r.state.Phase, domain.PhaseCountdown)
 	}
 }
 

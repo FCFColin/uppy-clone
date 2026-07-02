@@ -94,6 +94,36 @@ func (r *Room) writePersistJob(job persistJob) {
 	}
 }
 
+// asyncSaveState serializes state and queues a debounced persist outside the tick lock.
+// Unlike requestPersist, this method acquires r.mu internally.
+func (r *Room) asyncSaveState() {
+	if r.store == nil {
+		return
+	}
+	r.mu.Lock()
+	data, err := serializeStateFn(r.state)
+	code := r.state.LobbyCode
+	r.mu.Unlock()
+	if err != nil {
+		r.logger.Error("serialize state for async persist", "error", err)
+		return
+	}
+	r.startPersistLoop()
+	job := persistJob{
+		code:      code,
+		stateJSON: data,
+	}
+	select {
+	case r.persistCh <- job:
+	default:
+	}
+	r.persistMu.RLock()
+	if !r.lastPersistAt.IsZero() {
+		metrics.SetRoomPersistLag(code, time.Since(r.lastPersistAt))
+	}
+	r.persistMu.RUnlock()
+}
+
 // requestPersist queues a debounced persist. Caller must hold r.mu.
 func (r *Room) requestPersist() {
 	if r.store == nil {

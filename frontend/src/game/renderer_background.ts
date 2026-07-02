@@ -7,7 +7,6 @@ import {
   CLOUD_Y_MIN,
   ensureBackgroundInitialized,
   gameImages,
-  initBackground,
   randomCloudY,
   registerStaticCacheInvalidate,
   type Cloud,
@@ -184,7 +183,7 @@ function drawParticles(windDir: number): void {
   }
 }
 
-export function drawBackground(): void {
+export function drawBackground(now: number): void {
   ensureBackgroundInitialized();
   ensureStaticLayer();
 
@@ -192,7 +191,7 @@ export function drawBackground(): void {
     getCtx().drawImage(staticCanvas, 0, 0);
   }
 
-  const time = Date.now() * 0.001;
+  const time = now * 0.001;
   const windDir = state.wind || 0;
 
   drawStars(time);

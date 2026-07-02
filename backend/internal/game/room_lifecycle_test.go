@@ -205,7 +205,7 @@ func TestRoom_CleanupDisconnected_RemovesExpired(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
 
-	disconnectedAt := time.Now().UnixMilli() - protocol.ReconnectGraceMs - 1000 // expired
+	disconnectedAt := time.Now().UnixMilli() - domain.ReconnectGraceMs - 1000 // expired
 	r.mu.Lock()
 	r.state.Players["p1"] = &domain.PlayerState{
 		ID:             "p1",
@@ -436,7 +436,7 @@ func BenchmarkRoom_CleanupDisconnected(b *testing.B) {
 	r.mu.Lock()
 	for i := 0; i < 100; i++ {
 		pid := "p" + string(rune('0'+i%10)) + string(rune('0'+i/10))
-		disconnectedAt := now - protocol.ReconnectGraceMs - 1000
+		disconnectedAt := now - domain.ReconnectGraceMs - 1000
 		r.state.Players[pid] = &domain.PlayerState{
 			ID:             pid,
 			Nickname:       "Player",
@@ -646,7 +646,7 @@ func TestCleanupDisconnected(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UnixMilli()
-	grace := int64(protocol.ReconnectGraceMs)
+	grace := int64(domain.ReconnectGraceMs)
 
 	t.Run("removes player past grace period", func(t *testing.T) {
 		room := &Room{

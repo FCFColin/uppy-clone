@@ -48,10 +48,11 @@ function overlayBlocksGameRender(): boolean {
 
 function render(): void {
   try {
+    const now = Date.now();
     getCtx().fillStyle = '#1a1a2e';
     getCtx().fillRect(0, 0, $canvas.width, $canvas.height);
 
-    drawBackground();
+    drawBackground(now);
 
     if (overlayBlocksGameRender()) {
       return;
@@ -59,18 +60,19 @@ function render(): void {
 
     if (state.phase === 'playing' || state.phase === 'ended') {
       if (state.hasReceivedFirstSnapshot) {
-        drawTutorialRangeCircle();
-        drawBalloon();
-        drawBird();
-        drawGhost();
-        drawDangerVignettes();
+        drawTutorialRangeCircle(now);
+        drawBalloon(now);
+        drawBird(now);
+        drawGhost(now);
+        drawDangerVignettes(now);
         if (state.phase === 'playing') {
-          commitRenderedState();
+          commitRenderedState(now);
         }
       }
-      drawRipples();
-      drawFloatingTexts();
-      drawExplosion();
+      const playerMap = new Map(state.players.map(p => [p.playerIndex, p]));
+      drawRipples(now, playerMap);
+      drawFloatingTexts(now);
+      drawExplosion(now);
     }
   } catch (err: unknown) {
     console.error('Render error:', err);

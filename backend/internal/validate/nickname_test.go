@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
-
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 func TestNickname_EmptyString(t *testing.T) {
@@ -27,7 +25,7 @@ func TestNickname_ValidNames(t *testing.T) {
 		{"single char", "A", "A"},
 		{"numbers only", "12345", "12345"},
 		{"spaces inside", "hello world", "hello world"},
-		{"exactly max runes", strings.Repeat("1", protocol.MaxNicknameLen), strings.Repeat("1", protocol.MaxNicknameLen)},
+		{"exactly max runes", strings.Repeat("1", maxNicknameLen), strings.Repeat("1", maxNicknameLen)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -103,16 +101,16 @@ func TestNickname_XSSAttacks(t *testing.T) {
 func TestNickname_LengthTruncation(t *testing.T) {
 	long := strings.Repeat("a", 30)
 	got := Nickname(long)
-	if utf8.RuneCountInString(got) > protocol.MaxNicknameLen {
-		t.Errorf("output has %d runes, max %d", utf8.RuneCountInString(got), protocol.MaxNicknameLen)
+	if utf8.RuneCountInString(got) > maxNicknameLen {
+		t.Errorf("output has %d runes, max %d", utf8.RuneCountInString(got), maxNicknameLen)
 	}
 }
 
 func TestNickname_CJKTruncation(t *testing.T) {
-	input := strings.Repeat("你", protocol.MaxNicknameLen+1)
+	input := strings.Repeat("你", maxNicknameLen+1)
 	got := Nickname(input)
-	if utf8.RuneCountInString(got) != protocol.MaxNicknameLen {
-		t.Errorf("rune count = %d, want %d", utf8.RuneCountInString(got), protocol.MaxNicknameLen)
+	if utf8.RuneCountInString(got) != maxNicknameLen {
+		t.Errorf("rune count = %d, want %d", utf8.RuneCountInString(got), maxNicknameLen)
 	}
 }
 

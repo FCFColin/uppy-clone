@@ -28,7 +28,6 @@ type connTarget struct {
 // startOutboundLoop launches the per-room outbound delivery goroutine (once).
 func (r *Room) startOutboundLoop() {
 	r.outboundOnce.Do(func() {
-		r.outboundCh = make(chan outboundMsg, outboundQueueSize)
 		r.asyncWg.Add(1)
 		go r.runOutboundLoop()
 	})
@@ -38,12 +37,15 @@ func (r *Room) runOutboundLoop() {
 	defer r.asyncWg.Done()
 	for msg := range r.outboundCh {
 		r.deliverOutbound(msg)
-		metrics.SetRoomOutboundQueueDepth(r.state.LobbyCode, len(r.outboundCh))
+		metrics.SetRoomOutboundQueueDepth(r.lobbyCode, len(r.outboundCh))
 	}
 }
 
 // enqueueOutbound queues a broadcast for async delivery. Caller must hold r.mu.
 func (r *Room) enqueueOutbound(payload []byte, excludePlayerID string, critical, skipRedis bool) {
+	if r.outboundClosed.Load() {
+		return
+	}
 	copied := append([]byte(nil), payload...)
 	msg := outboundMsg{
 		payload:         copied,
@@ -56,25 +58,28 @@ func (r *Room) enqueueOutbound(payload []byte, excludePlayerID string, critical,
 		return
 	}
 	r.startOutboundLoop()
-	select {
-	case r.outboundCh <- msg:
-		metrics.SetRoomOutboundQueueDepth(r.state.LobbyCode, len(r.outboundCh))
-	default:
-		if critical {
-			select {
-			case r.outboundCh <- msg:
-				metrics.SetRoomOutboundQueueDepth(r.state.LobbyCode, len(r.outboundCh))
-			case <-time.After(100 * time.Millisecond):
-				metrics.WSMessagesDroppedTotal.WithLabelValues(r.state.LobbyCode).Inc()
-				slog.Warn("critical outbound queue blocked, dropping to avoid room lock hold",
-					"room_code", r.state.LobbyCode)
+	func() {
+		defer func() { recover() }()
+		select {
+		case r.outboundCh <- msg:
+			metrics.SetRoomOutboundQueueDepth(r.lobbyCode, len(r.outboundCh))
+		default:
+			if critical {
+				select {
+				case r.outboundCh <- msg:
+					metrics.SetRoomOutboundQueueDepth(r.lobbyCode, len(r.outboundCh))
+				case <-time.After(100 * time.Millisecond):
+					metrics.WSMessagesDroppedTotal.WithLabelValues(r.lobbyCode).Inc()
+					slog.Warn("critical outbound queue blocked, dropping to avoid room lock hold",
+						"room_code", r.lobbyCode)
+				}
+				return
 			}
-			return
+			metrics.WSMessagesDroppedTotal.WithLabelValues(r.lobbyCode).Inc()
+			slog.Warn("outbound queue full, dropping non-critical message",
+				"room_code", r.lobbyCode)
 		}
-		metrics.WSMessagesDroppedTotal.WithLabelValues(r.state.LobbyCode).Inc()
-		slog.Warn("outbound queue full, dropping non-critical message",
-			"room_code", r.state.LobbyCode)
-	}
+	}()
 }
 
 func (r *Room) deliverOutbound(msg outboundMsg) {
@@ -125,11 +130,14 @@ func (r *Room) snapshotConnTargetsLocked(excludePlayerID string) []connTarget {
 
 func (r *Room) deliverToTargets(targets []connTarget, msg outboundMsg) {
 	for _, t := range targets {
-		if msg.critical {
-			r.deliverCritical(t, msg)
-			continue
-		}
-		r.deliverNonCritical(t, msg)
+		func() {
+			defer func() { recover() }()
+			if msg.critical {
+				r.deliverCritical(t, msg)
+				return
+			}
+			r.deliverNonCritical(t, msg)
+		}()
 	}
 }
 
@@ -140,7 +148,7 @@ func (r *Room) deliverCritical(t connTarget, msg outboundMsg) {
 	case <-time.After(100 * time.Millisecond):
 		slog.Error("critical message send timeout",
 			"user_id", t.playerID,
-			"room_code", r.state.LobbyCode)
+			"room_code", r.lobbyCode)
 	}
 }
 
@@ -149,7 +157,7 @@ func (r *Room) deliverNonCritical(t connTarget, msg outboundMsg) {
 	case t.send <- msg.payload:
 		*t.consecutiveDrops = 0
 	default:
-		metrics.WSMessagesDroppedTotal.WithLabelValues(r.state.LobbyCode).Inc()
+		metrics.WSMessagesDroppedTotal.WithLabelValues(r.lobbyCode).Inc()
 		*t.consecutiveDrops++
 		r.checkSlowClient(t)
 	}
@@ -161,20 +169,23 @@ func (r *Room) checkSlowClient(t connTarget) {
 		slog.Warn("disconnecting slow client",
 			"user_id", t.playerID,
 			"drops", drops,
-			"room_code", r.state.LobbyCode)
+			"room_code", r.lobbyCode)
 		*t.pendingDisconnect = true
 		t.connClose()
 	} else if drops >= 3 {
 		slog.Warn("slow client: messages being dropped",
 			"user_id", t.playerID,
 			"drops", drops,
-			"room_code", r.state.LobbyCode)
+			"room_code", r.lobbyCode)
 	}
 }
 
 func (r *Room) removePendingDisconnectsLocked() {
 	for pid, pc := range r.connections {
 		if pc != nil && pc.pendingDisconnect {
+			if player, ok := r.state.Players[pid]; ok {
+				player.MarkDisconnected(time.Now().UnixMilli())
+			}
 			delete(r.connections, pid)
 			pc.pendingDisconnect = false
 		}
@@ -188,21 +199,21 @@ func (r *Room) publishBroadcastAsync(data []byte, excludePlayerID string, critic
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	msg := BroadcastMessage{
-		RoomCode:        r.state.LobbyCode,
+		RoomCode:        r.lobbyCode,
 		ExcludePlayer:   excludePlayerID,
 		ExcludeInstance: r.instanceID,
 		Payload:         data,
 		Critical:        critical,
 	}
-	if err := r.broadcaster.Publish(ctx, r.state.LobbyCode, msg); err != nil {
+	if err := r.broadcaster.Publish(ctx, r.lobbyCode, msg); err != nil {
 		r.logger.Warn("redis publish failed, local-only delivery",
 			"error", err,
-			"room", r.state.LobbyCode)
+			"room", r.lobbyCode)
 	}
 }
 
 func (r *Room) stopOutbound() {
-	r.outboundOnce.Do(func() {}) // ensure channel exists
+	r.outboundClosed.Store(true)
 	if r.outboundCh != nil {
 		close(r.outboundCh)
 	}

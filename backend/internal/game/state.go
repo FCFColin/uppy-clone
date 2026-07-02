@@ -12,28 +12,23 @@ import (
 func NewGameState(lobbyCode string) *domain.GameState {
 	spawnTimer := RandomSpawnTimer()
 	ghost := spawnGhost()
-	wind, windTarget := initialWind()
 
-	return &domain.GameState{
-		Phase:               domain.PhaseWaiting,
-		Balloon:             createInitialBalloon(),
-		Bird:                createInitialBird(spawnTimer),
-		Ghost:               ghost,
-		Players:             make(map[string]*domain.PlayerState),
-		NextPlayerIndex:     0,
-		TickCount:           0,
-		StartedAt:           0,
-		SessionID:           "",
-		LobbyCode:           lobbyCode,
-		Wind:                wind,
-		WindTarget:          windTarget,
-		WindChangeCountdown: 112, // 225 的 50%，首次大变化在 7.5s 左右
-		WindMicroCountdown:  10,
-		WindMidCountdown:    75,
-		WindMidOffset:       0,
-		RestartVotes:        make(map[string]bool),
-		RestartTimerStart:   nil,
+	state := &domain.GameState{
+		Phase:             domain.PhaseWaiting,
+		Balloon:           createInitialBalloon(),
+		Bird:              createInitialBird(spawnTimer),
+		Ghost:             ghost,
+		Players:           make(map[string]*domain.PlayerState),
+		NextPlayerIndex:   0,
+		TickCount:         0,
+		StartedAt:         0,
+		SessionID:         "",
+		LobbyCode:         lobbyCode,
+		RestartVotes:      make(map[string]bool),
+		RestartTimerStart: nil,
 	}
+	initWind(state)
+	return state
 }
 
 // ResetGameEntities 重置游戏实体（气球、鸟、幽灵），保留玩家列表
@@ -43,14 +38,7 @@ func ResetGameEntities(state *domain.GameState, spawnTimer int) {
 	state.Ghost = spawnGhost()
 	state.TickCount = 0
 
-	// 重置风场（游戏开始即有初始风速和风向）
-	wind, windTarget := initialWind()
-	state.Wind = wind
-	state.WindTarget = windTarget
-	state.WindChangeCountdown = 112
-	state.WindMicroCountdown = 10
-	state.WindMidCountdown = 75
-	state.WindMidOffset = 0
+	initWind(state)
 
 	// 重置重启投票
 	state.RestartVotes = make(map[string]bool)
@@ -78,6 +66,17 @@ func DeserializeState(data []byte) (*domain.GameState, error) {
 	}
 
 	return &state, nil
+}
+
+// initWind 初始化风场状态（随机风速和风向 + 倒计时）
+func initWind(state *domain.GameState) {
+	wind, windTarget := initialWind()
+	state.Wind = wind
+	state.WindTarget = windTarget
+	state.WindChangeCountdown = 112
+	state.WindMicroCountdown = 10
+	state.WindMidCountdown = 75
+	state.WindMidOffset = 0
 }
 
 // --- 内部辅助函数 ---

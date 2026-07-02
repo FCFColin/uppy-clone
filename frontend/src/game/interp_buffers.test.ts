@@ -74,7 +74,10 @@ describe('interp_buffers', () => {
     );
     vi.setSystemTime(2000 + INTERP_DELAY_MS);
     const point = tryBalloonFromDelayBuffer();
-    expect(point).toEqual({ x: 0.1, y: 0.2 });
+    const ticks = (2000 - 1500) / TICK_MS;
+    const expectedY = 0.2 - 0.5 * 0.0005 * ticks * ticks;
+    expect(point!.x).toBeCloseTo(0.1, 5);
+    expect(point!.y).toBeCloseTo(expectedY, 5);
   });
 
   it('tryBalloonFromDelayBuffer extrapolates past the end anchor', () => {

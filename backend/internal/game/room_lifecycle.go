@@ -265,7 +265,7 @@ func (r *Room) EndGameWithReason(endReason uint8) error {
 	r.broadcastGameEnded(endReason)
 
 	if len(r.connections) > 0 {
-		r.setEndGameAlarm(time.Now().Add(time.Duration(protocol.AutoRestartMs) * time.Millisecond))
+		r.setEndGameAlarm(time.Now().Add(time.Duration(domain.AutoRestartMs) * time.Millisecond))
 	} else {
 		r.state.Phase = domain.PhaseWaiting
 		r.logger.Info("no players, phase reset to waiting")
@@ -289,15 +289,24 @@ func (r *Room) setEndGameAlarm(when time.Time) {
 	if duration < 0 {
 		duration = 0
 	}
+	r.endGameAlarmVersion++
+	capturedVersion := r.endGameAlarmVersion
 	r.endGameTimer = time.AfterFunc(duration, func() {
 		r.mu.Lock()
-		defer r.mu.Unlock()
+		phase := r.state.Phase
+		version := r.endGameAlarmVersion
+		r.mu.Unlock()
 
-		if r.state.Phase == domain.PhaseCountdown {
-			r.handleCountdownEnd()
+		if capturedVersion != version {
 			return
 		}
-		if r.state.Phase == domain.PhaseEnded {
+
+		switch phase {
+		case domain.PhaseCountdown:
+			r.handleCountdownEnd()
+		case domain.PhaseEnded:
+			r.mu.Lock()
+			defer r.mu.Unlock()
 			r.handleAutoRestart()
 		}
 	})
@@ -305,8 +314,12 @@ func (r *Room) setEndGameAlarm(when time.Time) {
 
 // handleCountdownEnd 处理倒计时结束：转为 playing 阶段并启动 tick。
 func (r *Room) handleCountdownEnd() {
+	r.mu.Lock()
+	if r.state.Phase != domain.PhaseCountdown {
+		r.mu.Unlock()
+		return
+	}
 	r.state.Phase = domain.PhasePlaying
-	r.startTick()
 	r.state.TickCount++
 	r.broadcastCritical(protocol.EncodeGameStateChange(protocol.PhasePlaying))
 	r.broadcast(r.buildSnapshot(), "")
@@ -322,6 +335,9 @@ func (r *Room) handleCountdownEnd() {
 		})
 	}
 	r.saveState()
+	r.mu.Unlock()
+
+	r.restartTick()
 }
 
 // handleAutoRestart ended 阶段自动重启。
@@ -342,7 +358,7 @@ func (r *Room) handleAutoRestart() {
 	yesVotes, _ := countRestartYesVotes(r.state.Players, r.state.RestartVotes)
 	if yesVotes > 0 {
 		r.logger.Info("phase=ended but restart votes active, deferring auto-restart by 30s")
-		r.setEndGameAlarm(time.Now().Add(time.Duration(protocol.RestartTimeoutMs) * time.Millisecond))
+		r.setEndGameAlarm(time.Now().Add(time.Duration(domain.RestartTimeoutMs) * time.Millisecond))
 		return
 	}
 

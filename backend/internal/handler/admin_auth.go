@@ -44,6 +44,9 @@ func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
 			slog.Warn("failed to revoke admin jwt on logout", "jti", jti, "error", err)
 		}
+		if err := h.redis.RemoveAdminJTI(ctx, jti); err != nil {
+			slog.Warn("failed to remove admin jti from active set", "jti", jti, "error", err)
+		}
 	}
 
 	secure := auth.IsSecure(r)

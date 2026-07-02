@@ -29,7 +29,7 @@ func (r *Room) HandleMessage(playerID string, msgType byte, payload []byte) erro
 		player.MessageWindowStart = now
 	}
 	player.MessageCount++
-	if player.MessageCount > protocol.MessageRateLimit {
+	if player.MessageCount > domain.MessageRateLimit {
 		r.removeConnectionLocked(playerID)
 		return nil
 	}
@@ -57,22 +57,31 @@ func (r *Room) tick(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if ctx.Err() != nil {
+				return
+			}
 			start := time.Now()
 			r.mu.Lock()
 			r.tickOnce()
+			tickCount := r.state.TickCount
 			recordRoomLock("tick", start)
 			r.mu.Unlock()
+
+			if tickCount > 0 && tickCount%30 == 0 {
+				r.asyncSaveState()
+			}
 		}
 	}
 }
 
 // tickOnce 执行一次 tick 逻辑
 func (r *Room) tickOnce() {
+	now := time.Now().UnixMilli()
+	r.cleanupDisconnected(now)
+
 	if r.state.Phase != domain.PhasePlaying {
 		return
 	}
-
-	r.cleanupDisconnected(time.Now().UnixMilli())
 
 	if !hasAnyConnectedPlayer(r.state.Players) && len(r.state.Players) > 0 {
 		r.stopTick()
@@ -112,10 +121,6 @@ func (r *Room) tickOnce() {
 	}
 
 	r.broadcast(r.buildSnapshot(), "")
-
-	if r.state.TickCount%30 == 0 {
-		r.saveState()
-	}
 }
 
 // startTick 启动 tick 循环
@@ -132,12 +137,45 @@ func (r *Room) startTick() {
 	}()
 }
 
-// stopTick 停止 tick 循环
+// stopTick 停止 tick 循环。调用方须持有 r.mu。
 func (r *Room) stopTick() {
 	if r.tickCancel != nil {
 		r.tickCancel()
 		r.tickCancel = nil
 	}
+}
+
+// restartTick 停止旧 tick 并等待其退出，然后启动新 tick。
+// 调用方不可持有 r.mu。
+func (r *Room) restartTick() {
+	r.mu.Lock()
+	if r.tickCancel == nil {
+		r.wg.Add(1)
+		ctx, cancel := context.WithCancel(context.Background())
+		r.tickCancel = cancel
+		r.mu.Unlock()
+		go func() {
+			defer r.wg.Done()
+			r.tick(ctx)
+		}()
+		return
+	}
+	oldCancel := r.tickCancel
+	r.tickCancel = nil
+	r.mu.Unlock()
+
+	oldCancel()
+	r.wg.Wait()
+
+	r.mu.Lock()
+	r.wg.Add(1)
+	ctx, cancel := context.WithCancel(context.Background())
+	r.tickCancel = cancel
+	r.mu.Unlock()
+	go func() {
+		defer r.wg.Done()
+		r.tick(ctx)
+	}()
 }
 
 // cleanupDisconnected 清理超过 30 秒优雅期的断连玩家

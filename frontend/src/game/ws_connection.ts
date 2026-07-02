@@ -6,7 +6,7 @@ import {
 } from './constants.js';
 import { outboundMessageQueue } from './state.js';
 import {
-  hideReconnectBanner, showReconnectBanner, updatePingDisplay,
+  showReconnectBanner, updatePingDisplay,
   showConnectionError as showConnectionErrorUI, type ConnectionErrorOptions,
 } from './connection_ui.js';
 

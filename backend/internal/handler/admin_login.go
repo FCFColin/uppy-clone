@@ -91,10 +91,16 @@ func (h *AdminHandler) completeAdminLogin(w http.ResponseWriter, r *http.Request
 		RequestID: middleware.GetRequestID(ctx),
 	})
 
-	token, err := h.signAdminToken()
+	token, jti, err := h.signAdminToken()
 	if err != nil {
 		apierror.InternalError("Internal server error").Write(w)
 		return
+	}
+
+	if h.redis != nil && jti != "" {
+		if err := h.redis.AddAdminJTI(ctx, jti, config.AdminTokenTTL); err != nil {
+			slog.Warn("failed to track admin jti", "jti", jti, "error", err)
+		}
 	}
 
 	secure := auth.IsSecure(r)

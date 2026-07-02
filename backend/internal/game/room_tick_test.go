@@ -23,7 +23,7 @@ func TestRoom_HandleMessage_RateLimit(t *testing.T) {
 	r.state.Players["p1"] = &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "TestPlayer",
-		MessageCount:       protocol.MessageRateLimit - 1,
+		MessageCount:       domain.MessageRateLimit - 1,
 		MessageWindowStart: time.Now().UnixMilli(),
 	}
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 64)}
@@ -39,8 +39,8 @@ func TestRoom_HandleMessage_RateLimit(t *testing.T) {
 	r.mu.RLock()
 	count := r.state.Players["p1"].MessageCount
 	r.mu.RUnlock()
-	if count != protocol.MessageRateLimit {
-		t.Fatalf("expected MessageCount=%d, got %d", protocol.MessageRateLimit, count)
+	if count != domain.MessageRateLimit {
+		t.Fatalf("expected MessageCount=%d, got %d", domain.MessageRateLimit, count)
 	}
 }
 
@@ -385,7 +385,7 @@ func TestRoom_HandleMessage_RateLimitDisconnect(t *testing.T) {
 
 	r.mu.Lock()
 	r.state.Players["p1"] = &domain.PlayerState{
-		ID: "p1", MessageCount: protocol.MessageRateLimit,
+		ID: "p1", MessageCount: domain.MessageRateLimit,
 		MessageWindowStart: time.Now().UnixMilli(),
 	}
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4), Conn: conn}

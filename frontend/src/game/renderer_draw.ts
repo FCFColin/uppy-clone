@@ -2,8 +2,24 @@ import { $canvas, getCtx } from './renderer_canvas.js';
 import { gameImages } from './renderer_background.js';
 import { state, getInterpolatedBalloon, getInterpolatedGhost, getInterpolatedBird } from './state.js';
 
-export function drawBalloon(): void {
-  const interp = getInterpolatedBalloon();
+let _cachedBirdSize = 0;
+let _wingGrad: CanvasGradient | null = null;
+let _bodyGrad: CanvasGradient | null = null;
+
+function _ensureBirdGradients(ctx: CanvasRenderingContext2D, size: number): void {
+  if (_cachedBirdSize === size && _wingGrad && _bodyGrad) return;
+  _cachedBirdSize = size;
+  _wingGrad = ctx.createLinearGradient(0, -size * 0.4, 0, size * 0.2);
+  _wingGrad.addColorStop(0, '#e85d04');
+  _wingGrad.addColorStop(1, '#dc2f02');
+  _bodyGrad = ctx.createRadialGradient(-size * 0.15, -size * 0.15, size * 0.05, 0, 0, size * 0.6);
+  _bodyGrad.addColorStop(0, '#ffba08');
+  _bodyGrad.addColorStop(0.6, '#f48c06');
+  _bodyGrad.addColorStop(1, '#e85d04');
+}
+
+export function drawBalloon(now: number = Date.now()): void {
+  const interp = getInterpolatedBalloon(now);
   const bx = interp.x * $canvas.width;
   const by = (1 - interp.y) * $canvas.height;
   const radius = Math.min($canvas.width, $canvas.height) * 0.06;
@@ -45,51 +61,38 @@ export function drawBalloon(): void {
   getCtx().stroke();
 }
 
-export function drawBird(): void {
+export function drawBird(now: number): void {
   const bird = getInterpolatedBird();
   if (!bird || !bird.active) return;
   const bx: number = bird.x * $canvas.width;
   const by: number = (1 - bird.y) * $canvas.height;
   const size: number = Math.min($canvas.width, $canvas.height) * 0.035;
 
-  // 飞行方向：根据水平速度决定朝向
   const vx = state.balloon.x - bird.x;
   const dir = vx >= 0 ? 1 : -1;
 
-  // 翅膀扇动动画（基于时间）
-  const flapPhase = Math.sin(Date.now() * 0.012);
-  const wingY = flapPhase * size * 0.5;
+  const flapPhase = Math.sin(now * 0.012);
+  const wingOffset = flapPhase * size * 0.5;
+
+  _ensureBirdGradients(getCtx(), size);
 
   getCtx().save();
   getCtx().translate(bx, by);
   getCtx().scale(dir, 1);
 
-  // ── 翅膀（后层）──
   getCtx().beginPath();
-  getCtx().ellipse(-size * 0.15, -wingY * 0.6, size * 0.55, size * 0.28, -0.35, 0, Math.PI * 2);
-  const wingGrad: CanvasGradient = getCtx().createLinearGradient(0, -size * 0.4, 0, size * 0.2);
-  wingGrad.addColorStop(0, '#e85d04');
-  wingGrad.addColorStop(1, '#dc2f02');
-  getCtx().fillStyle = wingGrad;
+  getCtx().ellipse(-size * 0.15, -wingOffset, size * 0.55, size * 0.28, -0.35, 0, Math.PI * 2);
+  getCtx().fillStyle = _wingGrad!;
   getCtx().fill();
 
-  // ── 身体 ──
   getCtx().beginPath();
   getCtx().ellipse(0, 0, size * 0.6, size * 0.42, 0, 0, Math.PI * 2);
-  const bodyGrad: CanvasGradient = getCtx().createRadialGradient(
-    -size * 0.15, -size * 0.15, size * 0.05,
-    0, 0, size * 0.6,
-  );
-  bodyGrad.addColorStop(0, '#ffba08');
-  bodyGrad.addColorStop(0.6, '#f48c06');
-  bodyGrad.addColorStop(1, '#e85d04');
-  getCtx().fillStyle = bodyGrad;
+  getCtx().fillStyle = _bodyGrad!;
   getCtx().fill();
 
-  // ── 翅膀（前层，覆盖在身体上）──
   getCtx().beginPath();
-  getCtx().ellipse(size * 0.05, wingY * 0.3, size * 0.45, size * 0.22, 0.3, 0, Math.PI * 2);
-  getCtx().fillStyle = wingGrad;
+  getCtx().ellipse(size * 0.05, -wingOffset, size * 0.45, size * 0.22, 0.3, 0, Math.PI * 2);
+  getCtx().fillStyle = _wingGrad!;
   getCtx().fill();
 
   // ── 尾巴 ──
@@ -124,7 +127,7 @@ export function drawBird(): void {
   getCtx().restore();
 }
 
-export function drawGhost(): void {
+export function drawGhost(now: number): void {
   const interpGhost = getInterpolatedGhost();
   if (!interpGhost) return;
   const radius: number = Math.min($canvas.width, $canvas.height) * 0.035;
@@ -144,7 +147,7 @@ export function drawGhost(): void {
       getCtx().beginPath();
       getCtx().arc(gx, gy, size * 0.7, 0, Math.PI * 2);
       getCtx().fill();
-      const flash: boolean = Math.sin(Date.now() * 0.02) > 0;
+      const flash: boolean = Math.sin(now * 0.02) > 0;
       getCtx().globalAlpha = flash ? 0.6 : 1;
     }
     getCtx().drawImage(gameImages['ghost']!.img, gx - size / 2, gy - size / 2, size, size);

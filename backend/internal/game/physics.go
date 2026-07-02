@@ -1,25 +1,15 @@
 package game
 
 import (
-	"crypto/rand"
 	"math"
-	"math/big"
+	"math/rand/v2"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-// ─── 数学常量 ────────────────────────────────────────────────────────
-
-// bigOneShift53 is cached to avoid allocating a new big.Int on every randFloat64 call.
-var bigOneShift53 = big.NewInt(1 << 53)
-
 func randFloat64() float64 {
-	n, err := randIntFn(rand.Reader, bigOneShift53)
-	if err != nil {
-		return 0
-	}
-	return float64(n.Int64()) / float64(1<<53)
+	return rand.Float64()
 }
 
 // ApplyPhysics 应用气球物理，返回 gameOver 标志
@@ -118,41 +108,6 @@ func UpdateWind(state *domain.GameState) {
 	state.Balloon.VX += state.Wind * protocol.WindMax * windScale
 }
 
-// ─── 工具函数 ────────────────────────────────────────────────────────
 
-// RandomSpawnTimer 生成随机鸟生成倒计时
-func RandomSpawnTimer() int {
-	lo := protocol.BirdSpawnMin
-	hi := protocol.BirdSpawnMax
-	return min(int(randFloat64()*float64(hi-lo+1))+lo, hi)
-}
 
-// CalculateCooldown 对数冷却公式
-//
-//	cooldown_ms(N) = min(15000, round(1500 + 2032 · log₂(max(1, N))))
-func CalculateCooldown(playerCount int) int64 {
-	return int64(min(
-		int(math.Round(float64(protocol.CooldownBaseMs)+float64(protocol.CooldownLogCoeff)*math.Log2(max(1, float64(playerCount))))),
-		protocol.CooldownMaxMs,
-	))
-}
 
-// roomAlphabet is the character set used for room codes.
-const roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-
-// alphabetLen is cached to avoid allocating a new big.Int on every GenerateRoomCode call.
-var alphabetLen = big.NewInt(int64(len(roomAlphabet)))
-
-// GenerateRoomCode 生成 5 字符房间码
-func GenerateRoomCode() string {
-	code := make([]byte, 5)
-	for i := 0; i < 5; i++ {
-		r, err := randIntFn(rand.Reader, alphabetLen)
-		if err != nil {
-			code[i] = roomAlphabet[0]
-			continue
-		}
-		code[i] = roomAlphabet[r.Int64()]
-	}
-	return string(code)
-}

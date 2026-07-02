@@ -1,6 +1,8 @@
 import { PHYSICS } from './constants.js';
 import { state } from './state_types.js';
 
+
+
 export const TICK_MS: number = PHYSICS.TICK_INTERVAL;
 export const INTERP_DELAY_MS: number = PHYSICS.INTERP_DELAY_MS;
 export const MAX_SNAPSHOT_BUFFER = 12;
@@ -101,7 +103,7 @@ export function tryBalloonFromDelayBuffer(): InterpPoint | null {
   const b = balloonBuffer[i + 1];
   if (!b) {
     const ticks = (renderTime - a.receivedAt) / TICK_MS;
-    return { x: a.x + a.vx * ticks, y: a.y + a.vy * ticks };
+    return { x: a.x + a.vx * ticks, y: a.y + a.vy * ticks - 0.5 * PHYSICS.GRAVITY * ticks * ticks };
   }
 
   const span = b.receivedAt - a.receivedAt;

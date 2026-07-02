@@ -3,13 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/apierror"
-	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/middleware"
@@ -128,10 +125,10 @@ func (h *AdminHandler) applyConfigUpdates(ctx context.Context, w http.ResponseWr
 		}
 		storedConfig["admin_password"] = hashed
 		AuditPasswordChange(ctx, middleware.ExtractClientIP(r))
-		if jti := auth.GetJTI(r); jti != "" && h.redis != nil {
-			if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
-				slog.Warn("failed to revoke admin jwt after password change", "jti", jti, "error", err)
-			}
+
+		// Revoke ALL admin sessions, not just the current one (H5).
+		if h.redis != nil {
+			h.revokeAllAdminSessions(ctx)
 		}
 	}
 	return true

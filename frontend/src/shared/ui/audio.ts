@@ -1,10 +1,8 @@
-let audioCtx: AudioContext | null = null;
-
-type SoundName = 'tap' | 'ready' | 'gameover' | 'countdown';
-
-const buffers = {} as Record<SoundName, AudioBuffer | null>;
+﻿let audioCtx: AudioContext | null = null;
+const muted = false;
 
 function ctx(): AudioContext | null {
+  if (muted) return null;
   if (typeof window === 'undefined') return null;
   if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
   if (!audioCtx) {
@@ -17,56 +15,34 @@ function ctx(): AudioContext | null {
   return audioCtx;
 }
 
-async function loadSound(name: SoundName, url: string): Promise<void> {
+function beep(freq: number, durationMs: number, gain = 0.08): void {
   const ac = ctx();
   if (!ac) return;
-  try {
-    const res = await fetch(url);
-    const data = await res.arrayBuffer();
-    buffers[name] = await ac.decodeAudioData(data);
-  } catch {
-    buffers[name] = null;
-  }
-}
-
-function playSound(name: SoundName, volume = 0.5): void {
-  const ac = ctx();
-  if (!ac) return;
-  const buf = buffers[name];
-  if (!buf) return;
-  const src = ac.createBufferSource();
+  const osc = ac.createOscillator();
   const g = ac.createGain();
-  src.buffer = buf;
-  g.gain.value = volume;
-  src.connect(g);
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  g.gain.value = gain;
+  osc.connect(g);
   g.connect(ac.destination);
-  src.start();
+  osc.start();
+  osc.stop(ac.currentTime + durationMs / 1000);
 }
 
-const loaded = false;
-export function ensureSoundsLoaded(): void {
-  if (loaded) return;
-  loadSound('tap', '/assets/sounds/tap.ogg');
-  loadSound('ready', '/assets/sounds/ready.ogg');
-  loadSound('gameover', '/assets/sounds/gameover.ogg');
-  loadSound('countdown', '/assets/sounds/countdown.ogg');
-}
-
-export function playTapSound(): void { ensureSoundsLoaded(); playSound('tap', 0.3); }
-export function playReadySound(): void { ensureSoundsLoaded(); playSound('ready', 0.35); }
-export function playGameOverSound(): void { ensureSoundsLoaded(); playSound('gameover', 0.4); }
-export function playCountdownTick(): void { ensureSoundsLoaded(); playSound('countdown', 0.25); }
+export function playTapSound(): void { beep(520, 60, 0.06); }
+export function playReadySound(): void { beep(880, 80, 0.07); }
+export function playGameOverSound(): void { beep(220, 200, 0.1); }
+export function playCountdownTick(): void { beep(440, 50, 0.05); }
 
 export function vibrate(pattern: number | number[]): void {
   if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   try {
     navigator.vibrate?.(pattern);
   } catch {
-    // Vibrate not supported
+    // unsupported
   }
 }
 
 export function resumeAudioContext(): void {
-  ensureSoundsLoaded();
   void ctx()?.resume();
 }

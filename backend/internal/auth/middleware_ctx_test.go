@@ -41,9 +41,9 @@ func TestAuthenticatedUserFromRequest_Cookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
 
-	uid, nick, ok := AuthenticatedUserFromRequest(req, jwtMgr)
+	uid, nick, ok := AuthenticatedUserFromRequestWithRevocation(req, jwtMgr, nil)
 	if !ok || uid != "cookie-user" || nick != "CookieNick" {
-		t.Fatalf("AuthenticatedUserFromRequest = (%q, %q, %v)", uid, nick, ok)
+		t.Fatalf("AuthenticatedUserFromRequestWithRevocation = (%q, %q, %v)", uid, nick, ok)
 	}
 }
 
@@ -158,7 +158,7 @@ func TestAuthenticatedUserFromRequestWithRevocation_RevokerError(t *testing.T) {
 func TestAuthenticatedUserFromRequest_NilJWTManager(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: "any-token"})
-	if _, _, ok := AuthenticatedUserFromRequest(req, nil); ok {
+	if _, _, ok := AuthenticatedUserFromRequestWithRevocation(req, nil, nil); ok {
 		t.Fatal("nil jwt manager should not authenticate from cookie")
 	}
 }
@@ -350,7 +350,7 @@ func TestAuthenticatedUserFromRequest_PrefersContext(t *testing.T) {
 	req = req.WithContext(WithAuthenticatedUser(req.Context(), "ctx-user", "CtxNick"))
 	req.AddCookie(&http.Cookie{Name: "session", Value: "bad.token"})
 
-	uid, nick, ok := AuthenticatedUserFromRequest(req, NewJWTManager(testsecrets.TestJWTSecret))
+	uid, nick, ok := AuthenticatedUserFromRequestWithRevocation(req, NewJWTManager(testsecrets.TestJWTSecret), nil)
 	if !ok || uid != "ctx-user" || nick != "CtxNick" {
 		t.Fatalf("got (%q, %q, %v)", uid, nick, ok)
 	}
@@ -358,7 +358,7 @@ func TestAuthenticatedUserFromRequest_PrefersContext(t *testing.T) {
 
 func TestAuthenticatedUserFromRequest_NoAuth(t *testing.T) {
 	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
-	if _, _, ok := AuthenticatedUserFromRequest(httptest.NewRequest(http.MethodGet, "/", nil), jwtMgr); ok {
+	if _, _, ok := AuthenticatedUserFromRequestWithRevocation(httptest.NewRequest(http.MethodGet, "/", nil), jwtMgr, nil); ok {
 		t.Fatal("expected false with no context and no valid cookies")
 	}
 }

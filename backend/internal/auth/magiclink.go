@@ -205,14 +205,15 @@ func issueMagicLinkSession(ctx context.Context, db *store.PostgresStore, jwtMgr 
 	return cookie, &VerifyResponse{UserID: user.ID, Nickname: user.Nickname, RefreshToken: refreshToken}, nil
 }
 
-// validateMagicToken hashes the token, looks it up in Redis, validates expiry,
-// decrypts the stored email, and deletes the one-time-use token.
+// validateMagicToken hashes the token, atomically consumes it from Redis,
+// validates expiry, and decrypts the stored email.
+// Uses a Lua script for the GET+DEL to eliminate the TOCTOU race (C5).
 func validateMagicToken(ctx context.Context, redis *store.RedisStore, token string) (string, error) {
 	hashedToken := HashToken(token)
 
-	dataBytes, err := redis.GetMagicToken(ctx, hashedToken)
+	dataBytes, err := redis.ConsumeMagicToken(ctx, hashedToken)
 	if err != nil {
-		return "", fmt.Errorf("lookup token: %w", err)
+		return "", fmt.Errorf("consume token: %w", err)
 	}
 	if dataBytes == nil {
 		return "", fmt.Errorf("invalid or expired token")
@@ -220,7 +221,6 @@ func validateMagicToken(ctx context.Context, redis *store.RedisStore, token stri
 
 	var data magicTokenData
 	if err := json.Unmarshal(dataBytes, &data); err != nil {
-		_ = redis.DeleteMagicToken(ctx, hashedToken)
 		return "", fmt.Errorf("invalid token data")
 	}
 
@@ -229,7 +229,6 @@ func validateMagicToken(ctx context.Context, redis *store.RedisStore, token stri
 	if data.Encrypted {
 		decryptedEmail, decErr := crypto.Decrypt(data.Email)
 		if decErr != nil {
-			_ = redis.DeleteMagicToken(ctx, hashedToken)
 			return "", fmt.Errorf("decrypt email: decrypt failed for encrypted token — possible key rotation or data corruption: %w", decErr)
 		}
 		data.Email = decryptedEmail
@@ -243,13 +242,7 @@ func validateMagicToken(ctx context.Context, redis *store.RedisStore, token stri
 
 	// Verify not expired (15 minutes)
 	if data.CreatedAt+int64(config.MagicLinkTTL/time.Millisecond) < time.Now().UnixMilli() {
-		_ = redis.DeleteMagicToken(ctx, hashedToken)
 		return "", fmt.Errorf("invalid or expired token")
-	}
-
-	// Delete token from Redis (one-time use)
-	if err := redis.DeleteMagicToken(ctx, hashedToken); err != nil {
-		return "", fmt.Errorf("delete token: %w", err)
 	}
 
 	return data.Email, nil

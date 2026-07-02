@@ -2,6 +2,7 @@ package game
 
 import (
 	"math"
+	"math/rand/v2"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
@@ -51,6 +52,12 @@ func UpdateBirdAI(bird *domain.BirdState, balloon *domain.BalloonState, tickCoun
 			bird.SpawnTimer = RandomSpawnTimer()
 		}
 	}
+}
+
+func RandomSpawnTimer() int {
+	lo := protocol.BirdSpawnMin
+	hi := protocol.BirdSpawnMax
+	return lo + rand.IntN(hi-lo+1)
 }
 
 // CheckBirdCollision 检测鸟与气球碰撞

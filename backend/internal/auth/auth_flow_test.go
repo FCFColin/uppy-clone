@@ -305,9 +305,9 @@ func TestQuickPlay_DuplicateUser(t *testing.T) {
 		}
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
-		uid, nick, ok := AuthenticatedUserFromRequest(req, jwtMgr)
+		uid, nick, ok := AuthenticatedUserFromRequestWithRevocation(req, jwtMgr, nil)
 		if !ok || uid != "user-cookie" || nick != "Nick" {
-			t.Fatalf("AuthenticatedUserFromRequest = (%q, %q, %v), want (user-cookie, Nick, true)", uid, nick, ok)
+			t.Fatalf("AuthenticatedUserFromRequestWithRevocation = (%q, %q, %v), want (user-cookie, Nick, true)", uid, nick, ok)
 		}
 	})
 }

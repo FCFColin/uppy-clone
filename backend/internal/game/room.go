@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -49,14 +50,17 @@ type Room struct {
 	tickCancel     context.CancelFunc
 	countdownStart int64
 	logger         *slog.Logger
-	maxPlayers     int // 每房间最大玩家数
+	maxPlayers int // 每房间最大玩家数
+
+	lobbyCode string // 房间码，不可变，在 NewRoom 中设置
 
 	// players is a reusable slice for buildSnapshot to avoid allocating a new
 	// slice on every snapshot (15 Hz per room). Access is guarded by mu.
 	players []protocol.PlayerState
 
 	// endGameAlarm 用于 ended 阶段的定时重启
-	endGameTimer *time.Timer
+	endGameAlarmVersion int64
+	endGameTimer        *time.Timer
 
 	// startDelayTimer 给玩家短暂时间看到欢迎信息后再开始倒计时
 	startDelayTimer *time.Timer
@@ -72,8 +76,9 @@ type Room struct {
 	asyncWg sync.WaitGroup
 
 	// outboundCh delivers broadcasts outside Room.mu (see room_outbound.go).
-	outboundCh   chan outboundMsg
-	outboundOnce sync.Once
+	outboundCh      chan outboundMsg
+	outboundClosed  atomic.Bool
+	outboundOnce    sync.Once
 
 	// persistCh debounces PostgreSQL writes (see room_persist_async.go).
 	persistCh     chan persistJob
@@ -106,6 +111,8 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 		maxPlayers:  maxPlayers,
 		instanceID:  defaultInstanceID(),
 		startDelay:  2000 * time.Millisecond,
+		lobbyCode:   code,
+		outboundCh:  make(chan outboundMsg, outboundQueueSize),
 	}
 	if hub != nil {
 		r.broadcaster = hub.broadcaster
@@ -153,6 +160,8 @@ func (r *Room) Close() {
 
 	r.wg.Wait()
 
+	r.stopOutbound()
+
 	r.mu.Lock()
 	if r.endGameTimer != nil {
 		r.endGameTimer.Stop()
@@ -167,7 +176,6 @@ func (r *Room) Close() {
 	r.connections = make(map[string]*PlayerConn)
 	r.mu.Unlock()
 
-	r.stopOutbound()
 	r.flushPersistSync()
 	r.stopPersist()
 	r.asyncWg.Wait()

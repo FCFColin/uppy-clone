@@ -1,9 +1,7 @@
 package game
 
 import (
-	"io"
 	"math"
-	"math/big"
 	"testing"
 
 	"github.com/uppy-clone/backend/internal/domain"
@@ -75,17 +73,12 @@ func TestNewGameState_GhostHasSpeed(t *testing.T) {
 }
 
 func TestInitialWind_Clamp(t *testing.T) {
-	restore := SetRandIntHook(func(_ io.Reader, max *big.Int) (*big.Int, error) {
-		return max, nil // max random -> windTarget near upper span
-	})
-	defer restore()
-
 	wind, target := initialWind()
 	if wind > protocol.WindClamp || wind < -protocol.WindClamp {
 		t.Fatalf("initialWind wind = %v, should be clamped", wind)
 	}
 	if target == 0 {
-		t.Fatal("windTarget should be non-zero with max rand")
+		t.Fatal("windTarget should be non-zero with random wind")
 	}
 	_ = wind
 }

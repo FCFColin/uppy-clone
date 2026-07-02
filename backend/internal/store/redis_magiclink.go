@@ -61,6 +61,47 @@ func (s *RedisStore) GetMagicToken(ctx context.Context, hashedToken string) ([]b
 	return result, nil
 }
 
+// consumeMagicTokenScript atomically GETs and DELETEs a magic link token.
+var consumeMagicTokenScript = redis.NewScript(`
+	local val = redis.call('GET', KEYS[1])
+	if val then
+		redis.call('DEL', KEYS[1])
+	end
+	return val
+`)
+
+// ConsumeMagicToken atomically gets and deletes a magic link token from Redis.
+// Uses a Lua script to eliminate the TOCTOU race between GET and DEL.
+func (s *RedisStore) ConsumeMagicToken(ctx context.Context, tokenHash string) ([]byte, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "redis.ConsumeMagicToken",
+		trace.WithAttributes(attribute.String("db.system", "redis"),
+			attribute.String("db.operation", "EVAL")),
+	)
+	defer span.End()
+
+	key := magicTokenKey(tokenHash)
+	var result []byte
+	_, err := s.cb.Execute(func() (any, error) {
+		val, err := consumeMagicTokenScript.Run(ctx, s.rdb, []string{key}).Result()
+		if err != nil {
+			return nil, fmt.Errorf("consume magic token: %w", err)
+		}
+		if val == nil {
+			return nil, nil
+		}
+		valStr, ok := val.(string)
+		if !ok {
+			return nil, fmt.Errorf("consume magic token: unexpected result type %T", val)
+		}
+		result = []byte(valStr)
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // DeleteMagicToken removes a hashed magic-link token from Redis.
 func (s *RedisStore) DeleteMagicToken(ctx context.Context, hashedToken string) error {
 	key := magicTokenKey(hashedToken)

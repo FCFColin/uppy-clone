@@ -49,7 +49,7 @@ func TestAdminHandler_Login_AdminNotConfigured(t *testing.T) {
 
 	// Test the signAdminToken method directly
 	h := newTestAdminHandler()
-	token, err := h.signAdminToken()
+	token, _, err := h.signAdminToken()
 	if err != nil {
 		t.Fatalf("signAdminToken error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestAdminHandler_VerifyAdminToken_ValidToken(t *testing.T) {
 	h := newTestAdminHandler()
 
 	// Generate a valid admin token
-	token, err := h.signAdminToken()
+	token, _, err := h.signAdminToken()
 	if err != nil {
 		t.Fatalf("signAdminToken error: %v", err)
 	}

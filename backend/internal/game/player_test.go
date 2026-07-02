@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 func TestHandleSetNickname_FirstChangeSkipsCooldown(t *testing.T) {
@@ -77,8 +76,8 @@ func TestHandleSetNickname_LengthLimit(t *testing.T) {
 	if !result {
 		t.Error("HandleSetNickname should accept and truncate long nickname")
 	}
-	if len([]rune(player.Nickname)) > protocol.MaxNicknameLen {
-		t.Errorf("nickname length = %d, want <= %d", len([]rune(player.Nickname)), protocol.MaxNicknameLen)
+	if len([]rune(player.Nickname)) > domain.MaxNicknameLen {
+		t.Errorf("nickname length = %d, want <= %d", len([]rune(player.Nickname)), domain.MaxNicknameLen)
 	}
 }
 
@@ -195,7 +194,7 @@ func TestHandleSetNickname_CooldownExpired(t *testing.T) {
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
-		LastNicknameChange: now - protocol.NicknameCooldownMs - 1000,
+		LastNicknameChange: now - domain.NicknameCooldownMs - 1000,
 	}
 	usedNames := map[string]bool{"OldName": true}
 
@@ -240,7 +239,7 @@ func TestHandleSetNickname_TruncateLongName(t *testing.T) {
 	if !result {
 		t.Fatal("long nickname should succeed (truncated)")
 	}
-	if len([]rune(player.Nickname)) > protocol.MaxNicknameLen {
-		t.Fatalf("nickname should be truncated to %d chars, got %d", protocol.MaxNicknameLen, len([]rune(player.Nickname)))
+	if len([]rune(player.Nickname)) > domain.MaxNicknameLen {
+		t.Fatalf("nickname should be truncated to %d chars, got %d", domain.MaxNicknameLen, len([]rune(player.Nickname)))
 	}
 }

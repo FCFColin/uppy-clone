@@ -92,11 +92,12 @@ func maskSensitiveFields(cfg map[string]interface{}) map[string]interface{} {
 var signAdminTokenFn = (*AdminHandler).signAdminTokenImpl
 
 // signAdminToken creates an admin JWT with 30-minute expiry.
-func (h *AdminHandler) signAdminToken() (string, error) {
+// Returns the signed token string and its jti for session tracking (H5).
+func (h *AdminHandler) signAdminToken() (string, string, error) {
 	return signAdminTokenFn(h)
 }
 
-func (h *AdminHandler) signAdminTokenImpl() (string, error) {
+func (h *AdminHandler) signAdminTokenImpl() (string, string, error) {
 	now := time.Now()
 	jti := uuid.NewString()
 	claims := adminClaims{
@@ -109,7 +110,35 @@ func (h *AdminHandler) signAdminTokenImpl() (string, error) {
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(h.adminJwtMgr.Secret())
+	signed, err := token.SignedString(h.adminJwtMgr.Secret())
+	if err != nil {
+		return "", "", err
+	}
+	return signed, jti, nil
+}
+
+// revokeAllAdminSessions revokes all active admin JWTs by iterating the
+// tracked jtis in Redis. Called on password change to force re-login (H5).
+func (h *AdminHandler) revokeAllAdminSessions(ctx context.Context) {
+	if h.redis == nil {
+		return
+	}
+	jtis, err := h.redis.GetAllAdminJTIs(ctx)
+	if err != nil {
+		slog.Warn("failed to get admin jtis for revocation", "error", err)
+		return
+	}
+	for _, jti := range jtis {
+		if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
+			slog.Warn("failed to revoke admin jti", "jti", jti, "error", err)
+		}
+	}
+	// Clear the set so revoked jtis are not double-revoked.
+	for _, jti := range jtis {
+		if err := h.redis.RemoveAdminJTI(ctx, jti); err != nil {
+			slog.Warn("failed to remove admin jti from active set", "jti", jti, "error", err)
+		}
+	}
 }
 
 // VerifyAdminToken checks if the request carries a valid admin JWT.

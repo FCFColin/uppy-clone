@@ -66,7 +66,7 @@ export interface DecodedSnapshot {
 }
 
 export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
-  if (view.byteLength < 44) {
+  if (view.byteLength < 37) {
     return null;
   }
 

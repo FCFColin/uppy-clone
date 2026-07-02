@@ -131,7 +131,7 @@ func TestAdminHandler_VerifyAdminTokenClaims(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAdminHandler()
-	token, err := h.signAdminToken()
+	token, _, err := h.signAdminToken()
 	if err != nil {
 		t.Fatalf("signAdminToken: %v", err)
 	}
@@ -454,7 +454,7 @@ func TestAdminHandler_GetConfig_InvalidStoredJSON(t *testing.T) {
 
 func TestAdminHandler_VerifyAdminToken_Revoked(t *testing.T) {
 	h, _, redisStore := newAdminHandlerWithDB(t)
-	token, err := h.signAdminToken()
+	token, _, err := h.signAdminToken()
 	if err != nil {
 		t.Fatalf("signAdminToken: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestAdminHandler_Logout_RevokeError(t *testing.T) {
 
 func TestAdminHandler_VerifyAdminTokenClaims_RedisError(t *testing.T) {
 	h, _, redisStore := newAdminHandlerWithDB(t)
-	token, err := h.signAdminToken()
+	token, _, err := h.signAdminToken()
 	if err != nil {
 		t.Fatalf("signAdminToken: %v", err)
 	}
@@ -700,7 +700,7 @@ func TestAdminHandler_completeAdminLogin_ResetError(t *testing.T) {
 func TestAdminHandler_completeAdminLogin_SignError(t *testing.T) {
 	h := newTestAdminHandler()
 	prev := signAdminTokenFn
-	signAdminTokenFn = func(*AdminHandler) (string, error) { return "", errors.New("sign failed") }
+	signAdminTokenFn = func(*AdminHandler) (string, string, error) { return "", "", errors.New("sign failed") }
 	t.Cleanup(func() { signAdminTokenFn = prev })
 
 	w := httptest.NewRecorder()

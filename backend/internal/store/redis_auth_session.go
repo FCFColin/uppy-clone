@@ -138,4 +138,50 @@ func (s *RedisStore) ResetFailedLogin(ctx context.Context, ip, account string) e
 	return nil
 }
 
+// adminActiveJTISetKey is a Redis Set tracking all active admin JWT jtis.
+// Used to revoke all admin sessions on password change (H5).
+const adminActiveJTISetKey = "admin:active-jtis"
+
+// AddAdminJTI adds a JWT jti to the active admin sessions set.
+func (s *RedisStore) AddAdminJTI(ctx context.Context, jti string, ttl time.Duration) error {
+	_, err := s.cb.Execute(func() (any, error) {
+		if err := s.rdb.SAdd(ctx, adminActiveJTISetKey, jti).Err(); err != nil {
+			return nil, fmt.Errorf("add admin jti: %w", err)
+		}
+		if err := s.rdb.Expire(ctx, adminActiveJTISetKey, ttl).Err(); err != nil {
+			return nil, fmt.Errorf("set admin jti ttl: %w", err)
+		}
+		return nil, nil
+	})
+	return err
+}
+
+// RemoveAdminJTI removes a JWT jti from the active admin sessions set.
+func (s *RedisStore) RemoveAdminJTI(ctx context.Context, jti string) error {
+	_, err := s.cb.Execute(func() (any, error) {
+		if err := s.rdb.SRem(ctx, adminActiveJTISetKey, jti).Err(); err != nil {
+			return nil, fmt.Errorf("remove admin jti: %w", err)
+		}
+		return nil, nil
+	})
+	return err
+}
+
+// GetAllAdminJTIs returns all active admin JWT jtis.
+func (s *RedisStore) GetAllAdminJTIs(ctx context.Context) ([]string, error) {
+	var jtis []string
+	_, err := s.cb.Execute(func() (any, error) {
+		var getErr error
+		jtis, getErr = s.rdb.SMembers(ctx, adminActiveJTISetKey).Result()
+		if getErr != nil {
+			return nil, fmt.Errorf("get all admin jtis: %w", getErr)
+		}
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return jtis, nil
+}
+
 func jwtRevokedKey(jti string) string { return "jwt_revoked:" + jti }

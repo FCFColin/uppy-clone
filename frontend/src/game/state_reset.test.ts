@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { state } from './state.js';
 import { outboundMessageQueue, seenSeqs } from './state.js';
 import { resetClientState, resetRoundClientState } from './state_reset.js';
