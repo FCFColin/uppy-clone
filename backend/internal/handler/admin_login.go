@@ -38,7 +38,8 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	clientIP := middleware.ExtractClientIP(r)
-	if h.isLoginLocked(ctx, w, clientIP) {
+	adminAccount := adminRole
+	if h.isLoginLocked(ctx, w, clientIP, adminAccount) {
 		return
 	}
 
@@ -48,21 +49,21 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !compareAdminPassword(body.Password, storedPassword) {
-		h.handleFailedLogin(ctx, clientIP)
+		h.handleFailedLogin(ctx, clientIP, adminAccount)
 		apierror.Unauthorized("Wrong password").Write(w)
 		return
 	}
 
-	h.completeAdminLogin(w, r, ctx, clientIP)
+	h.completeAdminLogin(w, r, ctx, clientIP, adminAccount)
 }
 
-func (h *AdminHandler) isLoginLocked(ctx context.Context, w http.ResponseWriter, clientIP string) bool {
+func (h *AdminHandler) isLoginLocked(ctx context.Context, w http.ResponseWriter, clientIP, account string) bool {
 	if h.redis == nil {
 		return false
 	}
-	locked, err := h.redis.IsLoginLocked(ctx, clientIP)
+	locked, err := h.redis.IsLoginLocked(ctx, clientIP, account)
 	if err != nil {
-		slog.Warn("failed to check login lock", "ip", clientIP, "error", err)
+		slog.Warn("failed to check login lock", "ip", clientIP, "account", account, "error", err)
 		apierror.New(http.StatusServiceUnavailable, "Service Unavailable",
 			"Login temporarily unavailable, please retry later").Write(w)
 		return true
@@ -75,10 +76,10 @@ func (h *AdminHandler) isLoginLocked(ctx context.Context, w http.ResponseWriter,
 	return true
 }
 
-func (h *AdminHandler) completeAdminLogin(w http.ResponseWriter, r *http.Request, ctx context.Context, clientIP string) {
+func (h *AdminHandler) completeAdminLogin(w http.ResponseWriter, r *http.Request, ctx context.Context, clientIP, account string) {
 	if h.redis != nil {
-		if err := h.redis.ResetFailedLogin(ctx, clientIP); err != nil {
-			slog.Warn("failed to reset failed login", "ip", clientIP, "error", err)
+		if err := h.redis.ResetFailedLogin(ctx, clientIP, account); err != nil {
+			slog.Warn("failed to reset failed login", "ip", clientIP, "account", account, "error", err)
 		}
 	}
 
@@ -106,14 +107,14 @@ func (h *AdminHandler) completeAdminLogin(w http.ResponseWriter, r *http.Request
 }
 
 // handleFailedLogin increments the failed login counter and logs the failure.
-func (h *AdminHandler) handleFailedLogin(ctx context.Context, clientIP string) {
+func (h *AdminHandler) handleFailedLogin(ctx context.Context, clientIP, account string) {
 	if h.redis != nil {
-		count, ferr := h.redis.IncrementFailedLogin(ctx, clientIP)
+		ipCount, acctCount, ferr := h.redis.IncrementFailedLogin(ctx, clientIP, account)
 		if ferr != nil {
-			slog.Warn("failed to increment failed login", "ip", clientIP, "error", ferr)
-		} else if count >= maxFailedLoginAttempts {
-			if lerr := h.redis.SetLoginLock(ctx, clientIP, loginLockDuration); lerr != nil {
-				slog.Warn("failed to set login lock", "ip", clientIP, "error", lerr)
+			slog.Warn("failed to increment failed login", "ip", clientIP, "account", account, "error", ferr)
+		} else if ipCount >= maxFailedLoginAttempts || acctCount >= maxFailedLoginAttempts {
+			if lerr := h.redis.SetLoginLock(ctx, clientIP, account, loginLockDuration); lerr != nil {
+				slog.Warn("failed to set login lock", "ip", clientIP, "account", account, "error", lerr)
 			}
 		}
 	}

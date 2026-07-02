@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -21,10 +20,34 @@ import (
 // Trade-off: Extra Redis round-trip for refresh, but security benefit outweighs cost.
 
 const (
-	refreshTokenExpiry  = 7 * 24 * time.Hour // 7 days
-	refreshTokenPrefix  = "refresh_token:"
-	userTokensSetPrefix = "refresh_tokens:user:" // reverse index for efficient revocation
+	refreshTokenExpiry     = 7 * 24 * time.Hour // 7 days
+	refreshTokenPrefix     = "refresh_token:"
+	refreshTokenReusePrefix = "refresh_token:reuse:" // reuse detection marker
+	userTokensSetPrefix    = "refresh_tokens:user:"  // reverse index for efficient revocation
 )
+
+// consumeRefreshTokenScript atomically validates, consumes, and detects reuse
+// of a refresh token.
+// KEYS[1] = refresh_token:<token>
+// KEYS[2] = refresh_token:reuse:<token>
+// ARGV[1] = reuse marker TTL (seconds, same as refresh token TTL)
+// Returns:
+//   {1, userID}  = token valid and consumed
+//   {0, userID}  = reuse detected (token already consumed)
+//   {-1}         = token not found (never existed or expired)
+var consumeRefreshTokenScript = redis.NewScript(`
+	local userID = redis.call('GET', KEYS[1])
+	if userID then
+		redis.call('DEL', KEYS[1])
+		redis.call('SET', KEYS[2], userID, 'EX', ARGV[1])
+		return {1, userID}
+	end
+	local reuseUserID = redis.call('GET', KEYS[2])
+	if reuseUserID then
+		return {0, reuseUserID}
+	end
+	return {-1}
+`)
 
 // RefreshTokenManager handles refresh token lifecycle.
 type RefreshTokenManager struct {
@@ -58,7 +81,69 @@ func (m *RefreshTokenManager) Generate(ctx context.Context, userID string) (stri
 	return token, nil
 }
 
+var errRefreshTokenReused = fmt.Errorf("refresh token reuse detected")
+
+// ConsumeRefreshTokenResult describes the outcome of an atomic consume.
+type ConsumeRefreshTokenResult struct {
+	UserID string
+	Reused bool // true if this token was already consumed (reuse detected)
+}
+
+// ConsumeRefreshToken atomically validates and consumes a refresh token.
+// Returns the userID, a reuse flag, and an error.
+// When reuse is detected, the caller should revoke ALL tokens for the user.
+func (m *RefreshTokenManager) ConsumeRefreshToken(ctx context.Context, token string) (*ConsumeRefreshTokenResult, error) {
+	key := refreshTokenPrefix + token
+	reuseKey := refreshTokenReusePrefix + token
+	result, err := consumeRefreshTokenScript.Run(ctx, m.rdb,
+		[]string{key, reuseKey},
+		int(refreshTokenExpiry.Seconds())).Result()
+	if err != nil {
+		return nil, fmt.Errorf("consume refresh token: %w", err)
+	}
+	vals, ok := result.([]interface{})
+	if !ok || len(vals) < 1 {
+		return nil, fmt.Errorf("consume refresh token: unexpected result")
+	}
+	status, ok := vals[0].(int64)
+	if !ok {
+		return nil, fmt.Errorf("consume refresh token: unexpected status type")
+	}
+	switch status {
+	case -1:
+		return nil, fmt.Errorf("invalid or expired refresh token")
+	case 0:
+		if len(vals) < 2 {
+			return nil, fmt.Errorf("consume refresh token: unexpected reuse result")
+		}
+		userID, ok := vals[1].(string)
+		if !ok || userID == "" {
+			return nil, fmt.Errorf("consume refresh token: unexpected userID type")
+		}
+		return &ConsumeRefreshTokenResult{UserID: userID, Reused: true}, nil
+	case 1:
+		if len(vals) < 2 {
+			return nil, fmt.Errorf("consume refresh token: unexpected success result")
+		}
+		userID, ok := vals[1].(string)
+		if !ok || userID == "" {
+			return nil, fmt.Errorf("consume refresh token: unexpected userID type")
+		}
+		return &ConsumeRefreshTokenResult{UserID: userID, Reused: false}, nil
+	default:
+		return nil, fmt.Errorf("consume refresh token: unknown status %d", status)
+	}
+}
+
+// RemoveFromUserSet removes a specific token from the user's reverse-index set.
+// Called after ConsumeRefreshToken to keep the reverse index consistent.
+func (m *RefreshTokenManager) RemoveFromUserSet(ctx context.Context, userID, token string) error {
+	userTokensKey := userTokensSetPrefix + userID
+	return m.rdb.SRem(ctx, userTokensKey, token).Err()
+}
+
 // Validate checks if a refresh token is valid and returns the associated userID.
+// Deprecated: Use ConsumeRefreshToken for atomic validate+consume.
 func (m *RefreshTokenManager) Validate(ctx context.Context, token string) (string, error) {
 	key := refreshTokenPrefix + token
 	userID, err := m.rdb.Get(ctx, key).Result()
@@ -100,7 +185,7 @@ func (m *RefreshTokenManager) RevokeAllForUser(ctx context.Context, userID strin
 
 func generateSecureToken(length int) (string, error) {
 	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
+	if _, err := randRead(bytes); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil

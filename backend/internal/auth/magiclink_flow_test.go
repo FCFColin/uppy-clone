@@ -2,9 +2,14 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -12,11 +17,12 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func setupMagicLinkCrypto(t *testing.T) {
 	t.Helper()
-	if err := crypto.Init("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"); err != nil {
+	if err := crypto.Init(testsecrets.TestEncryptionKeyHex); err != nil {
 		t.Fatalf("crypto.Init: %v", err)
 	}
 }
@@ -176,7 +182,7 @@ func TestIssueQuickPlayCredentials(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
 
@@ -197,12 +203,181 @@ func TestIssueQuickPlayCredentials_RefreshError(t *testing.T) {
 	defer mr.Close()
 	mr.SetError("redis unavailable")
 
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
 
 	_, _, err = issueQuickPlayCredentials(context.Background(), jwtMgr, refreshMgr, "user-1", "Player", req)
 	if err == nil {
 		t.Fatal("expected refresh token generation error")
+	}
+}
+
+func TestIssueQuickPlayCredentials_SignTokenError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
+
+	defer SetRandReadHook(func([]byte) (int, error) { return 0, errors.New("rand failed") })()
+
+	_, _, err = issueQuickPlayCredentials(context.Background(), jwtMgr, refreshMgr, "user-1", "Player", req)
+	if err == nil {
+		t.Fatal("expected sign token error")
+	}
+}
+
+func TestStoreMagicLinkToken_EncryptNotInitialized(t *testing.T) {
+	crypto.ResetKeyForTest()
+	t.Cleanup(func() { _ = crypto.Init(testsecrets.TestEncryptionKeyHex) })
+
+	redisStore, _ := setupMagicLinkRedis(t)
+	err := storeMagicLinkToken(context.Background(), redisStore, "hashed-token", "user@example.com")
+	if err == nil {
+		t.Fatal("expected encrypt error when crypto not initialized")
+	}
+}
+
+func TestRequestMagicLink_GenerateTokenError(t *testing.T) {
+	setupMagicLinkCrypto(t)
+	defer SetRandReadHook(func([]byte) (int, error) { return 0, errors.New("rand failed") })()
+
+	svc := NewMagicLinkService()
+	redisStore, _ := setupMagicLinkRedis(t)
+	err := svc.RequestMagicLink(redisStore, nil, "", "", "user@example.com", httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	if err == nil {
+		t.Fatal("expected generate token error")
+	}
+}
+
+func TestGenerateMagicLinkToken_RandFailure(t *testing.T) {
+	defer SetRandReadHook(func([]byte) (int, error) { return 0, errors.New("rand failed") })()
+
+	if _, _, err := generateMagicLinkToken(); err == nil {
+		t.Fatal("expected generateMagicLinkToken error")
+	}
+}
+
+func TestPrepareQuickPlayNickname_SanitizeToEmpty(t *testing.T) {
+	got := prepareQuickPlayNickname("<script>")
+	if got == "" {
+		t.Fatal("expected generated nickname after sanitize-to-empty")
+	}
+}
+
+func TestPrepareQuickPlayNickname_Truncate(t *testing.T) {
+	long := strings.Repeat("A", config.MaxNicknameLen+5)
+	got := prepareQuickPlayNickname(long)
+	if len([]rune(got)) != config.MaxNicknameLen {
+		t.Fatalf("nickname length = %d, want %d", len([]rune(got)), config.MaxNicknameLen)
+	}
+}
+
+func TestStoreMagicLinkToken_MarshalError(t *testing.T) {
+	setupMagicLinkCrypto(t)
+	redisStore, _ := setupMagicLinkRedis(t)
+	prev := magiclinkJSONMarshal
+	magiclinkJSONMarshal = func(any) ([]byte, error) { return nil, errors.New("marshal failed") }
+	t.Cleanup(func() { magiclinkJSONMarshal = prev })
+
+	err := storeMagicLinkToken(context.Background(), redisStore, "hashed", "user@example.com")
+	if err == nil {
+		t.Fatal("expected marshal error")
+	}
+}
+
+func TestEnqueueMagicLinkEmail_MarshalError(t *testing.T) {
+	setupMagicLinkCrypto(t)
+	redisStore, _ := setupMagicLinkRedis(t)
+	prev := magiclinkJSONMarshal
+	magiclinkJSONMarshal = func(v any) ([]byte, error) {
+		if _, ok := v.(map[string]interface{}); ok {
+			return nil, errors.New("marshal failed")
+		}
+		return json.Marshal(v)
+	}
+	t.Cleanup(func() { magiclinkJSONMarshal = prev })
+
+	err := enqueueMagicLinkEmail(context.Background(), redisStore, httptest.NewRequest(http.MethodPost, "https://example.com/", nil),
+		"user@example.com", "raw", "hashed")
+	if err == nil {
+		t.Fatal("expected marshal error")
+	}
+}
+
+type failRedisCmdHook struct {
+	failMagicSet  bool
+	failEmailPush bool
+}
+
+func (h failRedisCmdHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (h failRedisCmdHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if h.failMagicSet && cmd.Name() == "set" {
+			key := fmt.Sprint(cmd.Args()[1])
+			if strings.HasPrefix(key, "magic:") {
+				return errors.New("store magic token failed")
+			}
+		}
+		if h.failEmailPush && cmd.Name() == "xadd" {
+			return errors.New("enqueue email failed")
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (h failRedisCmdHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+func TestRequestMagicLink_StoreTokenError(t *testing.T) {
+	setupMagicLinkCrypto(t)
+	svc := NewMagicLinkService()
+	redisStore, _ := setupMagicLinkRedis(t)
+	redisStore.Client().AddHook(failRedisCmdHook{failMagicSet: true})
+
+	err := svc.RequestMagicLink(redisStore, nil, "", "", "store-fail@example.com", httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	if err == nil {
+		t.Fatal("expected store token error")
+	}
+}
+
+func TestRequestMagicLink_EnqueueEmailError(t *testing.T) {
+	setupMagicLinkCrypto(t)
+	svc := NewMagicLinkService()
+	redisStore, _ := setupMagicLinkRedis(t)
+	redisStore.Client().AddHook(failRedisCmdHook{failEmailPush: true})
+
+	err := svc.RequestMagicLink(redisStore, nil, "", "", "enqueue-fail@example.com", httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	if err == nil {
+		t.Fatal("expected enqueue email error")
+	}
+}
+
+func TestValidateMagicToken_DecryptFallback(t *testing.T) {
+	setupMagicLinkCrypto(t)
+	redisStore, _ := setupMagicLinkRedis(t)
+	ctx := context.Background()
+
+	token, hashed, err := generateMagicLinkToken()
+	if err != nil {
+		t.Fatalf("generateMagicLinkToken: %v", err)
+	}
+	data, _ := json.Marshal(magicTokenData{
+		Email:     "plaintext@example.com",
+		CreatedAt: time.Now().UnixMilli(),
+	})
+	if err := redisStore.StoreMagicToken(ctx, hashed, data, config.MagicLinkTTL); err != nil {
+		t.Fatalf("StoreMagicToken: %v", err)
+	}
+	email, err := validateMagicToken(ctx, redisStore, token)
+	if err != nil || email != "plaintext@example.com" {
+		t.Fatalf("validateMagicToken = %q, %v", email, err)
 	}
 }

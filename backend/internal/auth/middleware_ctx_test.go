@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func TestGetAuthenticatedUser_FromContext(t *testing.T) {
@@ -34,7 +35,7 @@ func TestGetAuthenticatedUser_Missing(t *testing.T) {
 }
 
 func TestAuthenticatedUserFromRequest_Cookie(t *testing.T) {
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	token, _ := jwtMgr.SignToken("cookie-user", "CookieNick")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -47,7 +48,7 @@ func TestAuthenticatedUserFromRequest_Cookie(t *testing.T) {
 }
 
 func TestAuthenticatedUserFromRequestWithRevocation_Revoked(t *testing.T) {
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	revoker := newFakeRevocationChecker()
 	token, _ := jwtMgr.SignToken("user-rev", "Revoked")
 	_, _, jti, _ := jwtMgr.VerifyToken(token)
@@ -120,17 +121,29 @@ func TestDetectMultiIPLogin_SCardError(t *testing.T) {
 	defer mr.Close()
 
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	ctx := context.Background()
-	ipKey := "user:ips:user-scard-err"
-	if err := rdb.SAdd(ctx, ipKey, "10.0.0.1").Err(); err != nil {
-		t.Fatalf("SAdd: %v", err)
+	rdb.AddHook(scardFailHook{})
+	detectMultiIPLogin(context.Background(), rdb, "user-scard-err", "10.0.0.2")
+}
+
+type scardFailHook struct{}
+
+func (scardFailHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (scardFailHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if cmd.Name() == "scard" {
+			return errors.New("scard failed")
+		}
+		return next(ctx, cmd)
 	}
-	mr.SetError("redis unavailable")
-	detectMultiIPLogin(ctx, rdb, "user-scard-err", "10.0.0.2")
+}
+
+func (scardFailHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
 }
 
 func TestAuthenticatedUserFromRequestWithRevocation_RevokerError(t *testing.T) {
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	revoker := &fakeRevocationChecker{err: errors.New("redis down")}
 	token, _ := jwtMgr.SignToken("user-rev-err", "Nick")
 
@@ -151,7 +164,7 @@ func TestAuthenticatedUserFromRequest_NilJWTManager(t *testing.T) {
 }
 
 func TestAuthMiddleware_InvalidCookieSkipped(t *testing.T) {
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	validToken, _ := jwtMgr.SignToken("valid-user", "Valid")
 
 	called := false
@@ -172,7 +185,7 @@ func TestAuthMiddleware_InvalidCookieSkipped(t *testing.T) {
 }
 
 func TestAuthMiddleware_InjectsRequestLogger(t *testing.T) {
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	token, _ := jwtMgr.SignToken("user-log", "Logger")
 
 	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +207,7 @@ func TestAuthMiddleware_InjectsRequestLogger(t *testing.T) {
 }
 
 func TestAuthMiddleware_RevocationCheckError(t *testing.T) {
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	revoker := &fakeRevocationChecker{err: context.DeadlineExceeded}
 	token, _ := jwtMgr.SignToken("user-err", "Err")
 
@@ -209,6 +222,20 @@ func TestAuthMiddleware_RevocationCheckError(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestAuthenticatedUserFromCookies_RevokedSkipped(t *testing.T) {
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	revoker := newFakeRevocationChecker()
+	token, _ := jwtMgr.SignToken("revoked-user", "Revoked")
+	_, _, jti, _ := jwtMgr.VerifyToken(token)
+	revoker.revoked[jti] = true
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+	if _, _, ok := AuthenticatedUserFromRequestWithRevocation(req, jwtMgr, revoker); ok {
+		t.Fatal("revoked cookie should not authenticate")
 	}
 }
 
@@ -236,7 +263,7 @@ type redisRevoker struct {
 func (r *redisRevoker) Client() *redis.Client { return r.client }
 
 func TestAuthenticatedUserFromRequestWithRevocation_RevokedContinues(t *testing.T) {
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	revoker := newFakeRevocationChecker()
 	revokedToken, _ := jwtMgr.SignToken("revoked-user", "Revoked")
 	validToken, _ := jwtMgr.SignToken("valid-user", "Valid")
@@ -265,7 +292,7 @@ func TestAuthMiddleware_MultiIPWithRedisProvider(t *testing.T) {
 		client:                redis.NewClient(&redis.Options{Addr: mr.Addr()}),
 	}
 
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	token, _ := jwtMgr.SignToken("user-ip", "IPUser")
 
 	called := false
@@ -284,5 +311,81 @@ func TestAuthMiddleware_MultiIPWithRedisProvider(t *testing.T) {
 
 	if !called || rec.Code != http.StatusOK {
 		t.Fatalf("called=%v status=%d", called, rec.Code)
+	}
+}
+
+func TestAuthMiddleware_UnauthorizedNoValidCookie(t *testing.T) {
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run")
+	}))
+
+	rec := httptest.NewRecorder()
+	handler(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestAuthMiddleware_NoLoggerInContext(t *testing.T) {
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	token, _ := jwtMgr.SignToken("user-1", "Nick")
+	called := false
+	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if !called || rec.Code != http.StatusOK {
+		t.Fatalf("called=%v status=%d", called, rec.Code)
+	}
+}
+
+func TestAuthenticatedUserFromRequest_PrefersContext(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(WithAuthenticatedUser(req.Context(), "ctx-user", "CtxNick"))
+	req.AddCookie(&http.Cookie{Name: "session", Value: "bad.token"})
+
+	uid, nick, ok := AuthenticatedUserFromRequest(req, NewJWTManager(testsecrets.TestJWTSecret))
+	if !ok || uid != "ctx-user" || nick != "CtxNick" {
+		t.Fatalf("got (%q, %q, %v)", uid, nick, ok)
+	}
+}
+
+func TestAuthenticatedUserFromRequest_NoAuth(t *testing.T) {
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	if _, _, ok := AuthenticatedUserFromRequest(httptest.NewRequest(http.MethodGet, "/", nil), jwtMgr); ok {
+		t.Fatal("expected false with no context and no valid cookies")
+	}
+}
+
+func TestAuthMiddleware_NoValidCookies(t *testing.T) {
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "not-a-jwt"})
+	req.AddCookie(&http.Cookie{Name: "quickplay", Value: "also-invalid"})
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestAuthenticatedUserFromCookies_FromContext(t *testing.T) {
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(WithAuthenticatedUser(req.Context(), "ctx-user", "CtxNick"))
+
+	uid, nick, ok := authenticatedUserFromCookies(req, jwtMgr, nil)
+	if !ok || uid != "ctx-user" || nick != "CtxNick" {
+		t.Fatalf("authenticatedUserFromCookies = (%q, %q, %v)", uid, nick, ok)
 	}
 }

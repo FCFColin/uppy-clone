@@ -57,43 +57,85 @@ func (s *RedisStore) IsJWTRevoked(ctx context.Context, jti string) (bool, error)
 	return revoked, nil
 }
 
-// IncrementFailedLogin increments the failed admin login counter for an IP.
-func (s *RedisStore) IncrementFailedLogin(ctx context.Context, ip string) (int, error) {
-	key := "admin:login:fail:" + ip
-	count, err := s.rdb.Incr(ctx, key).Result()
+const (
+	adminFailKeyPrefix  = "admin:login:fail:"
+	adminLockKeyPrefix  = "admin:login:lock:"
+	adminAcctFailPrefix = "admin:login:acct_fail:" // account-level tracking
+	adminAcctLockPrefix = "admin:login:acct_lock:"
+)
+
+// IncrementFailedLogin increments the failed admin login counter for an IP and account.
+func (s *RedisStore) IncrementFailedLogin(ctx context.Context, ip, account string) (int, int, error) {
+	ipKey := adminFailKeyPrefix + ip
+	acctKey := adminAcctFailPrefix + account
+
+	pipe := s.rdb.Pipeline()
+	ipCount := pipe.Incr(ctx, ipKey)
+	acctCount := pipe.Incr(ctx, acctKey)
+	_, err := pipe.Exec(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("incr failed login: %w", err)
+		return 0, 0, fmt.Errorf("incr failed login: %w", err)
 	}
-	if count == 1 {
-		s.rdb.Expire(ctx, key, 15*time.Minute)
+
+	ipVal, _ := ipCount.Result()
+	acctVal, _ := acctCount.Result()
+	if ipVal == 1 {
+		s.rdb.Expire(ctx, ipKey, 15*time.Minute)
 	}
-	return int(count), nil
+	if acctVal == 1 {
+		s.rdb.Expire(ctx, acctKey, 15*time.Minute)
+	}
+	return int(ipVal), int(acctVal), nil
 }
 
-// IsLoginLocked reports whether an IP is locked out from admin login.
-func (s *RedisStore) IsLoginLocked(ctx context.Context, ip string) (bool, error) {
-	key := "admin:login:lock:" + ip
-	val, err := s.rdb.Exists(ctx, key).Result()
+// IsLoginLocked reports whether an IP or account is locked out from admin login.
+func (s *RedisStore) IsLoginLocked(ctx context.Context, ip, account string) (bool, error) {
+	ipKey := adminLockKeyPrefix + ip
+	acctKey := adminAcctLockPrefix + account
+
+	pipe := s.rdb.Pipeline()
+	ipLock := pipe.Exists(ctx, ipKey)
+	acctLock := pipe.Exists(ctx, acctKey)
+	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return false, fmt.Errorf("check login lock: %w", err)
 	}
-	return val > 0, nil
+
+	ipLocked, _ := ipLock.Result()
+	acctLocked, _ := acctLock.Result()
+	return ipLocked > 0 || acctLocked > 0, nil
 }
 
-// SetLoginLock locks admin login for an IP until TTL expires.
-func (s *RedisStore) SetLoginLock(ctx context.Context, ip string, ttl time.Duration) error {
-	key := "admin:login:lock:" + ip
-	if err := s.rdb.Set(ctx, key, "1", ttl).Err(); err != nil {
+// SetLoginLock locks admin login for an IP and account until TTL expires.
+func (s *RedisStore) SetLoginLock(ctx context.Context, ip, account string, ttl time.Duration) error {
+	ipKey := adminLockKeyPrefix + ip
+	acctKey := adminAcctLockPrefix + account
+
+	pipe := s.rdb.Pipeline()
+	pipe.Set(ctx, ipKey, "1", ttl)
+	pipe.Set(ctx, acctKey, "1", ttl)
+	_, err := pipe.Exec(ctx)
+	if err != nil {
 		return fmt.Errorf("set login lock: %w", err)
 	}
 	return nil
 }
 
-// ResetFailedLogin clears the failed admin login counter for an IP.
-func (s *RedisStore) ResetFailedLogin(ctx context.Context, ip string) error {
-	failKey := "admin:login:fail:" + ip
-	lockKey := "admin:login:lock:" + ip
-	return s.rdb.Del(ctx, failKey, lockKey).Err()
+// ResetFailedLogin clears the failed admin login counters for an IP and account.
+func (s *RedisStore) ResetFailedLogin(ctx context.Context, ip, account string) error {
+	ipFailKey := adminFailKeyPrefix + ip
+	ipLockKey := adminLockKeyPrefix + ip
+	acctFailKey := adminAcctFailPrefix + account
+	acctLockKey := adminAcctLockPrefix + account
+
+	pipe := s.rdb.Pipeline()
+	pipe.Del(ctx, ipFailKey, ipLockKey)
+	pipe.Del(ctx, acctFailKey, acctLockKey)
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("reset failed login: %w", err)
+	}
+	return nil
 }
 
 func jwtRevokedKey(jti string) string { return "jwt_revoked:" + jti }

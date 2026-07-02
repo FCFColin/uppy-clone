@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func TestNewJWTManager_PanicsOnWeakSecret(t *testing.T) {
@@ -26,7 +27,7 @@ func TestNewJWTManager_PanicsOnWeakSecret(t *testing.T) {
 // ─── SignToken + VerifyToken round-trip ──────────────────────────────
 
 func TestSignVerifyToken_RoundTrip(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
 
 	token, err := mgr.SignToken("user-123", "快乐的气球")
 	if err != nil {
@@ -54,7 +55,7 @@ func TestSignVerifyToken_RoundTrip(t *testing.T) {
 // ─── JTI uniqueness ──────────────────────────────────────────────────
 
 func TestSignToken_JTIUnique(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
 
 	token1, _ := mgr.SignToken("user-1", "alice")
 	token2, _ := mgr.SignToken("user-1", "alice")
@@ -70,7 +71,7 @@ func TestSignToken_JTIUnique(t *testing.T) {
 // ─── Expired token ───────────────────────────────────────────────────
 
 func TestVerifyToken_Expired(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
 
 	// 手动构造一个已过期的 token
 	claims := customClaims{
@@ -97,7 +98,7 @@ func TestVerifyToken_Expired(t *testing.T) {
 // ─── Invalid token ───────────────────────────────────────────────────
 
 func TestVerifyToken_Invalid(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
 
 	_, _, _, err := mgr.VerifyToken("this.is.not.a.valid.token")
 	if err == nil {
@@ -121,7 +122,7 @@ func TestVerifyToken_WrongSecret(t *testing.T) {
 }
 
 func TestVerifyToken_UnexpectedSigningMethod(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
 	token := jwt.NewWithClaims(jwt.SigningMethodNone, customClaims{
 		Nickname: "test",
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -755,5 +756,89 @@ func TestRevokeAllTokens_Concurrent(t *testing.T) {
 	}
 	for i := 0; i < 5; i++ {
 		<-done
+	}
+}
+
+func TestSignToken_RandFailure(t *testing.T) {
+	defer SetRandReadHook(func([]byte) (int, error) { return 0, errRandFail })()
+
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
+	if _, err := mgr.SignToken("user-1", "Nick"); err == nil {
+		t.Fatal("expected SignToken error when rand fails")
+	}
+}
+
+func TestGenerateSecureToken_RandFailure(t *testing.T) {
+	defer SetRandReadHook(func([]byte) (int, error) { return 0, errRandFail })()
+
+	mgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"}))
+	if _, err := mgr.Generate(context.Background(), "user-1"); err == nil {
+		t.Fatal("expected Generate error when rand fails")
+	}
+}
+
+var errRandFail = &randFailError{}
+
+type randFailError struct{}
+
+func (e *randFailError) Error() string { return "rand failed" }
+
+func TestVerifyWithKey_UnexpectedSigningMethod(t *testing.T) {
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, &customClaims{
+		Nickname: "Nick",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-1",
+			ID:        "jti-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+		},
+	})
+	// Unsigned token string still triggers unexpected alg in verify path when parsed.
+	s := token.Raw
+	if s == "" {
+		s = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.e30.signature"
+	}
+	if _, _, _, err := mgr.verifyWithKey(s, mgr.primarySecret); err == nil {
+		t.Fatal("expected verify error for unexpected signing method")
+	}
+}
+
+func TestVerifyWithKey_ExpiredToken(t *testing.T) {
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
+	token, err := mgr.SignToken("user-1", "Nick")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	// Re-sign with past expiry by building claims manually.
+	expired := jwt.NewWithClaims(jwt.SigningMethodHS256, &customClaims{
+		Nickname: "Nick",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-1",
+			ID:        "exp-jti",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
+		},
+	})
+	s, err := expired.SignedString(mgr.primarySecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = token
+	if _, _, _, err := mgr.verifyWithKey(s, mgr.primarySecret); err == nil {
+		t.Fatal("expected expired token error")
+	}
+}
+
+func TestVerifyWithKey_InvalidClaims(t *testing.T) {
+	mgr := NewJWTManager(testsecrets.TestJWTSecret)
+	prev := jwtParseWithClaimsFn
+	jwtParseWithClaimsFn = func(_ string, claims jwt.Claims, _ jwt.Keyfunc, _ ...jwt.ParserOption) (*jwt.Token, error) {
+		return &jwt.Token{Valid: false, Claims: claims}, nil
+	}
+	t.Cleanup(func() { jwtParseWithClaimsFn = prev })
+
+	_, _, _, err := mgr.verifyWithKey("any-token", mgr.primarySecret)
+	if err == nil {
+		t.Fatal("expected invalid token claims error")
 	}
 }

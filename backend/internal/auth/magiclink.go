@@ -2,11 +2,11 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -19,6 +19,9 @@ import (
 	"github.com/uppy-clone/backend/internal/store"
 )
 
+// magiclinkJSONMarshal is injectable for unit tests.
+var magiclinkJSONMarshal = json.Marshal
+
 // 哨兵错误 — 企业为何需要：字符串比较错误消息容易因拼写/格式差异失效，
 // 哨兵错误用 errors.Is 提供稳定的判等语义，便于调用方精确分支处理。
 var (
@@ -29,16 +32,17 @@ var (
 // getOrigin 从请求构造对外 origin URL；反向代理后须读 X-Forwarded-Host（见 ADR-003）。
 func getOrigin(r *http.Request) string {
 	scheme := "https"
-	if r.TLS == nil && (!requestctx.IsTrustedProxy(r.Context()) || r.Header.Get("X-Forwarded-Proto") == "") {
+	isTrusted := requestctx.IsTrustedProxy(r.Context())
+	if r.TLS == nil && (!isTrusted || r.Header.Get("X-Forwarded-Proto") == "") {
 		scheme = "http"
 	}
-	if requestctx.IsTrustedProxy(r.Context()) {
+	if isTrusted {
 		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
 			scheme = proto
 		}
 	}
 	host := r.Host
-	if requestctx.IsTrustedProxy(r.Context()) {
+	if isTrusted {
 		if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
 			host = fwdHost
 		}
@@ -58,6 +62,7 @@ type VerifyResponse struct {
 type magicTokenData struct {
 	Email     string `json:"email"`
 	CreatedAt int64  `json:"createdAt"`
+	Encrypted bool   `json:"encrypted,omitempty"` // true = email is AES-256-GCM encrypted; false = legacy plaintext
 }
 
 // MagicLinkService handles magic-link authentication.
@@ -111,7 +116,7 @@ func checkMagicLinkRateLimit(ctx context.Context, redis *store.RedisStore, email
 
 func generateMagicLinkToken() (token, hashedToken string, err error) {
 	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
+	if _, err := randRead(tokenBytes); err != nil {
 		return "", "", fmt.Errorf("generate token: %w", err)
 	}
 	token = hex.EncodeToString(tokenBytes)
@@ -126,8 +131,9 @@ func storeMagicLinkToken(ctx context.Context, redis *store.RedisStore, hashedTok
 	data := magicTokenData{
 		Email:     encryptedEmail,
 		CreatedAt: time.Now().UnixMilli(),
+		Encrypted: true,
 	}
-	dataBytes, err := json.Marshal(data)
+	dataBytes, err := magiclinkJSONMarshal(data)
 	if err != nil {
 		return fmt.Errorf("marshal token data: %w", err)
 	}
@@ -146,7 +152,7 @@ func enqueueMagicLinkEmail(ctx context.Context, redis *store.RedisStore, r *http
 		"subject": "Your Login Link",
 		"body":    fmt.Sprintf(`<p>Click <a href='%s'>here</a> to log in. Expires in 15 minutes.</p>`, magicLinkURL),
 	}
-	payloadJSON, err := json.Marshal(emailPayload)
+	payloadJSON, err := magiclinkJSONMarshal(emailPayload)
 	if err != nil {
 		return fmt.Errorf("marshal email payload: %w", err)
 	}
@@ -180,7 +186,7 @@ func VerifyMagicLink(redis *store.RedisStore, db *store.PostgresStore, jwtMgr *J
 
 func issueMagicLinkSession(ctx context.Context, db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, user *domain.User, r *http.Request) (*http.Cookie, *VerifyResponse, error) {
 	if err := db.UpdateUserLastLogin(ctx, user.ID); err != nil {
-		_ = err
+		slog.WarnContext(ctx, "failed to update last login", "error", err, "user_id", user.ID)
 	}
 
 	jwtToken, err := jwtMgr.SignToken(user.ID, user.Nickname)
@@ -220,12 +226,20 @@ func validateMagicToken(ctx context.Context, redis *store.RedisStore, token stri
 
 	// Decrypt email from Redis
 	// 企业为何需要：email 是 PII，Redis 数据库泄露即暴露用户邮箱。字段级加密提供纵深防御。
-	decryptedEmail, decErr := crypto.Decrypt(data.Email)
-	if decErr != nil {
-		// If decryption fails, the value may be plaintext (legacy data)
-		decryptedEmail = data.Email
+	if data.Encrypted {
+		decryptedEmail, decErr := crypto.Decrypt(data.Email)
+		if decErr != nil {
+			_ = redis.DeleteMagicToken(ctx, hashedToken)
+			return "", fmt.Errorf("decrypt email: decrypt failed for encrypted token — possible key rotation or data corruption: %w", decErr)
+		}
+		data.Email = decryptedEmail
+	} else {
+		// Legacy plaintext token — try decrypt in case it was stored during an older migration.
+		// 向后兼容：旧 token 可能没有 Encrypted 标志但已加密存储。
+		if decryptedEmail, decErr := crypto.Decrypt(data.Email); decErr == nil {
+			data.Email = decryptedEmail
+		}
 	}
-	data.Email = decryptedEmail
 
 	// Verify not expired (15 minutes)
 	if data.CreatedAt+int64(config.MagicLinkTTL/time.Millisecond) < time.Now().UnixMilli() {

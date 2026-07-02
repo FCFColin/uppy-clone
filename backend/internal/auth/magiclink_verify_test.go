@@ -18,6 +18,7 @@ import (
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func TestVerifyMagicLink_ExistingUser(t *testing.T) {
@@ -55,7 +56,7 @@ func TestVerifyMagicLink_ExistingUser(t *testing.T) {
 	}
 	defer mr.Close()
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	req := httptest.NewRequest("GET", "https://example.com/", nil)
 
 	cookie, resp, err := VerifyMagicLink(redisStore, db, jwtMgr, refreshMgr, token, req)
@@ -135,7 +136,7 @@ func TestIssueMagicLinkSession(t *testing.T) {
 		WithArgs("user-1").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
 
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	user := &domain.User{ID: "user-1", Nickname: "Magic", Email: "magic@example.com"}
 
@@ -166,7 +167,7 @@ func TestIssueMagicLinkSession_LastLoginErrorIgnored(t *testing.T) {
 		WithArgs("user-1").
 		WillReturnError(errors.New("update failed"))
 
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	user := &domain.User{ID: "user-1", Nickname: "Magic", Email: "magic@example.com"}
 
@@ -198,7 +199,7 @@ func TestIssueMagicLinkSession_RefreshError(t *testing.T) {
 	defer mr.Close()
 	mr.SetError("redis unavailable")
 
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	user := &domain.User{ID: "user-1", Nickname: "Magic", Email: "magic@example.com"}
 
@@ -258,19 +259,36 @@ func TestValidateMagicToken_LookupError(t *testing.T) {
 
 func TestValidateMagicToken_DeleteError(t *testing.T) {
 	setupMagicLinkCrypto(t)
-	redisStore, mr := setupMagicLinkRedis(t)
+	redisStore, _ := setupMagicLinkRedis(t)
+	redisStore.Client().AddHook(delFailHook{})
 	ctx := context.Background()
 
 	token, hashed, _ := generateMagicLinkToken()
 	if err := storeMagicLinkToken(ctx, redisStore, hashed, "delete-err@example.com"); err != nil {
 		t.Fatalf("storeMagicLinkToken: %v", err)
 	}
-	mr.SetError("redis unavailable")
 
 	_, err := validateMagicToken(ctx, redisStore, token)
 	if err == nil {
 		t.Fatal("expected delete token error")
 	}
+}
+
+type delFailHook struct{}
+
+func (delFailHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (delFailHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if cmd.Name() == "del" {
+			return errors.New("del failed")
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (delFailHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
 }
 
 func TestValidateMagicToken_Success(t *testing.T) {
@@ -336,7 +354,7 @@ func TestFindOrCreateUserByEmail_CreateError(t *testing.T) {
 func TestVerifyMagicLink_InvalidToken(t *testing.T) {
 	setupMagicLinkCrypto(t)
 	redisStore, _ := setupMagicLinkRedis(t)
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	req := httptest.NewRequest("GET", "/", nil)
 
 	_, _, err := VerifyMagicLink(redisStore, nil, jwtMgr, nil, "bad-token", req)
@@ -369,11 +387,37 @@ func TestVerifyMagicLink_UserLookupError(t *testing.T) {
 		WithArgs(pgxmock.AnyArg(), "lookup-fail@example.com").
 		WillReturnError(errors.New("db down"))
 
-	jwtMgr := NewJWTManager("test-secret-key-padded-to-32-bytes!!")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
 	req := httptest.NewRequest("GET", "/", nil)
 
 	_, _, err = VerifyMagicLink(redisStore, db, jwtMgr, nil, token, req)
 	if err == nil {
 		t.Fatal("expected user lookup error")
+	}
+}
+
+func TestIssueMagicLinkSession_SignTokenError(t *testing.T) {
+	mr := miniredis.RunT(t)
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock: %v", err)
+	}
+	defer mock.Close()
+
+	db := store.NewPostgresStoreWithPool(mock)
+	mock.ExpectExec("UPDATE users SET last_login").
+		WithArgs("user-1").
+		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
+
+	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+
+	defer SetRandReadHook(func([]byte) (int, error) { return 0, errors.New("rand failed") })()
+
+	user := &domain.User{ID: "user-1", Nickname: "Magic"}
+	_, _, err = issueMagicLinkSession(context.Background(), db, jwtMgr, refreshMgr, user,
+		httptest.NewRequest("GET", "/", nil))
+	if err == nil {
+		t.Fatal("expected sign token error")
 	}
 }
