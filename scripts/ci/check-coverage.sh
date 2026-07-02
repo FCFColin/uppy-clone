@@ -79,16 +79,39 @@ should_exclude() {
   return 1
 }
 
-check_go_total() {
+resolve_cover_file() {
   local cover_file="$1"
-  local min_pct="$2"
-  local label="$3"
-  if [[ ! -f "$cover_file" ]]; then
-    echo "ERROR: ${label} coverage file not found: $cover_file"
-    return 1
+  case "$cover_file" in
+    /*)
+      printf '%s' "$cover_file"
+      return 0
+      ;;
+  esac
+  if [[ -f "${ROOT}/${cover_file}" ]]; then
+    printf '%s' "${ROOT}/${cover_file}"
+    return 0
   fi
+  if [[ -f "${BACKEND}/${cover_file}" ]]; then
+    printf '%s' "${BACKEND}/${cover_file}"
+    return 0
+  fi
+  if [[ -f "${BACKEND}/unit.out" && ( "$cover_file" == "unit.out" || "$cover_file" == "backend/unit.out" ) ]]; then
+    printf '%s' "${BACKEND}/unit.out"
+    return 0
+  fi
+  if [[ -f "${BACKEND}/int.out" && ( "$cover_file" == "int.out" || "$cover_file" == "backend/int.out" ) ]]; then
+    printf '%s' "${BACKEND}/int.out"
+    return 0
+  fi
+  printf '%s' "${ROOT}/${cover_file}"
+}
+
+check_go_total() {
+  local min_pct="$1"
+  local label="$2"
+  local cover_lines="$3"
   local pct
-  pct=$(go tool cover -func="$cover_file" | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
+  pct=$(printf '%s\n' "$cover_lines" | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
   echo "${label} total coverage: ${pct}% (min ${min_pct}%)"
   if awk -v p="$pct" -v t="$min_pct" 'BEGIN { exit (p+0 >= t+0) ? 0 : 1 }'; then
     return 0
@@ -97,10 +120,23 @@ check_go_total() {
   return 1
 }
 
+load_go_cover_func() {
+  local cover_file="$1"
+  local resolved
+  resolved=$(resolve_cover_file "$cover_file")
+  if [[ ! -f "$resolved" ]]; then
+    echo "ERROR: coverage file not found: $cover_file" >&2
+    return 1
+  fi
+  local rel="${resolved#"$BACKEND/"}"
+  (cd "$BACKEND" && go tool cover -func="$rel")
+}
+
 check_go_per_file() {
   local cover_file="$1"
   local min_pct="$2"
   local prefix="${3:-}"
+  local cover_lines="$4"
   local failed=0
   while IFS= read -r line; do
     [[ "$line" == total:* ]] && continue
@@ -114,7 +150,7 @@ check_go_per_file() {
     fi
     echo "FAIL file ${file}: ${pct}% < ${min_pct}%"
     failed=1
-  done < <(go tool cover -func="$cover_file" | grep -E '\.go:' || true)
+  done < <(printf '%s\n' "$cover_lines" | grep -E '\.go:' || true)
   return $failed
 }
 
@@ -122,6 +158,8 @@ check_go_important() {
   local cover_file="$1"
   local min_pct="$2"
   shift 2
+  local cover_lines="$1"
+  shift
   local paths=("$@")
   local failed=0
   for imp in "${paths[@]}"; do
@@ -131,7 +169,7 @@ check_go_important() {
       pct=$(echo "$line" | awk '{print $NF}' | tr -d '%')
       agg=$(awk -v a="$agg" -v p="$pct" 'BEGIN { print a + p }')
       count=$((count + 1))
-    done < <(go tool cover -func="$cover_file" | grep "$imp" | grep -E '\.go:' || true)
+    done < <(printf '%s\n' "$cover_lines" | grep "$imp" | grep -E '\.go:' || true)
     if [[ $count -eq 0 ]]; then
       echo "WARN important path has no coverage entries: $imp"
       continue
@@ -152,7 +190,7 @@ run_unit_coverage() {
   cd "$BACKEND"
   local cover_file="${COVER_TMP:-/tmp/balloon-unit.out}"
   local pkgs
-  pkgs=$(go list ./internal/... 2>/dev/null | grep -v /internal/testutil || go list ./internal/... | grep -v /internal/testutil)
+  pkgs=$(go list ./internal/... 2>/dev/null | grep -v /internal/testutil | grep -v /internal/testsecrets || go list ./internal/... | grep -v /internal/testutil | grep -v /internal/testsecrets)
   # shellcheck disable=SC2086
   go test $pkgs -short -coverprofile="$cover_file" -covermode=atomic -timeout 180s
   echo "$cover_file"
@@ -208,9 +246,17 @@ check_frontend_important() {
 check_unit() {
   local cover_file="${1:-$UNIT_OUT}"
   local failed=0
-  check_go_total "$cover_file" "$UNIT_MIN" "Unit" || failed=1
-  check_go_per_file "$cover_file" "$FILE_MIN" "github.com/uppy-clone/backend/" || failed=1
-  check_go_important "$cover_file" "$IMPORTANT_MIN" "${IMPORTANT_BACKEND[@]}" || failed=1
+  local resolved
+  resolved=$(resolve_cover_file "$cover_file")
+  if [[ ! -f "$resolved" ]]; then
+    echo "ERROR: Unit coverage file not found: $cover_file"
+    return 1
+  fi
+  local cover_lines
+  cover_lines=$(load_go_cover_func "$cover_file")
+  check_go_total "$UNIT_MIN" "Unit" "$cover_lines" || failed=1
+  check_go_per_file "$cover_file" "$FILE_MIN" "github.com/uppy-clone/backend/" "$cover_lines" || failed=1
+  check_go_important "$cover_file" "$IMPORTANT_MIN" "$cover_lines" "${IMPORTANT_BACKEND[@]}" || failed=1
   return $failed
 }
 
