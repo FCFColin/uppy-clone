@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        spec: [gameplay, performance]
+        spec: [gameplay, multiplayer, reconnect, error_handling, cross_page, performance]
     services:
       postgres:
         image: postgres:16.4-alpine3.20
@@ -80,7 +80,7 @@ jobs:
       JWT_SECRET: ci-test-jwt-secret-minimum-32-bytes-long
       ADMIN_JWT_SECRET: ci-test-admin-jwt-secret-minimum-32-bytes
       ADMIN_PASSWORD: ci-test-admin-password
-      ENCRYPTION_KEY: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+      ENCRYPTION_KEY: ${{ secrets.CI_ENCRYPTION_KEY }}
       DATABASE_URL: postgres://uppy:uppy@localhost:5432/uppy?sslmode=disable
       REDIS_URL: localhost:6379
       ENABLE_HSTS: "false"
@@ -117,9 +117,27 @@ jobs:
           path: playwright-report/
           retention-days: 30
 
+  integration:
+    name: Go Integration Tests
+    needs: [quality-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: backend/go.sum
+      - name: Run handler integration tests
+        run: cd backend && go test -tags=integration ./internal/handler/... -timeout 300s -v -count=1
+      - name: Run game integration tests
+        run: cd backend && go test -tags=integration ./internal/game/... -timeout 300s -v -count=1
+      - name: Run store integration tests
+        run: cd backend && go test -tags=integration ./internal/store/... -timeout 300s -v -count=1
+
   deploy:
     name: Deploy to GKE (multi-region)
-    needs: [quality-gate, e2e]
+    needs: [quality-gate, e2e, integration]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
