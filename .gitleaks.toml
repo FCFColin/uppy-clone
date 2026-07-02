@@ -1,0 +1,11 @@
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''backend/internal/testsecrets/''',
+  '''backend/internal/crypto/aes_test\.go''',
+  '''\.secrets\.baseline''',
+]
