@@ -153,6 +153,24 @@ func TestMetricsAuthMiddleware_DevModeOpen(t *testing.T) {
 	}
 }
 
+func TestGetEnvInt_ServerEnvZeroUsesEnvVar(t *testing.T) {
+	serverEnv = &appConfig.Env{MaxWSConnections: 0}
+	t.Cleanup(func() { serverEnv = nil })
+	t.Setenv("MAX_WS_CONNECTIONS", "77")
+	if got := getEnvInt("MAX_WS_CONNECTIONS", 42); got != 77 {
+		t.Errorf("got %d, want 77 from env when serverEnv value is zero", got)
+	}
+}
+
+func TestGetEnvInt_InvalidEnvVar(t *testing.T) {
+	serverEnv = nil
+	t.Cleanup(func() { serverEnv = nil })
+	t.Setenv("MAX_WS_CONNECTIONS", "not-a-number")
+	if got := getEnvInt("MAX_WS_CONNECTIONS", 42); got != 42 {
+		t.Errorf("invalid env got %d, want default 42", got)
+	}
+}
+
 func TestGetEnvInt_PrefersServerEnv(t *testing.T) {
 	serverEnv = &appConfig.Env{MaxWSConnections: 200, MaxPlayersPerRoom: 16}
 	t.Cleanup(func() { serverEnv = nil })

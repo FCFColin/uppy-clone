@@ -3,12 +3,15 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pashagolub/pgxmock/v4"
+	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/resilience"
 )
@@ -138,10 +141,129 @@ func TestPostgresStore_ObservePoolStats_RealPool(t *testing.T) {
 	db.ObservePoolStats()
 }
 
+func TestSetRunMigrationsHook_Restore(t *testing.T) {
+	restore := SetRunMigrationsHook(func(ctx context.Context, _, _ string) error {
+		_ = ctx
+		return nil
+	})
+	defer restore()
+}
+
 func TestPostgresStore_RunMigrations_RequiresRealPool(t *testing.T) {
 	t.Parallel()
 	db, _ := newMockPostgresStore(t)
 	if err := db.RunMigrations("migrations"); err == nil {
 		t.Fatal("expected error for mock pool")
+	}
+}
+
+func TestPostgresStore_RunMigrations_SuccessHooked(t *testing.T) {
+	t.Parallel()
+	cfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	orig := runMigrationsFn
+	runMigrationsFn = func(_ context.Context, _, _ string) error { return nil }
+	t.Cleanup(func() { runMigrationsFn = orig })
+
+	db := NewPostgresStoreWithPool(pool)
+	if err := db.RunMigrations("migrations"); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+}
+
+func TestPostgresStore_RunMigrations_ErrorHooked(t *testing.T) {
+	t.Parallel()
+	cfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	orig := runMigrationsFn
+	runMigrationsFn = func(_ context.Context, _, _ string) error { return fmt.Errorf("migrate failed") }
+	t.Cleanup(func() { runMigrationsFn = orig })
+
+	db := NewPostgresStoreWithPool(pool)
+	if err := db.RunMigrations("migrations"); err == nil {
+		t.Fatal("expected migration error")
+	}
+}
+
+func TestPostgresStore_PoolStats_RealPool(t *testing.T) {
+	t.Parallel()
+	cfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	db := NewPostgresStoreWithPool(pool)
+	if stat := db.PoolStats(); stat == nil {
+		t.Fatal("PoolStats should return stats for real pgxpool")
+	}
+}
+
+func TestPostgresStore_ObservePoolStats_AcquireDelta(t *testing.T) {
+	t.Parallel()
+	cfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	cfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	db := &PostgresStore{pool: pool, cb: resilience.NewPostgresBreaker()}
+	db.ObservePoolStats()
+	db.lastAcquireDuration.Store(0.0)
+	db.lastAcquireCount.Store(int64(0))
+	_ = pool.Ping(context.Background())
+	db.ObservePoolStats()
+}
+
+func TestPostgresStore_RunMigrations_WithPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires postgres")
+	}
+	connStr := os.Getenv("TEST_DATABASE_URL")
+	if connStr == "" {
+		connStr = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=2"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := pgxpool.New(ctx, connStr); err != nil {
+		t.Skipf("postgres not available: %v", err)
+	}
+
+	db, err := NewPostgresStore(connStr, config.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("NewPostgresStore: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	if err := db.RunMigrations("migrations"); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
 	}
 }

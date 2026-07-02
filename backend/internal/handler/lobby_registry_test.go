@@ -3,10 +3,12 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
@@ -262,5 +264,134 @@ func TestCheckRoom_HubUnavailable(t *testing.T) {
 	}
 	if body["degraded"] != true {
 		t.Errorf("degraded = %v, want true", body["degraded"])
+	}
+}
+
+func TestCheckRoom_CacheReadError(t *testing.T) {
+	t.Parallel()
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("NewRedisStore: %v", err)
+	}
+	t.Cleanup(func() { _ = redisStore.Close() })
+
+	hub := game.NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
+	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	h := NewLobbyHandler(hub, jwtMgr, nil)
+
+	mr.SetError("redis down")
+	w := httptest.NewRecorder()
+	r := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
+	h.CheckRoom(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 degraded", w.Code)
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Errorf("degraded = %v, want true", body["degraded"])
+	}
+}
+
+func TestListLobbies_MarshalError(t *testing.T) {
+	t.Parallel()
+
+	prev := jsonMarshalFn
+	jsonMarshalFn = func(any) ([]byte, error) {
+		return nil, errors.New("marshal failed")
+	}
+	t.Cleanup(func() { jsonMarshalFn = prev })
+
+	repo := &stubLobbyRepo{
+		result: &store.LobbyListResult{
+			Lobbies: []domain.LobbyState{{Code: "ABCDE", State: "waiting"}},
+			Total:   1,
+		},
+	}
+	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	h := NewLobbyHandler(hub, jwtMgr, nil)
+
+	w := httptest.NewRecorder()
+	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 degraded", w.Code)
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["degraded"] != true {
+		t.Errorf("degraded = %v, want true", body["degraded"])
+	}
+}
+
+type errResponseWriter struct {
+	header     http.Header
+	statusCode int
+	failWrite  bool
+}
+
+func (e *errResponseWriter) Header() http.Header {
+	if e.header == nil {
+		e.header = make(http.Header)
+	}
+	return e.header
+}
+
+func (e *errResponseWriter) Write([]byte) (int, error) {
+	if e.failWrite {
+		return 0, context.Canceled
+	}
+	return len([]byte(`{"lobbies":[]}`)), nil
+}
+
+func (e *errResponseWriter) WriteHeader(statusCode int) {
+	e.statusCode = statusCode
+}
+
+func TestListLobbies_WriteError(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubLobbyRepo{
+		result: &store.LobbyListResult{
+			Lobbies: []domain.LobbyState{{Code: "ABCDE", State: "waiting"}},
+			Total:   1,
+		},
+	}
+	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	h := NewLobbyHandler(hub, jwtMgr, nil)
+
+	w := &errResponseWriter{failWrite: true}
+	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies", nil))
+}
+
+func TestHandleRegistryRoom_OpError(t *testing.T) {
+	t.Parallel()
+
+	h := newTestLobbyHandler()
+	w := httptest.NewRecorder()
+	h.handleRegistryRoom(w, httptest.NewRequest(http.MethodPost, "/api/v1/registry/create", nil), registryRoomParams{
+		emptyKey:      "code",
+		emptyVal:      "",
+		unavailMsg:    "unavailable",
+		unavailLog:    "hub unavailable",
+		failLog:       "op failed",
+		degradedMsg:   "degraded",
+		responseField: "code",
+	}, func(context.Context) (string, error) {
+		return "", context.Canceled
+	})
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
 	}
 }

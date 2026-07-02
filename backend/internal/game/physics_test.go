@@ -1,7 +1,10 @@
 package game
 
 import (
+	"errors"
+	"io"
 	"math"
+	"math/big"
 	"regexp"
 	"testing"
 
@@ -15,6 +18,86 @@ func TestRandFloat64_InRange(t *testing.T) {
 		if v < 0 || v >= 1 {
 			t.Fatalf("randFloat64() = %v, want in [0,1)", v)
 		}
+	}
+}
+
+func TestRandFloat64_RandError(t *testing.T) {
+	restore := SetRandIntHook(func(_ io.Reader, _ *big.Int) (*big.Int, error) {
+		return nil, errors.New("rand failed")
+	})
+	defer restore()
+
+	if got := randFloat64(); got != 0 {
+		t.Fatalf("randFloat64() = %v, want 0 on error", got)
+	}
+}
+
+func TestGenerateRoomCode_RandError(t *testing.T) {
+	restore := SetRandIntHook(func(_ io.Reader, _ *big.Int) (*big.Int, error) {
+		return nil, errors.New("rand failed")
+	})
+	defer restore()
+
+	code := GenerateRoomCode()
+	if len(code) != 5 || code != "AAAAA" {
+		t.Fatalf("GenerateRoomCode() = %q, want AAAAA fallback", code)
+	}
+}
+
+func TestUpdateWind_ClampAndEdgeZone(t *testing.T) {
+	state := createTestState()
+	state.Wind = 10
+	state.WindTarget = 10
+	state.WindMidOffset = 0
+	state.WindMicroCountdown = 1
+	state.WindMidCountdown = 1
+	state.WindChangeCountdown = 1
+	state.Balloon.X = 0.01
+	UpdateWind(state)
+	if state.Wind > protocol.WindClamp {
+		t.Fatalf("Wind should be clamped, got %v", state.Wind)
+	}
+
+	state.Wind = -10
+	state.WindTarget = -10
+	state.WindMicroCountdown = 1
+	state.WindMidCountdown = 1
+	state.WindChangeCountdown = 1
+	UpdateWind(state)
+	if state.Wind < -protocol.WindClamp {
+		t.Fatalf("Wind should be clamped low, got %v", state.Wind)
+	}
+}
+
+func TestSetBirdVelocityToward_ZeroDistanceGuard(t *testing.T) {
+	bird := &domain.BirdState{X: 0.5, Y: 0.5, VX: 0.01, VY: 0.02}
+	balloon := &domain.BalloonState{X: 0.5, Y: 0.5}
+	setBirdVelocityToward(bird, balloon, true)
+	if bird.VX != 0.01 || bird.VY != 0.02 {
+		t.Fatalf("velocity should be unchanged when dist=0, got VX=%v VY=%v", bird.VX, bird.VY)
+	}
+}
+
+func TestUpdateBirdAI_SpawnFromRight(t *testing.T) {
+	calls := 0
+	restore := SetRandIntHook(func(_ io.Reader, max *big.Int) (*big.Int, error) {
+		calls++
+		if calls == 1 {
+			return big.NewInt(0), nil // randFloat64=0 -> fromLeft=false -> spawn from right
+		}
+		return big.NewInt(max.Int64() / 2), nil
+	})
+	defer restore()
+
+	state := createTestState()
+	state.Bird.Active = false
+	state.Bird.SpawnTimer = 1
+	UpdateBirdAI(&state.Bird, &state.Balloon, 0)
+	if !state.Bird.Active {
+		t.Fatal("bird should spawn")
+	}
+	if state.Bird.X <= 1.0 {
+		t.Fatalf("bird from right should start past x=1, got X=%v", state.Bird.X)
 	}
 }
 

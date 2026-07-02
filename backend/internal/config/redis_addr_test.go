@@ -14,6 +14,7 @@ func TestParseRedisURL(t *testing.T) {
 		{"redis:6379", "redis:6379", ""},
 		{"redis://:secret@redis:6379", "redis:6379", "secret"},
 		{"redis://redis:6379/0", "redis:6379", ""},
+		{"rediss://:pass@secure:6380/1", "secure:6380", "pass"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.raw, func(t *testing.T) {
@@ -26,5 +27,19 @@ func TestParseRedisURL(t *testing.T) {
 				t.Fatalf("got %+v want addr=%q pass=%q", got, tt.wantAddr, tt.wantPass)
 			}
 		})
+	}
+}
+
+func TestParseRedisURL_MissingHost(t *testing.T) {
+	_, err := ParseRedisURL("redis://")
+	if err == nil {
+		t.Fatal("expected error for redis URL without host")
+	}
+}
+
+func TestParseRedisURL_InvalidURL(t *testing.T) {
+	_, err := ParseRedisURL("redis://%zz")
+	if err == nil {
+		t.Fatal("expected parse error")
 	}
 }

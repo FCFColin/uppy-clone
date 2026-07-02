@@ -186,6 +186,41 @@ func TestDecodeSetNickname_TooShort(t *testing.T) {
 	}
 }
 
+func TestDecodeNicknamePayload_Valid(t *testing.T) {
+	nick, ok := DecodeNicknamePayload(append([]byte{5}, []byte("hello")...))
+	if !ok || nick != "hello" {
+		t.Fatalf("DecodeNicknamePayload = (%q, %v), want (hello, true)", nick, ok)
+	}
+}
+
+func TestDecodeNicknamePayload_Empty(t *testing.T) {
+	_, ok := DecodeNicknamePayload(nil)
+	if ok {
+		t.Fatal("empty payload should fail")
+	}
+}
+
+func TestDecodeNicknamePayload_ZeroLength(t *testing.T) {
+	_, ok := DecodeNicknamePayload([]byte{0})
+	if ok {
+		t.Fatal("zero nickLen should fail")
+	}
+}
+
+func TestDecodeNicknamePayload_Truncated(t *testing.T) {
+	_, ok := DecodeNicknamePayload([]byte{5, 'a', 'b'})
+	if ok {
+		t.Fatal("truncated nickname should fail")
+	}
+}
+
+func TestDecodeNicknamePayload_NegativeLength(t *testing.T) {
+	_, ok := DecodeNicknamePayload([]byte{255, 'x'})
+	if ok {
+		t.Fatal("nickLen > payload should fail")
+	}
+}
+
 func TestDecodeSetNickname_WrongType(t *testing.T) {
 	_, ok := DecodeSetNickname([]byte{MsgTap, 0x03, 'a', 'b', 'c'})
 	if ok {
@@ -267,6 +302,12 @@ func TestCodeToPhase_Unknown(t *testing.T) {
 	got := CodeToPhase(255)
 	if got != PhaseWaiting {
 		t.Fatalf("unknown code should map to PhaseWaiting, got %q", got)
+	}
+}
+
+func TestPhaseToCode_Unknown(t *testing.T) {
+	if got := PhaseToCode(GamePhase("unknown")); got != PhaseCodeWaiting {
+		t.Fatalf("unknown phase should map to PhaseCodeWaiting, got %d", got)
 	}
 }
 

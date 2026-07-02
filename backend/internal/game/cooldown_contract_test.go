@@ -1,10 +1,7 @@
 package game
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,24 +9,28 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-type cooldownContract struct {
-	Cases []struct {
-		PlayerCount int   `json:"playerCount"`
-		ExpectedMs  int64 `json:"expectedMs"`
-	} `json:"cases"`
+// cooldownContractCases defines the cross-language cooldown contract.
+// Keep in sync with frontend/src/game/cooldown_contract.test.ts.
+var cooldownContractCases = []struct {
+	PlayerCount int
+	ExpectedMs  int64
+}{
+	{0, 1000}, {-5, 1000}, {1, 1000}, {2, 3032},
+	{4, 5064}, {8, 7096}, {100, 14500}, {1000, 15000}, {10000, 15000},
+}
+
+func countConnectedPlayers(players map[string]*domain.PlayerState) int {
+	n := 0
+	for _, p := range players {
+		if !p.Disconnected {
+			n++
+		}
+	}
+	return n
 }
 
 func TestCalculateCooldownContract(t *testing.T) {
-	root := findRepoRoot(t)
-	data, err := os.ReadFile(filepath.Join(root, "shared", "data", "cooldown_contract.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var contract cooldownContract
-	if err := json.Unmarshal(data, &contract); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range contract.Cases {
+	for _, tc := range cooldownContractCases {
 		t.Run(fmt.Sprintf("count_%d", tc.PlayerCount), func(t *testing.T) {
 			t.Parallel()
 			got := CalculateCooldown(tc.PlayerCount)
@@ -58,23 +59,5 @@ func TestUpdatePlayerStats_CooldownUsesRosterSize(t *testing.T) {
 	connectedOnly := CalculateCooldown(countConnectedPlayers(r.state.Players))
 	if got == connectedOnly && len(r.state.Players) != countConnectedPlayers(r.state.Players) {
 		t.Fatalf("cooldown matched connected-only count unexpectedly")
-	}
-}
-
-func findRepoRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "shared", "data", "cooldown_contract.json")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("repo root not found")
-		}
-		dir = parent
 	}
 }

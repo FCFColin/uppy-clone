@@ -248,17 +248,17 @@ func TestProcessBatch_InvalidJSON(t *testing.T) {
 	}
 }
 
-// TestProcessBatch_DatabaseFailure_Rollback verifies FK violation on insert acks the
-// poison message without committing partial game_results.
+// TestProcessBatch_DatabaseFailure_Rollback verifies FK violation on game_results
+// does not ACK the message and does not commit partial rows.
 func TestProcessBatch_DatabaseFailure_Rollback(t *testing.T) {
 	pool := setupPostgresPool(t)
 	rdb := setupRedisForWorker(t)
 
-	userID, _ := setupGameTestData(t, pool)
+	_, sessionID := setupGameTestData(t, pool)
 
-	nonExistentSessionID := uuid.NewString()
-	payload := makeGameResultPayload(nonExistentSessionID, 100, []PlayerGameResult{
-		{UserID: userID, ScoreContribution: 50, TapsCount: 10},
+	nonExistentUserID := uuid.NewString()
+	payload := makeGameResultPayload(sessionID, 100, []PlayerGameResult{
+		{UserID: nonExistentUserID, ScoreContribution: 50, TapsCount: 10},
 	}, time.Now().UnixMilli())
 
 	messages := addAndReadMessages(t, rdb, []string{payload})
@@ -269,10 +269,13 @@ func TestProcessBatch_DatabaseFailure_Rollback(t *testing.T) {
 	w := NewGameResultWorker(rdb, pool)
 	w.processBatch(context.Background(), messages)
 
-	if pending := getPendingCount(t, rdb); pending != 0 {
-		t.Errorf("pending count = %d, want 0 (poison message acked after FK failure)", pending)
+	if pending := getPendingCount(t, rdb); pending != 1 {
+		t.Errorf("pending count = %d, want 1 (FK failure should not ack)", pending)
 	}
-	if count := getGameResultsCount(t, pool, nonExistentSessionID); count != 0 {
+	if status := getGameSessionStatus(t, pool, sessionID); status != "active" {
+		t.Errorf("game session status = %s, want active (transaction rolled back)", status)
+	}
+	if count := getGameResultsCount(t, pool, sessionID); count != 0 {
 		t.Errorf("game results count = %d, want 0", count)
 	}
 }

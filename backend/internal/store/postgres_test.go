@@ -6,11 +6,15 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/resilience"
 )
 
 func TestPostgresStore_NewRequiresDatabaseURL(t *testing.T) {
@@ -29,6 +33,138 @@ func TestPostgresStore_NewInvalidConnString(t *testing.T) {
 	if !strings.Contains(err.Error(), "parse config") {
 		t.Fatalf("expected parse config error, got %v", err)
 	}
+}
+
+func TestPostgresStore_NewUnreachablePing(t *testing.T) {
+	t.Parallel()
+	_, err := NewPostgresStore(
+		"postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable&connect_timeout=1",
+		config.DefaultTimeoutConfig(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "ping") {
+		t.Fatalf("expected ping error, got %v", err)
+	}
+}
+
+func TestPostgresStore_NewPoolConfigError(t *testing.T) {
+	os.Setenv("PG_POOL_MAX_CONNS", "1")
+	os.Setenv("PG_POOL_MIN_CONNS", "5")
+	t.Cleanup(func() {
+		os.Unsetenv("PG_POOL_MAX_CONNS")
+		os.Unsetenv("PG_POOL_MIN_CONNS")
+	})
+
+	_, err := NewPostgresStore(
+		"postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable&connect_timeout=1",
+		config.DefaultTimeoutConfig(),
+	)
+	if err == nil {
+		t.Fatal("expected pool config error")
+	}
+}
+
+func TestPostgresStore_NewPostgresStore_Success(t *testing.T) {
+	connStr := os.Getenv("TEST_DATABASE_URL")
+	if connStr == "" {
+		connStr = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=2"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		t.Skipf("postgres not available: %v", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		t.Skipf("postgres not available: %v", err)
+	}
+	pool.Close()
+
+	db, err := NewPostgresStore(connStr, config.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("NewPostgresStore: %v", err)
+	}
+	t.Cleanup(db.Close)
+	if db.Pool() == nil || db.PoolStats() == nil {
+		t.Fatal("expected live pool stats")
+	}
+}
+
+func TestPostgresStore_NewPostgresStore_MockPool(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock.NewPool: %v", err)
+	}
+	mock.ExpectPing().WillReturnError(nil)
+
+	var capturedCfg *pgxpool.Config
+	orig := pgxNewWithConfigFn
+	pgxNewWithConfigFn = func(_ context.Context, cfg *pgxpool.Config) (pgPool, error) {
+		capturedCfg = cfg
+		return mock, nil
+	}
+	t.Cleanup(func() { pgxNewWithConfigFn = orig })
+
+	db, err := NewPostgresStore(
+		"postgres://user:pass@127.0.0.1:5432/dbname?sslmode=disable",
+		config.DefaultTimeoutConfig(),
+	)
+	if err != nil {
+		t.Fatalf("NewPostgresStore: %v", err)
+	}
+	t.Cleanup(db.Close)
+	if capturedCfg == nil || capturedCfg.PrepareConn == nil {
+		t.Fatal("expected PrepareConn on pool config")
+	}
+	ok, prepErr := capturedCfg.PrepareConn(context.Background(), nil)
+	if prepErr != nil || !ok {
+		t.Fatalf("PrepareConn: ok=%v err=%v", ok, prepErr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostgresStore_NewPostgresStore_CreatePoolError(t *testing.T) {
+	orig := pgxNewWithConfigFn
+	pgxNewWithConfigFn = func(_ context.Context, _ *pgxpool.Config) (pgPool, error) {
+		return nil, errors.New("create failed")
+	}
+	t.Cleanup(func() { pgxNewWithConfigFn = orig })
+
+	_, err := NewPostgresStore(
+		"postgres://user:pass@127.0.0.1:5432/dbname?sslmode=disable",
+		config.DefaultTimeoutConfig(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "create pool") {
+		t.Fatalf("expected create pool error, got %v", err)
+	}
+}
+
+func TestPgxNewWithConfigFn_DefaultNilConfigError(t *testing.T) {
+	_, err := pgxNewWithConfigFn(context.Background(), nil)
+	if err == nil || !strings.Contains(err.Error(), "nil pool config") {
+		t.Fatalf("expected nil pool config error, got %v", err)
+	}
+}
+
+func TestPgxNewWithConfigFn_DefaultSuccess(t *testing.T) {
+	cfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:5432/dbname?sslmode=disable")
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	pool, err := pgxNewWithConfigFn(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("pgxNewWithConfigFn: %v", err)
+	}
+	pool.Close()
+}
+
+func TestPostgresStore_recordAcquireDurationDelta(t *testing.T) {
+	t.Parallel()
+	db := &PostgresStore{cb: resilience.NewPostgresBreaker()}
+	db.recordAcquireDurationDelta(1.0, 1)
+	db.recordAcquireDurationDelta(3.0, 3)
 }
 
 // mockRows implements pgx.Rows for testing scanLobbyRows.

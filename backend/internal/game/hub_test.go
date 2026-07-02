@@ -522,12 +522,12 @@ func TestHub_WSConnectionLimit_RejectsWhenFull(t *testing.T) {
 
 func TestHub_TryReserveWSConnection_Atomic(t *testing.T) {
 	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 3, 50, nil)
-	reserved := 0
+	var reserved atomic.Int32
 	done := make(chan struct{})
 	for i := 0; i < 10; i++ {
 		go func() {
 			if h.TryReserveWSConnection() {
-				reserved++
+				reserved.Add(1)
 			}
 			done <- struct{}{}
 		}()
@@ -535,8 +535,8 @@ func TestHub_TryReserveWSConnection_Atomic(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		<-done
 	}
-	if reserved != 3 {
-		t.Fatalf("reserved = %d, want 3", reserved)
+	if reserved.Load() != 3 {
+		t.Fatalf("reserved = %d, want 3", reserved.Load())
 	}
 	if h.WSConnCount() != 3 {
 		t.Fatalf("WSConnCount = %d, want 3", h.WSConnCount())
@@ -1232,5 +1232,32 @@ func TestInstanceAddress_DefaultsToLocalhostPort(t *testing.T) {
 	os.Unsetenv("PORT")
 	if got := instanceAddress(); got != "127.0.0.1:8080" {
 		t.Fatalf("instanceAddress() = %q", got)
+	}
+}
+
+func TestHub_CleanupLoop_RunsCleanupOnce(t *testing.T) {
+	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	code, _ := h.CreateRoom(context.Background())
+	room := h.GetRoom(code)
+	room.mu.Lock()
+	room.state.Phase = domain.PhaseWaiting
+	room.connections = make(map[string]*PlayerConn)
+	room.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		h.CleanupLoop(ctx)
+		close(done)
+	}()
+	h.cleanupOnce()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CleanupLoop did not exit")
+	}
+	if h.GetRoom(code) != nil {
+		t.Fatal("empty waiting room should be cleaned up")
 	}
 }

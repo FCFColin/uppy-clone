@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -176,7 +177,9 @@ func TestCheckRestartConsensus_DisconnectedPlayersNotCounted(t *testing.T) {
 	room.state.RestartVotes = map[string]bool{"p1": true}
 
 	// Only 1 connected player voted yes → unanimous among connected
+	room.mu.Lock()
 	err := CheckRestartConsensus(room)
+	room.mu.Unlock()
 	if err != nil {
 		t.Logf("CheckRestartConsensus error: %v", err)
 	}
@@ -311,6 +314,41 @@ func TestRestartProtocolConstants(t *testing.T) {
 	if protocol.NicknameCooldownMs != 30000 {
 		t.Errorf("NicknameCooldownMs = %d, want 30000", protocol.NicknameCooldownMs)
 	}
+}
+
+func TestRestartAndStart_SaveError(t *testing.T) {
+	repo := newMockRoomRepository()
+	repo.saveErr = errors.New("save failed")
+	r := NewRoom("SAVE", nil, repo, config.DefaultTimeoutConfig(), 0)
+	r.mu.Lock()
+	r.state.Phase = domain.PhaseEnded
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "P1"}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
+	oldPhase := r.state.Phase
+	err := RestartAndStart(r)
+	r.mu.Unlock()
+	if err == nil {
+		t.Fatal("expected save error")
+	}
+	if r.state.Phase != oldPhase {
+		t.Fatal("state should roll back on save failure")
+	}
+}
+
+func TestCheckRestartConsensus_FirstVoteStartsTimer(t *testing.T) {
+	r := NewRoom("VOTE", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.syncOutbound = true
+	r.mu.Lock()
+	r.state.Phase = domain.PhaseEnded
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
+	r.state.Players["p2"] = &domain.PlayerState{ID: "p2"}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 8)}
+	_ = HandleRestartVote(r, r.state.Players["p1"])
+	if r.state.RestartTimerStart == nil {
+		t.Fatal("expected restart timer after first vote")
+	}
+	r.mu.Unlock()
 }
 
 const (

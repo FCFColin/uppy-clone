@@ -3,9 +3,12 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -143,6 +146,26 @@ func TestProcessMessage_InvalidPayload(t *testing.T) {
 	w.processMessage(ctx, msg)
 
 	// No re-enqueue, no dead-letter
+	queueLen, _ := rdb.XLen(ctx, "email:queue").Result()
+	if queueLen != 0 {
+		t.Fatalf("expected 0 messages in email:queue, got %d", queueLen)
+	}
+}
+
+func TestProcessMessage_NonStringPayload(t *testing.T) {
+	rdb := setupRedis(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("should not call API for non-string payload")
+	}))
+	defer server.Close()
+
+	w := newTestWorker(rdb, server.URL)
+	ctx := context.Background()
+	w.processMessage(ctx, redis.XMessage{
+		ID:     "nonstring-0",
+		Values: map[string]interface{}{"payload": 123},
+	})
+
 	queueLen, _ := rdb.XLen(ctx, "email:queue").Result()
 	if queueLen != 0 {
 		t.Fatalf("expected 0 messages in email:queue, got %d", queueLen)
@@ -470,6 +493,74 @@ func TestSendEmail_AuthorizationHeader(t *testing.T) {
 	}
 }
 
+type errRoundTripper struct{ err error }
+
+func (e errRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, e.err
+}
+
+func TestSendEmail_NetworkError(t *testing.T) {
+	w := newTestWorker(nil, "http://example.com/emails")
+	w.httpClient = &http.Client{Transport: errRoundTripper{err: errors.New("network down")}}
+	err := w.sendEmail(context.Background(), EmailPayload{To: "user@test.com", Subject: "Test", Body: "body"})
+	if err == nil {
+		t.Fatal("expected network error")
+	}
+}
+
+func TestSendEmail_InvalidURL(t *testing.T) {
+	w := newTestWorker(nil, "://invalid-url")
+	err := w.sendEmail(context.Background(), EmailPayload{To: "user@test.com", Subject: "Test", Body: "body"})
+	if err == nil {
+		t.Fatal("expected request creation error")
+	}
+}
+
+func TestSendEmail_TruncatesLong5xxBody(t *testing.T) {
+	longBody := strings.Repeat("x", 1500)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(longBody))
+	}))
+	defer server.Close()
+
+	worker := newTestWorker(nil, server.URL)
+	err := worker.sendEmail(context.Background(), EmailPayload{To: "user@test.com", Subject: "Test", Body: "body"})
+	if err == nil {
+		t.Fatal("expected server error")
+	}
+	if len(err.Error()) > 1100 {
+		t.Fatalf("expected truncated error body, got len=%d", len(err.Error()))
+	}
+}
+
+func TestEmailWorker_Start_XReadGroupError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	w := newTestWorker(rdb, "http://127.0.0.1:1")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		w.Start(ctx)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	mr.Close()
+	time.Sleep(1100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit after cancel")
+	}
+}
+
 func TestNewGDPRCleanupWorker_Defaults(t *testing.T) {
 	t.Parallel()
 	w := NewGDPRCleanupWorker(nil, 0, 0)
@@ -553,5 +644,16 @@ func TestEmailWorker_Start_ProcessesMessage(t *testing.T) {
 	case <-done:
 	case <-time.After(6 * time.Second):
 		t.Fatal("Start did not exit after cancel")
+	}
+}
+
+func TestTruncateRespBody_TruncatesLongBody(t *testing.T) {
+	longBody := strings.Repeat("x", 1500)
+	resp := &http.Response{
+		Body: io.NopCloser(strings.NewReader(longBody)),
+	}
+	got := truncateRespBody(resp)
+	if len(got) != 1000 {
+		t.Fatalf("len = %d, want 1000", len(got))
 	}
 }

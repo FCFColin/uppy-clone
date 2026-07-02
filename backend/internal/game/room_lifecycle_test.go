@@ -9,10 +9,79 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
+	"github.com/uppy-clone/backend/internal/store"
 )
+
+func TestRoom_Code(t *testing.T) {
+	t.Parallel()
+	r := NewRoom("ABCD1", nil, nil, config.DefaultTimeoutConfig(), 0)
+	if got := r.Code(); got != "ABCD1" {
+		t.Fatalf("Code() = %q, want ABCD1", got)
+	}
+}
+
+func TestRoom_notifyJoin_SendsSnapshot(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	r := NewRoom("JOIN1", nil, nil, timeouts, 0)
+	player := &domain.PlayerState{
+		ID: "p1", Nickname: "Alice", PlayerIndex: 0, Palette: 1, NicknameConfirmed: true,
+	}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
+	r.notifyJoin("p1", player, false)
+	select {
+	case msg := <-r.connections["p1"].Send:
+		if len(msg) == 0 {
+			t.Fatal("expected snapshot message")
+		}
+	default:
+		t.Fatal("notifyJoin should enqueue snapshot to joining player")
+	}
+}
+
+func TestRoom_notifyJoin_Reconnect(t *testing.T) {
+	r := NewRoom("JOIN2", nil, nil, config.DefaultTimeoutConfig(), 0)
+	player := &domain.PlayerState{ID: "p1", Nickname: "Bob", PlayerIndex: 0, Palette: 2}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
+	r.notifyJoin("p1", player, true)
+	select {
+	case <-r.connections["p1"].Send:
+	default:
+		t.Fatal("reconnect notifyJoin should send snapshot")
+	}
+}
+
+func TestRoom_addNewPlayer_Success(t *testing.T) {
+	r := NewRoom("ADD1", nil, nil, config.DefaultTimeoutConfig(), 4)
+	player, err := r.addNewPlayer("p1", nil)
+	if err != nil {
+		t.Fatalf("addNewPlayer: %v", err)
+	}
+	if player == nil || player.ID != "p1" {
+		t.Fatalf("player = %+v", player)
+	}
+	if len(r.state.Players) != 1 {
+		t.Fatalf("players = %d, want 1", len(r.state.Players))
+	}
+}
+
+func TestRoom_addNewPlayer_RoomFull(t *testing.T) {
+	r := NewRoom("FULL", nil, nil, config.DefaultTimeoutConfig(), 1)
+	r.state.Players["p0"] = &domain.PlayerState{ID: "p0", Nickname: "Taken"}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1)}
+
+	_, err := r.addNewPlayer("p1", nil)
+	if err != ErrRoomFull {
+		t.Fatalf("err = %v, want ErrRoomFull", err)
+	}
+	if _, ok := r.connections["p1"]; ok {
+		t.Fatal("full room should remove pending connection")
+	}
+}
 
 func TestRoom_closeExistingConnection_ClosesAndRemoves(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
@@ -772,4 +841,196 @@ func TestTransitionPhaseIfNeeded(t *testing.T) {
 		room.state.Phase = domain.PhaseWaiting
 		room.transitionPhaseIfNeeded()
 	})
+}
+
+func TestRoom_HandleJoin_ExistingPlayer(t *testing.T) {
+	r := NewRoom("JOIN3", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Players["p1"] = &domain.PlayerState{
+		ID: "p1", Nickname: "Alice", PlayerIndex: 0, NicknameConfirmed: true,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		up := websocket.Upgrader{}
+		up.Upgrade(w, req, nil)
+	}))
+	defer server.Close()
+	wsURL := "ws" + server.URL[4:]
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := r.HandleJoin("p1", conn); err != nil {
+		t.Fatalf("HandleJoin: %v", err)
+	}
+}
+
+func TestRoom_HandleJoin_ReconnectDuringGrace(t *testing.T) {
+	r := NewRoom("RECON", nil, nil, config.DefaultTimeoutConfig(), 4)
+	now := time.Now().UnixMilli()
+	r.state.Players["p1"] = &domain.PlayerState{
+		ID: "p1", Nickname: "Bob", PlayerIndex: 0, Disconnected: true, DisconnectedAt: &now,
+	}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		up := websocket.Upgrader{}
+		up.Upgrade(w, req, nil)
+	}))
+	defer server.Close()
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := r.HandleJoin("p1", conn); err != nil {
+		t.Fatalf("HandleJoin reconnect: %v", err)
+	}
+	if r.state.Players["p1"].Disconnected {
+		t.Fatal("player should be reconnected")
+	}
+}
+
+func TestRoom_reconnectPlayer_CountdownPhase(t *testing.T) {
+	r := NewRoom("RCD", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseCountdown
+	r.countdownStart = time.Now().UnixMilli()
+	player := &domain.PlayerState{ID: "p1", Nickname: "Nick", PlayerIndex: 0}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+	r.reconnectPlayer("p1", player)
+}
+
+func TestRoom_reconnectPlayer_PlayingPhase(t *testing.T) {
+	r := NewRoom("RPL", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhasePlaying
+	player := &domain.PlayerState{ID: "p1", Nickname: "Nick", PlayerIndex: 0}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+	r.reconnectPlayer("p1", player)
+	if r.tickCancel == nil {
+		t.Fatal("expected tick started on playing reconnect")
+	}
+	r.stopTick()
+}
+
+func TestRoom_normalizePhaseForNicknameGate_Countdown(t *testing.T) {
+	r := NewRoom("NG1", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseCountdown
+	r.endGameTimer = time.AfterFunc(time.Hour, func() {})
+	r.startDelayTimer = time.AfterFunc(time.Hour, func() {})
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", NicknameConfirmed: false}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1"}
+	r.normalizePhaseForNicknameGate()
+	if r.state.Phase != domain.PhaseWaiting {
+		t.Fatalf("phase = %s", r.state.Phase)
+	}
+}
+
+func TestRoom_tryStartWhenAllReady_AlreadyScheduled(t *testing.T) {
+	r := NewRoom("TSR", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseWaiting
+	r.startDelayTimer = time.AfterFunc(time.Hour, func() {})
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", NicknameConfirmed: true}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1"}
+	r.tryStartWhenAllReady()
+}
+
+func TestRoom_setEndGameAlarm_EndedPhase(t *testing.T) {
+	r := NewRoom("EGA", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseEnded
+	addConnectedPlayer(r, "p1")
+	r.setEndGameAlarm(time.Now().Add(10 * time.Millisecond))
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestRoom_handleCountdownEnd_WithStore(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock: %v", err)
+	}
+	t.Cleanup(func() { mock.Close() })
+	db := store.NewPostgresStoreWithPool(mock)
+	mock.ExpectExec("INSERT INTO game_sessions").WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+
+	r := NewRoom("HCE", nil, db, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseCountdown
+	r.state.SessionID = "11111111-1111-4111-8111-111111111111"
+	r.state.StartedAt = time.Now().UnixMilli()
+	r.handleCountdownEnd()
+}
+
+func TestRoom_HandleJoin_NewPlayer(t *testing.T) {
+	r := NewRoom("NEW1", nil, nil, config.DefaultTimeoutConfig(), 4)
+	if err := r.HandleJoin("p1", nil); err != nil {
+		t.Fatalf("HandleJoin: %v", err)
+	}
+	if _, ok := r.state.Players["p1"]; !ok {
+		t.Fatal("new player should be added")
+	}
+}
+
+func TestRoom_reconnectPlayer_WaitingPhase(t *testing.T) {
+	r := NewRoom("RW", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.startDelay = time.Millisecond
+	r.state.Phase = domain.PhaseWaiting
+	player := &domain.PlayerState{ID: "p1", Nickname: "Nick", NicknameConfirmed: true}
+	r.state.Players["p1"] = player
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+	r.reconnectPlayer("p1", player)
+	time.Sleep(20 * time.Millisecond)
+}
+
+func TestRoom_normalizePhaseForNicknameGate_AllReadyNoOp(t *testing.T) {
+	r := NewRoom("NR", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhasePlaying
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", NicknameConfirmed: true}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1"}
+	r.normalizePhaseForNicknameGate()
+	if r.state.Phase != domain.PhasePlaying {
+		t.Fatalf("phase = %s, want playing when all ready", r.state.Phase)
+	}
+}
+
+func TestRoom_setEndGameAlarm_ReplacesExisting(t *testing.T) {
+	r := NewRoom("RT", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.endGameTimer = time.AfterFunc(time.Hour, func() {})
+	r.state.Phase = domain.PhaseEnded
+	r.setEndGameAlarm(time.Now().Add(time.Millisecond))
+	time.Sleep(20 * time.Millisecond)
+}
+
+func TestRoom_setEndGameAlarm_PastDeadline(t *testing.T) {
+	r := NewRoom("PD", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseCountdown
+	r.setEndGameAlarm(time.Now().Add(-time.Second))
+	time.Sleep(20 * time.Millisecond)
+	if r.state.Phase != domain.PhasePlaying {
+		t.Fatalf("phase = %s, want playing after past deadline", r.state.Phase)
+	}
+}
+
+func TestRoom_handleAutoRestart_AutoRestart(t *testing.T) {
+	r := NewRoom("AR3", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseEnded
+	addConnectedPlayer(r, "p1")
+	r.state.RestartVotes = map[string]bool{}
+	r.handleAutoRestart()
+	if r.state.Phase != domain.PhaseCountdown {
+		t.Fatalf("phase = %s, want countdown after auto restart", r.state.Phase)
+	}
+}
+
+func TestRoom_Close_WithTickAndConnections(t *testing.T) {
+	repo := newMockRoomRepository()
+	r := NewRoom("CL1", nil, repo, config.DefaultTimeoutConfig(), 4)
+	r.syncOutbound = true
+	r.mu.Lock()
+	r.state.Phase = domain.PhasePlaying
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4), Conn: nil}
+	r.endGameTimer = time.AfterFunc(time.Hour, func() {})
+	r.startDelayTimer = time.AfterFunc(time.Hour, func() {})
+	r.mu.Unlock()
+	r.startTick()
+	r.Close()
 }

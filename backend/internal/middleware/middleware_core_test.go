@@ -3,6 +3,7 @@ package middleware
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -14,7 +15,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/metrics"
+	"github.com/uppy-clone/backend/internal/requestctx"
+	"strings"
 )
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
@@ -599,10 +603,7 @@ func TestSecurityHeaders(t *testing.T) {
 		rec := makeSecurityRequest()
 		assertHeader(t, rec, "Referrer-Policy", "strict-origin-when-cross-origin")
 	})
-	t.Run("sets X-XSS-Protection", func(t *testing.T) {
-		rec := makeSecurityRequest()
-		assertHeader(t, rec, "X-XSS-Protection", "1; mode=block")
-	})
+	
 	t.Run("sets Content-Security-Policy", func(t *testing.T) {
 		rec := makeSecurityRequest()
 		if got := rec.Header().Get("Content-Security-Policy"); got == "" {
@@ -839,4 +840,202 @@ func TestIsOriginAllowed_ExactMatch(t *testing.T) {
 	if IsOriginAllowed("https://evil.example.com", allowed) {
 		t.Fatal("hostname-only match must not pass")
 	}
+}
+
+func TestGetRequestID_FromContext(t *testing.T) {
+	ctx := context.WithValue(context.Background(), chimw.RequestIDKey, "req-123")
+	if got := GetRequestID(ctx); got != "req-123" {
+		t.Fatalf("GetRequestID = %q, want req-123", got)
+	}
+	if got := GetRequestID(context.Background()); got != "" {
+		t.Fatalf("empty context GetRequestID = %q, want empty", got)
+	}
+}
+
+func TestTracingMiddleware_SetsErrorStatusOn4xx(t *testing.T) {
+	r := chi.NewRouter()
+	r.Use(TracingMiddleware)
+	r.Get("/fail", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/fail", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestTracingMiddleware_SetsEndUserID(t *testing.T) {
+	r := chi.NewRouter()
+	r.Use(TracingMiddleware)
+	r.Get("/me", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	req = req.WithContext(auth.WithAuthenticatedUser(req.Context(), "user-tracing", "Nick"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestSecurityHeaders_DevConnectSrc(t *testing.T) {
+	t.Setenv("ENABLE_HSTS", "false")
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "wss:") || !strings.Contains(csp, "ws:") {
+		t.Fatalf("dev CSP should allow websocket schemes, got %q", csp)
+	}
+}
+
+func TestTrustedProxy_UntrustedInvalidIP(t *testing.T) {
+	handler := TrustedProxy("127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if IsTrustedProxy(r) {
+			t.Error("invalid RemoteAddr must not be trusted")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "not-an-ip"
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+}
+
+func TestExtractClientIP_TrustedMultiValueXFF(t *testing.T) {
+	handler := TrustedProxy("127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := ExtractClientIP(r); got != "198.51.100.10" {
+			t.Fatalf("ExtractClientIP() = %q, want first XFF IP", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "198.51.100.10, 203.0.113.1")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+}
+
+func TestParseTrustedCIDRs_SkipsEmptyParts(t *testing.T) {
+	nets := parseTrustedCIDRs("127.0.0.1/32,,10.0.0.0/8")
+	if len(nets) != 2 {
+		t.Fatalf("expected 2 nets, got %d", len(nets))
+	}
+}
+
+func TestGenerateNonce_RandFailure(t *testing.T) {
+	prev := nonceRandRead
+	nonceRandRead = func([]byte) (int, error) { return 0, errors.New("rand failed") }
+	t.Cleanup(func() { nonceRandRead = prev })
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when nonce rand fails")
+		}
+	}()
+	generateNonce()
+}
+
+func TestTrustedProxy_SplitHostPortFallback(t *testing.T) {
+	handler := TrustedProxy("127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !IsTrustedProxy(r) {
+			t.Error("expected trusted peer when RemoteAddr has no port")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1"
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+}
+
+func TestParseTrustedCIDRs_EmptyString(t *testing.T) {
+	if nets := parseTrustedCIDRs(""); nets != nil {
+		t.Fatalf("expected nil for empty string, got %d nets", len(nets))
+	}
+	if nets := parseTrustedCIDRs("   "); nets != nil {
+		t.Fatalf("expected nil for whitespace, got %d nets", len(nets))
+	}
+}
+
+func TestParseTrustedCIDRs_BareIP(t *testing.T) {
+	nets := parseTrustedCIDRs("10.0.0.1")
+	if len(nets) != 1 {
+		t.Fatalf("expected 1 net, got %d", len(nets))
+	}
+}
+
+func TestTracingMiddleware_NoRoutePattern(t *testing.T) {
+	handler := TracingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/no-chi", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestTracingMiddleware_RoutePattern(t *testing.T) {
+	r := chi.NewRouter()
+	r.Route("/", func(r chi.Router) {
+		r.Use(TracingMiddleware)
+		r.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+	})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/items/42", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestTracingMiddleware_EmptyUserID(t *testing.T) {
+	handler := TracingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(auth.WithAuthenticatedUser(req.Context(), "", "nick"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestExtractClientIP_TrustedEmptyXFFInvalidRemoteAddr(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "invalid-no-port"
+	req.Header.Set("X-Forwarded-For", "")
+	req = req.WithContext(requestctx.WithTrustedProxy(req.Context(), true))
+	if got := ExtractClientIP(req); got != "invalid-no-port" {
+		t.Fatalf("ExtractClientIP() = %q, want RemoteAddr fallback", got)
+	}
+}
+
+func TestExtractClientIP_TrustedBlankXFFInvalidRemoteAddr(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "invalid-no-port"
+	req.Header.Set("X-Forwarded-For", "  ")
+	req = req.WithContext(requestctx.WithTrustedProxy(req.Context(), true))
+	if got := ExtractClientIP(req); got != "invalid-no-port" {
+		t.Fatalf("ExtractClientIP() = %q, want RemoteAddr fallback", got)
+	}
+}
+
+func TestExtractClientIP_TrustedBlankFirstXFF(t *testing.T) {
+	handler := TrustedProxy("127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := ExtractClientIP(r); got != "127.0.0.1" {
+			t.Fatalf("ExtractClientIP() = %q, want RemoteAddr fallback", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "  ")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
 }

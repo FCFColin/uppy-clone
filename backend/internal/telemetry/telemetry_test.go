@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -9,7 +10,10 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
@@ -408,6 +412,36 @@ func TestInitTracer_ConcurrentCalls(t *testing.T) {
 
 // TestInitTracer_EmptyServiceName verifies that InitTracer handles an empty
 // service name without panicking.
+func TestInitTracer_ExporterFactoryError(t *testing.T) {
+	setEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
+	prev := otlpExporterFactory
+	otlpExporterFactory = func(context.Context, ...otlptracegrpc.Option) (*otlptrace.Exporter, error) {
+		return nil, errors.New("exporter failed")
+	}
+	t.Cleanup(func() { otlpExporterFactory = prev })
+
+	_, err := InitTracer(context.Background(), "test-service", "1.0.0")
+	if err == nil {
+		t.Fatal("expected exporter factory error")
+	}
+}
+
+func TestInitTracer_ResourceFactoryError(t *testing.T) {
+	setEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:9999")
+	saveTracerProvider(t)
+
+	prevResource := resourceFactory
+	resourceFactory = func(context.Context, ...sdkresource.Option) (*sdkresource.Resource, error) {
+		return nil, errors.New("resource failed")
+	}
+	t.Cleanup(func() { resourceFactory = prevResource })
+
+	_, err := InitTracer(context.Background(), "test-service", "1.0.0")
+	if err == nil {
+		t.Fatal("expected resource factory error")
+	}
+}
+
 func TestInitTracer_EmptyServiceName(t *testing.T) {
 	unsetEnv(t, "OTEL_EXPORTER_OTLP_ENDPOINT")
 

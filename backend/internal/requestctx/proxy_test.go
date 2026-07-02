@@ -85,3 +85,30 @@ func TestExtractClientIP_TrustedEmptyXFF(t *testing.T) {
 		t.Fatalf("ExtractClientIP = %q", got)
 	}
 }
+
+func TestExtractClientIP_InvalidRemoteAddr(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "not-a-valid-hostport"
+	if got := ExtractClientIP(req); got != "not-a-valid-hostport" {
+		t.Fatalf("ExtractClientIP = %q", got)
+	}
+}
+
+func TestExtractClientIP_TrustedBlankFirstXFF(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(WithTrustedProxy(req.Context(), true))
+	req.Header.Set("X-Forwarded-For", "  ")
+	req.RemoteAddr = "10.0.0.2:1234"
+	if got := ExtractClientIP(req); got != "10.0.0.2" {
+		t.Fatalf("ExtractClientIP = %q", got)
+	}
+}
+
+func TestExtractClientIP_TrustedEmptyXFFInvalidRemoteAddr(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(WithTrustedProxy(req.Context(), true))
+	req.RemoteAddr = "invalid-no-port"
+	if got := ExtractClientIP(req); got != "invalid-no-port" {
+		t.Fatalf("ExtractClientIP = %q", got)
+	}
+}

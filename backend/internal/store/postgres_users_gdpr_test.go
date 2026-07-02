@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -56,6 +57,19 @@ func TestAnonymizeUser_Error(t *testing.T) {
 
 	if err := s.AnonymizeUser(ctx, "user-gdpr"); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAnonymizeUser_EncryptError(t *testing.T) {
+	orig := encryptEmailForStorageFn
+	t.Cleanup(func() { encryptEmailForStorageFn = orig })
+	encryptEmailForStorageFn = func(string) (string, error) {
+		return "", fmt.Errorf("encrypt failed")
+	}
+
+	s, _ := newMockPostgresStore(t)
+	if err := s.AnonymizeUser(context.Background(), "user-gdpr"); err == nil {
+		t.Fatal("expected encrypt error")
 	}
 }
 

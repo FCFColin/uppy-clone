@@ -3,6 +3,7 @@ package game
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -189,6 +190,17 @@ func TestHub_CheckRoomCached_InvalidCacheJSON(t *testing.T) {
 	}
 }
 
+func TestHub_CheckRoomCached_RedisGetError(t *testing.T) {
+	h, redisStore := setupHubWithMiniredis(t, nil)
+	if err := redisStore.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	_, err := h.CheckRoomCached(context.Background(), "ABCDE")
+	if err == nil {
+		t.Fatal("expected redis get error")
+	}
+}
+
 func TestHub_ResolveRoom_RedisError(t *testing.T) {
 	h, redisStore := setupHubWithMiniredis(t, nil)
 	if err := redisStore.Close(); err != nil {
@@ -221,3 +233,21 @@ func TestHub_ListLobbiesCached_CorruptCacheReloads(t *testing.T) {
 		t.Fatalf("result = %+v, want FRESH lobby from store", result)
 	}
 }
+
+func TestHub_ListLobbiesCached_LoadError(t *testing.T) {
+	h, _ := setupHubWithMiniredis(t, &failLoadRepo{mockRoomRepository: *newMockRoomRepository()})
+	_, err := h.ListLobbiesCached(context.Background(), 10, "")
+	if err == nil {
+		t.Fatal("expected load error")
+	}
+}
+
+type failLoadRepo struct {
+	mockRoomRepository
+}
+
+func (f *failLoadRepo) LoadAllActiveLobbies(_ context.Context, _ int, _ string) (*store.LobbyListResult, error) {
+	return nil, errLoadFailed
+}
+
+var errLoadFailed = errors.New("load failed")

@@ -27,8 +27,14 @@ func TestComputeHash_Chain(t *testing.T) {
 }
 
 func TestInitDBLogger_NilPoolNoOp(t *testing.T) {
-	// Adversarial: nil pool or empty secret must not panic.
+	// Adversarial: nil pool must not panic or initialize dbLogger.
+	old := dbLogger
+	defer func() { dbLogger = old }()
+
 	InitDBLogger(nil, "secret")
+	if dbLogger != nil {
+		t.Fatal("InitDBLogger with nil pool should not initialize dbLogger")
+	}
 	CloseDBLogger()
 }
 

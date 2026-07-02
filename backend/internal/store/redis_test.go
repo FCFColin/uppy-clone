@@ -2,12 +2,14 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
@@ -68,6 +70,72 @@ func newTestRedisStore(t *testing.T) (*RedisStore, *miniredis.Miniredis) {
 	return NewRedisStoreFromClient(rdb), mr
 }
 
+type redisCmdHook struct {
+	mr     *miniredis.Miniredis
+	failOn map[string]error
+	before map[string]func(*miniredis.Miniredis, redis.Cmder) error
+}
+
+func (h redisCmdHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (h redisCmdHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if fn, ok := h.before[cmd.Name()]; ok {
+			if err := fn(h.mr, cmd); err != nil {
+				return err
+			}
+		}
+		if err, ok := h.failOn[cmd.Name()]; ok {
+			return err
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (h redisCmdHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []redis.Cmder) error {
+		for _, cmd := range cmds {
+			if err, ok := h.failOn[cmd.Name()]; ok {
+				return err
+			}
+		}
+		return next(ctx, cmds)
+	}
+}
+
+func newTestRedisStoreWithHook(t *testing.T, failOn map[string]error) (*RedisStore, *miniredis.Miniredis) {
+	t.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdb.AddHook(redisCmdHook{mr: mr, failOn: failOn})
+	return NewRedisStoreFromClient(rdb), mr
+}
+
+func isSetNXCmd(cmd redis.Cmder) bool {
+	for _, arg := range cmd.Args()[1:] {
+		if fmt.Sprint(arg) == "nx" {
+			return true
+		}
+	}
+	return false
+}
+
+func newTestRedisStoreWithBeforeHook(t *testing.T, before map[string]func(*miniredis.Miniredis, redis.Cmder) error) (*RedisStore, *miniredis.Miniredis) {
+	t.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdb.AddHook(redisCmdHook{mr: mr, before: before})
+	return NewRedisStoreFromClient(rdb), mr
+}
+
 func TestRedisStore_MagicTokenLifecycle(t *testing.T) {
 	s, _ := newTestRedisStore(t)
 	ctx := context.Background()
@@ -87,6 +155,70 @@ func TestRedisStore_MagicTokenLifecycle(t *testing.T) {
 	missing, err := s.GetMagicToken(ctx, hash)
 	if err != nil || missing != nil {
 		t.Fatalf("expected nil after delete, got %q err=%v", missing, err)
+	}
+}
+
+func TestRedisStore_TryClaimRoomRegistry(t *testing.T) {
+	s, _ := newTestRedisStore(t)
+	ctx := context.Background()
+	code := "CLAIM1"
+	payload := []byte(`{"code":"CLAIM1","instance":"inst-a","address":"addr"}`)
+	ttl := time.Hour
+
+	ok, err := s.TryClaimRoomRegistry(ctx, code, payload, "inst-a", ttl)
+	if err != nil || !ok {
+		t.Fatalf("first claim: ok=%v err=%v", ok, err)
+	}
+
+	ok, err = s.TryClaimRoomRegistry(ctx, code, payload, "inst-b", ttl)
+	if err != nil || ok {
+		t.Fatalf("other instance should not claim: ok=%v err=%v", ok, err)
+	}
+
+	ok, err = s.TryClaimRoomRegistry(ctx, code, payload, "inst-a", ttl)
+	if err != nil || !ok {
+		t.Fatalf("same instance renew: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestRedisStore_TryClaimRoomRegistry_ConcurrentSetNX(t *testing.T) {
+	s, _ := newTestRedisStore(t)
+	ctx := context.Background()
+	code := "RACE1"
+	payload := []byte(`{"code":"RACE1","instance":"inst-a"}`)
+
+	if err := s.RegisterRoom(ctx, code, payload, time.Hour); err != nil {
+		t.Fatalf("RegisterRoom: %v", err)
+	}
+
+	ok, err := s.TryClaimRoomRegistry(ctx, code, []byte(`{"code":"RACE1","instance":"inst-a"}`), "inst-a", time.Hour)
+	if err != nil || !ok {
+		t.Fatalf("existing owner reclaim: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestRedisStore_TryClaimRoomRegistry_SetNXLostToOtherInstance(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	ctx := context.Background()
+	code := "RACE2"
+	otherPayload := []byte(`{"code":"RACE2","instance":"inst-b","address":"b"}`)
+	mr.Set("room:"+code, string(otherPayload))
+
+	ok, err := s.TryClaimRoomRegistry(ctx, code, []byte(`{"code":"RACE2","instance":"inst-a"}`), "inst-a", time.Hour)
+	if err != nil {
+		t.Fatalf("TryClaimRoomRegistry: %v", err)
+	}
+	if ok {
+		t.Fatal("expected claim failure when another instance owns room")
+	}
+}
+
+func TestRedisStore_TryClaimRoomRegistry_GetError(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	_, err := s.TryClaimRoomRegistry(context.Background(), "ERR1", nil, "inst-a", time.Hour)
+	if err == nil {
+		t.Fatal("expected GetRoomRegistry error")
 	}
 }
 
@@ -153,21 +285,21 @@ func TestRedisStore_AdminLoginLockout(t *testing.T) {
 	ctx := context.Background()
 	ip := "203.0.113.1"
 
-	count, err := s.IncrementFailedLogin(ctx, ip)
-	if err != nil || count != 1 {
-		t.Fatalf("IncrementFailedLogin = %d, %v", count, err)
+	ipCount, acctCount, err := s.IncrementFailedLogin(ctx, ip, "admin")
+	if err != nil || ipCount != 1 || acctCount != 1 {
+		t.Fatalf("IncrementFailedLogin = (%d,%d), %v", ipCount, acctCount, err)
 	}
-	if err := s.SetLoginLock(ctx, ip, time.Minute); err != nil {
+	if err := s.SetLoginLock(ctx, ip, "admin", time.Minute); err != nil {
 		t.Fatalf("SetLoginLock: %v", err)
 	}
-	locked, err := s.IsLoginLocked(ctx, ip)
+	locked, err := s.IsLoginLocked(ctx, ip, "admin")
 	if err != nil || !locked {
 		t.Fatalf("expected locked, got %v err=%v", locked, err)
 	}
-	if err := s.ResetFailedLogin(ctx, ip); err != nil {
+	if err := s.ResetFailedLogin(ctx, ip, "admin"); err != nil {
 		t.Fatalf("ResetFailedLogin: %v", err)
 	}
-	locked, _ = s.IsLoginLocked(ctx, ip)
+	locked, _ = s.IsLoginLocked(ctx, ip, "admin")
 	if locked {
 		t.Fatal("expected lock cleared")
 	}
@@ -330,50 +462,57 @@ func TestRedisStore_EnqueueStreams(t *testing.T) {
 func TestGetEnvInt(t *testing.T) {
 	t.Run("returns default when env not set", func(t *testing.T) {
 		os.Unsetenv("TEST_STORE_INT")
-		got := getEnvInt("TEST_STORE_INT", 42)
+		got := config.GetEnvIntPositive("TEST_STORE_INT", 42)
 		if got != 42 {
-			t.Errorf("getEnvInt = %d, want %d", got, 42)
+			t.Errorf("GetEnvIntPositive = %d, want %d", got, 42)
 		}
 	})
 	t.Run("parses valid int", func(t *testing.T) {
 		os.Setenv("TEST_STORE_INT", "50")
 		defer os.Unsetenv("TEST_STORE_INT")
-		if got := getEnvInt("TEST_STORE_INT", 10); got != 50 {
-			t.Errorf("getEnvInt = %d, want 50", got)
+		if got := config.GetEnvIntPositive("TEST_STORE_INT", 10); got != 50 {
+			t.Errorf("GetEnvIntPositive = %d, want 50", got)
+		}
+	})
+	t.Run("returns default for invalid int", func(t *testing.T) {
+		os.Setenv("TEST_STORE_INT", "not-a-number")
+		defer os.Unsetenv("TEST_STORE_INT")
+		if got := config.GetEnvIntPositive("TEST_STORE_INT", 10); got != 10 {
+			t.Errorf("GetEnvIntPositive = %d, want 10", got)
 		}
 	})
 }
-
 func TestGetEnvDuration(t *testing.T) {
 	t.Run("returns default when env not set", func(t *testing.T) {
 		os.Unsetenv("TEST_STORE_DUR")
-		got := getEnvDuration("TEST_STORE_DUR", 5*time.Second)
+		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
 		if got != 5*time.Second {
-			t.Errorf("getEnvDuration = %v, want 5s", got)
+			t.Errorf("GetEnvDuration = %v, want 5s", got)
 		}
 	})
 	t.Run("returns default for invalid env", func(t *testing.T) {
 		os.Setenv("TEST_STORE_DUR", "not-a-duration")
 		defer os.Unsetenv("TEST_STORE_DUR")
-		got := getEnvDuration("TEST_STORE_DUR", 5*time.Second)
+		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
 		if got != 5*time.Second {
-			t.Errorf("getEnvDuration = %v, want 5s", got)
+			t.Errorf("GetEnvDuration = %v, want 5s", got)
 		}
 	})
 	t.Run("returns default for zero duration", func(t *testing.T) {
 		os.Setenv("TEST_STORE_DUR", "0s")
 		defer os.Unsetenv("TEST_STORE_DUR")
-		got := getEnvDuration("TEST_STORE_DUR", 5*time.Second)
+		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
 		if got != 5*time.Second {
-			t.Errorf("getEnvDuration = %v, want 5s", got)
+			t.Errorf("GetEnvDuration = %v, want 5s", got)
 		}
 	})
 	t.Run("parses valid duration", func(t *testing.T) {
 		os.Setenv("TEST_STORE_DUR", "10s")
 		defer os.Unsetenv("TEST_STORE_DUR")
-		got := getEnvDuration("TEST_STORE_DUR", 5*time.Second)
+		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
+
 		if got != 10*time.Second {
-			t.Errorf("getEnvDuration = %v, want 10s", got)
+			t.Errorf("GetEnvDuration = %v, want 10s", got)
 		}
 	})
 }
@@ -389,5 +528,304 @@ func TestRedisStore_ListActiveRooms_Error(t *testing.T) {
 	}
 	if rooms != nil {
 		t.Fatalf("expected nil rooms on error, got %v", rooms)
+	}
+}
+
+func TestRedisStore_TryClaimRoomRegistry_SetNXError(t *testing.T) {
+	s, _ := newTestRedisStoreWithHook(t, map[string]error{"set": fmt.Errorf("setnx failed")})
+	_, err := s.TryClaimRoomRegistry(context.Background(), "ERR2", []byte(`{}`), "inst-a", time.Hour)
+	if err == nil {
+		t.Fatal("expected SetNX error")
+	}
+}
+
+func TestRedisStore_InvalidateLobbyListCaches_ScanError(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("scan failed")
+	if err := s.InvalidateLobbyListCaches(context.Background()); err == nil {
+		t.Fatal("expected scan error")
+	}
+}
+
+func TestRedisStore_TryClaimRoomRegistry_SAddError(t *testing.T) {
+	s, _ := newTestRedisStoreWithHook(t, map[string]error{"sadd": fmt.Errorf("sadd failed")})
+	ok, err := s.TryClaimRoomRegistry(context.Background(), "SADD1", []byte(`{"code":"SADD1"}`), "inst-a", time.Hour)
+	if err == nil || ok {
+		t.Fatalf("expected SAdd error, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestRedisStore_TryClaimRoomRegistry_LostSetNXRace(t *testing.T) {
+	code := "RACE3"
+	otherPayload := `{"code":"RACE3","instance":"inst-b","address":"b"}`
+	s, _ := newTestRedisStoreWithBeforeHook(t, map[string]func(*miniredis.Miniredis, redis.Cmder) error{
+		"set": func(mr *miniredis.Miniredis, cmd redis.Cmder) error {
+			if isSetNXCmd(cmd) {
+				mr.Set("room:"+code, otherPayload)
+			}
+			return nil
+		},
+	})
+
+	ok, err := s.TryClaimRoomRegistry(context.Background(), code, []byte(`{"code":"RACE3","instance":"inst-a"}`), "inst-a", time.Hour)
+	if err != nil {
+		t.Fatalf("TryClaimRoomRegistry: %v", err)
+	}
+	if ok {
+		t.Fatal("expected lost SetNX race to return false")
+	}
+}
+
+func TestRedisStore_TryClaimRoomRegistry_SecondGetError(t *testing.T) {
+	code := "NX2"
+	otherPayload := `{"code":"NX2","instance":"inst-b"}`
+	gets := 0
+	s, _ := newTestRedisStoreWithBeforeHook(t, map[string]func(*miniredis.Miniredis, redis.Cmder) error{
+		"get": func(_ *miniredis.Miniredis, _ redis.Cmder) error {
+			gets++
+			if gets == 2 {
+				return fmt.Errorf("get failed after setnx race")
+			}
+			return nil
+		},
+		"set": func(mr *miniredis.Miniredis, cmd redis.Cmder) error {
+			if isSetNXCmd(cmd) {
+				mr.Set("room:"+code, otherPayload)
+			}
+			return nil
+		},
+	})
+
+	_, err := s.TryClaimRoomRegistry(context.Background(), code, []byte(`{}`), "inst-a", time.Hour)
+	if err == nil {
+		t.Fatal("expected second GetRoomRegistry error")
+	}
+}
+
+func TestRedisStore_InvalidateLobbyListCaches_DelError(t *testing.T) {
+	s, _ := newTestRedisStoreWithHook(t, map[string]error{"del": fmt.Errorf("del failed")})
+	ctx := context.Background()
+	if err := s.SetCachedLobbyList(ctx, 10, "", []byte(`[1]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InvalidateLobbyListCaches(ctx); err == nil {
+		t.Fatal("expected del error")
+	}
+}
+
+func TestRedisStore_InvalidateRoomCheck_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("del failed")
+	if err := s.InvalidateRoomCheck(context.Background(), "ROOMX"); err == nil {
+		t.Fatal("expected invalidate error")
+	}
+}
+
+func TestRedisStore_GetCachedLobbyList_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("get failed")
+	_, _, err := s.GetCachedLobbyList(context.Background(), 10, "")
+	if err == nil {
+		t.Fatal("expected get error")
+	}
+}
+
+func TestRedisStore_SetCachedLobbyList_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("set failed")
+	if err := s.SetCachedLobbyList(context.Background(), 10, "", []byte(`[]`)); err == nil {
+		t.Fatal("expected set error")
+	}
+}
+
+func TestRedisStore_GetCachedRoomCheck_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("get failed")
+	_, _, err := s.GetCachedRoomCheck(context.Background(), "ABCD1")
+	if err == nil {
+		t.Fatal("expected get error")
+	}
+}
+
+func TestRedisStore_SetCachedRoomCheck_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("set failed")
+	if err := s.SetCachedRoomCheck(context.Background(), "ABCD1", []byte(`{}`)); err == nil {
+		t.Fatal("expected set error")
+	}
+}
+
+func TestRedisStore_EnqueueEmail_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.EnqueueEmail(context.Background(), []byte(`{}`)); err == nil {
+		t.Fatal("expected EnqueueEmail error")
+	}
+}
+
+func TestRedisStore_EnqueueGameResult_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.EnqueueGameResult(context.Background(), []byte(`{}`)); err == nil {
+		t.Fatal("expected EnqueueGameResult error")
+	}
+}
+
+func TestRedisStore_RevokeJWT_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.RevokeJWT(context.Background(), "jti-1", time.Minute); err == nil {
+		t.Fatal("expected RevokeJWT error")
+	}
+}
+
+func TestRedisStore_IsJWTRevoked_GetError(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	_, err := s.IsJWTRevoked(context.Background(), "jti-1")
+	if err == nil {
+		t.Fatal("expected IsJWTRevoked error")
+	}
+}
+
+func TestRedisStore_IncrementFailedLogin_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	_, _, err := s.IncrementFailedLogin(context.Background(), "1.2.3.4", "admin")
+	if err == nil {
+		t.Fatal("expected IncrementFailedLogin error")
+	}
+}
+
+func TestRedisStore_IsLoginLocked_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	_, err := s.IsLoginLocked(context.Background(), "1.2.3.4", "admin")
+	if err == nil {
+		t.Fatal("expected IsLoginLocked error")
+	}
+}
+
+func TestRedisStore_SetLoginLock_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.SetLoginLock(context.Background(), "1.2.3.4", "admin", time.Minute); err == nil {
+		t.Fatal("expected SetLoginLock error")
+	}
+}
+
+func TestRedisStore_StoreMagicToken_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.StoreMagicToken(context.Background(), "hash", []byte("x"), time.Minute); err == nil {
+		t.Fatal("expected StoreMagicToken error")
+	}
+}
+
+func TestRedisStore_GetMagicToken_GetError(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	_, err := s.GetMagicToken(context.Background(), "hash")
+	if err == nil {
+		t.Fatal("expected GetMagicToken error")
+	}
+}
+
+func TestRedisStore_DeleteMagicToken_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.DeleteMagicToken(context.Background(), "hash"); err == nil {
+		t.Fatal("expected DeleteMagicToken error")
+	}
+}
+
+func TestRedisStore_CheckRateLimit_ScriptError(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	_, err := s.CheckRateLimit(context.Background(), "k", 3, time.Minute)
+	if err == nil {
+		t.Fatal("expected CheckRateLimit error")
+	}
+}
+
+func TestRedisStore_CheckRateLimit_UnexpectedResult(t *testing.T) {
+	s, _ := newTestRedisStore(t)
+	orig := rateLimitScript
+	t.Cleanup(func() { rateLimitScript = orig })
+	rateLimitScript = redis.NewScript(`return "bad"`)
+
+	_, err := s.CheckRateLimit(context.Background(), "k", 3, time.Minute)
+	if err == nil {
+		t.Fatal("expected unexpected result error")
+	}
+}
+
+func TestRedisStore_CheckRateLimit_UnexpectedCountType(t *testing.T) {
+	s, _ := newTestRedisStore(t)
+	orig := rateLimitScript
+	t.Cleanup(func() { rateLimitScript = orig })
+	rateLimitScript = redis.NewScript(`return { "not-a-number", 1 }`)
+
+	_, err := s.CheckRateLimit(context.Background(), "k", 3, time.Minute)
+	if err == nil {
+		t.Fatal("expected unexpected count type error")
+	}
+}
+
+func TestRedisStore_LobbyReadCache_Errors(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	ctx := context.Background()
+
+	mr.SetError("redis down")
+	if _, _, err := s.GetCachedLobbyList(ctx, 10, ""); err == nil {
+		t.Fatal("expected GetCachedLobbyList error")
+	}
+	if err := s.SetCachedLobbyList(ctx, 10, "", []byte("x")); err == nil {
+		t.Fatal("expected SetCachedLobbyList error")
+	}
+	if _, _, err := s.GetCachedRoomCheck(ctx, "R1"); err == nil {
+		t.Fatal("expected GetCachedRoomCheck error")
+	}
+	if err := s.SetCachedRoomCheck(ctx, "R1", []byte("x")); err == nil {
+		t.Fatal("expected SetCachedRoomCheck error")
+	}
+	if err := s.InvalidateLobbyListCaches(ctx); err == nil {
+		t.Fatal("expected InvalidateLobbyListCaches scan error")
+	}
+	if err := s.InvalidateRoomCheck(ctx, "R1"); err == nil {
+		t.Fatal("expected InvalidateRoomCheck error")
+	}
+}
+
+func TestRedisStore_GetRoomRegistry_UnmarshalError(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.Set("room:BAD1", "not-json")
+	_, err := s.GetRoomRegistry(context.Background(), "BAD1")
+	if err == nil {
+		t.Fatal("expected unmarshal error")
+	}
+}
+
+func TestRedisStore_RenewRoomRegistry_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.RenewRoomRegistry(context.Background(), "R1", time.Hour); err == nil {
+		t.Fatal("expected RenewRoomRegistry error")
+	}
+}
+
+func TestRedisStore_RegisterRoom_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.RegisterRoom(context.Background(), "R1", []byte(`{}`), time.Hour); err == nil {
+		t.Fatal("expected RegisterRoom error")
+	}
+}
+
+func TestRedisStore_UnregisterRoom_Error(t *testing.T) {
+	s, mr := newTestRedisStore(t)
+	mr.SetError("redis down")
+	if err := s.UnregisterRoom(context.Background(), "R1"); err == nil {
+		t.Fatal("expected UnregisterRoom error")
 	}
 }

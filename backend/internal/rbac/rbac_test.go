@@ -19,6 +19,9 @@ func TestCheckPermission(t *testing.T) {
 		{RoleGuest, "lobby", "read", true},
 		{RoleAdmin, "users", "write", true},
 		{RoleModerator, "users", "write", false},
+		{"unknown", "lobby", "read", false},
+		{RoleUser, "unknown_resource", "read", false},
+		{RoleAdmin, "lobby", "delete", false},
 	}
 	for _, tc := range tests {
 		if got := e.CheckPermission(tc.role, tc.resource, tc.action); got != tc.want {

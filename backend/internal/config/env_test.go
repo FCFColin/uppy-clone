@@ -125,6 +125,17 @@ func TestGetEnvInt(t *testing.T) {
 	}
 }
 
+func TestGetEnv(t *testing.T) {
+	t.Setenv("TEST_GET_ENV", "from-env")
+	if got := GetEnv("TEST_GET_ENV", "default"); got != "from-env" {
+		t.Errorf("got %q", got)
+	}
+	os.Unsetenv("TEST_GET_ENV")
+	if got := GetEnv("TEST_GET_ENV", "default"); got != "default" {
+		t.Errorf("default got %q", got)
+	}
+}
+
 func TestGetEnvIntPositive(t *testing.T) {
 	t.Setenv("TEST_POS_INT", "0")
 	if got := GetEnvIntPositive("TEST_POS_INT", 5); got != 5 {
@@ -161,6 +172,18 @@ func TestIsWeakJWTSecret_RejectsChangeInProduction(t *testing.T) {
 	e.JWTSecret = "strong-change-in-production-secret-32bytes!"
 	if err := e.Validate(); err == nil {
 		t.Fatal("expected weak JWT rejection for change-in-production marker")
+	}
+}
+
+func TestValidateTrustedProxyCIDRs_Empty(t *testing.T) {
+	if err := validateTrustedProxyCIDRs(""); err == nil {
+		t.Fatal("expected error for empty TRUSTED_PROXY_CIDRS")
+	}
+}
+
+func TestValidateTrustedProxyCIDRs_SkipsEmptyParts(t *testing.T) {
+	if err := validateTrustedProxyCIDRs("10.0.0.0/8,,127.0.0.1/32"); err != nil {
+		t.Fatalf("Validate: %v", err)
 	}
 }
 

@@ -2,9 +2,12 @@ package game
 
 import (
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
@@ -49,6 +52,38 @@ func TestRoom_HandleMessage_NonexistentPlayer(t *testing.T) {
 	err := r.HandleMessage("nonexistent", protocol.MsgPing, nil)
 	if err != nil {
 		t.Fatalf("expected nil for nonexistent player, got %v", err)
+	}
+}
+
+func TestRoom_HandleMessage_TapAndRestartVote(t *testing.T) {
+	r := NewRoom("TAP1", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhasePlaying
+	now := time.Now().UnixMilli()
+	r.state.Players["p1"] = &domain.PlayerState{
+		ID: "p1", Nickname: "Tap", CooldownEndTime: now - 1,
+	}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+
+	var tapPayload [9]byte
+	tapPayload[0] = protocol.MsgTap
+	if err := r.HandleMessage("p1", protocol.MsgTap, tapPayload[:]); err != nil {
+		t.Fatalf("tap HandleMessage: %v", err)
+	}
+	if err := r.HandleMessage("p1", protocol.MsgRestartVote, []byte{protocol.MsgRestartVote}); err != nil {
+		t.Fatalf("restart vote HandleMessage: %v", err)
+	}
+}
+
+func TestRoom_HandleMessage_SetNickname(t *testing.T) {
+	r := NewRoom("NICK1", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+
+	nick := "NewNick"
+	payload := append([]byte{byte(len(nick))}, []byte(nick)...)
+	msg := append([]byte{protocol.MsgSetNickname}, payload...)
+	if err := r.HandleMessage("p1", protocol.MsgSetNickname, msg); err != nil {
+		t.Fatalf("set nickname HandleMessage: %v", err)
 	}
 }
 
@@ -319,6 +354,71 @@ func TestRoom_tickOnce_SavesStateEvery30Ticks(t *testing.T) {
 	r.flushPersistSync()
 	if repo.saveCount == 0 {
 		t.Fatal("expected saveState at tick 30")
+	}
+}
+
+func TestRoom_startTick_Idempotent(t *testing.T) {
+	r := NewRoom("ST", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.startTick()
+	if r.tickCancel == nil {
+		t.Fatal("expected tick running")
+	}
+	r.startTick()
+	if r.tickCancel == nil {
+		t.Fatal("startTick should not stop active tick")
+	}
+	r.stopTick()
+}
+
+func TestRoom_HandleMessage_RateLimitDisconnect(t *testing.T) {
+	r := NewRoom("RL", nil, nil, config.DefaultTimeoutConfig(), 0)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		up := websocket.Upgrader{}
+		up.Upgrade(w, req, nil)
+	}))
+	defer server.Close()
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	r.mu.Lock()
+	r.state.Players["p1"] = &domain.PlayerState{
+		ID: "p1", MessageCount: protocol.MessageRateLimit,
+		MessageWindowStart: time.Now().UnixMilli(),
+	}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4), Conn: conn}
+	r.mu.Unlock()
+
+	_ = r.HandleMessage("p1", protocol.MsgPing, nil)
+	r.mu.RLock()
+	_, exists := r.connections["p1"]
+	r.mu.RUnlock()
+	if exists {
+		t.Fatal("rate-limited player connection should be removed")
+	}
+}
+
+func TestRoom_handleSetNicknameMsg_InvalidPayload(t *testing.T) {
+	r := NewRoom("INV", nil, nil, config.DefaultTimeoutConfig(), 0)
+	player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
+	r.mu.Lock()
+	r.handleSetNicknameMsg(player, []byte{0})
+	r.mu.Unlock()
+	if player.NicknameConfirmed {
+		t.Fatal("invalid payload should not confirm nickname")
+	}
+}
+
+func TestRoom_handleSetNicknameMsg_RejectedNickname(t *testing.T) {
+	r := NewRoom("REJ", nil, nil, config.DefaultTimeoutConfig(), 0)
+	player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
+	r.mu.Lock()
+	r.handleSetNicknameMsg(player, []byte{0}) // invalid length prefix
+	r.mu.Unlock()
+	if player.NicknameConfirmed {
+		t.Fatal("invalid nickname should not confirm")
 	}
 }
 

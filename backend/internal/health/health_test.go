@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -88,6 +89,59 @@ func TestReadyHandler_PostgresUnavailable(t *testing.T) {
 	checks, _ := body["checks"].(map[string]interface{})
 	if checks["postgres"] != "unavailable" {
 		t.Errorf("checks = %v", checks)
+	}
+}
+
+func TestReadyHandler_PostgresOK(t *testing.T) {
+	prev := poolPingForTest
+	poolPingForTest = func(context.Context) error { return nil }
+	t.Cleanup(func() { poolPingForTest = prev })
+
+	checker := NewChecker(new(pgxpool.Pool), nil)
+	rec := httptest.NewRecorder()
+	checker.ReadyHandler(rec, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	checks, _ := body["checks"].(map[string]interface{})
+	if checks["postgres"] != "ok" {
+		t.Fatalf("checks = %v", checks)
+	}
+}
+
+func TestReadyHandler_PostgresOKIntegration(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=1"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Skip("postgres not available for readiness ok test")
+	}
+	t.Cleanup(func() { pool.Close() })
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("postgres ping failed")
+	}
+
+	checker := NewChecker(pool, nil)
+	rec := httptest.NewRecorder()
+	checker.ReadyHandler(rec, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	checks, _ := body["checks"].(map[string]interface{})
+	if checks["postgres"] != "ok" {
+		t.Fatalf("checks = %v", checks)
 	}
 }
 

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,7 @@ import (
 
 // --- Test helpers ---
 
-const testJWTSecret = "test-admin-jwt-secret-key-for-testing" //nolint:gosec // test secret
+const testJWTSecret = "test-admin-jwt-secret-key-for-testing" //nolint:gosec:G101 // test secret
 
 func newTestAdminHandler() *AdminHandler {
 	jwtMgr := auth.NewJWTManager(testJWTSecret)
@@ -325,6 +326,19 @@ func TestHashAdminPassword(t *testing.T) {
 		}
 		if !compareAdminPassword(password, hashed) {
 			t.Error("hashed password should be verifiable with compareAdminPassword")
+		}
+	})
+
+	t.Run("hash error", func(t *testing.T) {
+		orig := bcryptGenerate
+		bcryptGenerate = func(_ []byte, _ int) ([]byte, error) {
+			return nil, errors.New("bcrypt failed")
+		}
+		t.Cleanup(func() { bcryptGenerate = orig })
+
+		_, err := hashAdminPassword("pw")
+		if err == nil {
+			t.Fatal("expected hash error")
 		}
 	})
 }

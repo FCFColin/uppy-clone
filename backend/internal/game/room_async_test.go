@@ -67,7 +67,7 @@ func TestRoom_RunGameResultJob_Success(t *testing.T) {
 	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", ScoreContribution: 10, TapsCount: 2}
 
 	r.enqueueGameResultAsync()
-	time.Sleep(200 * time.Millisecond)
+	r.asyncWg.Wait()
 
 	if repo.insertOutboxCount != 1 {
 		t.Fatalf("insertOutboxCount = %d, want 1", repo.insertOutboxCount)
@@ -109,7 +109,7 @@ func TestRoom_CreateGameSessionAsync(t *testing.T) {
 	r := NewRoom("TEST1", nil, repo, config.DefaultTimeoutConfig(), 0)
 
 	r.createGameSessionAsync(&domain.GameSession{ID: "sess-1", LobbyCode: "TEST1"})
-	time.Sleep(100 * time.Millisecond)
+	r.asyncWg.Wait()
 
 	if repo.createSessionCount != 1 {
 		t.Fatalf("createSessionCount = %d, want 1", repo.createSessionCount)
@@ -205,4 +205,60 @@ func TestRoom_RequestPersist_QueueCoalesce(t *testing.T) {
 	wg.Wait()
 	time.Sleep(200 * time.Millisecond)
 	r.stopPersist()
+}
+
+func TestRoom_EnqueueGameResultAsync_WithRedisPath(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("NewRedisStore: %v", err)
+	}
+	defer redisStore.Close()
+
+	repo := &trackingRoomRepo{mockRoomRepository: *newMockRoomRepository()}
+	h := NewHub(repo, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
+	r := NewRoom("RES1", h, repo, config.DefaultTimeoutConfig(), 0)
+	r.state.SessionID = "sess-res"
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", ScoreContribution: 5, TapsCount: 1}
+
+	r.enqueueGameResultAsync()
+	r.asyncWg.Wait()
+}
+
+func TestRoom_CreateGameSessionAsync_StoreError(t *testing.T) {
+	repo := &trackingRoomRepo{
+		mockRoomRepository: *newMockRoomRepository(),
+		createSessionErr:   errors.New("create failed"),
+	}
+	r := NewRoom("SESS", nil, repo, config.DefaultTimeoutConfig(), 0)
+	r.createGameSessionAsync(&domain.GameSession{ID: "s1", LobbyCode: "SESS"})
+	r.asyncWg.Wait()
+}
+
+func TestRoom_RunGameResultJob_EnqueueError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("NewRedisStore: %v", err)
+	}
+	defer redisStore.Close()
+	_ = redisStore.Close()
+
+	h := NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
+	r := NewRoom("RQ", h, nil, config.DefaultTimeoutConfig(), 0)
+	r.runGameResultJob(gameResultJob{
+		sessionID: "s1",
+		roomCode:  "RQ",
+		payload:   []byte(`{"game_id":"s1"}`),
+	})
 }

@@ -1,6 +1,7 @@
 package resilience
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -52,9 +53,59 @@ func TestIsRetryable_PersistentError(t *testing.T) {
 	}
 }
 
+func TestIsRetryable_ContextDeadlineExceeded(t *testing.T) {
+	orig := pgconnTimeout
+	pgconnTimeout = func(err error) bool { return errors.Is(err, context.DeadlineExceeded) }
+	t.Cleanup(func() { pgconnTimeout = orig })
+
+	if !isRetryable(context.DeadlineExceeded) {
+		t.Fatal("context deadline exceeded should be retryable via pgconn.Timeout")
+	}
+}
+
+func TestIsRetryable_PgconnSafeToRetry(t *testing.T) {
+	err := &pgconn.ConnectError{}
+	if !pgconn.SafeToRetry(err) {
+		t.Skip("ConnectError not marked SafeToRetry in this pgconn version")
+	}
+	if !isRetryable(err) {
+		t.Fatal("SafeToRetry ConnectError should be retryable")
+	}
+}
+
+type stubSafeToRetryErr struct{}
+
+func (stubSafeToRetryErr) Error() string   { return "safe to retry" }
+func (stubSafeToRetryErr) SafeToRetry() bool { return true }
+
+func TestIsRetryable_StubSafeToRetry(t *testing.T) {
+	if !isRetryable(stubSafeToRetryErr{}) {
+		t.Fatal("SafeToRetry interface error should be retryable")
+	}
+}
+
+type stubTimeoutErr struct{}
+
+func (stubTimeoutErr) Error() string   { return "timeout" }
+func (stubTimeoutErr) Timeout() bool   { return true }
+func (stubTimeoutErr) Temporary() bool { return true }
+
+func TestIsRetryable_StubTimeout(t *testing.T) {
+	if !isRetryable(stubTimeoutErr{}) {
+		t.Fatal("Timeout interface error should be retryable")
+	}
+}
+
 func TestRetryableError_Nil(t *testing.T) {
 	if RetryableError(nil) != nil {
 		t.Fatal("RetryableError(nil) should return nil")
+	}
+}
+
+func TestRetryableError_WrapsTransient(t *testing.T) {
+	err := RetryableError(syscall.ECONNRESET)
+	if err == nil {
+		t.Fatal("RetryableError should wrap transient error")
 	}
 }
 

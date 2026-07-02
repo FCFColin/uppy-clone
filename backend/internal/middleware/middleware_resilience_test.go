@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -805,5 +807,117 @@ func TestGetIdempotencyKey(t *testing.T) {
 	ctx = context.WithValue(context.Background(), idempCtxKey{}, "idem:abc123")
 	if key := GetIdempotencyKey(ctx); key != "idem:abc123" {
 		t.Fatalf("key from context = %q; want %q", key, "idem:abc123")
+	}
+}
+
+func TestIdempotencyMiddleware_KeyTooLong(t *testing.T) {
+	rdb := setupTestRedis(t)
+	defer func() { _ = rdb.Close() }()
+
+	mw := IdempotencyMiddleware(rdb)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run when key too long")
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("Idempotency-Key", strings.Repeat("k", 256))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestIdempotencyMiddleware_InvalidCachedResponse(t *testing.T) {
+	rdb := setupTestRedis(t)
+	defer func() { _ = rdb.Close() }()
+
+	idemKey := "bad-cache-key"
+	hash := sha256.Sum256([]byte(idemKey))
+	redisKey := "idem:" + hex.EncodeToString(hash[:])
+	ctx := context.Background()
+	if err := rdb.Set(ctx, redisKey, "not-json", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	var called int32
+	handler := IdempotencyMiddleware(rdb)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&called, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("Idempotency-Key", idemKey)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if atomic.LoadInt32(&called) != 1 {
+		t.Fatal("invalid cached payload should fall through to handler")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestEndpointRateLimit_UnknownEndpointUsesDefault(t *testing.T) {
+	store := &fakeRateLimiterStore{allow: true}
+	mw := EndpointRateLimit(store, "unknown:endpoint", nil)
+	called := false
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !called {
+		t.Fatal("unknown endpoint should use default rate limit config")
+	}
+}
+
+func TestIdempotencyMiddleware_SaveErrorStillReturnsResponse(t *testing.T) {
+	rdb := setupTestRedis(t)
+	_ = rdb.Close()
+
+	var called int32
+	handler := IdempotencyMiddleware(rdb)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&called, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("Idempotency-Key", "save-error-key")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if atomic.LoadInt32(&called) != 1 {
+		t.Fatal("handler should run even when save fails")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestSaveIdempotencyResponse_RedisError(t *testing.T) {
+	rdb := setupTestRedis(t)
+	_ = rdb.Close()
+	err := SaveIdempotencyResponse(context.Background(), rdb, "idem:closed", 200, []byte("{}"), time.Minute)
+	if err == nil {
+		t.Fatal("expected error when redis client is closed")
+	}
+}
+
+func TestSaveIdempotencyResponse_MarshalError(t *testing.T) {
+	rdb := setupTestRedis(t)
+	defer func() { _ = rdb.Close() }()
+
+	prev := idempotencyJSONMarshal
+	idempotencyJSONMarshal = func(any) ([]byte, error) { return nil, errors.New("marshal failed") }
+	t.Cleanup(func() { idempotencyJSONMarshal = prev })
+
+	err := SaveIdempotencyResponse(context.Background(), rdb, "idem:marshal", 200, []byte("{}"), time.Minute)
+	if err == nil {
+		t.Fatal("expected marshal error")
 	}
 }

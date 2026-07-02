@@ -3,14 +3,19 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pashagolub/pgxmock/v4"
 	"github.com/redis/go-redis/v9"
 )
+
+const testGameID = "11111111-1111-4111-8111-111111111111"
 
 // TestGameResultPayload_Unmarshal verifies JSON unmarshaling of valid payloads.
 func TestGameResultPayload_Unmarshal(t *testing.T) {
@@ -220,11 +225,344 @@ func TestGameResultWorker_processMessage_BeginFailure(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	w := NewGameResultWorker(rdb, pool)
-	payload, _ := json.Marshal(GameResultPayload{GameID: "game-1", RoomCode: "ROOM1"})
+	payload, _ := json.Marshal(GameResultPayload{GameID: testGameID, RoomCode: "ROOM1"})
 	w.processMessage(ctx, redis.XMessage{
 		ID:     "4-0",
 		Values: map[string]interface{}{"payload": string(payload)},
 	})
+}
+
+func newGameResultWorkerWithMockDB(t *testing.T, rdb *redis.Client) (*GameResultWorker, pgxmock.PgxPoolIface) {
+	t.Helper()
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock: %v", err)
+	}
+	t.Cleanup(func() { mock.Close() })
+	return &GameResultWorker{rdb: rdb, db: mock}, mock
+}
+
+func TestGameResultWorker_processMessage_Success(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+
+	w, mock := newGameResultWorkerWithMockDB(t, rdb)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO game_sessions").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectExec("INSERT INTO game_results").
+		WithArgs(pgxmock.AnyArg(), testGameID, "user-1", 25, 5, int64(100)).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectCommit()
+
+	payload, _ := json.Marshal(GameResultPayload{
+		GameID: testGameID, RoomCode: "ROOM1", FinalScore: 50, EndedAt: 100,
+		Results: []PlayerGameResult{{UserID: "user-1", ScoreContribution: 25, TapsCount: 5}},
+	})
+	w.processMessage(ctx, redis.XMessage{
+		ID:     "7-0",
+		Values: map[string]interface{}{"payload": string(payload)},
+	})
+}
+
+func TestGameResultWorker_processMessage_SuccessNoResults(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+
+	w, mock := newGameResultWorkerWithMockDB(t, rdb)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO game_sessions").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectCommit()
+
+	payload, _ := json.Marshal(GameResultPayload{
+		GameID: testGameID, RoomCode: "ROOM1", FinalScore: 50, EndedAt: 100,
+	})
+	w.processMessage(ctx, redis.XMessage{
+		ID:     "12-0",
+		Values: map[string]interface{}{"payload": string(payload)},
+	})
+}
+
+func TestGameResultWorker_processMessage_InvalidGameID(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+
+	w := NewGameResultWorker(rdb, nil)
+	payload, _ := json.Marshal(GameResultPayload{GameID: "not-a-valid-uuid", RoomCode: "ROOM1"})
+	w.processMessage(ctx, redis.XMessage{
+		ID:     "11-0",
+		Values: map[string]interface{}{"payload": string(payload)},
+	})
+}
+
+func TestGameResultWorker_processMessage_UpsertError(t *testing.T) {
+	mr, _ := miniredis.Run()
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+
+	w, mock := newGameResultWorkerWithMockDB(t, rdb)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO game_sessions").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnError(errors.New("upsert failed"))
+	mock.ExpectRollback()
+
+	payload, _ := json.Marshal(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
+	w.processMessage(ctx, redis.XMessage{
+		ID: "8-0", Values: map[string]interface{}{"payload": string(payload)},
+	})
+}
+
+func TestGameResultWorker_processMessage_InsertResultError(t *testing.T) {
+	mr, _ := miniredis.Run()
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+
+	w, mock := newGameResultWorkerWithMockDB(t, rdb)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO game_sessions").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectExec("INSERT INTO game_results").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnError(errors.New("insert failed"))
+	mock.ExpectRollback()
+
+	payload, _ := json.Marshal(GameResultPayload{
+		GameID: testGameID, RoomCode: "R1", Results: []PlayerGameResult{{UserID: "u1"}},
+	})
+	w.processMessage(ctx, redis.XMessage{
+		ID: "9-0", Values: map[string]interface{}{"payload": string(payload)},
+	})
+}
+
+func TestGameResultWorker_processMessage_CommitError(t *testing.T) {
+	mr, _ := miniredis.Run()
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+
+	w, mock := newGameResultWorkerWithMockDB(t, rdb)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO game_sessions").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
+	mock.ExpectRollback()
+
+	payload, _ := json.Marshal(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
+	w.processMessage(ctx, redis.XMessage{
+		ID: "10-0", Values: map[string]interface{}{"payload": string(payload)},
+	})
+}
+
+func TestGameResultWorker_Start_WithHostname(t *testing.T) {
+	t.Setenv("HOSTNAME", "worker-pod-1")
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		NewGameResultWorker(rdb, nil).Start(ctx)
+		close(done)
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit")
+	}
+}
+
+func TestGameResultWorker_Start_FlushTimerTick(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		NewGameResultWorker(rdb, nil).Start(ctx)
+		close(done)
+	}()
+	time.Sleep(1100 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit after timer flush")
+	}
+}
+
+func TestGameResultWorker_Start_XReadGroupError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		NewGameResultWorker(rdb, nil).Start(ctx)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	mr.SetError("redis unavailable")
+	time.Sleep(1200 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit after cancel")
+	}
+}
+
+func TestGameResultWorker_Start_BatchFlushAt100(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+
+	for i := 0; i < 100; i++ {
+		if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
+			Stream: "game:results",
+			Values: map[string]interface{}{"payload": "not-json"},
+		}).Result(); err != nil {
+			t.Fatalf("XAdd: %v", err)
+		}
+	}
+	if err := rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err(); err != nil {
+		t.Fatalf("XGroupCreateMkStream: %v", err)
+	}
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		NewGameResultWorker(rdb, nil).Start(workerCtx)
+		close(done)
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit")
+	}
+}
+
+func TestGameResultWorker_Start_UsesHostnameConsumer(t *testing.T) {
+	t.Setenv("HOSTNAME", "worker-pod-7")
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+
+	if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: "game:results",
+		Values: map[string]interface{}{"payload": "not-json"},
+	}).Result(); err != nil {
+		t.Fatalf("XAdd: %v", err)
+	}
+	if err := rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err(); err != nil {
+		t.Fatalf("XGroupCreateMkStream: %v", err)
+	}
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		NewGameResultWorker(rdb, nil).Start(workerCtx)
+		close(done)
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit")
+	}
+}
+
+func TestGameResultWorker_Start_DefaultConsumerName(t *testing.T) {
+	t.Setenv("HOSTNAME", "")
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+
+	if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: "game:results",
+		Values: map[string]interface{}{"payload": "not-json"},
+	}).Result(); err != nil {
+		t.Fatalf("XAdd: %v", err)
+	}
+	if err := rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err(); err != nil {
+		t.Fatalf("XGroupCreateMkStream: %v", err)
+	}
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		NewGameResultWorker(rdb, nil).Start(workerCtx)
+		close(done)
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not exit")
+	}
 }
 
 func TestGameResultWorker_processMessage_MissingPayload(t *testing.T) {
@@ -306,4 +644,35 @@ func TestGameResultWorker_Start_ReadsAndFlushes(t *testing.T) {
 	if len(pending) != 0 {
 		t.Fatalf("expected invalid payload to be acked, pending=%d", len(pending))
 	}
+}
+
+func TestGameResultWorker_processMessage_NilRedisAck(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock: %v", err)
+	}
+	t.Cleanup(func() { mock.Close() })
+
+	payload := GameResultPayload{
+		GameID:     "550e8400-e29b-41d4-a716-446655440000",
+		RoomCode:   "ROOM1",
+		EndedAt:    time.Now().UnixMilli(),
+		FinalScore: 10,
+		Results:    []PlayerGameResult{{UserID: "u1", ScoreContribution: 10, TapsCount: 1}},
+	}
+	body, _ := json.Marshal(payload)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO game_sessions").
+		WithArgs(payload.GameID, payload.RoomCode, payload.EndedAt, payload.FinalScore).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectExec("INSERT INTO game_results").
+		WithArgs(pgxmock.AnyArg(), payload.GameID, "u1", 10, 1, payload.EndedAt).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	mock.ExpectCommit()
+
+	w := &GameResultWorker{rdb: nil, db: mock}
+	w.processMessage(context.Background(), redis.XMessage{
+		ID:     "1-0",
+		Values: map[string]interface{}{"payload": string(body)},
+	})
 }

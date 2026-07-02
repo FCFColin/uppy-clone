@@ -54,7 +54,7 @@ func TestJitteredBackoff(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := JitteredBackoff(base, tt.attempt)
-			minExpected := base * time.Duration(1<<uint(tt.attempt)) //nolint:gosec // test value, bounded
+			minExpected := base * time.Duration(1<<uint(tt.attempt)) //nolint:gosec:G115 // test value, bounded
 			if d < minExpected {
 				t.Fatalf("backoff too small: got %v, minimum expected %v for attempt %d", d, minExpected, tt.attempt)
 			}

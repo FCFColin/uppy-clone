@@ -98,3 +98,20 @@ func TestDeleteLobbyState_Error(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestLoadLobbyState_ScanError(t *testing.T) {
+	s, mock := newMockPostgresStore(t)
+	ctx := context.Background()
+
+	rows := pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
+		AddRow("l1", "ABCD1", "playing", int64(200), int64(100)).
+		RowError(0, errors.New("scan failed"))
+	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
+		WithArgs("ABCD1").
+		WillReturnRows(rows)
+
+	_, err := s.LoadLobbyState(ctx, "ABCD1")
+	if err == nil {
+		t.Fatal("expected scan error")
+	}
+}
