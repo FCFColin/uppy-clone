@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createRoom, connectToRoom, submitNickname, tapCanvas, waitForPhase } from './helpers';
 
 test.describe('Gameplay Main Flow', () => {
   test('quickplay auth and registry match', async ({ request }) => {
@@ -23,68 +24,25 @@ test.describe('Gameplay Main Flow', () => {
   });
 
   test('enter game after ws connected shows waiting screen', async ({ page }) => {
-    const qp = await page.request.post('/api/v1/auth/quickplay', {
-      data: { nickname: 'E2EConnectedPlayer' },
-    });
-    expect(qp.ok()).toBeTruthy();
+    const code = await createRoom(page);
+    await connectToRoom(page, code);
+    await submitNickname(page, 'E2EConnectedPlayer');
 
-    const match = await page.request.post('/api/v1/registry/match');
-    expect(match.ok()).toBeTruthy();
-    const { lobbyCode } = await match.json();
-
-    await page.goto(`/play.html?code=${lobbyCode}`);
-
-    await expect(page.locator('#nickname-connect-status')).toContainText('服务器已连接', { timeout: 30000 });
-
-    await page.fill('#setup-nickname-input', 'E2EConnectedPlayer');
-    await page.click('#enter-game-btn');
-
-    await expect(page.locator('#waiting-screen:not(.hidden)')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('#nickname-setup-screen')).toHaveClass(/hidden/);
-    await expect(page.locator('#lobby-code')).toHaveText(lobbyCode);
+    await expect(page.locator('#lobby-code')).toHaveText(code);
     await page.waitForFunction(
       () => (window as unknown as { state?: { nicknameSubmitted?: boolean } }).state?.nicknameSubmitted === true,
     );
   });
 
-  test('enter game shows waiting screen and hides nickname', async ({ page }) => {
-    const qp = await page.request.post('/api/v1/auth/quickplay', {
-      data: { nickname: 'E2EWaitPlayer' },
-    });
-    expect(qp.ok()).toBeTruthy();
-
-    const match = await page.request.post('/api/v1/registry/match');
-    expect(match.ok()).toBeTruthy();
-    const { lobbyCode } = await match.json();
-
-    await page.goto(`/play.html?code=${lobbyCode}`);
-
-    await expect(page.locator('#nickname-setup-screen:not(.hidden)')).toBeVisible({ timeout: 15000 });
-
-    await page.fill('#setup-nickname-input', 'E2EWaitPlayer');
-    await page.click('#enter-game-btn');
-
-    await expect(page.locator('#waiting-screen:not(.hidden)')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('#nickname-setup-screen')).toHaveClass(/hidden/);
-    await expect(page.locator('#lobby-code')).toHaveText(lobbyCode);
-  });
-
   test('waiting screen stays after enter when WebSocket is slow', async ({ page }) => {
-    const qp = await page.request.post('/api/v1/auth/quickplay', {
-      data: { nickname: 'E2ESlowPlayer' },
-    });
-    expect(qp.ok()).toBeTruthy();
-
-    const match = await page.request.post('/api/v1/registry/match');
-    expect(match.ok()).toBeTruthy();
-    const { lobbyCode } = await match.json();
+    const code = await createRoom(page);
 
     await page.route('**/api/v1/lobby/*/ws**', async (route) => {
       await new Promise((r) => setTimeout(r, 3000));
       await route.continue();
     });
 
-    await page.goto(`/play.html?code=${lobbyCode}`);
+    await page.goto(`/play.html?code=${code}`);
     await expect(page.locator('#nickname-setup-screen:not(.hidden)')).toBeVisible({ timeout: 15000 });
 
     await page.fill('#setup-nickname-input', 'E2ESlowPlayer');
@@ -99,16 +57,9 @@ test.describe('Gameplay Main Flow', () => {
   });
 
   test('quickplay, lobby WebSocket connect, confirm nickname, and tap', async ({ page }) => {
-    const qp = await page.request.post('/api/v1/auth/quickplay', {
-      data: { nickname: 'E2ETapPlayer' },
-    });
-    expect(qp.ok()).toBeTruthy();
+    const code = await createRoom(page);
 
-    const match = await page.request.post('/api/v1/registry/match');
-    expect(match.ok()).toBeTruthy();
-    const { lobbyCode } = await match.json();
-
-    await page.goto(`/play.html?code=${lobbyCode}`);
+    await page.goto(`/play.html?code=${code}`);
 
     await page.waitForFunction(
       () => (window as unknown as { __ws?: WebSocket }).__ws?.readyState === WebSocket.OPEN,
@@ -121,18 +72,8 @@ test.describe('Gameplay Main Flow', () => {
       await page.click('#enter-game-btn');
     }
 
-    await page.waitForFunction(
-      () => (window as unknown as { state?: { phase?: string } }).state?.phase === 'playing',
-      { timeout: 90000 },
-    );
-
-    const canvas = page.locator('#game-canvas');
-    await expect(canvas).toBeVisible();
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    if (box) {
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    }
+    await waitForPhase(page, 'playing', 90000);
+    await tapCanvas(page);
 
     await page.waitForFunction(
       () => {
