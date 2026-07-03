@@ -102,7 +102,7 @@ func loadStoredConfig(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 }
 
 func migratePasswords(ctx context.Context, db *sql.DB, storedConfig map[string]interface{}, adminPwd string) error {
-	hashed, err := bcrypt.GenerateFromPassword([]byte(adminPwd), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(adminPwd), 12)
 	if err != nil {
 		return fmt.Errorf("failed to bcrypt hash password: %w", err)
 	}

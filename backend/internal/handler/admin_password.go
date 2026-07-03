@@ -26,7 +26,7 @@ func compareAdminPassword(plaintext, stored string) bool {
 
 // hashAdminPassword hashes a password using bcrypt.
 func hashAdminPassword(password string) (string, error) {
-	bytes, err := bcryptGenerate([]byte(password), bcrypt.DefaultCost)
+	bytes, err := bcryptGenerate([]byte(password), 12)
 	if err != nil {
 		return "", err
 	}
