@@ -148,7 +148,7 @@ func TestRoom_RunPersistLoop_FinalJob(t *testing.T) {
 
 	r.startPersistLoop()
 	done := make(chan struct{})
-	r.persistCh <- persistJob{
+	r.persist.ch <- persistJob{
 		code:      "FINAL",
 		stateJSON: []byte(`{"phase":"waiting"}`),
 		final:     true,

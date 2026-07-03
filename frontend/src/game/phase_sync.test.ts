@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   showCountdownOverlay: vi.fn(),
   resetInterpolation: vi.fn(),
   freezeInterpolation: vi.fn(),
-  seenSeqs: new Set<number>(),
+  clearSeenSeqs: vi.fn(),
   state: {
     phase: 'waiting' as 'waiting' | 'countdown' | 'playing' | 'ended',
     ripples: [] as Array<{ playerIndex: number; x: number; y: number; time: number }>,
@@ -34,7 +34,7 @@ vi.mock('./state_types.js', () => ({
 vi.mock('./state_interp.js', () => ({
   resetInterpolation: mocks.resetInterpolation,
   freezeInterpolation: mocks.freezeInterpolation,
-  seenSeqs: mocks.seenSeqs,
+  clearSeenSeqs: mocks.clearSeenSeqs,
 }));
 
 vi.mock('./state_reset.js', () => ({
@@ -81,9 +81,6 @@ describe('applyPhaseChange', () => {
     mocks.state.balloon = { x: 0.3, y: 0.7, vx: 0.1, vy: -0.1 };
     mocks.state.ghost = { x: 0.4, y: 0.6, active: true, repelTimer: 5 };
     mocks.state.wind = 0.5;
-    mocks.seenSeqs.clear();
-    mocks.seenSeqs.add(1);
-    mocks.seenSeqs.add(2);
     window.__gamePhase = 'waiting';
   });
 
@@ -106,9 +103,8 @@ describe('applyPhaseChange', () => {
 
   it('clears seenSeqs when entering playing', () => {
     mocks.state.phase = 'countdown';
-    expect(mocks.seenSeqs.size).toBe(2);
     applyPhaseChange('playing');
-    expect(mocks.seenSeqs.size).toBe(0);
+    expect(mocks.clearSeenSeqs).toHaveBeenCalled();
   });
 
   it('resets score, balloon, ghost, and wind when entering playing', () => {

@@ -4,7 +4,6 @@ import {
   HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS,
   MAX_PENDING_QUEUE,
 } from './local_constants.js';
-import { outboundMessageQueue } from './state_interp.js';
 import {
   showReconnectBanner, updatePingDisplay,
   showConnectionError as showConnectionErrorUI, type ConnectionErrorOptions,
@@ -12,6 +11,14 @@ import {
 
 export { type ConnectionErrorOptions } from './connection_ui.js';
 export { hideReconnectBanner } from './connection_ui.js';
+
+const outboundMessageQueue: ArrayBuffer[] = [];
+export function clearOutboundQueue(): void {
+  outboundMessageQueue.length = 0;
+}
+export function getOutboundQueueLength(): number {
+  return outboundMessageQueue.length;
+}
 
 let ws: WebSocket | null = null;
 let reconnectAttempts = 0;

@@ -8,18 +8,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/slogctx"
-)
-
-type contextKey string
-
-const (
-	userIDKey   contextKey = "auth_user_id"
-	nicknameKey contextKey = "auth_nickname"
-	roleKey     contextKey = "auth_user_role"
-	jtiKey      contextKey = "auth_jti"
 )
 
 // JWTRevocationChecker checks if a JWT has been revoked by its jti.
@@ -86,9 +78,9 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 					return
 				}
 			}
-			ctx := context.WithValue(r.Context(), userIDKey, userId)
-			ctx = context.WithValue(ctx, nicknameKey, nickname)
-			ctx = context.WithValue(ctx, jtiKey, jti)
+			ctx := context.WithValue(r.Context(), domain.ContextKeyUserID, userId)
+			ctx = context.WithValue(ctx, domain.ContextKeyNickname, nickname)
+			ctx = context.WithValue(ctx, domain.ContextKeyJTI, jti)
 			// 企业为何需要：普通用户 JWT 不含 role claim，统一标记为 "user"。
 			// 角色必须来自已验证的凭据，而非客户端可控的 HTTP 头。
 			ctx = WithRole(ctx, "user")
@@ -146,8 +138,8 @@ func authenticatedUserFromCookies(r *http.Request, jwtMgr *JWTManager, rev JWTRe
 // GetAuthenticatedUser extracts user info from request context (set by AuthMiddleware).
 // Returns userId, nickname, and ok=true if authenticated.
 func GetAuthenticatedUser(r *http.Request) (userId, nickname string, ok bool) {
-	uid, ok1 := r.Context().Value(userIDKey).(string)
-	nick, ok2 := r.Context().Value(nicknameKey).(string)
+	uid, ok1 := domain.ContextKeyUserID.Value(r.Context())
+	nick, ok2 := domain.ContextKeyNickname.Value(r.Context())
 	if !ok1 || !ok2 || uid == "" {
 		return "", "", false
 	}
@@ -156,7 +148,7 @@ func GetAuthenticatedUser(r *http.Request) (userId, nickname string, ok bool) {
 
 // GetJTI extracts the JWT ID from request context (set by AuthMiddleware).
 func GetJTI(r *http.Request) string {
-	if jti, ok := r.Context().Value(jtiKey).(string); ok {
+	if jti, ok := domain.ContextKeyJTI.Value(r.Context()); ok {
 		return jti
 	}
 	return ""
@@ -166,14 +158,14 @@ func GetJTI(r *http.Request) string {
 // Used by adminAuthMiddleware to inject the admin token's jti so that
 // Logout and password-change handlers can revoke it.
 func WithJTI(ctx context.Context, jti string) context.Context {
-	return context.WithValue(ctx, jtiKey, jti)
+	return domain.ContextKeyJTI.WithValue(ctx, jti)
 }
 
 // WithAuthenticatedUser returns a new context with userId and nickname values set.
 // This is the inverse of GetAuthenticatedUser and is primarily used in tests.
 func WithAuthenticatedUser(ctx context.Context, userId, nickname string) context.Context {
-	ctx = context.WithValue(ctx, userIDKey, userId)
-	ctx = context.WithValue(ctx, nicknameKey, nickname)
+	ctx = domain.ContextKeyUserID.WithValue(ctx, userId)
+	ctx = domain.ContextKeyNickname.WithValue(ctx, nickname)
 	return ctx
 }
 
@@ -182,14 +174,13 @@ func WithAuthenticatedUser(ctx context.Context, userId, nickname string) context
 // 而非客户端可控的 HTTP 头。X-User-Role 头可被任意客户端伪造，导致权限提升。
 // 该函数供认证中间件在验证凭据后注入角色，RBAC 中间件再从 context 读取。
 func WithRole(ctx context.Context, role string) context.Context {
-	return context.WithValue(ctx, roleKey, role)
+	return domain.ContextKeyRole.WithValue(ctx, role)
 }
 
 // RoleFromContext extracts the role from the request context (set by auth middleware).
 // Returns the role and ok=true if a role was set by an authenticated middleware.
 func RoleFromContext(r *http.Request) (string, bool) {
-	role, ok := r.Context().Value(roleKey).(string)
-	return role, ok
+	return domain.ContextKeyRole.Value(r.Context())
 }
 
 // detectMultiIPLogin tracks the client IP for a user in a Redis Set with a

@@ -53,9 +53,9 @@ import {
   bindEntryUI,
   showEntryFullScreenError,
   routeConnectionError,
-  clearWaitingInlineError,
   clearStartCountdown,
 } from './entry_flow.js';
+import { clearWaitingInlineError } from './entry_flow_dom.js';
 
 describe('entry_flow', () => {
   beforeEach(() => {

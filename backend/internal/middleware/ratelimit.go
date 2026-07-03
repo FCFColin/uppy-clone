@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/apierror"
-	"github.com/uppy-clone/backend/internal/auth"
 )
 
 func init() {
@@ -123,7 +122,7 @@ func RateLimit(redisStore RateLimiterStore, config RateLimitConfig) func(http.Ha
 // Fail-closed 策略：当配置的 EndpointRateLimitConfig.FailClosed 为 true 时，
 // Redis 出错将拒绝请求而非放行。安全敏感端点（auth:quickplay、admin:login）
 // 应使用 fail-closed，防止 Redis 宕机时遭受无限制攻击。
-func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr *auth.JWTManager) func(http.Handler) http.Handler {
+func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr JWTManager) func(http.Handler) http.Handler {
 	cfg, ok := DefaultEndpointRateLimits[endpoint]
 	if !ok {
 		cfg = DefaultEndpointRateLimits["default"]
@@ -167,18 +166,18 @@ func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr *aut
 // 历史缺陷：此前读取名为 "token" 的 cookie，但实际认证 cookie 名为
 // "session" 与 "quickplay"（见 auth.BuildAuthCookie / auth.AuthMiddleware），
 // 导致 userID 恒为空，用户级限流完全失效。
-func rateLimitKey(r *http.Request, endpoint string, jwtMgr *auth.JWTManager) string {
+func rateLimitKey(r *http.Request, endpoint string, jwtMgr JWTManager) string {
 	ip := extractClientIP(r)
 
 	// 1. Try auth context (set by AuthMiddleware)
-	if userID, _, ok := auth.GetAuthenticatedUser(r); ok && userID != "" {
+	if userID, _, ok := getAuthenticatedUser(r); ok && userID != "" {
 		return fmt.Sprintf("%s:%s:%s", endpoint, userID, ip)
 	}
 
 	// 2. Fallback: try "session" cookie, then "quickplay" cookie
 	if jwtMgr != nil {
 		for _, cookieName := range []string{"session", "quickplay"} {
-			if uid, _, _, err := auth.ParseAuthCookie(r, cookieName, jwtMgr); err == nil && uid != "" {
+			if uid, _, _, err := parseAuthCookie(r, cookieName, jwtMgr); err == nil && uid != "" {
 				return fmt.Sprintf("%s:%s:%s", endpoint, uid, ip)
 			}
 		}

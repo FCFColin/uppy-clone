@@ -2,14 +2,12 @@ package handler
 
 import (
 	"net/http"
-
-	"github.com/uppy-clone/backend/internal/auth"
 )
 
 // writeAuthCookies sets the access cookie and optional refresh cookie on the response.
 func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessCookie *http.Cookie, refreshToken string) {
 	http.SetCookie(w, accessCookie)
 	if refreshToken != "" {
-		http.SetCookie(w, auth.BuildRefreshCookie(refreshToken, auth.IsSecure(r)))
+		http.SetCookie(w, buildRefreshCookie(refreshToken, isSecure(r)))
 	}
 }

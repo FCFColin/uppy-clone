@@ -13,13 +13,13 @@ import (
 func TestNewAuthHandler(t *testing.T) {
 	t.Parallel()
 
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	cfg := &Config{ResendAPIKey: "test", EmailFrom: "test@test.com"}
-	h := NewAuthHandler(jwtMgr, nil, nil, nil, cfg, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789"), nil, nil, nil, "test", "test@test.com", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(nil, nil, authSvc, cfg)
 	if h == nil {
 		t.Fatal("NewAuthHandler returned nil")
 	}
-	if h.jwtMgr != jwtMgr || h.config != cfg || h.magicLink == nil {
+	if h.auth == nil || h.config != cfg {
 		t.Error("NewAuthHandler did not wire dependencies")
 	}
 }

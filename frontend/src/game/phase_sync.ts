@@ -1,6 +1,6 @@
 import type { GamePhase } from '../shared/game/types.js';
 import { dispatch, getState } from './store.js';
-import { resetInterpolation, freezeInterpolation, seenSeqs } from './state_interp.js';
+import { resetInterpolation, freezeInterpolation, clearSeenSeqs } from './state_interp.js';
 import { resetRoundClientState } from './state_reset.js';
 import {
   updateUI, startCountdownTimer,
@@ -76,7 +76,7 @@ function clearRestartCountdownTimer(): void {
 function onEnterPlaying(): void {
   dispatch({ type: 'SET_END_REASON', reason: null as unknown as number });
   resetRoundClientState();
-  seenSeqs.clear();
+  clearSeenSeqs();
   hideCountdownOverlay();
   clearRestartCountdownTimer();
   hideNicknameUI();
@@ -87,7 +87,7 @@ function onEnterPlaying(): void {
 function onEnterCountdown(countdownSeconds: number): void {
   stopCooldownUpdater();
   resetRoundClientState();
-  seenSeqs.clear();
+  clearSeenSeqs();
   hideNicknameUI();
   resetInterpolation();
   showCountdownOverlay();

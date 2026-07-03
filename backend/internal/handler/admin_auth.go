@@ -8,7 +8,6 @@ import (
 
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/audit"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/middleware"
 )
@@ -39,7 +38,7 @@ func (h *AdminHandler) getStoredAdminPassword(ctx context.Context, w http.Respon
 // Logout handles POST /api/v1/admin/logout.
 func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	jti := auth.GetJTI(r)
+	jti := getJTI(r)
 	if jti != "" && h.redis != nil {
 		if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
 			slog.Warn("failed to revoke admin jwt on logout", "jti", jti, "error", err)
@@ -49,8 +48,8 @@ func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	secure := auth.IsSecure(r)
-	http.SetCookie(w, auth.BuildAuthCookie("admin_token", "", -1, secure))
+	secure := isSecure(r)
+	http.SetCookie(w, buildAuthCookie("admin_token", "", -1, secure))
 
 	audit.Log(ctx, audit.AuditEntry{
 		Action:    "admin.logout",

@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/protocol"
@@ -292,9 +291,8 @@ func TestWebSocket_RateLimit(t *testing.T) {
 	}
 
 	// Create a handler with a very low WS connection limit (2).
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 2, 50, nil)
-	h := NewLobbyHandler(hub, jwtMgr, []string{"http://localhost"})
+	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	server := newWSTestServerMultiUser(h)
 	defer server.Close()
 

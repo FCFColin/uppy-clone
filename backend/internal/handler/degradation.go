@@ -5,8 +5,6 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
-	"github.com/uppy-clone/backend/internal/game"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 // DegradedResponse 非关键依赖不可用时的部分可用响应（见 ADR-004）。
@@ -28,7 +26,7 @@ func WriteDegradedJSON(w http.ResponseWriter, status int, data interface{}, mess
 }
 
 // RequireDB returns false and writes a degraded response when db is nil.
-func RequireDB(db *store.PostgresStore, w http.ResponseWriter) bool {
+func RequireDB(db interface{}, w http.ResponseWriter) bool {
 	if db != nil {
 		return true
 	}
@@ -37,7 +35,7 @@ func RequireDB(db *store.PostgresStore, w http.ResponseWriter) bool {
 }
 
 // RequireRedis returns false and writes a degraded response when redis is nil.
-func RequireRedis(redis *store.RedisStore, w http.ResponseWriter) bool {
+func RequireRedis(redis interface{}, w http.ResponseWriter) bool {
 	if redis != nil {
 		return true
 	}
@@ -55,7 +53,7 @@ func RequireHub(hub interface{ RoomCount() int }, w http.ResponseWriter) bool {
 }
 
 // RequireHubDegraded returns false and writes a degraded JSON response when hub is nil.
-func RequireHubDegraded(hub *game.Hub, w http.ResponseWriter, status int, payload interface{}, message string) bool {
+func RequireHubDegraded(hub GameService, w http.ResponseWriter, status int, payload interface{}, message string) bool {
 	if hub != nil {
 		return true
 	}

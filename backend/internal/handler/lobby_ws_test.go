@@ -54,10 +54,9 @@ func TestWebSocket_ForbiddenOriginShort(t *testing.T) {
 }
 
 func TestWebSocket_RateLimitShort(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 1, 50, nil)
 	hub.IncrementWSConnection()
-	h := NewLobbyHandler(hub, jwtMgr, []string{"http://localhost"})
+	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	code, err := hub.CreateRoom(context.Background())
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
@@ -159,10 +158,9 @@ func TestValidateWSOrigin(t *testing.T) {
 func TestReserveWSConnection(t *testing.T) {
 	t.Parallel()
 
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 1, 50, nil)
 	hub.IncrementWSConnection()
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
 	if h.reserveWSConnection(w) {
@@ -173,7 +171,7 @@ func TestReserveWSConnection(t *testing.T) {
 	}
 
 	hub2 := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 10, 50, nil)
-	h2 := NewLobbyHandler(hub2, jwtMgr, nil)
+	h2 := NewLobbyHandler(hub2, nil)
 	w2 := httptest.NewRecorder()
 	if !h2.reserveWSConnection(w2) {
 		t.Error("hub with capacity should reserve")
@@ -345,9 +343,8 @@ func TestMaybeStartReadSpan_RestartVoteAndUnknown(t *testing.T) {
 func TestWebSocket_WritePumpPing(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	timeouts.WSPingInterval = 50 * time.Millisecond
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, []string{"http://localhost"})
+	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	server := newWSTestServer(h, "user1", "nick1")
 	defer server.Close()
 
@@ -371,9 +368,8 @@ func TestWebSocket_WritePumpPing(t *testing.T) {
 
 func TestStartWSPumps_JoinFails(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 10, 1, nil)
-	h := NewLobbyHandler(hub, jwtMgr, []string{"http://localhost"})
+	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	server := newWSTestServer(h, "user1", "nick1")
 	defer server.Close()
 
@@ -398,9 +394,8 @@ func TestStartWSPumps_JoinFails(t *testing.T) {
 func TestWritePump_ClosedSendChannel(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	timeouts.WSPingInterval = time.Hour
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 10, 8, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 	room := game.NewRoom("PUMP1", hub, nil, timeouts, 4)
 	send := make(chan []byte)
 	close(send)
@@ -433,9 +428,8 @@ func TestWritePump_ClosedSendChannel(t *testing.T) {
 
 func TestStartWSPumps_HandleJoinFailure(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 10, 1, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 	code, err := hub.CreateRoom(context.Background())
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
@@ -465,9 +459,8 @@ func TestStartWSPumps_HandleJoinFailure(t *testing.T) {
 
 func TestWritePump_NilPlayerConnection(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 10, 8, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 	room := game.NewRoom("PUMP2", hub, nil, timeouts, 4)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -492,9 +485,8 @@ func TestWritePump_NilPlayerConnection(t *testing.T) {
 func TestWritePump_WriteMessageError(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	timeouts.WSPingInterval = time.Hour
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 10, 8, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 	room := game.NewRoom("PUMP3", hub, nil, timeouts, 4)
 	room.HandleJoin("p1", nil)
 	pc := room.GetConnection("p1")
@@ -563,9 +555,8 @@ func TestWebSocket_EmptyMessage(t *testing.T) {
 func TestWebSocket_PongHandler(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	timeouts.WSPingInterval = 30 * time.Millisecond
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, []string{"http://localhost"})
+	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	server := newWSTestServer(h, "user1", "nick1")
 	defer server.Close()
 
@@ -604,9 +595,8 @@ func TestMaybeStartReadSpan_PingCaseLabel(t *testing.T) {
 
 func TestWebSocket_ReadPumpUnexpectedClose(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, []string{"http://localhost"})
+	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	server := newWSTestServer(h, "user1", "nick1")
 	defer server.Close()
 
@@ -642,9 +632,8 @@ func TestWebSocket_ReadPumpUnexpectedClose(t *testing.T) {
 func TestWebSocket_ReadPumpPongHandler(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	timeouts.WSPingInterval = 30 * time.Millisecond
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, []string{"http://localhost"})
+	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	server := newWSTestServer(h, "user1", "nick1")
 	defer server.Close()
 
@@ -673,9 +662,8 @@ func TestWebSocket_ReadPumpPongHandler(t *testing.T) {
 
 func TestWebSocket_ReadPumpHandleMessageError(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, []string{"http://localhost"})
+	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	server := newWSTestServer(h, "user1", "nick1")
 	defer server.Close()
 
@@ -709,9 +697,8 @@ func TestReadPump_HandleMessageErrorWithSpan(t *testing.T) {
 	t.Cleanup(func() { handleMessageFn = prev })
 
 	timeouts := config.DefaultTimeoutConfig()
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 10, 8, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 	room := game.NewRoom("RSPN", hub, nil, timeouts, 4)
 	room.HandleJoin("p1", nil)
 
@@ -743,9 +730,8 @@ func TestReadPump_HandleMessageErrorWithSpan(t *testing.T) {
 func TestWritePump_PingWriteError(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	timeouts.WSPingInterval = 10 * time.Millisecond
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, timeouts, 10, 8, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 	room := game.NewRoom("PING1", hub, nil, timeouts, 4)
 	room.HandleJoin("p1", nil)
 

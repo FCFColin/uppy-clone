@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 )
 
@@ -29,11 +28,7 @@ func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email strin
 
 // CheckAuth handles GET /api/v1/auth/check
 func (h *AuthHandler) CheckAuth(w http.ResponseWriter, r *http.Request) {
-	var rev auth.JWTRevocationChecker
-	if h.redis != nil {
-		rev = h.redis
-	}
-	userId, nickname, ok := auth.AuthenticatedUserFromRequestWithRevocation(r, h.jwtMgr, rev)
+	userId, nickname, ok := h.auth.AuthenticatedUserFromRequest(r)
 	if !ok || userId == "" {
 		apierror.Unauthorized("").Write(w)
 		return
@@ -61,7 +56,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
-	refreshToken := auth.RefreshTokenFromRequest(r)
+	refreshToken := refreshTokenFromRequest(r)
 	if refreshToken == "" {
 		refreshToken = body.RefreshToken
 	}
@@ -83,7 +78,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := auth.RefreshSession(ctx, h.refreshMgr, h.jwtMgr, h.db, refreshToken)
+	accessToken, newRefreshToken, _, err := h.auth.RefreshSession(ctx, refreshToken, r)
 	if err != nil {
 		apierror.Unauthorized("Invalid or expired refresh token").Write(w)
 		return
@@ -97,8 +92,8 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		cookieName = "quickplay"
 	}
 
-	secure := auth.IsSecure(r)
-	writeAuthCookies(w, r, auth.BuildAuthCookie(cookieName, result.AccessToken, config.CookieMaxAge, secure), result.RefreshToken)
+	secure := isSecure(r)
+	writeAuthCookies(w, r, buildAuthCookie(cookieName, accessToken, config.CookieMaxAge, secure), newRefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

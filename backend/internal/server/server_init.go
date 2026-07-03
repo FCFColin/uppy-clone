@@ -87,13 +87,23 @@ func startWorkers(ctx context.Context, cfg *handler.Config, redis *store.RedisSt
 }
 
 // initHandlers creates the auth, lobby, and admin handlers.
-func initHandlers(jwtMgr *auth.JWTManager, adminJwtMgr *auth.JWTManager, db *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, timeouts appConfig.TimeoutConfig, hub *game.Hub) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler, *handler.StatsHandler) {
+func initHandlers(jwtMgr *auth.JWTManager, adminJwtMgr *auth.JWTManager, pg *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, timeouts appConfig.TimeoutConfig, hub *game.Hub) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler, *handler.StatsHandler) {
+	var users handler.UserStore
+	var configs handler.ConfigStore
+	var results handler.LeaderboardStore
+	if pg != nil {
+		users = store.NewUserRepository(pg.Pool())
+		configs = store.NewConfigRepository(pg.Pool())
+		results = store.NewResultRepository(pg.Pool())
+	}
+
 	refreshMgr := auth.NewRefreshTokenManager(redis.Client())
-	authHandler := handler.NewAuthHandler(jwtMgr, refreshMgr, db, redis, cfg, timeouts)
+	authSvc := newAuthServiceAdapter(jwtMgr, refreshMgr, redis, users, cfg.ResendAPIKey, cfg.EmailFrom, timeouts)
+	authHandler := handler.NewAuthHandler(users, redis, authSvc, cfg)
 	allowedOrigins := appMiddleware.AllowedOriginsFromEnv(serverEnv.AllowedOrigins)
-	lobbyHandler := handler.NewLobbyHandler(hub, jwtMgr, allowedOrigins)
-	adminHandler := handler.NewAdminHandler(db, adminJwtMgr, redis)
-	statsHandler := handler.NewStatsHandler(db)
+	lobbyHandler := handler.NewLobbyHandler(hub, allowedOrigins)
+	adminHandler := handler.NewAdminHandler(configs, adminJwtMgr, redis)
+	statsHandler := handler.NewStatsHandler(results)
 	return authHandler, lobbyHandler, adminHandler, statsHandler
 }
 

@@ -1,14 +1,14 @@
 import { CLIENT_MSG } from '../shared/game/protocol.js';
 import { dispatch, getState } from './store.js';
-import { resetInterpolation, seenSeqs } from './state_interp.js';
+import { resetInterpolation, clearSeenSeqs } from './state_interp.js';
 import { establishGameSession, sessionErrorMessage } from '../shared/network/session.js';
 import {
   onLobbyCodeReady,
   onWebSocketOpen,
   onWebSocketClosed,
-  clearWaitingInlineError,
   getEntryStep,
 } from './entry_flow.js';
+import { clearWaitingInlineError } from './entry_flow_dom.js';
 import { resolveLobbyCode } from './lobby_match.js';
 import {
   getLobbyCodeFromUrl,
@@ -96,7 +96,7 @@ function openGameSocket(wsCode: string): void {
     window.dispatchEvent(new Event('game-ws-open'));
     startHeartbeat();
     flushPendingQueue();
-    seenSeqs.clear();
+    clearSeenSeqs();
     resetInterpolation();
     dispatch({ type: 'SET_STATE', partial: { connectionError: null } });
     setReconnectTimer(null);

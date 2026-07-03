@@ -4,18 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-
-	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 // StatsHandler serves public leaderboard and optional user stats.
 type StatsHandler struct {
-	db *store.PostgresStore
+	db LeaderboardStore
 }
 
-// NewStatsHandler creates a StatsHandler.
-func NewStatsHandler(db *store.PostgresStore) *StatsHandler {
+func NewStatsHandler(db LeaderboardStore) *StatsHandler {
 	return &StatsHandler{db: db}
 }
 
@@ -62,7 +58,7 @@ func (h *StatsHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, ok := auth.GetAuthenticatedUser(r)
+	userID, _, ok := getAuthenticatedUser(r)
 	if !ok || userID == "" {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return

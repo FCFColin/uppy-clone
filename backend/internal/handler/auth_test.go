@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 	"github.com/uppy-clone/backend/internal/testsecrets"
@@ -25,16 +28,147 @@ import (
 // newTestAuthHandler creates an AuthHandler with nil DB/Redis for testing
 // only the HTTP-layer logic (request parsing, error responses).
 func newTestAuthHandler() *AuthHandler {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	return &AuthHandler{
-		jwtMgr:     jwtMgr,
-		refreshMgr: nil,
-		db:         nil,
-		redis:      nil,
-		config:     &Config{ResendAPIKey: "test", EmailFrom: "test@test.com"},
-		magicLink:  nil,
-		timeouts:   config.DefaultTimeoutConfig(),
+		db:     nil,
+		redis:  nil,
+		config: &Config{ResendAPIKey: "test", EmailFrom: "test@test.com"},
+		auth:   stubAuthService{},
 	}
+}
+
+// stubAuthService implements AuthService for HTTP-layer tests.
+type stubAuthService struct{}
+
+func (stubAuthService) RequestMagicLink(_ context.Context, _ string, _ *http.Request) error {
+	return errors.New("not implemented")
+}
+func (stubAuthService) RefreshSession(_ context.Context, _ string, _ *http.Request) (string, string, int, error) {
+	return "", "", 0, errors.New("not implemented")
+}
+func (stubAuthService) VerifyMagicLink(_ context.Context, _ string, _ *http.Request) (string, string, string, error) {
+	return "", "", "", errors.New("not implemented")
+}
+func (stubAuthService) QuickPlay(_ context.Context, _ string, _ *http.Request) (string, string, string, error) {
+	return "", "", "", errors.New("not implemented")
+}
+func (stubAuthService) ExportUserData(_ context.Context, _ string) (*domain.User, []domain.GameResult, error) {
+	return nil, nil, errors.New("not implemented")
+}
+func (stubAuthService) DeleteUserData(_ context.Context, _ string, _ *http.Request) error { return nil }
+func (stubAuthService) RevokeRefreshToken(_ context.Context, _ string) error                { return nil }
+func (stubAuthService) RevokeAllTokens(_ context.Context, _ *http.Request) error              { return nil }
+func (stubAuthService) AuthenticatedUserFromRequest(r *http.Request) (string, string, bool) {
+	return getAuthenticatedUser(r)
+}
+func (stubAuthService) GetJTI(r *http.Request) string           { return getJTI(r) }
+func (stubAuthService) IsJWTRevoked(_ context.Context, _ string) (bool, error) { return false, nil }
+
+// testUserStore combines auth.UserDB and auth.UserDataStore for the test adapter.
+type testUserStore interface {
+	auth.UserDB
+	auth.UserDataStore
+}
+
+// testAuthService wraps real auth functions for integration tests.
+type testAuthService struct {
+	jwtMgr     *auth.JWTManager
+	refreshMgr *auth.RefreshTokenManager
+	tokens     auth.TokenStore
+	users      testUserStore
+	magicLink  *auth.MagicLinkService
+	resendKey  string
+	emailFrom  string
+	timeouts   config.TimeoutConfig
+}
+
+func newMockAuthSvc(jwtMgr *auth.JWTManager, refreshMgr *auth.RefreshTokenManager, tokens auth.TokenStore, users testUserStore, resendKey, emailFrom string, timeouts config.TimeoutConfig) *testAuthService {
+	svc := &testAuthService{
+		jwtMgr:     jwtMgr,
+		refreshMgr: refreshMgr,
+		tokens:     tokens,
+		users:      users,
+		resendKey:  resendKey,
+		emailFrom:  emailFrom,
+		timeouts:   timeouts,
+	}
+	if tokens != nil {
+		svc.magicLink = auth.NewMagicLinkService()
+	}
+	return svc
+}
+
+func (s *testAuthService) RequestMagicLink(ctx context.Context, email string, r *http.Request) error {
+	err := s.magicLink.RequestMagicLink(s.tokens, s.users, s.resendKey, s.emailFrom, email, r, s.timeouts)
+	if errors.Is(err, auth.ErrTooManyRequests) {
+		return ErrTooManyRequests
+	}
+	if errors.Is(err, auth.ErrInvalidEmail) {
+		return ErrInvalidEmail
+	}
+	return err
+}
+func (s *testAuthService) RefreshSession(ctx context.Context, refreshToken string, r *http.Request) (string, string, int, error) {
+	result, err := auth.RefreshSession(ctx, s.refreshMgr, s.jwtMgr, s.users, refreshToken)
+	if err != nil {
+		return "", "", 0, err
+	}
+	return result.AccessToken, result.RefreshToken, config.CookieMaxAge, nil
+}
+func (s *testAuthService) VerifyMagicLink(ctx context.Context, token string, r *http.Request) (string, string, string, error) {
+	cookie, resp, err := auth.VerifyMagicLink(s.tokens, s.users, s.jwtMgr, s.refreshMgr, token, r)
+	if err != nil {
+		return "", "", "", err
+	}
+	access := ""
+	if cookie != nil {
+		access = cookie.Value
+	}
+	return resp.UserID, access, resp.RefreshToken, nil
+}
+func (s *testAuthService) QuickPlay(ctx context.Context, nickname string, r *http.Request) (string, string, string, error) {
+	cookie, resp, err := auth.QuickPlay(s.users, s.jwtMgr, s.refreshMgr, s.tokens, nickname, r)
+	if err != nil {
+		return "", "", "", err
+	}
+	access := ""
+	if cookie != nil {
+		access = cookie.Value
+	}
+	return resp.UserID, access, resp.RefreshToken, nil
+}
+func (s *testAuthService) ExportUserData(ctx context.Context, userID string) (*domain.User, []domain.GameResult, error) {
+	if s.users == nil {
+		return nil, nil, fmt.Errorf("store not available")
+	}
+	user, err := s.users.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if user == nil {
+		return nil, nil, nil
+	}
+	results, err := s.users.GetGameResultsByUserID(ctx, userID)
+	if err != nil {
+		results = nil
+	}
+	return user, results, nil
+}
+func (s *testAuthService) DeleteUserData(ctx context.Context, userID string, r *http.Request) error {
+	return auth.DeleteUserData(ctx, s.jwtMgr, s.refreshMgr, s.tokens, s.users, userID, r)
+}
+func (s *testAuthService) RevokeRefreshToken(ctx context.Context, token string) error {
+	return s.refreshMgr.Revoke(ctx, token)
+}
+func (s *testAuthService) RevokeAllTokens(ctx context.Context, r *http.Request) error {
+	auth.RevokeAllTokens(ctx, s.jwtMgr, s.refreshMgr, s.tokens, r)
+	return nil
+}
+func (s *testAuthService) AuthenticatedUserFromRequest(r *http.Request) (string, string, bool) {
+	return auth.AuthenticatedUserFromRequestWithRevocation(r, s.jwtMgr, s.tokens)
+}
+func (s *testAuthService) GetJTI(r *http.Request) string                { return auth.GetJTI(r) }
+func (s *testAuthService) IsJWTRevoked(ctx context.Context, jti string) (bool, error) {
+	return s.tokens.IsJWTRevoked(ctx, jti)
 }
 
 func TestRequestMagicLink_MissingEmail(t *testing.T) {
@@ -108,13 +242,10 @@ func TestCheckAuth_AuthenticatedViaCookieWithoutMiddleware(t *testing.T) {
 	}
 
 	h := &AuthHandler{
-		jwtMgr:     jwtMgr,
-		refreshMgr: nil,
-		db:         nil,
-		redis:      nil,
-		config:     &Config{},
-		magicLink:  nil,
-		timeouts:   config.DefaultTimeoutConfig(),
+		db:     nil,
+		redis:  nil,
+		config: &Config{},
+		auth:   newMockAuthSvc(jwtMgr, nil, nil, nil, "", "", config.DefaultTimeoutConfig()),
 	}
 
 	w := httptest.NewRecorder()
@@ -146,10 +277,9 @@ func TestCheckAuth_RevokedSession(t *testing.T) {
 	}
 
 	h := &AuthHandler{
-		jwtMgr:   jwtMgr,
-		redis:    redisStore,
-		config:   &Config{},
-		timeouts: config.DefaultTimeoutConfig(),
+		redis:  redisStore,
+		config: &Config{},
+		auth:   newMockAuthSvc(jwtMgr, nil, redisStore, nil, "", "", config.DefaultTimeoutConfig()),
 	}
 
 	w := httptest.NewRecorder()
@@ -171,13 +301,10 @@ func TestCheckAuth_Authenticated(t *testing.T) {
 	}
 
 	h := &AuthHandler{
-		jwtMgr:     jwtMgr,
-		refreshMgr: nil,
-		db:         nil,
-		redis:      nil,
-		config:     &Config{},
-		magicLink:  nil,
-		timeouts:   config.DefaultTimeoutConfig(),
+		db:     nil,
+		redis:  nil,
+		config: &Config{},
+		auth:   newMockAuthSvc(jwtMgr, nil, nil, nil, "", "", config.DefaultTimeoutConfig()),
 	}
 
 	// Use the actual auth middleware to set context
@@ -255,7 +382,7 @@ func TestRefreshToken_FromCookie(t *testing.T) {
 
 // --- QuickPlay ---
 
-func TestQuickPlay_NilDB(t *testing.T) {
+func TestQuickPlay_ServiceError(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAuthHandler()
@@ -266,8 +393,8 @@ func TestQuickPlay_NilDB(t *testing.T) {
 
 	h.QuickPlay(w, r)
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("QuickPlay with nil db: status = %d, want %d; body = %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("QuickPlay error: status = %d, want %d; body = %s", w.Code, http.StatusInternalServerError, w.Body.String())
 	}
 }
 
@@ -281,8 +408,8 @@ func TestQuickPlay_MissingBody(t *testing.T) {
 
 	h.QuickPlay(w, r)
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("QuickPlay with nil body: status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("QuickPlay error: status = %d, want %d", w.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -291,13 +418,10 @@ func TestLogout_ClearsCookies(t *testing.T) {
 
 	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	h := &AuthHandler{
-		jwtMgr:     jwtMgr,
-		refreshMgr: nil,
-		db:         nil,
-		redis:      nil,
-		config:     &Config{},
-		magicLink:  nil,
-		timeouts:   config.DefaultTimeoutConfig(),
+		db:     nil,
+		redis:  nil,
+		config: &Config{},
+		auth:   newMockAuthSvc(jwtMgr, nil, nil, nil, "", "", config.DefaultTimeoutConfig()),
 	}
 
 	// Test logout without refresh_token (avoids nil refreshMgr)
@@ -344,7 +468,8 @@ func TestQuickPlay_WithDB(t *testing.T) {
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(jwtMgr, refreshMgr, db, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO users").
@@ -370,7 +495,9 @@ func TestExportUserData_WithDB(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	h := NewAuthHandler(auth.NewJWTManager(testsecrets.TestJWTSecret), nil, db, nil, &Config{}, config.DefaultTimeoutConfig())
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	authSvc := newMockAuthSvc(jwtMgr, nil, nil, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, nil, authSvc, &Config{})
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
 		WithArgs("user-1").
@@ -406,7 +533,8 @@ func TestDeleteUserData_Success(t *testing.T) {
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(jwtMgr, refreshMgr, db, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-del").
@@ -432,7 +560,8 @@ func TestDeleteUserData_DBError(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(jwtMgr, refreshMgr, db, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-err").
@@ -453,7 +582,8 @@ func TestRequestMagicLink_Success(t *testing.T) {
 	}
 	redisStore := testutil.SetupMiniredisStore(t)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
-	h := NewAuthHandler(jwtMgr, nil, nil, redisStore, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "re_test", "test@test.com", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(nil, redisStore, authSvc, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "https://example.com/api/v1/auth/request", strings.NewReader(`{"email":"user@example.com"}`))
@@ -477,7 +607,8 @@ func TestCheckAuth_WithDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
 	}
-	h := NewAuthHandler(jwtMgr, nil, db, nil, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, nil, nil, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, nil, authSvc, &Config{})
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
 		WithArgs("user-db").
@@ -514,7 +645,8 @@ func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 	t.Cleanup(mr.Close)
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
-	h := NewAuthHandler(jwtMgr, nil, nil, redisStore, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "re_test", "test@test.com", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(nil, redisStore, authSvc, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
 	ctx := context.Background()
 	email := strings.Repeat("a", 20) + "@example.com"
@@ -534,7 +666,8 @@ func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 func TestRequestMagicLink_InvalidEmail(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
-	h := NewAuthHandler(jwtMgr, nil, nil, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(nil, redisStore, authSvc, &Config{})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(`{"email":"bad-email"}`))
@@ -580,7 +713,8 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 	refreshMgr := auth.NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
-	h := NewAuthHandler(jwtMgr, refreshMgr, db, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WithArgs(pgxmock.AnyArg(), "verify-handler@example.com").
@@ -601,7 +735,8 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 func TestVerifyMagicLinkToken_InvalidToken(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
-	h := NewAuthHandler(jwtMgr, nil, nil, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(nil, redisStore, authSvc, &Config{})
 
 	token := strings.Repeat("b", config.MagicLinkTokenLen)
 	w := httptest.NewRecorder()
@@ -629,7 +764,8 @@ func TestRefreshToken_Success(t *testing.T) {
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(jwtMgr, refreshMgr, db, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
 	ctx := context.Background()
 	refreshToken, err := refreshMgr.Generate(ctx, "user-refresh")
@@ -661,7 +797,8 @@ func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := auth.NewRefreshTokenManager(testutil.SetupMiniredisStore(t).Client())
-	h := NewAuthHandler(jwtMgr, refreshMgr, db, nil, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, nil, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, nil, authSvc, &Config{})
 
 	token, err := jwtMgr.SignToken("user-qp-err", "Nick")
 	if err != nil {
@@ -683,14 +820,15 @@ func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
 
 func TestExportUserData_NilDB(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
-	h := NewAuthHandler(jwtMgr, nil, nil, nil, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, nil, nil, nil, "", "", config.DefaultTimeoutConfig())
+		h := NewAuthHandler(nil, nil, authSvc, &Config{})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil)
 	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "Nick"))
 	h.ExportUserData(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
 	}
 }
 
@@ -701,7 +839,9 @@ func TestExportUserData_NotFound(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	h := NewAuthHandler(auth.NewJWTManager(testsecrets.TestJWTSecret), nil, db, nil, &Config{}, config.DefaultTimeoutConfig())
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	authSvc := newMockAuthSvc(jwtMgr, nil, nil, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, nil, authSvc, &Config{})
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
 		WithArgs("missing-user").
@@ -728,7 +868,8 @@ func TestCheckAuth_DBErrorDegraded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
 	}
-	h := NewAuthHandler(jwtMgr, nil, db, nil, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, nil, nil, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, nil, authSvc, &Config{})
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
 		WithArgs("user-db-err").
@@ -756,7 +897,8 @@ func TestRefreshToken_InvalidToken(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	h := NewAuthHandler(jwtMgr, refreshMgr, db, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", strings.NewReader(`{"refresh_token":"invalid-token"}`))
@@ -773,7 +915,8 @@ func TestRequestMagicLink_InternalError(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
-	h := NewAuthHandler(jwtMgr, nil, nil, redisStore, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "re_test", "test@test.com", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(nil, redisStore, authSvc, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(`{"email":"user@example.com"}`))
@@ -793,7 +936,8 @@ func TestLogout_RevokesRefreshToken(t *testing.T) {
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(jwtMgr, refreshMgr, nil, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, nil, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(nil, redisStore, authSvc, &Config{})
 
 	ctx := context.Background()
 	refreshToken, err := refreshMgr.Generate(ctx, "user-logout")
@@ -823,7 +967,8 @@ func TestRefreshToken_NilDB(t *testing.T) {
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(jwtMgr, refreshMgr, nil, redisStore, &Config{}, config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, nil, "", "", config.DefaultTimeoutConfig())
+	h := NewAuthHandler(nil, redisStore, authSvc, &Config{})
 
 	ctx := context.Background()
 	refreshToken, err := refreshMgr.Generate(ctx, "user-nodb")

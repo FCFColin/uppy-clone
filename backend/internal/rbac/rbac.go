@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/domain"
 )
 
 // Roles
@@ -45,7 +45,7 @@ func (e *Enforcer) CheckPermission(role, resource, action string) bool {
 func (e *Enforcer) Middleware(resource, action string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			role, ok := auth.RoleFromContext(r)
+			role, ok := domain.ContextKeyRole.Value(r.Context())
 			if !ok || role == "" {
 				role = RoleGuest
 			}

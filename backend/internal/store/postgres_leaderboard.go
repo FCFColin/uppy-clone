@@ -6,18 +6,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
-
-// LeaderboardEntry is a single row on the public leaderboard.
-type LeaderboardEntry struct {
-	Rank      int    `json:"rank"`
-	Score     int    `json:"score"`
-	LobbyCode string `json:"lobbyCode"`
-	EndedAt   int64  `json:"endedAt"`
-}
 
 func leaderboardQuery(scope string, limit int) (string, []interface{}) {
 	if scope == "weekly" {
@@ -35,9 +28,9 @@ func leaderboardQuery(scope string, limit int) (string, []interface{}) {
 		LIMIT $1`, []interface{}{limit}
 }
 
-func scanLeaderboardRows(rows pgx.Rows) ([]LeaderboardEntry, error) {
+func scanLeaderboardRows(rows pgx.Rows) ([]domain.LeaderboardEntry, error) {
 	defer rows.Close()
-	var entries []LeaderboardEntry
+	var entries []domain.LeaderboardEntry
 	rank := 1
 	for rows.Next() {
 		var score int
@@ -46,7 +39,7 @@ func scanLeaderboardRows(rows pgx.Rows) ([]LeaderboardEntry, error) {
 		if scanErr := rows.Scan(&score, &lobbyCode, &endedAt); scanErr != nil {
 			return nil, fmt.Errorf("scan leaderboard row: %w", scanErr)
 		}
-		entries = append(entries, LeaderboardEntry{
+		entries = append(entries, domain.LeaderboardEntry{
 			Rank:      rank,
 			Score:     score,
 			LobbyCode: lobbyCode,
@@ -58,7 +51,7 @@ func scanLeaderboardRows(rows pgx.Rows) ([]LeaderboardEntry, error) {
 }
 
 // GetLeaderboard returns top game sessions by final team score.
-func (s *PostgresStore) GetLeaderboard(ctx context.Context, scope string, limit int) ([]LeaderboardEntry, error) {
+func (s *PostgresStore) GetLeaderboard(ctx context.Context, scope string, limit int) ([]domain.LeaderboardEntry, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "postgres.GetLeaderboard",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
@@ -71,7 +64,7 @@ func (s *PostgresStore) GetLeaderboard(ctx context.Context, scope string, limit 
 		limit = 50
 	}
 
-	var entries []LeaderboardEntry
+	var entries []domain.LeaderboardEntry
 	err := s.withRetryRead(ctx, func(ctx context.Context) error {
 		query, args := leaderboardQuery(scope, limit)
 		rows, err := s.pool.Query(ctx, query, args...)
@@ -85,7 +78,7 @@ func (s *PostgresStore) GetLeaderboard(ctx context.Context, scope string, limit 
 		return nil, err
 	}
 	if entries == nil {
-		entries = []LeaderboardEntry{}
+		entries = []domain.LeaderboardEntry{}
 	}
 	return entries, nil
 }

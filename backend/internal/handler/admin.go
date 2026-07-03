@@ -10,10 +10,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/uppy-clone/backend/internal/audit"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/middleware"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 const adminRole = "admin"
@@ -22,14 +20,14 @@ const maskedKey = "••••••••"
 
 // AdminHandler handles admin endpoints.
 type AdminHandler struct {
-	db          *store.PostgresStore
-	adminJwtMgr *auth.JWTManager
-	redis       *store.RedisStore
+	db          ConfigStore
+	adminJwtMgr JWTManager
+	redis       AdminCache
 }
 
 // NewAdminHandler creates a new AdminHandler.
 // redis is used for failed-login lockout tracking; may be nil in tests.
-func NewAdminHandler(db *store.PostgresStore, adminJwtMgr *auth.JWTManager, redis *store.RedisStore) *AdminHandler {
+func NewAdminHandler(db ConfigStore, adminJwtMgr JWTManager, redis AdminCache) *AdminHandler {
 	return &AdminHandler{
 		db:          db,
 		adminJwtMgr: adminJwtMgr,

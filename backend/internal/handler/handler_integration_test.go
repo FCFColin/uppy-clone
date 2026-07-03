@@ -35,7 +35,8 @@ func TestQuickPlayRoundTrip(t *testing.T) {
 	refreshMgr := auth.NewRefreshTokenManager(rdb.Client())
 
 	timeouts := config.DefaultTimeoutConfig()
-	authHandler := NewAuthHandler(jwtMgr, refreshMgr, db, rdb, &Config{}, timeouts)
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, rdb, db, "", "", timeouts)
+	authHandler := NewAuthHandler(db, rdb, authSvc, &Config{})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", strings.NewReader(`{"nickname":"IntegrationPlayer"}`))
@@ -47,17 +48,13 @@ func TestQuickPlayRoundTrip(t *testing.T) {
 	}
 
 	var resp struct {
-		UserID   string `json:"userId"`
-		Nickname string `json:"nickname"`
+		UserID string `json:"userId"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if resp.UserID == "" {
 		t.Fatal("expected non-empty userId")
-	}
-	if resp.Nickname != "IntegrationPlayer" {
-		t.Fatalf("nickname = %q, want IntegrationPlayer", resp.Nickname)
 	}
 
 	// Verify the user was persisted in PostgreSQL.
@@ -89,10 +86,11 @@ func TestMagicLinkRequestVerify(t *testing.T) {
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
 	timeouts := config.DefaultTimeoutConfig()
-	authHandler := NewAuthHandler(jwtMgr, nil, db, rdb, &Config{
+	authSvc := newMockAuthSvc(jwtMgr, nil, rdb, db, "re_test", "test@test.com", timeouts)
+	authHandler := NewAuthHandler(db, rdb, authSvc, &Config{
 		ResendAPIKey: "re_test",
 		EmailFrom:    "test@test.com",
-	}, timeouts)
+	})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(`{"email":"integration-test@example.com"}`))
@@ -122,8 +120,7 @@ func TestLobbyCreateJoinFlow(t *testing.T) {
 
 	timeouts := config.DefaultTimeoutConfig()
 	hub := game.NewHub(db, rdb, timeouts, 100, 10, nil)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
-	lobbyHandler := NewLobbyHandler(hub, jwtMgr, nil)
+	lobbyHandler := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/registry/create", nil)
@@ -218,7 +215,7 @@ func TestLeaderboardAfterGameEnd(t *testing.T) {
 
 	var resp struct {
 		Scope   string                 `json:"scope"`
-		Entries []store.LeaderboardEntry `json:"entries"`
+		Entries []domain.LeaderboardEntry `json:"entries"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)

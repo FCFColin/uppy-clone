@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -24,6 +23,44 @@ type PlayerConn struct {
 	// pendingDisconnect marks a slow client for removal after outbound delivery.
 	pendingDisconnect bool
 }
+
+// SnapshotTargets implements ConnectionSource.
+func (r *Room) SnapshotTargets(excludePlayerID string) []connTarget {
+	targets := make([]connTarget, 0, len(r.connections))
+	for pid, pc := range r.connections {
+		if pid == excludePlayerID || pc == nil || pc.Send == nil {
+			continue
+		}
+		pcCopy := pc
+		targets = append(targets, connTarget{
+			playerID:          pid,
+			send:              pcCopy.Send,
+			consecutiveDrops:  &pcCopy.consecutiveDrops,
+			pendingDisconnect: &pcCopy.pendingDisconnect,
+			connClose: func() {
+				if pcCopy.Conn != nil {
+					_ = pcCopy.Conn.Close()
+				}
+			},
+		})
+	}
+	return targets
+}
+
+// RemovePendingDisconnects implements ConnectionSource.
+func (r *Room) RemovePendingDisconnects() {
+	for pid, pc := range r.connections {
+		if pc != nil && pc.pendingDisconnect {
+			if player, ok := r.state.Players[pid]; ok {
+				player.MarkDisconnected(time.Now().UnixMilli())
+			}
+			delete(r.connections, pid)
+			pc.pendingDisconnect = false
+		}
+	}
+}
+
+
 
 // Room 表示一个游戏房间。
 //
@@ -75,30 +112,31 @@ type Room struct {
 	// asyncWg tracks outbound/persist worker goroutines.
 	asyncWg sync.WaitGroup
 
-	// outboundCh delivers broadcasts outside Room.mu (see room_outbound.go).
-	outboundCh      chan outboundMsg
-	outboundClosed  atomic.Bool
-	outboundOnce    sync.Once
+	// outbound handles WebSocket message broadcasting (decoupled via interface).
+	outbound *OutboundManager
 
-	// persistCh debounces PostgreSQL writes (see room_persist_async.go).
-	persistCh     chan persistJob
-	persistOnce   sync.Once
-	persistMu     sync.RWMutex
-	lastPersistAt time.Time
-
-	// syncOutbound delivers immediately (unit tests).
+	// syncOutbound delivers immediately (unit tests). Forwarded to OutboundManager.
 	syncOutbound bool
 
-	// broadcaster 用于跨实例广播。nil 表示单实例模式（仅本地投递）。
 	broadcaster Broadcaster
-	// instanceID 标识当前实例，发布消息时写入 ExcludeInstance 防止 Pub/Sub 回环。
-	instanceID string
+	instanceID  string
+
+	persist        *PersistManager
+	persistMu      sync.RWMutex
+	lastPersistAt  time.Time
+	persistCh      chan persistJob
 }
 
 // NewRoom 创建新房间
 func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.TimeoutConfig, maxPlayers int) *Room {
 	if maxPlayers <= 0 {
 		maxPlayers = config.MaxPlayersPerRoom
+	}
+	var broadcaster Broadcaster
+	instanceID := defaultInstanceID()
+	if hub != nil {
+		broadcaster = hub.broadcaster
+		instanceID = hub.instanceID
 	}
 	r := &Room{
 		state:       NewGameState(code),
@@ -109,15 +147,12 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 		timeouts:    timeouts,
 		logger:      slog.Default().With("lobby", code),
 		maxPlayers:  maxPlayers,
-		instanceID:  defaultInstanceID(),
+		instanceID:  instanceID,
+		broadcaster: broadcaster,
 		startDelay:  2000 * time.Millisecond,
 		lobbyCode:   code,
-		outboundCh:  make(chan outboundMsg, outboundQueueSize),
 	}
-	if hub != nil {
-		r.broadcaster = hub.broadcaster
-		r.instanceID = hub.instanceID
-	}
+	r.outbound = NewOutboundManager(code, instanceID, &r.syncOutbound, broadcaster, r, r.logger, &r.asyncWg)
 	return r
 }
 
@@ -187,3 +222,24 @@ var ErrRoomFull = &roomFullError{}
 type roomFullError struct{}
 
 func (e *roomFullError) Error() string { return "room is full" }
+
+// SerializeStateJSON implements PersistSource.
+func (r *Room) SerializeStateJSON() ([]byte, string, error) {
+	if r.state == nil {
+		return nil, "", nil
+	}
+	data, err := serializeStateFn(r.state)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, r.state.LobbyCode, nil
+}
+
+// Store implements PersistSource.
+func (r *Room) Store() RoomRepository { return r.store }
+
+// LobbyCode implements PersistSource.
+func (r *Room) LobbyCode() string { return r.lobbyCode }
+
+// Timeouts implements PersistSource.
+func (r *Room) Timeouts() config.TimeoutConfig { return r.timeouts }

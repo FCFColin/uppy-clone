@@ -27,7 +27,8 @@ func TestQuickPlayResponseMatchesOpenAPISchema(t *testing.T) {
 	refreshMgr := auth.NewRefreshTokenManager(rdb.Client())
 	timeouts := config.DefaultTimeoutConfig()
 
-	h := NewAuthHandler(jwtMgr, refreshMgr, db, rdb, &Config{}, timeouts)
+	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, rdb, db, "", "", timeouts)
+	h := NewAuthHandler(db, rdb, authSvc, &Config{})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", strings.NewReader(`{"nickname":"SchemaTest"}`))
@@ -43,7 +44,7 @@ func TestQuickPlayResponseMatchesOpenAPISchema(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 
-	expectedFields := []string{"userId", "nickname"}
+	expectedFields := []string{"userId"}
 	for _, field := range expectedFields {
 		if _, ok := body[field]; !ok {
 			t.Errorf("response missing OpenAPI-required field %q", field)
@@ -53,10 +54,6 @@ func TestQuickPlayResponseMatchesOpenAPISchema(t *testing.T) {
 	userID, ok := body["userId"].(string)
 	if !ok || userID == "" {
 		t.Error("userId must be a non-empty string per OpenAPI spec")
-	}
-	nickname, ok := body["nickname"].(string)
-	if !ok || nickname == "" {
-		t.Error("nickname must be a non-empty string per OpenAPI spec")
 	}
 	if nickname != "SchemaTest" {
 		t.Errorf("nickname = %q, want %q", nickname, "SchemaTest")

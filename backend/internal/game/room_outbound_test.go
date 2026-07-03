@@ -61,11 +61,11 @@ func blockOutboundConsumerAndFillQueue(t *testing.T, r *Room) {
 	t.Helper()
 	r.mu.Lock()
 	r.startOutboundLoop()
-	r.outboundCh <- outboundMsg{payload: []byte("hold"), skipRedis: true}
+	r.outbound.ch <- outboundMsg{payload: []byte("hold"), skipRedis: true}
 	time.Sleep(20 * time.Millisecond)
 	for i := 0; i < outboundQueueSize; i++ {
 		select {
-		case r.outboundCh <- outboundMsg{payload: []byte("fill"), critical: false}:
+		case r.outbound.ch <- outboundMsg{payload: []byte("fill"), critical: false}:
 		default:
 			return
 		}
@@ -171,8 +171,8 @@ func TestRoom_enqueueOutbound_SyncPath(t *testing.T) {
 func TestRoom_enqueueOutbound_CriticalTimeout(t *testing.T) {
 	r := NewRoom("CRIT", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = false
-	r.outboundCh = make(chan outboundMsg, 1)
-	r.outboundCh <- outboundMsg{payload: []byte("block")}
+	r.outbound.ch = make(chan outboundMsg, 1)
+	r.outbound.ch <- outboundMsg{payload: []byte("block")}
 
 	done := make(chan struct{})
 	go func() {

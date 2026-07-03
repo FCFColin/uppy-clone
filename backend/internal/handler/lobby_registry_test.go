@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
@@ -90,13 +89,11 @@ func TestListLobbies_SuccessWithETag(t *testing.T) {
 			Total:   1,
 		},
 	}
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
 	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies", nil))
-
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
@@ -118,9 +115,8 @@ func TestListLobbies_RespectsLimitQuery(t *testing.T) {
 	t.Parallel()
 
 	repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
 	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies?limit=5", nil))
@@ -144,9 +140,8 @@ func TestCreateRoom_Success(t *testing.T) {
 	t.Parallel()
 
 	repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
 	h.CreateRoom(w, httptest.NewRequest(http.MethodPost, "/api/v1/registry/create", nil))
@@ -174,9 +169,8 @@ func TestCreateRoom_HubUnavailable(t *testing.T) {
 }
 
 func TestCreateRoom_CodeConflict(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 
 	orig := game.SetGenerateRoomCodeHook(func() string { return "CONFL" })
 	t.Cleanup(orig)
@@ -282,8 +276,7 @@ func TestCheckRoom_CacheReadError(t *testing.T) {
 	t.Cleanup(func() { _ = redisStore.Close() })
 
 	hub := game.NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 
 	mr.SetError("redis down")
 	w := httptest.NewRecorder()
@@ -302,8 +295,6 @@ func TestCheckRoom_CacheReadError(t *testing.T) {
 }
 
 func TestListLobbies_MarshalError(t *testing.T) {
-	t.Parallel()
-
 	prev := jsonMarshalFn
 	jsonMarshalFn = func(any) ([]byte, error) {
 		return nil, errors.New("marshal failed")
@@ -316,9 +307,8 @@ func TestListLobbies_MarshalError(t *testing.T) {
 			Total:   1,
 		},
 	}
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
 	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies", nil))
@@ -367,9 +357,8 @@ func TestListLobbies_WriteError(t *testing.T) {
 			Total:   1,
 		},
 	}
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	h := NewLobbyHandler(hub, jwtMgr, nil)
+	h := NewLobbyHandler(hub, nil)
 
 	w := &errResponseWriter{failWrite: true}
 	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies", nil))

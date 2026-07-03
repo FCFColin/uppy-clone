@@ -1,101 +1,27 @@
 package game
 
 import (
-	"context"
-	"time"
-
 	"github.com/uppy-clone/backend/internal/metrics"
 )
 
-const persistQueueSize = 8
-const persistDebounce = 100 * time.Millisecond
-
-type persistJob struct {
-	code      string
-	stateJSON []byte
-	final     bool
-	done      chan struct{}
+// writePersistJob is a bridge for tests that call it directly.
+func (r *Room) writePersistJob(job persistJob) {
+	if r.persist == nil {
+		r.persist = newPersistManager(r, r.logger, &r.asyncWg)
+	}
+	r.persist.write(job)
 }
 
 // startPersistLoop launches the debounced persist worker (once per room).
 func (r *Room) startPersistLoop() {
-	r.persistOnce.Do(func() {
-		r.persistCh = make(chan persistJob, persistQueueSize)
-		r.asyncWg.Add(1)
-		go r.runPersistLoop()
-	})
-}
-
-func (r *Room) runPersistLoop() {
-	defer r.asyncWg.Done()
-	var pending *persistJob
-	var timer *time.Timer
-	var timerC <-chan time.Time
-
-	flush := func() {
-		if pending == nil {
-			return
-		}
-		job := pending
-		pending = nil
-		if timer != nil {
-			timer.Stop()
-			timerC = nil
-		}
-		r.writePersistJob(*job)
+	if r.persist == nil {
+		r.persist = newPersistManager(r, r.logger, &r.asyncWg)
 	}
-
-	for {
-		select {
-		case job, ok := <-r.persistCh:
-			if !ok {
-				flush()
-				return
-			}
-			if job.final {
-				flush()
-				r.writePersistJob(job)
-				continue
-			}
-			pending = &job
-			if timer == nil {
-				timer = time.NewTimer(persistDebounce)
-				timerC = timer.C
-			} else {
-				timer.Reset(persistDebounce)
-			}
-		case <-timerC:
-			flush()
-		}
-	}
-}
-
-func (r *Room) writePersistJob(job persistJob) {
-	if r.store == nil {
-		if job.done != nil {
-			close(job.done)
-		}
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
-	defer cancel()
-	ls := newLobbyState(job.code, job.stateJSON)
-	err := r.store.SaveLobbyState(ctx, ls)
-	if err != nil {
-		r.logger.Error("async save state", "error", err)
-	} else {
-		r.persistMu.Lock()
-		r.lastPersistAt = time.Now()
-		r.persistMu.Unlock()
-		metrics.SetRoomPersistLag(job.code, 0)
-	}
-	if job.done != nil {
-		close(job.done)
-	}
+	r.persist.startLoop()
+	r.persistCh = r.persist.ch
 }
 
 // asyncSaveState serializes state and queues a debounced persist outside the tick lock.
-// Unlike requestPersist, this method acquires r.mu internally.
 func (r *Room) asyncSaveState() {
 	if r.store == nil {
 		return
@@ -108,20 +34,10 @@ func (r *Room) asyncSaveState() {
 		r.logger.Error("serialize state for async persist", "error", err)
 		return
 	}
-	r.startPersistLoop()
-	job := persistJob{
-		code:      code,
-		stateJSON: data,
+	if r.persist == nil {
+		r.persist = newPersistManager(r, r.logger, &r.asyncWg)
 	}
-	select {
-	case r.persistCh <- job:
-	default:
-	}
-	r.persistMu.RLock()
-	if !r.lastPersistAt.IsZero() {
-		metrics.SetRoomPersistLag(code, time.Since(r.lastPersistAt))
-	}
-	r.persistMu.RUnlock()
+	r.persist.requestPersist(data, code)
 }
 
 // requestPersist queues a debounced persist. Caller must hold r.mu.
@@ -134,21 +50,11 @@ func (r *Room) requestPersist() {
 		r.logger.Error("serialize state for persist", "error", err)
 		return
 	}
-	r.startPersistLoop()
-	job := persistJob{
-		code:      r.state.LobbyCode,
-		stateJSON: append([]byte(nil), data...),
+	if r.persist == nil {
+		r.persist = newPersistManager(r, r.logger, &r.asyncWg)
 	}
-	select {
-	case r.persistCh <- job:
-	default:
-		// Coalesce: drop intermediate job; latest state will follow on next tick.
-	}
-	r.persistMu.RLock()
-	if !r.lastPersistAt.IsZero() {
-		metrics.SetRoomPersistLag(r.state.LobbyCode, time.Since(r.lastPersistAt))
-	}
-	r.persistMu.RUnlock()
+	r.persist.requestPersist(data, r.state.LobbyCode)
+	metrics.SetRoomPersistLag(r.state.LobbyCode, 0)
 }
 
 // flushPersistSync blocks until a final persist completes (used on Close).
@@ -164,22 +70,14 @@ func (r *Room) flushPersistSync() {
 		r.logger.Error("serialize state for final persist", "error", err)
 		return
 	}
-
-	r.startPersistLoop()
-	done := make(chan struct{})
-	job := persistJob{
-		code:      code,
-		stateJSON: data,
-		final:     true,
-		done:      done,
+	if r.persist == nil {
+		r.persist = newPersistManager(r, r.logger, &r.asyncWg)
 	}
-	r.persistCh <- job
-	<-done
+	r.persist.flushSync(data, code)
 }
 
 func (r *Room) stopPersist() {
-	r.persistOnce.Do(func() {})
-	if r.persistCh != nil {
-		close(r.persistCh)
+	if r.persist != nil {
+		r.persist.stop()
 	}
 }

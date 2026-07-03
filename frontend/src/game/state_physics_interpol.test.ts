@@ -8,7 +8,8 @@ import {
   getInterpolatedGhost,
   getInterpolatedBird,
   isDuplicateSeq,
-  seenSeqs,
+  clearSeenSeqs,
+  getSeenSeqsSize,
   getInterpState,
   commitRenderedState,
 } from './state_interp.js';
@@ -309,7 +310,7 @@ describe('Physics interpolation - freezeInterpolation', () => {
 
 describe('Physics interpolation - isDuplicateSeq', () => {
   beforeEach(() => {
-    seenSeqs.clear();
+    clearSeenSeqs();
   });
 
   it('returns false for a sequence seen for the first time', () => {
@@ -333,10 +334,10 @@ describe('Physics interpolation - isDuplicateSeq', () => {
     for (let i = 0; i < MAX_SEEN_SEQS; i += 1) {
       isDuplicateSeq(i);
     }
-    expect(seenSeqs.size).toBe(MAX_SEEN_SEQS);
+    expect(getSeenSeqsSize()).toBe(MAX_SEEN_SEQS);
 
     expect(isDuplicateSeq(MAX_SEEN_SEQS)).toBe(false);
-    expect(seenSeqs.size).toBe(MAX_SEEN_SEQS - Math.floor(MAX_SEEN_SEQS / 2) + 1);
+    expect(getSeenSeqsSize()).toBe(MAX_SEEN_SEQS - Math.floor(MAX_SEEN_SEQS / 2) + 1);
     expect(isDuplicateSeq(0)).toBe(false);
     expect(isDuplicateSeq(MAX_SEEN_SEQS - 1)).toBe(true);
   });
@@ -371,9 +372,9 @@ describe('Physics interpolation - resetClientState', () => {
   });
 
   it('clears the seenSeqs set', () => {
-    seenSeqs.add(1);
-    seenSeqs.add(2);
+    isDuplicateSeq(1);
+    isDuplicateSeq(2);
     resetClientState();
-    expect(seenSeqs.size).toBe(0);
+    expect(getSeenSeqsSize()).toBe(0);
   });
 });

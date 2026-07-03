@@ -176,7 +176,7 @@ export function commitRenderedState(now: number = Date.now()): void {
   lastRenderedBalloon = { ...getInterpolatedBalloon(now) };
 }
 
-export const seenSeqs: Set<number> = new Set();
+const seenSeqs: Set<number> = new Set();
 
 export function isDuplicateSeq(seq: number): boolean {
   if (seenSeqs.has(seq)) return true;
@@ -193,7 +193,14 @@ export function isDuplicateSeq(seq: number): boolean {
   return false;
 }
 
-export const outboundMessageQueue: ArrayBuffer[] = [];
+export function clearSeenSeqs(): void {
+  seenSeqs.clear();
+}
+
+/** Exposed for testing. Use isDuplicateSeq and clearSeenSeqs for all production access. */
+export function getSeenSeqsSize(): number {
+  return seenSeqs.size;
+}
 
 export function getInterpState(): {
   get prevBalloon(): InterpPoint | null;

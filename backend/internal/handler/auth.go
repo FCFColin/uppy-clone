@@ -1,32 +1,20 @@
 // Package handler implements HTTP and WebSocket API endpoints.
 package handler
 
-import (
-	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/store"
-)
-
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	jwtMgr     *auth.JWTManager
-	refreshMgr *auth.RefreshTokenManager
-	db         *store.PostgresStore
-	redis      *store.RedisStore
-	config     *Config
-	magicLink  *auth.MagicLinkService
-	timeouts   config.TimeoutConfig
+	db     UserStore
+	redis  TokenStore
+	config *Config
+	auth   AuthService
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(jwtMgr *auth.JWTManager, refreshMgr *auth.RefreshTokenManager, db *store.PostgresStore, redis *store.RedisStore, config *Config, timeouts config.TimeoutConfig) *AuthHandler {
+func NewAuthHandler(db UserStore, redis TokenStore, auth AuthService, config *Config) *AuthHandler {
 	return &AuthHandler{
-		jwtMgr:     jwtMgr,
-		refreshMgr: refreshMgr,
-		db:         db,
-		redis:      redis,
-		config:     config,
-		magicLink:  auth.NewMagicLinkService(),
-		timeouts:   timeouts,
+		db:     db,
+		redis:  redis,
+		auth:   auth,
+		config: config,
 	}
 }

@@ -71,7 +71,9 @@ func (h *LobbyHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 		failLog:       "Hub.CreateRoom failed",
 		degradedMsg:   "Room creation temporarily unavailable, please retry",
 		responseField: "code",
-	}, h.hub.CreateRoom)
+	}, func(ctx context.Context) (string, error) {
+		return h.hub.CreateRoom(ctx)
+	})
 }
 
 // CheckRoom handles GET /api/registry/check/{code}
@@ -200,5 +202,7 @@ func (h *LobbyHandler) MatchRoom(w http.ResponseWriter, r *http.Request) {
 		failLog:       "Hub.MatchRoom failed",
 		degradedMsg:   "Room match temporarily unavailable, please retry",
 		responseField: "lobbyCode",
-	}, h.hub.MatchRoom)
+	}, func(ctx context.Context) (string, error) {
+		return h.hub.MatchRoom(ctx)
+	})
 }

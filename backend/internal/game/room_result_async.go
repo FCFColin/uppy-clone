@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
@@ -14,7 +13,16 @@ import (
 var jsonMarshalGameResultFn = json.Marshal
 
 // gameEndedOutboxPayloadFn is replaceable in unit tests.
-var gameEndedOutboxPayloadFn = auth.GameEndedOutboxPayload
+var gameEndedOutboxPayloadFn = defaultGameEndedOutboxPayload
+
+// defaultGameEndedOutboxPayload wraps game-ended payload in an outbox event envelope.
+func defaultGameEndedOutboxPayload(payload map[string]interface{}) ([]byte, error) {
+	wrapped := map[string]interface{}{
+		"event": "game.ended",
+		"data":  payload,
+	}
+	return json.Marshal(wrapped)
+}
 
 type gameResultJob struct {
 	sessionID string

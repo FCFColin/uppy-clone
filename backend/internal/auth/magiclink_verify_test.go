@@ -280,7 +280,7 @@ func (delFailHook) DialHook(next redis.DialHook) redis.DialHook { return next }
 
 func (delFailHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
-		if cmd.Name() == "del" {
+		if cmd.Name() == "eval" || cmd.Name() == "evalsha" {
 			return errors.New("del failed")
 		}
 		return next(ctx, cmd)

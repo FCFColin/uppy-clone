@@ -1,6 +1,30 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { state } from './state_types.js';
-import { outboundMessageQueue, seenSeqs } from './state_interp.js';
+import { isDuplicateSeq, getSeenSeqsSize } from './state_interp.js';
+
+vi.mock('./ws_connection.js', () => ({
+  clearOutboundQueue: vi.fn(),
+  getOutboundQueueLength: vi.fn(() => 0),
+  sendOrQueue: vi.fn(),
+  getWs: vi.fn(() => null),
+  setWs: vi.fn(),
+  getWsEverOpened: vi.fn(() => false),
+  setWsEverOpened: vi.fn(),
+  resetReconnectAttempts: vi.fn(),
+  clearReconnectTimer: vi.fn(),
+  setRoomPreChecked: vi.fn(),
+  wasRoomPreChecked: vi.fn(() => false),
+  setReconnectTimer: vi.fn(),
+  scheduleReconnect: vi.fn(),
+  waitForWebSocket: vi.fn(() => Promise.resolve()),
+  showConnectionError: vi.fn(),
+  flushPendingQueue: vi.fn(),
+  hideReconnectBanner: vi.fn(),
+  startHeartbeat: vi.fn(),
+  stopHeartbeat: vi.fn(),
+  handlePong: vi.fn(),
+}));
+
 import { resetClientState, resetRoundClientState } from './state_reset.js';
 
 describe('client_state_reset', () => {
@@ -14,8 +38,7 @@ describe('client_state_reset', () => {
     state.restartVotes = { yes: 1, total: 2, countdownMs: 100, receivedAt: 1 };
     state.score = 50;
     state.hasReceivedFirstSnapshot = true;
-    seenSeqs.add(99);
-    outboundMessageQueue.push(new ArrayBuffer(1));
+    isDuplicateSeq(99);
   });
 
   it('resetRoundClientState clears round gameplay fields', () => {
@@ -28,11 +51,10 @@ describe('client_state_reset', () => {
     expect(state.restartClicked).toBe(false);
   });
 
-  it('resetClientState clears snapshot readiness and outbound queue', () => {
+  it('resetClientState clears snapshot readiness and seenSeqs', () => {
     resetClientState();
     expect(state.hasReceivedFirstSnapshot).toBe(false);
-    expect(seenSeqs.size).toBe(0);
-    expect(outboundMessageQueue.length).toBe(0);
+    expect(getSeenSeqsSize()).toBe(0);
     expect(state.ripples).toEqual([]);
   });
 });

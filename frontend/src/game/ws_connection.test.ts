@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { outboundMessageQueue } from './state_interp.js';
+import { getOutboundQueueLength, clearOutboundQueue } from './ws_connection.js';
 
 vi.mock('./local_constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./local_constants.js')>();
@@ -46,7 +46,7 @@ describe('ws_connection', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    outboundMessageQueue.length = 0;
+    clearOutboundQueue();
     stopHeartbeat();
     setWs(null);
     resetReconnectAttempts();
@@ -68,14 +68,14 @@ describe('ws_connection', () => {
   it('sendOrQueue queues when socket closed', () => {
     const buf = new ArrayBuffer(1);
     sendOrQueue(buf);
-    expect(outboundMessageQueue.length).toBe(1);
+    expect(getOutboundQueueLength()).toBe(1);
   });
 
   it('sendOrQueue drops oldest when queue full', () => {
     for (let i = 0; i < MAX_PENDING_QUEUE + 2; i++) {
       sendOrQueue(new ArrayBuffer(1));
     }
-    expect(outboundMessageQueue.length).toBe(MAX_PENDING_QUEUE);
+    expect(getOutboundQueueLength()).toBe(MAX_PENDING_QUEUE);
   });
 
   it('flushPendingQueue drains queue on open socket', () => {
@@ -84,7 +84,7 @@ describe('ws_connection', () => {
     sendOrQueue(new ArrayBuffer(1));
     setWs(socket);
     flushPendingQueue();
-    expect(outboundMessageQueue.length).toBe(0);
+    expect(getOutboundQueueLength()).toBe(0);
     expect((socket as unknown as MockWebSocket).sent.length).toBe(1);
   });
 
@@ -115,7 +115,7 @@ describe('ws_connection', () => {
     sendOrQueue(new ArrayBuffer(1));
     setWs(socket);
     flushPendingQueue();
-    expect(outboundMessageQueue.length).toBe(0);
+    expect(getOutboundQueueLength()).toBe(0);
     expect((socket as unknown as MockWebSocket).sent.length).toBe(3);
   });
 
@@ -130,7 +130,7 @@ describe('ws_connection', () => {
   it('flushPendingQueue no-ops when socket is closed', () => {
     sendOrQueue(new ArrayBuffer(1));
     flushPendingQueue();
-    expect(outboundMessageQueue.length).toBe(1);
+    expect(getOutboundQueueLength()).toBe(1);
   });
 
   it('scheduleReconnect stops after max attempts', async () => {

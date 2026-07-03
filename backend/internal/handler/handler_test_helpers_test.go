@@ -15,9 +15,8 @@ import (
 )
 
 func newTestLobbyHandler() *LobbyHandler {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	return NewLobbyHandler(hub, jwtMgr, nil)
+	return NewLobbyHandler(hub, nil)
 }
 
 func testAuthMiddleware(userID, nickname string, next http.HandlerFunc) http.HandlerFunc {
@@ -62,9 +61,8 @@ func wsDial(t *testing.T, server *httptest.Server, code, origin string) (*websoc
 }
 
 func newTestLobbyHandlerWithOrigins(origins []string) *LobbyHandler {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	return NewLobbyHandler(hub, jwtMgr, origins)
+	return NewLobbyHandler(hub, origins)
 }
 
 func waitForConnCount(h *LobbyHandler, target int64, timeout time.Duration) bool {

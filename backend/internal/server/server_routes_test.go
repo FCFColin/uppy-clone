@@ -43,8 +43,9 @@ func newTestRouter(t *testing.T) *chi.Mux {
 	hub := game.NewHub(nil, nil, timeouts, 10, 50, nil)
 
 	cfg := &handler.Config{FrontendDir: ""}
-	authHandler := handler.NewAuthHandler(jwtMgr, nil, nil, nil, cfg, timeouts)
-	lobbyHandler := handler.NewLobbyHandler(hub, jwtMgr, nil)
+	authSvc := newAuthServiceAdapter(jwtMgr, nil, nil, nil, "", "", timeouts)
+	authHandler := handler.NewAuthHandler(nil, nil, authSvc, cfg)
+	lobbyHandler := handler.NewLobbyHandler(hub, nil)
 	adminHandler := handler.NewAdminHandler(nil, adminJwtMgr, nil)
 	statsHandler := handler.NewStatsHandler(nil)
 	rbacEnforcer := rbac.NewEnforcer()

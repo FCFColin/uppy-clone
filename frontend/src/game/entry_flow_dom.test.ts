@@ -60,8 +60,8 @@ import {
   setLobbyCodeDisplay,
   renderEntryFullScreenError,
   renderStartCountdownTitle,
-  resetEntryFlowForTest,
-} from './entry_flow.js';
+} from './entry_flow_dom.js';
+import { resetEntryFlowForTest } from './entry_flow.js';
 import type { EntryOverlayContext } from './entry_flow.js';
 
 describe('entry_flow_dom', () => {
@@ -171,6 +171,8 @@ describe('entry_flow_dom', () => {
       const ctx: EntryOverlayContext = {
         entryStep: 'waiting',
         wsConnected: false,
+        lobbyCode: 'ABC12',
+        phase: 'waiting',
         getWaitingTitleText: () => '等待中',
       };
       updateWaitingStatusLine(ctx);
@@ -181,6 +183,8 @@ describe('entry_flow_dom', () => {
       const ctx: EntryOverlayContext = {
         entryStep: 'waiting',
         wsConnected: true,
+        lobbyCode: 'ABC12',
+        phase: 'waiting',
         getWaitingTitleText: () => '正在等待其他玩家…',
       };
       updateWaitingStatusLine(ctx);
@@ -297,6 +301,8 @@ describe('entry_flow_dom', () => {
       const ctx: EntryOverlayContext = {
         entryStep: 'connecting',
         wsConnected: false,
+        lobbyCode: '',
+        phase: 'waiting',
         getWaitingTitleText: () => '',
       };
       const overlay = document.getElementById('loading-overlay')!;
@@ -309,6 +315,8 @@ describe('entry_flow_dom', () => {
       const ctx: EntryOverlayContext = {
         entryStep: 'error',
         wsConnected: false,
+        lobbyCode: '',
+        phase: 'waiting',
         getWaitingTitleText: () => '',
       };
       const overlay = document.getElementById('loading-overlay')!;
@@ -323,6 +331,8 @@ describe('entry_flow_dom', () => {
       const ctx: EntryOverlayContext = {
         entryStep: 'nickname',
         wsConnected: true,
+        lobbyCode: 'ABC12',
+        phase: 'waiting',
         getWaitingTitleText: () => '',
       };
       syncEntryOverlays(ctx);
@@ -335,6 +345,8 @@ describe('entry_flow_dom', () => {
       const ctx: EntryOverlayContext = {
         entryStep: 'waiting',
         wsConnected: true,
+        lobbyCode: 'ABC12',
+        phase: 'waiting',
         getWaitingTitleText: () => '等待中',
       };
       syncEntryOverlays(ctx);
@@ -349,6 +361,8 @@ describe('entry_flow_dom', () => {
       const ctx: EntryOverlayContext = {
         entryStep: 'handoff',
         wsConnected: true,
+        lobbyCode: 'ABC12',
+        phase: 'playing',
         getWaitingTitleText: () => '',
       };
       syncEntryOverlays(ctx);
