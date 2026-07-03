@@ -57,7 +57,7 @@ func (r *Room) enqueueGameResultAsync() {
 	}
 
 	// 同时入队 Redis（供 worker 批量处理/对账），非主路径。
-	if r.hub != nil && r.hub.redis != nil {
+	if r.hub != nil && r.hub.cache != nil {
 		payload := map[string]interface{}{
 			"game_id":     sessionID,
 			"room_code":   roomCode,
@@ -109,7 +109,7 @@ func (r *Room) runGameResultJob(job gameResultJob) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
 	defer cancel()
 
-	if err := r.hub.redis.EnqueueGameResult(ctx, job.payload); err != nil {
+	if err := r.hub.cache.EnqueueGameResult(ctx, job.payload); err != nil {
 		r.logger.Error("enqueue game result", "error", err)
 	}
 	if r.store != nil && len(job.outbox) > 0 {

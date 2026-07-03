@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
@@ -110,7 +111,7 @@ func TestHubRedisRestore(t *testing.T) {
 
 	// Register a room from a different instance.
 	code2 := "RMT01"
-	altRegistry := store.RoomRegistryInfo{
+	altRegistry := domain.RoomRegistryInfo{
 		Code:      code2,
 		Instance:  "remote-instance",
 		Address:   "10.0.0.2:8080",

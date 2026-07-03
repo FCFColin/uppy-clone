@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/domain"
 )
 
 // RoomRoute describes how a room connection should be routed (ADR-005).
@@ -41,11 +41,11 @@ func instanceAddress() string {
 // ResolveRoom determines whether the room should be served locally or proxied to the owner instance.
 func (h *Hub) ResolveRoom(ctx context.Context, code string) (RoomRouteDecision, error) {
 	decision := RoomRouteDecision{Route: RouteLocal, Owner: h.instanceID, Address: instanceAddress()}
-	if h.redis == nil {
+	if h.cache == nil {
 		return decision, nil
 	}
 
-	info, err := h.redis.GetRoomRegistry(ctx, code)
+	info, err := h.cache.GetRoomRegistry(ctx, code)
 	if err != nil {
 		return decision, err
 	}
@@ -63,33 +63,33 @@ func (h *Hub) ResolveRoom(ctx context.Context, code string) (RoomRouteDecision, 
 
 // invalidateLobbyReadCaches clears ADR-006 read caches after room mutations.
 func (h *Hub) invalidateLobbyReadCaches(code string) {
-	if h.redis == nil {
+	if h.cache == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.RedisConnectTimeout)
 	defer cancel()
-	_ = h.redis.InvalidateLobbyListCaches(ctx)
+	_ = h.cache.InvalidateLobbyListCaches(ctx)
 	if code != "" {
-		_ = h.redis.InvalidateRoomCheck(ctx, code)
+		_ = h.cache.InvalidateRoomCheck(ctx, code)
 	}
 }
 
 // ListLobbiesCached returns active lobbies with cursor-based pagination.
 // Uses Redis read-through cache per ADR-006 when available.
-func (h *Hub) ListLobbiesCached(ctx context.Context, limit int, cursor string) (*store.LobbyListResult, error) {
+func (h *Hub) ListLobbiesCached(ctx context.Context, limit int, cursor string) (*domain.LobbyListResult, error) {
 	if h.store == nil {
 		return nil, fmt.Errorf("store not available")
 	}
 
-	if h.redis != nil {
+	if h.cache != nil {
 		return readThroughCache(ctx,
 			func(ctx context.Context) ([]byte, bool, error) {
-				return h.redis.GetCachedLobbyList(ctx, limit, cursor)
+				return h.cache.GetCachedLobbyList(ctx, limit, cursor)
 			},
 			func(ctx context.Context, data []byte) error {
-				return h.redis.SetCachedLobbyList(ctx, limit, cursor, data)
+				return h.cache.SetCachedLobbyList(ctx, limit, cursor, data)
 			},
-			func(ctx context.Context) (*store.LobbyListResult, error) {
+			func(ctx context.Context) (*domain.LobbyListResult, error) {
 				return h.store.LoadAllActiveLobbies(ctx, limit, cursor)
 			},
 		)
@@ -100,8 +100,8 @@ func (h *Hub) ListLobbiesCached(ctx context.Context, limit int, cursor string) (
 
 // CheckRoomCached checks room existence with Redis read-through cache per ADR-006.
 func (h *Hub) CheckRoomCached(ctx context.Context, code string) (*RoomInfo, error) {
-	if h.redis != nil {
-		cached, ok, err := h.redis.GetCachedRoomCheck(ctx, code)
+	if h.cache != nil {
+		cached, ok, err := h.cache.GetCachedRoomCheck(ctx, code)
 		if err != nil {
 			return nil, err
 		}
@@ -118,9 +118,9 @@ func (h *Hub) CheckRoomCached(ctx context.Context, code string) (*RoomInfo, erro
 		return info, err
 	}
 
-	if h.redis != nil {
+	if h.cache != nil {
 		if data, err := json.Marshal(info); err == nil {
-			_ = h.redis.SetCachedRoomCheck(ctx, code, data)
+			_ = h.cache.SetCachedRoomCheck(ctx, code, data)
 		}
 	}
 	return info, err

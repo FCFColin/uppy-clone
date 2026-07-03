@@ -9,17 +9,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// LobbyListResult contains paginated lobby results with metadata.
-type LobbyListResult struct {
-	Lobbies    []domain.LobbyState
-	Total      int
-	HasMore    bool
-	NextCursor string // format: "updated_at|code"
-}
-
 // LoadAllActiveLobbies returns lobby states with cursor-based pagination.
 // If limit <= 0, defaults to 50. If limit > 100, caps at 100.
-func (s *PostgresStore) LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*LobbyListResult, error) {
+func (s *PostgresStore) LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*domain.LobbyListResult, error) {
 	if limit <= 0 {
 		limit = 50
 	}

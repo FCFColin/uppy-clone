@@ -472,7 +472,7 @@ type paginatedRestoreRepo struct {
 	calls int
 }
 
-func (p *paginatedRestoreRepo) LoadAllActiveLobbies(_ context.Context, limit int, cursor string) (*store.LobbyListResult, error) {
+func (p *paginatedRestoreRepo) LoadAllActiveLobbies(_ context.Context, limit int, cursor string) (*domain.LobbyListResult, error) {
 	p.calls++
 	if p.calls == 1 {
 		lobbies := make([]domain.LobbyState, limit)
@@ -482,11 +482,11 @@ func (p *paginatedRestoreRepo) LoadAllActiveLobbies(_ context.Context, limit int
 			data, _ := json.Marshal(state)
 			lobbies[i] = domain.LobbyState{Code: code, State: string(data)}
 		}
-		return &store.LobbyListResult{Lobbies: lobbies, Total: limit + 1}, nil
+		return &domain.LobbyListResult{Lobbies: lobbies, Total: limit + 1}, nil
 	}
 	state := NewGameState("ROOM101")
 	data, _ := json.Marshal(state)
-	return &store.LobbyListResult{
+	return &domain.LobbyListResult{
 		Lobbies: []domain.LobbyState{{Code: "ROOM101", State: string(data)}},
 		Total:   limit + 1,
 	}, nil
@@ -511,8 +511,8 @@ type emptyRestoreRepo struct {
 	*mockRoomRepository
 }
 
-func (e *emptyRestoreRepo) LoadAllActiveLobbies(context.Context, int, string) (*store.LobbyListResult, error) {
-	return &store.LobbyListResult{Lobbies: []domain.LobbyState{}}, nil
+func (e *emptyRestoreRepo) LoadAllActiveLobbies(context.Context, int, string) (*domain.LobbyListResult, error) {
+	return &domain.LobbyListResult{Lobbies: []domain.LobbyState{}}, nil
 }
 
 func TestHub_RestoreRooms_EmptyPage(t *testing.T) {

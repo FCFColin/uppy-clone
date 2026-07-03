@@ -82,7 +82,7 @@ func scanLobbyRows(rows pgx.Rows) ([]domain.LobbyState, error) {
 	return result, nil
 }
 
-func buildLobbyListResult(lobbies []domain.LobbyState, total, limit int) *LobbyListResult {
+func buildLobbyListResult(lobbies []domain.LobbyState, total, limit int) *domain.LobbyListResult {
 	hasMore := len(lobbies) > limit
 	if hasMore {
 		lobbies = lobbies[:limit]
@@ -94,7 +94,7 @@ func buildLobbyListResult(lobbies []domain.LobbyState, total, limit int) *LobbyL
 		nextCursor = fmt.Sprintf("%d|%s", last.UpdatedAt, last.Code)
 	}
 
-	return &LobbyListResult{
+	return &domain.LobbyListResult{
 		Lobbies:    lobbies,
 		Total:      total,
 		HasMore:    hasMore,

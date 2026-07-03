@@ -5,16 +5,16 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/domain"
 )
 
 const roomRegistryTTL = 24 * time.Hour
 
 func (h *Hub) shouldLocalMaterializeRoom(ctx context.Context, code string) bool {
-	if h.redis == nil {
+	if 	h.cache == nil {
 		return true
 	}
-	info, err := h.redis.GetRoomRegistry(ctx, code)
+	info, err := 	h.cache.GetRoomRegistry(ctx, code)
 	if err != nil {
 		h.logger.Warn("room registry lookup failed", "code", code, "error", err)
 		return false
@@ -31,28 +31,28 @@ func (h *Hub) finalizeMaterializedRoom(code string) {
 }
 
 func (h *Hub) registerRoomInRedis(code string) {
-	if h.redis == nil {
+	if 	h.cache == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.RedisConnectTimeout)
 	defer cancel()
 
-	data, _ := json.Marshal(store.RoomRegistryInfo{
+	data, _ := json.Marshal(	domain.RoomRegistryInfo{
 		Code:      code,
 		Instance:  h.instanceID,
 		Address:   instanceAddress(),
 		CreatedAt: time.Now().UnixMilli(),
 	})
-	_ = h.redis.RegisterRoom(ctx, code, data, roomRegistryTTL)
+	_ = 	h.cache.RegisterRoom(ctx, code, data, roomRegistryTTL)
 }
 
 func (h *Hub) unregisterRoomFromRedis(code string) {
-	if h.redis == nil {
+	if 	h.cache == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.RedisConnectTimeout)
 	defer cancel()
-	_ = h.redis.UnregisterRoom(ctx, code)
+	_ = 	h.cache.UnregisterRoom(ctx, code)
 }
 
 func (h *Hub) subscribeRoom(code string) {

@@ -63,7 +63,7 @@ func TestHub_ListLobbiesCached_CacheHit(t *testing.T) {
 	h, redisStore := setupHubWithMiniredis(t, repo)
 	ctx := context.Background()
 
-	cached := &store.LobbyListResult{
+	cached := &domain.LobbyListResult{
 		Lobbies: []domain.LobbyState{{Code: "CACHE", State: "{}"}},
 		Total:   1,
 	}
@@ -121,7 +121,7 @@ func TestHub_InvalidateLobbyReadCaches_WithRedis(t *testing.T) {
 	h, redisStore := setupHubWithMiniredis(t, nil)
 	ctx := context.Background()
 
-	data, _ := json.Marshal(&store.LobbyListResult{Total: 1})
+	data, _ := json.Marshal(&domain.LobbyListResult{Total: 1})
 	_ = redisStore.SetCachedLobbyList(ctx, 10, "", data)
 	roomData, _ := json.Marshal(RoomInfo{Code: "ABCDE"})
 	_ = redisStore.SetCachedRoomCheck(ctx, "ABCDE", roomData)
@@ -246,7 +246,7 @@ type failLoadRepo struct {
 	mockRoomRepository
 }
 
-func (f *failLoadRepo) LoadAllActiveLobbies(_ context.Context, _ int, _ string) (*store.LobbyListResult, error) {
+func (f *failLoadRepo) LoadAllActiveLobbies(_ context.Context, _ int, _ string) (*domain.LobbyListResult, error) {
 	return nil, errLoadFailed
 }
 

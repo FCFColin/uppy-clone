@@ -950,7 +950,7 @@ func TestInstanceAddress(t *testing.T) {
 func TestResolveRoom_NilRedis(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	h := NewHub(nil, nil, timeouts, 0, 0, nil)
-	if h.redis != nil {
+	if h.cache != nil {
 		t.Fatal("expected nil redis")
 	}
 
@@ -989,7 +989,7 @@ func TestHub_ResolveRoom_LocalWhenOwnerMatches(t *testing.T) {
 
 	ctx := context.Background()
 	code := "ABCDE"
-	info, _ := json.Marshal(store.RoomRegistryInfo{
+	info, _ := json.Marshal(domain.RoomRegistryInfo{
 		Code:      code,
 		Instance:  "instance-a",
 		Address:   "10.0.0.1:8080",
@@ -1025,7 +1025,7 @@ func TestHub_ResolveRoom_ProxyWhenOwnerDiffers(t *testing.T) {
 
 	ctx := context.Background()
 	code := "FGHIJ"
-	info, _ := json.Marshal(store.RoomRegistryInfo{
+	info, _ := json.Marshal(domain.RoomRegistryInfo{
 		Code:      code,
 		Instance:  "instance-a",
 		Address:   "10.0.0.2:8080",

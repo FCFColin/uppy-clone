@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 // RoomRepository persists lobby and session state for the game aggregate.
@@ -12,7 +11,7 @@ type RoomRepository interface {
 	SaveLobbyState(ctx context.Context, ls *domain.LobbyState) error
 	LoadLobbyState(ctx context.Context, code string) (*domain.LobbyState, error)
 	DeleteLobbyState(ctx context.Context, code string) error
-	LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*store.LobbyListResult, error)
+	LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*domain.LobbyListResult, error)
 	CreateGameSession(ctx context.Context, gs *domain.GameSession) error
 	InsertOutboxEvent(ctx context.Context, aggregateType, aggregateID string, payload []byte) error
 	RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error

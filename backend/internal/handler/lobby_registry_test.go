@@ -17,7 +17,7 @@ import (
 )
 
 type stubLobbyRepo struct {
-	result *store.LobbyListResult
+	result *domain.LobbyListResult
 	err    error
 }
 
@@ -26,7 +26,7 @@ func (s *stubLobbyRepo) LoadLobbyState(context.Context, string) (*domain.LobbySt
 	return nil, nil
 }
 func (s *stubLobbyRepo) DeleteLobbyState(context.Context, string) error { return nil }
-func (s *stubLobbyRepo) LoadAllActiveLobbies(context.Context, int, string) (*store.LobbyListResult, error) {
+func (s *stubLobbyRepo) LoadAllActiveLobbies(context.Context, int, string) (*domain.LobbyListResult, error) {
 	return s.result, s.err
 }
 func (s *stubLobbyRepo) CreateGameSession(context.Context, *domain.GameSession) error { return nil }
@@ -85,7 +85,7 @@ func TestListLobbies_SuccessWithETag(t *testing.T) {
 	t.Parallel()
 
 	repo := &stubLobbyRepo{
-		result: &store.LobbyListResult{
+		result: &domain.LobbyListResult{
 			Lobbies: []domain.LobbyState{{Code: "ABCDE", State: "waiting"}},
 			Total:   1,
 		},
@@ -117,7 +117,7 @@ func TestListLobbies_SuccessWithETag(t *testing.T) {
 func TestListLobbies_RespectsLimitQuery(t *testing.T) {
 	t.Parallel()
 
-	repo := &stubLobbyRepo{result: &store.LobbyListResult{Total: 0}}
+	repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
 	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
 	h := NewLobbyHandler(hub, jwtMgr, nil)
@@ -143,7 +143,7 @@ func TestListLobbies_InvalidLimitUsesDefault(t *testing.T) {
 func TestCreateRoom_Success(t *testing.T) {
 	t.Parallel()
 
-	repo := &stubLobbyRepo{result: &store.LobbyListResult{Total: 0}}
+	repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
 	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
 	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
 	h := NewLobbyHandler(hub, jwtMgr, nil)
@@ -311,7 +311,7 @@ func TestListLobbies_MarshalError(t *testing.T) {
 	t.Cleanup(func() { jsonMarshalFn = prev })
 
 	repo := &stubLobbyRepo{
-		result: &store.LobbyListResult{
+		result: &domain.LobbyListResult{
 			Lobbies: []domain.LobbyState{{Code: "ABCDE", State: "waiting"}},
 			Total:   1,
 		},
@@ -362,7 +362,7 @@ func TestListLobbies_WriteError(t *testing.T) {
 	t.Parallel()
 
 	repo := &stubLobbyRepo{
-		result: &store.LobbyListResult{
+		result: &domain.LobbyListResult{
 			Lobbies: []domain.LobbyState{{Code: "ABCDE", State: "waiting"}},
 			Total:   1,
 		},

@@ -10,7 +10,6 @@ import (
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/nicknames"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 func createTestState() *domain.GameState {
@@ -131,7 +130,7 @@ func (m *mockRoomRepository) DeleteLobbyState(_ context.Context, code string) er
 	return nil
 }
 
-func (m *mockRoomRepository) LoadAllActiveLobbies(_ context.Context, _ int, _ string) (*store.LobbyListResult, error) {
+func (m *mockRoomRepository) LoadAllActiveLobbies(_ context.Context, _ int, _ string) (*domain.LobbyListResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var lobbies []domain.LobbyState
@@ -139,7 +138,7 @@ func (m *mockRoomRepository) LoadAllActiveLobbies(_ context.Context, _ int, _ st
 		copied := *ls
 		lobbies = append(lobbies, copied)
 	}
-	return &store.LobbyListResult{Lobbies: lobbies, Total: len(lobbies)}, nil
+	return &domain.LobbyListResult{Lobbies: lobbies, Total: len(lobbies)}, nil
 }
 
 func (m *mockRoomRepository) CreateGameSession(_ context.Context, _ *domain.GameSession) error {

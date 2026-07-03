@@ -9,7 +9,6 @@ import (
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 // RoomInfo 房间摘要信息
@@ -25,7 +24,7 @@ type Hub struct {
 	mu                sync.RWMutex
 	rooms             map[string]*Room
 	store             RoomRepository
-	redis             *store.RedisStore
+	cache             CacheStore
 	timeouts          config.TimeoutConfig
 	logger            *slog.Logger
 	maxWSConnections  int
@@ -47,7 +46,7 @@ func SetGenerateRoomCodeHook(fn func() string) (restore func()) {
 }
 
 // NewHub 创建房间注册中心
-func NewHub(pgStore RoomRepository, redisStore *store.RedisStore, timeouts config.TimeoutConfig, maxWSConnections, maxPlayersPerRoom int, broadcaster Broadcaster) *Hub {
+func NewHub(pgStore RoomRepository, cacheStore CacheStore, timeouts config.TimeoutConfig, maxWSConnections, maxPlayersPerRoom int, broadcaster Broadcaster) *Hub {
 	if maxWSConnections <= 0 {
 		maxWSConnections = config.MaxWSConnections
 	}
@@ -57,7 +56,7 @@ func NewHub(pgStore RoomRepository, redisStore *store.RedisStore, timeouts confi
 	return &Hub{
 		rooms:             make(map[string]*Room),
 		store:             pgStore,
-		redis:             redisStore,
+		cache:             cacheStore,
 		timeouts:          timeouts,
 		logger:            slog.Default().With("component", "hub"),
 		maxWSConnections:  maxWSConnections,
