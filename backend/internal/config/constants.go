@@ -10,7 +10,7 @@ const AccessTokenTTL = 15 * time.Minute
 const RefreshTokenTTL = 7 * 24 * time.Hour
 
 // MagicLinkTTL is the duration for which a magic link is valid.
-const MagicLinkTTL = 15 * time.Minute
+const MagicLinkTTL = 10 * time.Minute
 
 // AdminTokenTTL is the duration for which an admin token is valid.
 const AdminTokenTTL = 30 * time.Minute
