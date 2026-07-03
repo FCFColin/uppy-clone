@@ -50,10 +50,13 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 		return func(_ context.Context) error { return nil }, nil
 	}
 
-	exporter, err := otlpExporterFactory(ctx,
-		otlptracegrpc.WithEndpoint(endpoint),
-		otlptracegrpc.WithInsecure(),
-	)
+	exporter, err := func() (sdktrace.SpanExporter, error) {
+		opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
+		if isOTLPInsecure() {
+			opts = append(opts, otlptracegrpc.WithInsecure())
+		}
+		return otlpExporterFactory(ctx, opts...)
+	}()
 	if err != nil {
 		return nil, fmt.Errorf("create OTLP exporter: %w", err)
 	}
@@ -91,6 +94,13 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 
 	slog.Info("OpenTelemetry enabled", "endpoint", endpoint, "sample_ratio", sampleRatio)
 	return provider.Shutdown, nil
+}
+
+// isOTLPInsecure checks whether OTLP should use an insecure gRPC connection.
+// Defaults to true (dev-friendly). Set OTLP_INSECURE=false or OTLP_INSECURE=0 to require TLS.
+func isOTLPInsecure() bool {
+	v := os.Getenv("OTLP_INSECURE")
+	return v != "false" && v != "0"
 }
 
 // getSampleRatio reads OTEL_SAMPLE_RATIO from env (0.0-1.0), default 0.1.
