@@ -127,4 +127,4 @@ resource "google_project_iam_member" "cloudsql_client" {
   member  = "serviceAccount:${google_service_account.balloon_game.email}"
 }
 
-data "google_project" "current" {}
+
