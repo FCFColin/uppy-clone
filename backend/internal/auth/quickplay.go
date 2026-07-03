@@ -12,7 +12,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/nicknames"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 // QuickPlayResponse is returned after a successful quick-play registration.
@@ -26,7 +25,7 @@ type QuickPlayResponse struct {
 // QuickPlay creates a temporary user and returns JWT cookie + user info.
 // If the request already carries a valid quickplay or session cookie,
 // the existing user is returned with a refreshed cookie (matching TS behavior).
-func QuickPlay(db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, revoker JWTRevocationChecker, nickname string, r *http.Request) (*http.Cookie, *QuickPlayResponse, error) {
+func QuickPlay(db UserDB, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, revoker JWTRevocationChecker, nickname string, r *http.Request) (*http.Cookie, *QuickPlayResponse, error) {
 	ctx := r.Context()
 
 	// Check if already authenticated — reuse existing user (cookie or middleware context)
@@ -57,7 +56,7 @@ func QuickPlay(db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshT
 	}
 	if err := db.CreateUser(ctx, user); err != nil {
 		// INSERT OR IGNORE equivalent — try to continue on duplicate
-		if !errors.Is(err, store.ErrDuplicateUser) {
+		if !errors.Is(err, domain.ErrDuplicateUser) {
 			return nil, nil, fmt.Errorf("create user: %w", err)
 		}
 	}

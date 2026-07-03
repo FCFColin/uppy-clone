@@ -6,12 +6,11 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 // RevokeAllTokens revokes all tokens (refresh + access) for the current user.
 // Extracted to eliminate duplication between Logout and DeleteUserData handlers.
-func RevokeAllTokens(ctx context.Context, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, redis *store.RedisStore, r *http.Request) {
+func RevokeAllTokens(ctx context.Context, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, tokens TokenStore, r *http.Request) {
 	if r == nil {
 		return
 	}
@@ -24,8 +23,8 @@ func RevokeAllTokens(ctx context.Context, jwtMgr *JWTManager, refreshMgr *Refres
 				if uid != "" {
 					userID = uid
 				}
-				if jti != "" && redis != nil {
-					_ = redis.RevokeJWT(ctx, jti, config.AccessTokenTTL)
+			if jti != "" && tokens != nil {
+				_ = tokens.RevokeJWT(ctx, jti, config.AccessTokenTTL)
 				}
 			}
 		}

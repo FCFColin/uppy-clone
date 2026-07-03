@@ -16,7 +16,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/requestctx"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 // magiclinkJSONMarshal is injectable for unit tests.
@@ -77,13 +76,13 @@ func NewMagicLinkService() *MagicLinkService {
 
 // RequestMagicLink sends a magic link email to the user.
 // Flow: validate email → rate limit → generate token → hash → store in Redis → send email.
-func (s *MagicLinkService) RequestMagicLink(redis *store.RedisStore, _ *store.PostgresStore, _, _, email string, r *http.Request, _ config.TimeoutConfig) error {
+func (s *MagicLinkService) RequestMagicLink(tokens TokenStore, _ UserDB, _, _, email string, r *http.Request, _ config.TimeoutConfig) error {
 	if !isValidEmail(email) {
 		return ErrInvalidEmail
 	}
 
 	ctx := r.Context()
-	if err := checkMagicLinkRateLimit(ctx, redis, email); err != nil {
+	if err := checkMagicLinkRateLimit(ctx, tokens, email); err != nil {
 		return err
 	}
 
@@ -92,19 +91,19 @@ func (s *MagicLinkService) RequestMagicLink(redis *store.RedisStore, _ *store.Po
 		return err
 	}
 
-	if err := storeMagicLinkToken(ctx, redis, hashedToken, email); err != nil {
+	if err := storeMagicLinkToken(ctx, tokens, hashedToken, email); err != nil {
 		return err
 	}
 
-	if err := enqueueMagicLinkEmail(ctx, redis, r, email, token, hashedToken); err != nil {
+	if err := enqueueMagicLinkEmail(ctx, tokens, r, email, token, hashedToken); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func checkMagicLinkRateLimit(ctx context.Context, redis *store.RedisStore, email string) error {
-	allowed, err := redis.CheckRateLimit(ctx, "ml:"+email, 5, config.MagicLinkTTL)
+func checkMagicLinkRateLimit(ctx context.Context, tokens TokenStore, email string) error {
+	allowed, err := tokens.CheckRateLimit(ctx, "ml:"+email, 5, config.MagicLinkTTL)
 	if err != nil {
 		return fmt.Errorf("rate limit check: %w", err)
 	}
@@ -123,7 +122,7 @@ func generateMagicLinkToken() (token, hashedToken string, err error) {
 	return token, HashToken(token), nil
 }
 
-func storeMagicLinkToken(ctx context.Context, redis *store.RedisStore, hashedToken, email string) error {
+func storeMagicLinkToken(ctx context.Context, tokens TokenStore, hashedToken, email string) error {
 	encryptedEmail, encErr := crypto.Encrypt(email)
 	if encErr != nil {
 		return fmt.Errorf("encrypt email: %w", encErr)
@@ -137,13 +136,13 @@ func storeMagicLinkToken(ctx context.Context, redis *store.RedisStore, hashedTok
 	if err != nil {
 		return fmt.Errorf("marshal token data: %w", err)
 	}
-	if err := redis.StoreMagicToken(ctx, hashedToken, dataBytes, config.MagicLinkTTL); err != nil {
+	if err := tokens.StoreMagicToken(ctx, hashedToken, dataBytes, config.MagicLinkTTL); err != nil {
 		return fmt.Errorf("store magic token: %w", err)
 	}
 	return nil
 }
 
-func enqueueMagicLinkEmail(ctx context.Context, redis *store.RedisStore, r *http.Request, email, token, hashedToken string) error {
+func enqueueMagicLinkEmail(ctx context.Context, tokens TokenStore, r *http.Request, email, token, hashedToken string) error {
 	origin := getOrigin(r)
 	magicLinkURL := origin + "/api/v1/auth/verify?token=" + token
 
@@ -159,8 +158,8 @@ func enqueueMagicLinkEmail(ctx context.Context, redis *store.RedisStore, r *http
 
 	// P4-6.2: Saga 补偿模式 — 邮件入队失败时删除已存储的 Redis token，
 	// 避免用户收到无法验证的魔法链接（token 已存但邮件未发送）。
-	if err := redis.EnqueueEmail(ctx, payloadJSON); err != nil {
-		_ = redis.DeleteMagicToken(ctx, hashedToken)
+	if err := tokens.EnqueueEmail(ctx, payloadJSON); err != nil {
+		_ = tokens.DeleteMagicToken(ctx, hashedToken)
 		return fmt.Errorf("enqueue email: %w", err)
 	}
 	return nil
@@ -168,10 +167,10 @@ func enqueueMagicLinkEmail(ctx context.Context, redis *store.RedisStore, r *http
 
 // VerifyMagicLink verifies a magic link token and creates/updates user.
 // Flow: hash token → lookup Redis → parse data → delete token → find/create user → sign JWT → set cookie.
-func VerifyMagicLink(redis *store.RedisStore, db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, token string, r *http.Request) (*http.Cookie, *VerifyResponse, error) {
+func VerifyMagicLink(tokens TokenStore, db UserDB, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, token string, r *http.Request) (*http.Cookie, *VerifyResponse, error) {
 	ctx := context.Background()
 
-	email, err := validateMagicToken(ctx, redis, token)
+	email, err := validateMagicToken(ctx, tokens, token)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -184,7 +183,7 @@ func VerifyMagicLink(redis *store.RedisStore, db *store.PostgresStore, jwtMgr *J
 	return issueMagicLinkSession(ctx, db, jwtMgr, refreshMgr, user, r)
 }
 
-func issueMagicLinkSession(ctx context.Context, db *store.PostgresStore, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, user *domain.User, r *http.Request) (*http.Cookie, *VerifyResponse, error) {
+func issueMagicLinkSession(ctx context.Context, db UserDB, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, user *domain.User, r *http.Request) (*http.Cookie, *VerifyResponse, error) {
 	if err := db.UpdateUserLastLogin(ctx, user.ID); err != nil {
 		slog.WarnContext(ctx, "failed to update last login", "error", err, "user_id", user.ID)
 	}
@@ -208,10 +207,10 @@ func issueMagicLinkSession(ctx context.Context, db *store.PostgresStore, jwtMgr 
 // validateMagicToken hashes the token, atomically consumes it from Redis,
 // validates expiry, and decrypts the stored email.
 // Uses a Lua script for the GET+DEL to eliminate the TOCTOU race (C5).
-func validateMagicToken(ctx context.Context, redis *store.RedisStore, token string) (string, error) {
+func validateMagicToken(ctx context.Context, tokens TokenStore, token string) (string, error) {
 	hashedToken := HashToken(token)
 
-	dataBytes, err := redis.ConsumeMagicToken(ctx, hashedToken)
+	dataBytes, err := tokens.ConsumeMagicToken(ctx, hashedToken)
 	if err != nil {
 		return "", fmt.Errorf("consume token: %w", err)
 	}
@@ -249,7 +248,7 @@ func validateMagicToken(ctx context.Context, redis *store.RedisStore, token stri
 }
 
 // findOrCreateUserByEmail looks up a user by email, creating a new one if not found.
-func findOrCreateUserByEmail(ctx context.Context, db *store.PostgresStore, email string) (*domain.User, error) {
+func findOrCreateUserByEmail(ctx context.Context, db UserDB, email string) (*domain.User, error) {
 	user, err := db.GetUserByEmail(ctx, email)
 	if err != nil {
 		return nil, fmt.Errorf("lookup user: %w", err)

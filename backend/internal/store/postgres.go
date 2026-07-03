@@ -3,7 +3,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sony/gobreaker/v2"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/migrateutil"
 	"github.com/uppy-clone/backend/internal/resilience"
@@ -29,7 +29,7 @@ type pgPool interface {
 }
 
 // ErrDuplicateUser indicates a unique constraint violation on user creation.
-var ErrDuplicateUser = errors.New("duplicate user")
+var ErrDuplicateUser = domain.ErrDuplicateUser
 
 // PostgresStore provides PostgreSQL-backed persistence.
 type PostgresStore struct {

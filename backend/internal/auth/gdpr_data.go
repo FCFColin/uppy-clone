@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 // UserDataStore abstracts GDPR user data operations.
@@ -46,11 +45,11 @@ func ExportUserData(ctx context.Context, dataStore UserDataStore, userID string)
 }
 
 // DeleteUserData revokes sessions and anonymizes PII for GDPR erasure.
-func DeleteUserData(ctx context.Context, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, redis *store.RedisStore, dataStore UserDataStore, userID string, r *http.Request) error {
+func DeleteUserData(ctx context.Context, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, tokens TokenStore, dataStore UserDataStore, userID string, r *http.Request) error {
 	if refreshMgr != nil {
 		_ = refreshMgr.RevokeAllForUser(ctx, userID)
 	}
-	RevokeAllTokens(ctx, jwtMgr, refreshMgr, redis, r)
+	RevokeAllTokens(ctx, jwtMgr, refreshMgr, tokens, r)
 	if dataStore != nil {
 		if err := dataStore.AnonymizeUser(ctx, userID); err != nil {
 			return fmt.Errorf("anonymize user: %w", err)

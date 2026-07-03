@@ -51,7 +51,7 @@ func (s *PostgresStore) CreateUser(ctx context.Context, u *domain.User) error {
 			u.ID, storedEmail, emailHash, u.Nickname, u.Palette, u.CreatedAt, u.LastLogin); execErr != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(execErr, &pgErr) && pgErr.Code == "23505" {
-				return nil, ErrDuplicateUser
+				return nil, domain.ErrDuplicateUser
 			}
 			return nil, fmt.Errorf("create user: %w", execErr)
 		}

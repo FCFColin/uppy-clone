@@ -74,7 +74,7 @@ func TestConcurrentUserCreation(t *testing.T) {
 
 	dupCount := 0
 	for err := range errs {
-		if err == store.ErrDuplicateUser {
+		if err == domain.ErrDuplicateUser {
 			dupCount++
 		} else {
 			t.Errorf("unexpected error on duplicate creation: %v", err)
