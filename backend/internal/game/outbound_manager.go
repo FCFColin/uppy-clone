@@ -96,7 +96,11 @@ func (m *OutboundManager) Enqueue(payload []byte, excludePlayerID string, critic
 	}
 	m.startLoop()
 	func() {
-		defer func() { recover() }()
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Warn("panic recovered in outbound enqueue", "panic", r, "room_code", m.lobbyCode)
+			}
+		}()
 		select {
 		case m.ch <- msg:
 			metrics.SetRoomOutboundQueueDepth(m.lobbyCode, len(m.ch))
@@ -142,7 +146,11 @@ func (m *OutboundManager) publishIfNeeded(msg outboundMsg) {
 func (m *OutboundManager) deliverToTargets(targets []connTarget, msg outboundMsg) {
 	for _, t := range targets {
 		func() {
-			defer func() { recover() }()
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Warn("panic recovered in outbound deliverToTargets", "panic", r, "room_code", m.lobbyCode)
+				}
+			}()
 			if msg.critical {
 				m.deliverCritical(t, msg)
 				return
