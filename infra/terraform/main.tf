@@ -71,11 +71,13 @@ resource "google_sql_user" "uppy_user" {
 
 # Redis instance
 resource "google_redis_instance" "uppy_redis" {
-  name           = "uppy-redis"
-  tier           = "STANDARD_HA"
-  memory_size_gb = 1
-  region         = var.region
-  redis_version  = "REDIS_7_0"
+  name                       = "uppy-redis"
+  tier                       = "STANDARD_HA"
+  memory_size_gb             = 1
+  region                     = var.region
+  redis_version              = "REDIS_7_0"
+  auth_enabled               = true
+  transit_encryption_enabled = true
 }
 
 # Secret Manager secrets
