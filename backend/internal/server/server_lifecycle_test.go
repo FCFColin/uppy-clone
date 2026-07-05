@@ -381,7 +381,6 @@ func TestRunServer_MockDeps(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -470,7 +469,6 @@ func TestRun_SuccessMocked(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -543,7 +541,6 @@ func TestRunServer_FullHappyPath(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -750,7 +747,7 @@ func TestStartWorkers_Short(t *testing.T) {
 	defer cancel()
 	var wg sync.WaitGroup
 	cfg := &handler.Config{ResendAPIKey: "re_test", EmailFrom: "test@example.com"}
-	startWorkers(ctx, &wg, redisStore, db, appConfig.DefaultTimeoutConfig())
+	startWorkers(ctx, &wg, cfg, redisStore, db, appConfig.DefaultTimeoutConfig())
 	cancel()
 	wg.Wait()
 }
@@ -1065,7 +1062,6 @@ func TestRunServer_TracerInitError(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1142,7 +1138,6 @@ func TestRunServer_TracerShutdownError(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

@@ -31,7 +31,6 @@ func newTestRouter(t *testing.T) *chi.Mux {
 
 	prevEnv := serverEnv
 	serverEnv = &appConfig.Env{
-		JWTSecret:         testsecrets.TestJWTPrivateKeyPEM,
 		TrustedProxyCIDRs: "127.0.0.1/32",
 	}
 	t.Cleanup(func() { serverEnv = prevEnv })
@@ -285,8 +284,7 @@ func TestInitRBAC(t *testing.T) {
 
 func TestValidateConfig_ValidEnv(t *testing.T) {
 	serverEnv = &appConfig.Env{
-		JWTSecret:         "strong-secret-key-at-least-32-bytes-long!!",
-		AdminJWTSecret:    "another-strong-secret-key-32-bytes!!",
+		JWTPrivateKey:     testsecrets.TestJWTPrivateKeyPEM,
 		DatabaseURL:       "postgres://localhost/test",
 		EncryptionKey:     testsecrets.TestEncryptionKeyHex,
 		TrustedProxyCIDRs: "127.0.0.1/32",

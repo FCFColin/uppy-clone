@@ -39,9 +39,14 @@ func TestAnonymizeUser_Success(t *testing.T) {
 	s, mock := newMockPostgresStore(t)
 	ctx := context.Background()
 
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO outbox_events").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-gdpr").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
+	mock.ExpectCommit()
 
 	if err := s.AnonymizeUser(ctx, "user-gdpr"); err != nil {
 		t.Fatalf("AnonymizeUser: %v", err)
@@ -52,6 +57,10 @@ func TestAnonymizeUser_Error(t *testing.T) {
 	s, mock := newMockPostgresStore(t)
 	ctx := context.Background()
 
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO outbox_events").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 	mock.ExpectExec("UPDATE users SET email").
 		WillReturnError(errors.New("anonymize failed"))
 
