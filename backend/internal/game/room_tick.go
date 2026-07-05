@@ -60,13 +60,13 @@ func (r *Room) tick(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			start := time.Now()
+			now := time.Now()
 			r.mu.Lock()
-			r.tickOnce()
+			r.tickOnce(now)
 			tickCount := r.state.TickCount
-			recordRoomLock("tick", start)
+			recordRoomLock("tick", now)
 			r.mu.Unlock()
-			recordGameTickDuration(start)
+			recordGameTickDuration(now)
 
 			if tickCount > 0 && tickCount%30 == 0 {
 				r.asyncSaveState()
@@ -76,9 +76,9 @@ func (r *Room) tick(ctx context.Context) {
 }
 
 // tickOnce 执行一次 tick 逻辑
-func (r *Room) tickOnce() {
-	now := time.Now().UnixMilli()
-	r.cleanupDisconnected(now)
+func (r *Room) tickOnce(now time.Time) {
+	nowMs := now.UnixMilli()
+	r.cleanupDisconnected(nowMs)
 
 	if r.state.Phase != domain.PhasePlaying {
 		return
