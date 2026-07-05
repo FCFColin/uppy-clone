@@ -4,6 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/sethvargo/go-retry"
+
+	"github.com/uppy-clone/backend/internal/resilience"
 )
 
 const defaultGDPRRetentionDays = 30
@@ -57,9 +61,13 @@ func (w *GDPRCleanupWorker) runOnce(ctx context.Context) {
 	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	deleted, err := w.db.HardDeleteExpiredUsers(runCtx, w.retentionDays)
-	if err != nil {
-		slog.Error("gdpr cleanup failed", "error", err)
+	var deleted int64
+	if err := retry.Do(runCtx, resilience.DefaultDBRetry(), func(ctx context.Context) error {
+		var err error
+		deleted, err = w.db.HardDeleteExpiredUsers(ctx, w.retentionDays)
+		return resilience.MaybeRetryable(err)
+	}); err != nil {
+		slog.Error("gdpr cleanup failed after retries", "error", err)
 		return
 	}
 	if deleted > 0 {
