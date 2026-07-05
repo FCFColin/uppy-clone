@@ -78,6 +78,12 @@ spec:
       # Workload Identity：Pod 以 GСР IAM 服务账户身份访问 Cloud SQL/CRDB/Secret
       # Manager，免长期密钥（ADR-014）。每区域 overlay 把该 KSA 绑定到区域 GSA。
       serviceAccountName: balloon-game
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+        runAsGroup: 65532
+        readOnlyRootFilesystem: true
       # 滚动更新期间优雅排空 WebSocket：给正在进行的对局留出收尾时间。
       terminationGracePeriodSeconds: 60
       containers:
@@ -163,3 +169,9 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
