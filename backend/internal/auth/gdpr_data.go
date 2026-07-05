@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
@@ -24,7 +25,7 @@ func ExportUserData(ctx context.Context, dataStore UserDataStore, userID string)
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 	if user == nil {
-		return nil, fmt.Errorf("user not found")
+		return nil, domain.ErrNotFound
 	}
 
 	exportData := map[string]interface{}{
@@ -55,6 +56,11 @@ func DeleteUserData(ctx context.Context, jwtMgr *JWTManager, refreshMgr *Refresh
 			return fmt.Errorf("anonymize user: %w", err)
 		}
 	}
+	audit.Log(ctx, audit.AuditEntry{
+		Action:   "gdpr_hard_delete",
+		ActorID:  userID,
+		Resource: "user/" + userID,
+	})
 	return nil
 }
 

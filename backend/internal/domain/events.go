@@ -64,3 +64,15 @@ func (e PhaseChanged) EventType() string { return "phase.changed" }
 
 // OccurredAt 返回事件发生时间。
 func (e PhaseChanged) OccurredAt() time.Time { return e.At }
+
+// UserHardDeleted 用户 GDPR 硬删除事件。
+type UserHardDeleted struct {
+	UserID string
+	At     time.Time
+}
+
+// EventType 返回事件类型标识。
+func (e UserHardDeleted) EventType() string { return "user.hard_deleted" }
+
+// OccurredAt 返回事件发生时间。
+func (e UserHardDeleted) OccurredAt() time.Time { return e.At }

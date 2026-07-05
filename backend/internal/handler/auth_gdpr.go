@@ -2,10 +2,12 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/domain"
 )
 
 // ExportUserData handles GET /api/v1/user/data
@@ -18,7 +20,11 @@ func (h *AuthHandler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 
 	user, results, err := h.auth.ExportUserData(r.Context(), userId)
 	if err != nil {
-		apierror.NotFound("User not found").Write(w)
+		if errors.Is(err, domain.ErrNotFound) {
+			apierror.NotFound("User not found").Write(w)
+		} else {
+			apierror.InternalError("Failed to export user data").Write(w)
+		}
 		return
 	}
 

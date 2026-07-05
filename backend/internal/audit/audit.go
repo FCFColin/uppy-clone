@@ -145,6 +145,15 @@ func computeHash(secret []byte, prevHash string, payload []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// hashActorIP computes SHA-256 of the actor IP before storage.
+func hashActorIP(ip string) string {
+	if ip == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte(ip))
+	return hex.EncodeToString(h[:])
+}
+
 // Log 写入审计条目到 stdout（始终）和 DB（若已初始化）。
 // DB 写入通过 buffered channel 异步执行；channel 满时同步回退（100ms 超时），不丢弃记录。
 func Log(ctx context.Context, entry AuditEntry) {
@@ -158,6 +167,9 @@ func Log(ctx context.Context, entry AuditEntry) {
 			entry.TraceID = span.SpanContext().TraceID().String()
 		}
 	}
+
+	// Hash actor IP with SHA-256 before storage for privacy compliance
+	entry.ActorIP = hashActorIP(entry.ActorIP)
 
 	// Always log to stdout for SIEM collection
 	auditLogger.Info("audit",

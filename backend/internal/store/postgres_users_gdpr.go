@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -52,15 +53,41 @@ func (s *PostgresStore) AnonymizeUser(ctx context.Context, userID string) error 
 	if err != nil {
 		return fmt.Errorf("encrypt anonymized email: %w", err)
 	}
-	return s.withRetryWrite(ctx, func(ctx context.Context) error {
-		_, execErr := s.pool.Exec(ctx,
-			`UPDATE users SET email = $1, email_hash = $2, nickname = 'Deleted User', deleted_at = $3, email_anonymized = true WHERE id = $4`,
-			storedAnon, anonHash, now, userID)
-		if execErr != nil {
-			return fmt.Errorf("anonymize user: %w", execErr)
-		}
-		return nil
+
+	outboxPayload, err := json.Marshal(map[string]interface{}{
+		"event_type": "user.hard_deleted",
+		"user_id":    userID,
+		"deleted_at": now,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal outbox payload: %w", err)
+	}
+
+	_, err = s.cb.Execute(func() (any, error) {
+		tx, txErr := s.pool.Begin(ctx)
+		if txErr != nil {
+			return nil, fmt.Errorf("begin tx: %w", txErr)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		if _, execErr := tx.Exec(ctx,
+			`INSERT INTO outbox_events (aggregate_type, aggregate_id, payload) VALUES ($1, $2, $3)`,
+			"user", userID, outboxPayload); execErr != nil {
+			return nil, fmt.Errorf("insert outbox event: %w", execErr)
+		}
+
+		if _, execErr := tx.Exec(ctx,
+			`UPDATE users SET email = $1, email_hash = $2, nickname = 'Deleted User', deleted_at = $3, email_anonymized = true WHERE id = $4`,
+			storedAnon, anonHash, now, userID); execErr != nil {
+			return nil, fmt.Errorf("anonymize user: %w", execErr)
+		}
+
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			return nil, fmt.Errorf("commit anonymize user: %w", commitErr)
+		}
+		return nil, nil
+	})
+	return err
 }
 
 // HardDeleteExpiredUsers permanently removes users soft-deleted before the retention cutoff.
