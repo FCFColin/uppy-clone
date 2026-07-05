@@ -33,3 +33,73 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+---
+# Default deny all egress traffic (defense in depth).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: balloon-game
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress: []
+---
+# Allow DNS resolution (kube-dns / CoreDNS).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: balloon-game
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+---
+# Allow egress to Cloud SQL (PostgreSQL) and Memorystore (Redis) within VPC.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-db-redis-egress
+  namespace: balloon-game
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379
+---
+# Allow health check probes from kube-system (kubelet / GKE node probes).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-health-check-probes
+  namespace: balloon-game
+spec:
+  podSelector:
+    matchLabels:
+      app: balloon-game
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8080
