@@ -6,7 +6,7 @@ import (
 	"testing/quick"
 )
 
-func TestEncodeSnapshot_SizeMatchesCalc(t *testing.T) {
+func TestProtocol_EncodeSnapshotSizeMatchesCalc(t *testing.T) {
 	f := func(x, y, vy, vx float32, tickCount uint32, score uint32) bool {
 		balloon := BalloonState{X: x, Y: y, Vy: vy, Vx: vx}
 		bird := BirdState{X: 0.3, Y: 0.4, Active: true}
@@ -26,7 +26,7 @@ func TestEncodeSnapshot_SizeMatchesCalc(t *testing.T) {
 	}
 }
 
-func TestEncodeSnapshot_EmptySlices(t *testing.T) {
+func TestProtocol_EncodeSnapshotEmptySlices(t *testing.T) {
 	f := func(x, y, vy, vx float32) bool {
 		balloon := BalloonState{X: x, Y: y, Vy: vy, Vx: vx}
 		bird := BirdState{}
@@ -39,7 +39,7 @@ func TestEncodeSnapshot_EmptySlices(t *testing.T) {
 	}
 }
 
-func TestEncodeSnapshot_DifferentInputsDiffer(t *testing.T) {
+func TestProtocol_EncodeSnapshotDifferentInputsDiffer(t *testing.T) {
 	balloon1 := BalloonState{X: 0.5, Y: 0.95, Vy: 0.01, Vx: -0.02}
 	balloon2 := BalloonState{X: 0.6, Y: 0.85, Vy: 0.02, Vx: -0.03}
 	bird := BirdState{X: 0.3, Y: 0.4, Active: true}
@@ -64,7 +64,7 @@ func TestEncodeSnapshot_DifferentInputsDiffer(t *testing.T) {
 	}
 }
 
-func TestCalcSnapshotSize_NonNegative(t *testing.T) {
+func TestProtocol_CalcSnapshotSizeNonNegative(t *testing.T) {
 	f := func(active bool, playerCount uint8, rippleCount uint8) bool {
 		bird := BirdState{Active: active}
 		players := make([]PlayerState, playerCount%10)

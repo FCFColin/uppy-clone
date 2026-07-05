@@ -8,7 +8,7 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-func TestNewGameState_ValidInit(t *testing.T) {
+func TestState_NewGameStateValidInit(t *testing.T) {
 	f := func(seed int64) bool {
 		rng := newSeededRNG(seed)
 		state := NewGameState("PROP", rng)
@@ -25,7 +25,7 @@ func TestNewGameState_ValidInit(t *testing.T) {
 	}
 }
 
-func TestSerializeStateRoundtrip(t *testing.T) {
+func TestState_SerializeStateRoundtrip(t *testing.T) {
 	f := func(seed int64) bool {
 		rng := newSeededRNG(seed)
 		state := NewGameState("PROP", rng)
@@ -52,7 +52,7 @@ func TestSerializeStateRoundtrip(t *testing.T) {
 	}
 }
 
-func TestResetGameEntities_KeepsPlayerCount(t *testing.T) {
+func TestState_ResetGameEntitiesKeepsPlayerCount(t *testing.T) {
 	f := func(seed int64) bool {
 		rng := newSeededRNG(seed)
 		state := NewGameState("PROP", rng)
@@ -67,7 +67,7 @@ func TestResetGameEntities_KeepsPlayerCount(t *testing.T) {
 	}
 }
 
-func TestInitWind_NoPanic(t *testing.T) {
+func TestState_InitWindNoPanic(t *testing.T) {
 	f := func(seed int64) bool {
 		rng := newSeededRNG(seed)
 		state := NewGameState("PROP", rng)
@@ -79,7 +79,7 @@ func TestInitWind_NoPanic(t *testing.T) {
 	}
 }
 
-func TestDomainAddRemovePlayer(t *testing.T) {
+func TestState_DomainAddRemovePlayer(t *testing.T) {
 	f := func(seed int64) bool {
 		rng := newSeededRNG(seed)
 		state := NewGameState("PROP", rng)
@@ -101,7 +101,7 @@ func TestDomainAddRemovePlayer(t *testing.T) {
 	}
 }
 
-func TestDomainGameState_IsGameOver(t *testing.T) {
+func TestState_DomainGameStateIsGameOver(t *testing.T) {
 	f := func(seed int64) bool {
 		rng := newSeededRNG(seed)
 		state := NewGameState("PROP", rng)
@@ -116,7 +116,7 @@ func TestDomainGameState_IsGameOver(t *testing.T) {
 	}
 }
 
-func TestDeserializeState_NilMaps(t *testing.T) {
+func TestState_DeserializeStateNilMaps(t *testing.T) {
 	f := func(seed int64) bool {
 		data := []byte(`{"lobbyCode":"PROP","phase":"playing"}`)
 		state, err := DeserializeState(data)

@@ -408,8 +408,8 @@ func TestQuickPlay_MissingBody(t *testing.T) {
 
 	h.QuickPlay(w, r)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("QuickPlay error: status = %d, want %d", w.Code, http.StatusInternalServerError)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("QuickPlay error: status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
 
@@ -536,9 +536,14 @@ func TestDeleteUserData_Success(t *testing.T) {
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO outbox_events").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-del").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
+	mock.ExpectCommit()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/api/v1/user/data", nil)
@@ -563,6 +568,10 @@ func TestDeleteUserData_DBError(t *testing.T) {
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO outbox_events").
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-err").
 		WillReturnError(context.Canceled)
@@ -810,7 +819,8 @@ func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
 		WillReturnError(context.Canceled)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", nil)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", strings.NewReader(`{"nickname":"Test"}`))
+	r.Header.Set("Content-Type", "application/json")
 	r.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
 	h.QuickPlay(w, r)
 	if w.Code != http.StatusInternalServerError {
@@ -827,8 +837,8 @@ func TestExportUserData_NilDB(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil)
 	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "Nick"))
 	h.ExportUserData(w, r)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", w.Code)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
 	}
 }
 
@@ -845,7 +855,7 @@ func TestExportUserData_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
 		WithArgs("missing-user").
-		WillReturnError(context.Canceled)
+		WillReturnError(domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil)

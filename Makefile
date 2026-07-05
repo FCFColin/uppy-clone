@@ -1,4 +1,4 @@
-.PHONY: help dev observability-up test test-all test-cover test-integration test-containers lint lint-all build run migrate seed bench audit clean generate simplify deadcode check check-fast ci e2e sync-alert-rules check-repo-layout security-check
+.PHONY: help dev observability-up test test-all test-property test-cover test-integration test-containers lint lint-all build run migrate seed bench audit clean generate simplify deadcode check check-fast ci e2e sync-alert-rules check-repo-layout security-check
 
 help:
 	@echo "Targets:"
@@ -6,6 +6,7 @@ help:
 	@echo "  observability-up Start Prometheus + Grafana + Alertmanager (profile observability)"
 	@echo "  test             Backend unit tests (-race -short)"
 	@echo "  test-all         Backend + integration + frontend tests"
+	@echo "  test-property    Run property-based tests"
 	@echo "  test-containers  testcontainers tests (no -short)"
 	@echo "  test-cover       Backend coverage + frontend tests"
 	@echo "  test-integration Integration tests (testcontainers)"
@@ -40,6 +41,11 @@ test-containers:
 
 test-all: test test-integration
 	cd frontend && npm test
+
+.PHONY: test-property
+test-property:  ## Run property-based tests
+	go test -short -count=1 -run "TestPhysics_|TestState_|TestProtocol_" ./internal/game/... ./internal/protocol/...
+	cd frontend && npx vitest run src/**/*.property.test.ts
 
 test-cover:
 	cd backend && go test $$(go list ./internal/... | grep -v /internal/testutil | grep -v /internal/testsecrets) -short -p 1 -coverprofile=unit.out -covermode=atomic -timeout 180s

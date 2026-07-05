@@ -9,7 +9,7 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-func TestApplyPhysics_GravityAlwaysDownward(t *testing.T) {
+func TestPhysics_ApplyPhysicsGravityAlwaysDownward(t *testing.T) {
 	f := func(x, y, vx, vy float64) bool {
 		if y <= 0 || y >= 1 || math.Abs(vy) > 1e6 {
 			return true
@@ -24,7 +24,7 @@ func TestApplyPhysics_GravityAlwaysDownward(t *testing.T) {
 	}
 }
 
-func TestApplyPhysics_PositionInBounds(t *testing.T) {
+func TestPhysics_ApplyPhysicsPositionInBounds(t *testing.T) {
 	f := func(x, y, vx, vy float64) bool {
 		if math.Abs(x) > 1e6 || math.Abs(y) > 1e6 || math.Abs(vx) > 1e6 || math.Abs(vy) > 1e6 {
 			return true
@@ -38,7 +38,7 @@ func TestApplyPhysics_PositionInBounds(t *testing.T) {
 	}
 }
 
-func TestApplyPhysics_GameOverConsistent(t *testing.T) {
+func TestPhysics_ApplyPhysicsGameOverConsistent(t *testing.T) {
 	f := func(x, y, vx, vy float64) bool {
 		b := &domain.BalloonState{X: x, Y: y, VX: vx, VY: vy}
 		gameOver := ApplyPhysics(b)
@@ -52,7 +52,7 @@ func TestApplyPhysics_GameOverConsistent(t *testing.T) {
 	}
 }
 
-func TestApplyTapForce_DirectionMatch(t *testing.T) {
+func TestPhysics_ApplyTapForceDirectionMatch(t *testing.T) {
 	f := func(balloonX, balloonY, tapX, tapY float64) bool {
 		if balloonY <= 0 || balloonY >= 1 || tapY <= 0 || tapY >= 1 {
 			return true
@@ -76,7 +76,7 @@ func TestApplyTapForce_DirectionMatch(t *testing.T) {
 	}
 }
 
-func TestApplyTapForce_VelocityChangesOnApply(t *testing.T) {
+func TestPhysics_ApplyTapForceVelocityChangesOnApply(t *testing.T) {
 	f := func(balloonX, balloonY, tapX, tapY float64) bool {
 		b := &domain.BalloonState{X: balloonX, Y: balloonY, VX: 0, VY: 0}
 		ok := ApplyTapForce(b, tapX, tapY)
@@ -90,7 +90,7 @@ func TestApplyTapForce_VelocityChangesOnApply(t *testing.T) {
 	}
 }
 
-func TestUpdateWind_Bounds(t *testing.T) {
+func TestPhysics_UpdateWindBounds(t *testing.T) {
 	f := func(seed int64) bool {
 		rng := newSeededRNG(seed)
 		state := NewGameState("PROP", rng)
@@ -104,7 +104,7 @@ func TestUpdateWind_Bounds(t *testing.T) {
 	}
 }
 
-func TestInitialWind_Deterministic(t *testing.T) {
+func TestPhysics_InitialWindDeterministic(t *testing.T) {
 	f := func(seed int64) bool {
 		rng1 := newSeededRNG(seed)
 		rng2 := newSeededRNG(seed)
@@ -117,7 +117,7 @@ func TestInitialWind_Deterministic(t *testing.T) {
 	}
 }
 
-func TestInitialWind_ValidRange(t *testing.T) {
+func TestPhysics_InitialWindValidRange(t *testing.T) {
 	f := func(seed int64) bool {
 		rng := newSeededRNG(seed)
 		wind, _ := initialWind(rng)
