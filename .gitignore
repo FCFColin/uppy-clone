@@ -24,7 +24,7 @@ playwright-report/
 backend/*.out
 backend/**/*.out
 backend/*cov*
-backend/**/*cov*
+backend/**/*coverage*
 
 # Build artifacts
 backend/*.exe
