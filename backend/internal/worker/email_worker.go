@@ -53,6 +53,13 @@ type EmailPayload struct {
 	Body    string `json:"body"`
 }
 
+func redactEmail(email string) string {
+	if len(email) <= 3 {
+		return "***"
+	}
+	return email[:3] + "***"
+}
+
 // Start begins consuming the email queue. Blocks until ctx is canceled.
 func (w *EmailWorker) Start(ctx context.Context) {
 	if err := w.rdb.XGroupCreateMkStream(ctx, "email:queue", "email-workers", "$").Err(); err != nil {
@@ -103,7 +110,7 @@ func (w *EmailWorker) processMessage(ctx context.Context, msg redis.XMessage) {
 	}
 
 	if w.apiKey == "" {
-		slog.Warn("email worker: RESEND_API_KEY not set, skipping", "to", payload.To)
+		slog.Warn("email worker: RESEND_API_KEY not set, skipping", "to", redactEmail(payload.To))
 		w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID)
 		return
 	}
@@ -114,11 +121,11 @@ func (w *EmailWorker) processMessage(ctx context.Context, msg redis.XMessage) {
 	}
 
 	w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID)
-	slog.Info("email sent", "to", payload.To, "subject", payload.Subject)
+	slog.Info("email sent", "to", redactEmail(payload.To), "subject", payload.Subject)
 }
 
 func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage, payload EmailPayload, sendErr error) {
-	slog.Error("email worker: send failed", "error", sendErr, "to", payload.To)
+	slog.Error("email worker: send failed", "error", sendErr, "to", redactEmail(payload.To))
 
 	retryCount := 0
 	if rcStr, ok := msg.Values["retry_count"].(string); ok {
@@ -133,7 +140,7 @@ func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage,
 			Values: msg.Values,
 		})
 		w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID)
-		slog.Error("email worker: moved to dead-letter after max retries", "to", payload.To, "retries", retryCount)
+		slog.Error("email worker: moved to dead-letter after max retries", "to", redactEmail(payload.To), "retries", retryCount)
 		return
 	}
 
