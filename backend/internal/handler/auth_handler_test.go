@@ -8,13 +8,14 @@ import (
 
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func TestNewAuthHandler(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{ResendAPIKey: "test", EmailFrom: "test@test.com"}
-	authSvc := newMockAuthSvc(auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789"), nil, nil, nil, "test", "test@test.com", config.DefaultTimeoutConfig())
+	authSvc := newMockAuthSvc(auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), nil, nil, nil, "test", "test@test.com", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(nil, nil, authSvc, cfg)
 	if h == nil {
 		t.Fatal("NewAuthHandler returned nil")

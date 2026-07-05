@@ -16,6 +16,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 // fakeRateLimiterStore is a test double for RateLimiterStore. It records every
@@ -106,7 +107,7 @@ func TestRateLimitKey_DifferentUsersDifferentKeys(t *testing.T) {
 // TestRateLimitKey_SessionCookieFallback 验证当 context 中无 userID 时，
 // 回退到解析 "session" cookie 提取 userID。
 func TestRateLimitKey_SessionCookieFallback(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-from-session", "alice")
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
@@ -128,7 +129,7 @@ func TestRateLimitKey_SessionCookieFallback(t *testing.T) {
 // TestRateLimitKey_QuickplayCookieFallback 验证当 context 中无 userID 且
 // 无 session cookie 时，回退到解析 "quickplay" cookie 提取 userID。
 func TestRateLimitKey_QuickplayCookieFallback(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-from-quickplay", "bob")
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
@@ -150,7 +151,7 @@ func TestRateLimitKey_QuickplayCookieFallback(t *testing.T) {
 // TestRateLimitKey_NoAuthCookiesFallsBackToIP 验证无任何认证 cookie 时
 // 回退到 IP 维度限流。
 func TestRateLimitKey_NoAuthCookiesFallsBackToIP(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	r := newRequest("3.3.3.3:33")
 
 	key := rateLimitKey(r, "auth:quickplay", jwtMgr)
@@ -164,7 +165,7 @@ func TestRateLimitKey_NoAuthCookiesFallsBackToIP(t *testing.T) {
 // TestRateLimitKey_OldTokenCookieIgnored 验证名为 "token" 的旧 cookie
 // 不会被识别为有效认证 cookie（修复前的 bug：只读 "token" cookie）。
 func TestRateLimitKey_OldTokenCookieIgnored(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-should-be-ignored", "eve")
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
@@ -185,7 +186,7 @@ func TestRateLimitKey_OldTokenCookieIgnored(t *testing.T) {
 // TestRateLimitKey_SessionPreferredOverQuickplay 验证同时存在 session 和
 // quickplay cookie 时，优先使用 session cookie 的 userID。
 func TestRateLimitKey_SessionPreferredOverQuickplay(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	sessionToken, _ := jwtMgr.SignToken("session-user", "alice")
 	quickplayToken, _ := jwtMgr.SignToken("quickplay-user", "bob")
@@ -207,7 +208,7 @@ func TestRateLimitKey_SessionPreferredOverQuickplay(t *testing.T) {
 // TestRateLimitKey_ContextTakesPriorityOverCookies 验证 auth context 中的
 // userID 优先于 cookie 解析结果。
 func TestRateLimitKey_ContextTakesPriorityOverCookies(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	// Context has one userID
 	r := newAuthRequest("6.6.6.6:66", "context-user", "carol")
@@ -229,7 +230,7 @@ func TestRateLimitKey_ContextTakesPriorityOverCookies(t *testing.T) {
 // TestRateLimitKey_NilJWTMgrSkipsCookieFallback 验证 jwtMgr 为 nil 时
 // 跳过 cookie 解析，直接回退到 IP 维度。
 func TestRateLimitKey_NilJWTMgrSkipsCookieFallback(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, _ := jwtMgr.SignToken("should-be-ignored", "eve")
 
 	r := newRequest("7.7.7.7:77")
@@ -247,7 +248,7 @@ func TestRateLimitKey_NilJWTMgrSkipsCookieFallback(t *testing.T) {
 // TestRateLimitKey_InvalidJWTCookieFallsBackToIP 验证 cookie 中包含
 // 无效 JWT 时，回退到 IP 维度而非报错。
 func TestRateLimitKey_InvalidJWTCookieFallsBackToIP(t *testing.T) {
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	r := newRequest("8.8.8.8:88")
 	r.AddCookie(&http.Cookie{Name: "session", Value: "invalid-jwt-token"})

@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -107,8 +110,10 @@ func TestVerifyToken_Invalid(t *testing.T) {
 }
 
 func TestVerifyToken_WrongSecret(t *testing.T) {
-	mgr1 := NewJWTManager("secret-1-padded-to-32-bytes!!!!!!!!")
-	mgr2 := NewJWTManager("secret-2-padded-to-32-bytes!!!!!!!!")
+	key1, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key2, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	mgr1 := NewJWTManagerWithKeys(key1, &key1.PublicKey)
+	mgr2 := NewJWTManagerWithKeys(key2, &key2.PublicKey)
 
 	token, err := mgr1.SignToken("user-1", "test")
 	if err != nil {
@@ -173,7 +178,7 @@ func TestBuildAuthCookie_HttpOnly(t *testing.T) {
 // ─── ParseAuthCookie ─────────────────────────────────────────────────
 
 func TestParseAuthCookie_Valid(t *testing.T) {
-	mgr := NewJWTManager("test-secret-padded-to-32-bytes!!!!")
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	token, _ := mgr.SignToken("user-1", "nickname")
 
@@ -199,7 +204,7 @@ func TestParseAuthCookie_Valid(t *testing.T) {
 }
 
 func TestParseAuthCookie_Missing(t *testing.T) {
-	mgr := NewJWTManager("test-secret-padded-to-32-bytes!!!!")
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -467,7 +472,7 @@ func setupTestRedisStore(t *testing.T) *store.RedisStore {
 
 func newTestJWTManager(t *testing.T) *JWTManager {
 	t.Helper()
-	return NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	return NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 }
 
 // --- 无 cookie：不应 panic ---

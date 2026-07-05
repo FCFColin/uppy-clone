@@ -12,6 +12,7 @@ import (
 	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/nicknames"
 	"github.com/uppy-clone/backend/internal/requestctx"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可在生产暴露。
@@ -298,7 +299,7 @@ func TestQuickPlay_DuplicateUser(t *testing.T) {
 	})
 
 	t.Run("AuthenticatedUserFromRequest reads quickplay cookie", func(t *testing.T) {
-		jwtMgr := NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+		jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 		token, err := jwtMgr.SignToken("user-cookie", "Nick")
 		if err != nil {
 			t.Fatalf("SignToken() error = %v", err)

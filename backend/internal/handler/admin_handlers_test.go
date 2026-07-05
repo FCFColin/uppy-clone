@@ -164,7 +164,7 @@ func newAdminHandlerWithDB(t *testing.T) (*AdminHandler, pgxmock.PgxPoolIface, *
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
-	h := NewAdminHandler(db, auth.NewJWTManager(testJWTSecret), redisStore)
+	h := NewAdminHandler(db, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), redisStore)
 	return h, mock, redisStore
 }
 
@@ -505,7 +505,7 @@ func TestAdminHandler_Login_NilRedis(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	h := NewAdminHandler(db, auth.NewJWTManager(testJWTSecret), nil)
+	h := NewAdminHandler(db, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), nil)
 	expectAdminConfigQuery(mock, string(cfgJSON))
 
 	w := httptest.NewRecorder()

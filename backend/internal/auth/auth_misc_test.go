@@ -321,7 +321,7 @@ func (f *fakeRevocationChecker) IsJWTRevoked(ctx context.Context, jti string) (b
 // TestAuthMiddleware_RevokedTokenRejected verifies that a revoked JWT
 // (jti in revocation list) is rejected with 401.
 func TestAuthMiddleware_RevokedTokenRejected(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := newFakeRevocationChecker()
 
 	token, err := mgr.SignToken("user-123", "TestPlayer")
@@ -361,7 +361,7 @@ func TestAuthMiddleware_RevokedTokenRejected(t *testing.T) {
 // TestAuthMiddleware_NonRevokedTokenAccepted verifies that a non-revoked JWT
 // is accepted and the handler is called.
 func TestAuthMiddleware_NonRevokedTokenAccepted(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := newFakeRevocationChecker()
 
 	token, err := mgr.SignToken("user-456", "AnotherPlayer")
@@ -392,7 +392,7 @@ func TestAuthMiddleware_NonRevokedTokenAccepted(t *testing.T) {
 // TestAuthMiddleware_NoRevokerStillWorks verifies that when no revoker is
 // provided, the middleware works as before (backward compatible).
 func TestAuthMiddleware_NoRevokerStillWorks(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	token, err := mgr.SignToken("user-789", "NoRevoker")
 	if err != nil {
@@ -422,7 +422,7 @@ func TestAuthMiddleware_NoRevokerStillWorks(t *testing.T) {
 // TestAuthMiddleware_JTIInContext verifies that the jti is available in
 // the request context after authentication.
 func TestAuthMiddleware_JTIInContext(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	token, err := mgr.SignToken("user-jti", "JTIPlayer")
 	if err != nil {
@@ -451,7 +451,7 @@ func TestAuthMiddleware_JTIInContext(t *testing.T) {
 // TestAuthMiddleware_RevokedSessionCookieRejected verifies that a revoked
 // session cookie (not quickplay) is also rejected.
 func TestAuthMiddleware_RevokedSessionCookieRejected(t *testing.T) {
-	mgr := NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := newFakeRevocationChecker()
 
 	token, _ := mgr.SignToken("user-session", "SessionPlayer")

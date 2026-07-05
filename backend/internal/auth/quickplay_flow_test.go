@@ -266,7 +266,7 @@ func TestRefreshSession_SignTokenError(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	refreshMgr := NewRefreshTokenManager(rdb)
-	jwtMgr := NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	ctx := context.Background()
 	userID := "user-sign-err"

@@ -14,6 +14,7 @@ import (
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -21,10 +22,8 @@ import (
 
 // --- Test helpers ---
 
-const testJWTSecret = "test-admin-jwt-secret-key-for-testing" //nolint:gosec:G101 // test secret
-
 func newTestAdminHandler() *AdminHandler {
-	jwtMgr := auth.NewJWTManager(testJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	return NewAdminHandler(nil, jwtMgr, nil)
 }
 
@@ -59,7 +58,10 @@ func TestAdminHandler_Login_AdminNotConfigured(t *testing.T) {
 
 	// Verify the token has admin claims
 	parsed, err := jwt.ParseWithClaims(token, &adminClaims{}, func(t *jwt.Token) (interface{}, error) {
-		return []byte(testJWTSecret), nil
+		if _, ok := t.Method.(*jwt.SigningMethodECDSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return h.adminJwtMgr.PublicKey(), nil
 	})
 	if err != nil {
 		t.Fatalf("parse admin token error: %v", err)
@@ -158,8 +160,8 @@ func TestAdminHandler_VerifyAdminToken_NonAdminClaims(t *testing.T) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, _ := token.SignedString([]byte(testJWTSecret))
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	tokenString, _ := token.SignedString(h.adminJwtMgr.PrivateKey())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
 	req.AddCookie(&http.Cookie{
@@ -185,8 +187,8 @@ func TestAdminHandler_VerifyAdminToken_ExpiredToken(t *testing.T) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(-24 * time.Hour)), // expired
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, _ := token.SignedString([]byte(testJWTSecret))
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	tokenString, _ := token.SignedString(h.adminJwtMgr.PrivateKey())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
 	req.AddCookie(&http.Cookie{

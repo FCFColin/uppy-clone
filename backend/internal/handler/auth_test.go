@@ -235,7 +235,7 @@ func TestCheckAuth_Unauthenticated(t *testing.T) {
 func TestCheckAuth_AuthenticatedViaCookieWithoutMiddleware(t *testing.T) {
 	t.Parallel()
 
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-456", "CookiePlayer")
 	if err != nil {
 		t.Fatalf("SignToken() error = %v", err)
@@ -263,7 +263,7 @@ func TestCheckAuth_RevokedSession(t *testing.T) {
 	t.Parallel()
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-revoked", "Revoked")
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
@@ -294,7 +294,7 @@ func TestCheckAuth_RevokedSession(t *testing.T) {
 func TestCheckAuth_Authenticated(t *testing.T) {
 	t.Parallel()
 
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-123", "TestPlayer")
 	if err != nil {
 		t.Fatalf("SignToken() error = %v", err)
@@ -416,7 +416,7 @@ func TestQuickPlay_MissingBody(t *testing.T) {
 func TestLogout_ClearsCookies(t *testing.T) {
 	t.Parallel()
 
-	jwtMgr := auth.NewJWTManager("test-secret-key-0123456789abcdef0123456789")
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	h := &AuthHandler{
 		db:     nil,
 		redis:  nil,
