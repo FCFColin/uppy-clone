@@ -162,7 +162,7 @@ func BenchmarkRoom_BuildSnapshot(b *testing.B) {
 func TestBuildSnapshot_EmptyPlayers(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	data := room.buildSnapshot()
@@ -180,7 +180,7 @@ func TestBuildSnapshot_EmptyPlayers(t *testing.T) {
 func TestBuildSnapshot_WithPlayers(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Players["p1"] = &domain.PlayerState{
@@ -209,7 +209,7 @@ func TestBuildSnapshot_WithPlayers(t *testing.T) {
 func TestBuildSnapshot_SkipsDisconnectedPlayers(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Players["p1"] = &domain.PlayerState{Nickname: "Alice", PlayerIndex: 0}
@@ -223,7 +223,7 @@ func TestBuildSnapshot_SkipsDisconnectedPlayers(t *testing.T) {
 func TestBuildSnapshot_WithFullState(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Phase = domain.PhasePlaying
@@ -261,7 +261,7 @@ func TestBuildSnapshot_WithFullState(t *testing.T) {
 
 func TestBuildSnapshot_ReusesBuffer(t *testing.T) {
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Players["p1"] = &domain.PlayerState{
@@ -281,7 +281,7 @@ func TestBuildSnapshot_ReusesBuffer(t *testing.T) {
 func TestBuildSnapshot_CooldownActiveVsExpired(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	now := time.Now().UnixMilli()
@@ -316,7 +316,7 @@ func TestBuildSnapshot_AllPhases(t *testing.T) {
 	}
 	for _, phase := range phases {
 		room := &Room{
-			state:  NewGameState("TEST"),
+			state:  NewGameState("TEST", testRNG()),
 			logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		}
 		room.state.Phase = phase

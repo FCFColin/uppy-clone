@@ -12,7 +12,7 @@ func TestSaveStateWithError_PersistsLobbyMetadata(t *testing.T) {
 	t.Parallel()
 	repo := newMockRoomRepository()
 	room := &Room{
-		state:  NewGameState("PERSIST"),
+		state:  NewGameState("PERSIST", testRNG()),
 		store:  repo,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
@@ -31,7 +31,7 @@ func TestSaveStateWithError_PersistsLobbyMetadata(t *testing.T) {
 func TestSaveStateWithError_NilStore(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		store:  nil,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
@@ -45,7 +45,7 @@ func TestSaveStateWithError_StoreSuccess(t *testing.T) {
 	t.Parallel()
 	repo := newMockRoomRepository()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		store:  repo,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
@@ -63,7 +63,7 @@ func TestSaveStateWithError_StoreError(t *testing.T) {
 	repo := newMockRoomRepository()
 	repo.saveErr = errors.New("db unavailable")
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		store:  repo,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
@@ -76,7 +76,7 @@ func TestSaveStateWithError_StoreError(t *testing.T) {
 func TestSaveState_NilStoreDoesNotPanic(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		store:  nil,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
@@ -88,7 +88,7 @@ func TestSaveState_StoreErrorDoesNotPanic(t *testing.T) {
 	repo := newMockRoomRepository()
 	repo.saveErr = errors.New("db unavailable")
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		store:  repo,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}

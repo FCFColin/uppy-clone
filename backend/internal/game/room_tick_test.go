@@ -93,7 +93,7 @@ func TestValidateTapRequest(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UnixMilli()
-	room := &Room{state: NewGameState("TEST")}
+	room := &Room{state: NewGameState("TEST", testRNG())}
 
 	t.Run("rejects when not playing", func(t *testing.T) {
 		room.state.Phase = domain.PhaseWaiting
@@ -131,7 +131,7 @@ func TestValidateTapRequest(t *testing.T) {
 func TestDecodeTapPayload(t *testing.T) {
 	t.Parallel()
 
-	room := &Room{state: NewGameState("TEST")}
+	room := &Room{state: NewGameState("TEST", testRNG())}
 
 	t.Run("rejects short payload", func(t *testing.T) {
 		_, _, ok := room.decodeTapPayload([]byte{0, 1, 2})
@@ -200,7 +200,7 @@ func TestUpdatePlayerStats(t *testing.T) {
 	t.Parallel()
 
 	t.Run("increments score", func(t *testing.T) {
-		room := &Room{state: NewGameState("TEST")}
+		room := &Room{state: NewGameState("TEST", testRNG())}
 		room.state.Balloon.Score = 5
 		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
 
@@ -214,7 +214,7 @@ func TestUpdatePlayerStats(t *testing.T) {
 	})
 
 	t.Run("calculates cooldown based on connected count", func(t *testing.T) {
-		room := &Room{state: NewGameState("TEST")}
+		room := &Room{state: NewGameState("TEST", testRNG())}
 		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
 		room.state.Players["p2"] = &domain.PlayerState{Nickname: "Player2", PlayerIndex: 1}
 		room.state.Players["p3"] = &domain.PlayerState{Nickname: "Player3", PlayerIndex: 2}
@@ -231,7 +231,7 @@ func TestRoom_tickOnce_NotPlaying(t *testing.T) {
 	r.mu.Lock()
 	r.state.Phase = domain.PhaseWaiting
 	r.state.TickCount = 5
-	r.tickOnce()
+	r.tickOnce(time.Now())
 	if r.state.TickCount != 5 {
 		t.Fatalf("TickCount = %d, want 5 when not playing", r.state.TickCount)
 	}
@@ -245,7 +245,7 @@ func TestRoom_tickOnce_AdvancesPlaying(t *testing.T) {
 	r.mu.Lock()
 	r.state.Phase = domain.PhasePlaying
 	r.state.TickCount = 0
-	r.tickOnce()
+	r.tickOnce(time.Now())
 	if r.state.TickCount != 1 {
 		t.Fatalf("TickCount = %d, want 1", r.state.TickCount)
 	}
@@ -260,7 +260,7 @@ func TestRoom_tickOnce_GameOverGround(t *testing.T) {
 	r.state.Phase = domain.PhasePlaying
 	r.state.Balloon.Y = 0.001
 	r.state.Balloon.VY = -0.1
-	r.tickOnce()
+	r.tickOnce(time.Now())
 	phase := r.state.Phase
 	r.mu.Unlock()
 	if phase != domain.PhaseEnded {
@@ -280,7 +280,7 @@ func TestRoom_tickOnce_GhostCollision(t *testing.T) {
 	r.state.Ghost.VX = 0
 	r.state.Ghost.VY = 0
 	r.state.Ghost.RepelTimer = 0
-	r.tickOnce()
+	r.tickOnce(time.Now())
 	phase := r.state.Phase
 	r.mu.Unlock()
 	if phase != domain.PhaseEnded {
@@ -299,7 +299,7 @@ func TestRoom_tickOnce_BirdCollision(t *testing.T) {
 	r.state.Bird.Y = r.state.Balloon.Y
 	r.state.Bird.VX = 0
 	r.state.Bird.VY = 0
-	r.tickOnce()
+	r.tickOnce(time.Now())
 	phase := r.state.Phase
 	r.mu.Unlock()
 	if phase != domain.PhaseEnded {
@@ -317,7 +317,7 @@ func TestRoom_tickOnce_StopsWhenAllDisconnected(t *testing.T) {
 	if r.tickCancel == nil {
 		t.Fatal("expected tick to start")
 	}
-	r.tickOnce()
+	r.tickOnce(time.Now())
 	if r.tickCancel != nil {
 		t.Fatal("expected tick to stop when all players disconnected")
 	}
@@ -329,7 +329,7 @@ func TestRoom_tickOnce_EmptyPlayersStopsTick(t *testing.T) {
 	r.mu.Lock()
 	r.state.Phase = domain.PhasePlaying
 	r.startTick()
-	r.tickOnce()
+	r.tickOnce(time.Now())
 	if r.tickCancel != nil {
 		t.Fatal("expected tick to stop with zero players")
 	}
@@ -344,7 +344,7 @@ func TestRoom_tickOnce_SavesStateEvery30Ticks(t *testing.T) {
 	r.mu.Lock()
 	r.state.Phase = domain.PhasePlaying
 	r.state.TickCount = 29
-	r.tickOnce()
+	r.tickOnce(time.Now())
 	tickCount := r.state.TickCount
 	r.mu.Unlock()
 	if tickCount != 30 {

@@ -120,7 +120,7 @@ func TestRoom_HandleTap_RejectsInvalidPayload(t *testing.T) {
 }
 
 func TestRoom_ApplyTapPhysics(t *testing.T) {
-	r := &Room{state: NewGameState("TEST")}
+	r := &Room{state: NewGameState("TEST", testRNG())}
 	r.state.Balloon.X = 0.5
 	r.state.Balloon.Y = 0.5
 	if !r.applyTapPhysics(0.5, 0.5) {

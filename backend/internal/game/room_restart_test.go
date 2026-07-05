@@ -11,7 +11,7 @@ import (
 
 func TestHandleRestartVote_RecordsVoteInMap(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST"),
+		state:       NewGameState("TEST", testRNG()),
 		usedNames:   make(map[string]bool),
 		connections: make(map[string]*PlayerConn),
 	}
@@ -117,7 +117,7 @@ func TestHandleRestartVote_DuplicateRetriesConsensus(t *testing.T) {
 
 func TestCheckRestartConsensus_PartialVoteStartsTimer(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST"),
+		state:       NewGameState("TEST", testRNG()),
 		usedNames:   make(map[string]bool),
 		connections: make(map[string]*PlayerConn),
 	}
@@ -141,7 +141,7 @@ func TestCheckRestartConsensus_PartialVoteStartsTimer(t *testing.T) {
 func TestCheckRestartConsensus_TimerAlreadyStarted(t *testing.T) {
 	now := time.Now().UnixMilli()
 	room := &Room{
-		state:       NewGameState("TEST"),
+		state:       NewGameState("TEST", testRNG()),
 		usedNames:   make(map[string]bool),
 		connections: make(map[string]*PlayerConn),
 	}
@@ -164,7 +164,8 @@ func TestCheckRestartConsensus_TimerAlreadyStarted(t *testing.T) {
 
 func TestCheckRestartConsensus_DisconnectedPlayersNotCounted(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST"),
+		state:       NewGameState("TEST", testRNG()),
+		rng:         testRNG(),
 		usedNames:   make(map[string]bool),
 		connections: make(map[string]*PlayerConn),
 	}
@@ -250,7 +251,8 @@ func TestRestartAndStart_WithActivePlayers(t *testing.T) {
 
 func TestRestartAndStart_RemovesDisconnectedPlayers(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST"),
+		state:       NewGameState("TEST", testRNG()),
+		rng:         testRNG(),
 		usedNames:   make(map[string]bool),
 		connections: make(map[string]*PlayerConn),
 	}
@@ -278,7 +280,8 @@ func TestRestartAndStart_RemovesDisconnectedPlayers(t *testing.T) {
 
 func TestRestartAndStart_ResetsPlayerStats(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST"),
+		state:       NewGameState("TEST", testRNG()),
+		rng:         testRNG(),
 		usedNames:   make(map[string]bool),
 		connections: make(map[string]*PlayerConn),
 	}

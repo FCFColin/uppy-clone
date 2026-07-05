@@ -580,7 +580,7 @@ func TestRoom_SetNicknameSameNameStillConfirms(t *testing.T) {
 func TestTryStartWhenAllReady_WrongPhase(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Phase = domain.PhasePlaying
@@ -593,7 +593,7 @@ func TestTryStartWhenAllReady_WrongPhase(t *testing.T) {
 func TestTryStartWhenAllReady_NotAllReady(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:       NewGameState("TEST"),
+		state:       NewGameState("TEST", testRNG()),
 		connections: make(map[string]*PlayerConn),
 		usedNames:   make(map[string]bool),
 		logger:      slog.New(slog.NewTextHandler(os.Stderr, nil)),
@@ -614,7 +614,7 @@ func TestTryStartWhenAllReady_NotAllReady(t *testing.T) {
 func TestTryStartWhenAllReady_NoConnections(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Phase = domain.PhaseWaiting
@@ -632,7 +632,7 @@ func TestTryStartWhenAllReady_NoConnections(t *testing.T) {
 func TestTryStartWhenAllReady_EmptyPlayers(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST"),
+		state:  NewGameState("TEST", testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Phase = domain.PhaseWaiting
@@ -650,7 +650,7 @@ func TestCleanupDisconnected(t *testing.T) {
 
 	t.Run("removes player past grace period", func(t *testing.T) {
 		room := &Room{
-			state:     NewGameState("TEST"),
+			state:     NewGameState("TEST", testRNG()),
 			usedNames: make(map[string]bool),
 			logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		}
@@ -670,7 +670,7 @@ func TestCleanupDisconnected(t *testing.T) {
 
 	t.Run("keeps player within grace period", func(t *testing.T) {
 		room := &Room{
-			state:     NewGameState("TEST"),
+			state:     NewGameState("TEST", testRNG()),
 			usedNames: make(map[string]bool),
 			logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		}
@@ -687,7 +687,7 @@ func TestCleanupDisconnected(t *testing.T) {
 
 	t.Run("skips connected players", func(t *testing.T) {
 		room := &Room{
-			state:     NewGameState("TEST"),
+			state:     NewGameState("TEST", testRNG()),
 			usedNames: make(map[string]bool),
 			logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		}
@@ -701,7 +701,7 @@ func TestCleanupDisconnected(t *testing.T) {
 	})
 
 	t.Run("handles empty players", func(t *testing.T) {
-		room := &Room{state: NewGameState("TEST"), logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
+		room := &Room{state: NewGameState("TEST", testRNG()), logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
 		room.cleanupDisconnected(now)
 	})
 }
@@ -712,7 +712,7 @@ func TestAllConnectedPlayersReady(t *testing.T) {
 	t.Run("empty connections returns false", func(t *testing.T) {
 		room := &Room{
 			connections: make(map[string]*PlayerConn),
-			state:       NewGameState("TEST"),
+			state:       NewGameState("TEST", testRNG()),
 		}
 		if room.allConnectedPlayersReady() {
 			t.Error("allConnectedPlayersReady should return false with no connections")
@@ -722,7 +722,7 @@ func TestAllConnectedPlayersReady(t *testing.T) {
 	t.Run("all ready returns true", func(t *testing.T) {
 		room := &Room{
 			connections: make(map[string]*PlayerConn),
-			state:       NewGameState("TEST"),
+			state:       NewGameState("TEST", testRNG()),
 		}
 		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, NicknameConfirmed: true}
 		room.state.Players["p2"] = &domain.PlayerState{Nickname: "Player2", PlayerIndex: 1, NicknameConfirmed: true}
@@ -737,7 +737,7 @@ func TestAllConnectedPlayersReady(t *testing.T) {
 	t.Run("player not found returns false", func(t *testing.T) {
 		room := &Room{
 			connections: make(map[string]*PlayerConn),
-			state:       NewGameState("TEST"),
+			state:       NewGameState("TEST", testRNG()),
 		}
 		room.connections["ghost"] = &PlayerConn{}
 
@@ -749,7 +749,7 @@ func TestAllConnectedPlayersReady(t *testing.T) {
 	t.Run("disconnected player returns false", func(t *testing.T) {
 		room := &Room{
 			connections: make(map[string]*PlayerConn),
-			state:       NewGameState("TEST"),
+			state:       NewGameState("TEST", testRNG()),
 		}
 		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, NicknameConfirmed: true, Disconnected: true}
 		room.connections["p1"] = &PlayerConn{}
@@ -762,7 +762,7 @@ func TestAllConnectedPlayersReady(t *testing.T) {
 	t.Run("player not confirmed returns false", func(t *testing.T) {
 		room := &Room{
 			connections: make(map[string]*PlayerConn),
-			state:       NewGameState("TEST"),
+			state:       NewGameState("TEST", testRNG()),
 		}
 		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, NicknameConfirmed: false}
 		room.connections["p1"] = &PlayerConn{}
@@ -778,7 +778,7 @@ func TestNormalizePhaseForNicknameGate(t *testing.T) {
 
 	t.Run("waiting phase unchanged", func(t *testing.T) {
 		room := &Room{
-			state:     NewGameState("TEST"),
+			state:     NewGameState("TEST", testRNG()),
 			usedNames: make(map[string]bool),
 			logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		}
@@ -791,7 +791,7 @@ func TestNormalizePhaseForNicknameGate(t *testing.T) {
 
 	t.Run("playing resets to waiting when not all ready", func(t *testing.T) {
 		room := &Room{
-			state:       NewGameState("TEST"),
+			state:       NewGameState("TEST", testRNG()),
 			connections: make(map[string]*PlayerConn),
 			usedNames:   make(map[string]bool),
 			logger:      slog.New(slog.NewTextHandler(os.Stderr, nil)),
@@ -812,7 +812,7 @@ func TestTransitionPhaseIfNeeded(t *testing.T) {
 
 	t.Run("playing without tick starts tick", func(t *testing.T) {
 		room := &Room{
-			state:     NewGameState("TEST"),
+			state:     NewGameState("TEST", testRNG()),
 			usedNames: make(map[string]bool),
 		}
 		room.state.Phase = domain.PhasePlaying
@@ -823,7 +823,7 @@ func TestTransitionPhaseIfNeeded(t *testing.T) {
 
 	t.Run("playing with active tick does nothing", func(t *testing.T) {
 		room := &Room{
-			state:     NewGameState("TEST"),
+			state:     NewGameState("TEST", testRNG()),
 			usedNames: make(map[string]bool),
 		}
 		room.state.Phase = domain.PhasePlaying
@@ -837,7 +837,7 @@ func TestTransitionPhaseIfNeeded(t *testing.T) {
 	})
 
 	t.Run("non-playing phase does nothing", func(t *testing.T) {
-		room := &Room{state: NewGameState("TEST")}
+		room := &Room{state: NewGameState("TEST", testRNG())}
 		room.state.Phase = domain.PhaseWaiting
 		room.transitionPhaseIfNeeded()
 	})

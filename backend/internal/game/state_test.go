@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewGameState_InitialValues(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 
 	if state.Phase != domain.PhaseWaiting {
 		t.Fatalf("初始 phase 应为 waiting，got=%v", state.Phase)
@@ -54,7 +54,8 @@ func TestNewGameState_InitialValues(t *testing.T) {
 
 func TestNewGameState_GhostInBounds(t *testing.T) {
 	for i := 0; i < 50; i++ {
-		state := NewGameState("TEST")
+		state := NewGameState("TEST", newSeededRNG(int64(i)))
+
 		if state.Ghost.X < 0.15 || state.Ghost.X > 0.85 {
 			t.Fatalf("幽灵 X 应在 0.15-0.85，got=%v", state.Ghost.X)
 		}
@@ -65,7 +66,7 @@ func TestNewGameState_GhostInBounds(t *testing.T) {
 }
 
 func TestNewGameState_GhostHasSpeed(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	speed := math.Sqrt(state.Ghost.VX*state.Ghost.VX + state.Ghost.VY*state.Ghost.VY)
 	if speed == 0 {
 		t.Fatal("初始幽灵应有非零速度")
@@ -73,7 +74,7 @@ func TestNewGameState_GhostHasSpeed(t *testing.T) {
 }
 
 func TestInitialWind_Clamp(t *testing.T) {
-	wind, target := initialWind()
+	wind, target := initialWind(testRNG())
 	if wind > protocol.WindClamp || wind < -protocol.WindClamp {
 		t.Fatalf("initialWind wind = %v, should be clamped", wind)
 	}
@@ -94,7 +95,7 @@ func TestResetGameEntities_ResetsBalloon(t *testing.T) {
 	state.Balloon.Score = 500
 	state.TickCount = 200
 
-	ResetGameEntities(state, RandomSpawnTimer())
+	ResetGameEntities(state, RandomSpawnTimer(testRNG()), testRNG())
 
 	if state.Balloon.X != 0.5 {
 		t.Fatalf("重置后气球 X 应为 0.5，got=%v", state.Balloon.X)
@@ -118,7 +119,7 @@ func TestResetGameEntities_ResetsGhost(t *testing.T) {
 	state.Ghost.Active = false
 	state.Ghost.SpawnTimer = 100
 
-	ResetGameEntities(state, RandomSpawnTimer())
+	ResetGameEntities(state, RandomSpawnTimer(testRNG()), testRNG())
 
 	if !state.Ghost.Active {
 		t.Fatal("重置后幽灵应已激活")
@@ -131,7 +132,7 @@ func TestResetGameEntities_ResetsWind(t *testing.T) {
 	state.WindTarget = -0.5
 	state.WindChangeCountdown = 10
 
-	ResetGameEntities(state, RandomSpawnTimer())
+	ResetGameEntities(state, RandomSpawnTimer(testRNG()), testRNG())
 
 	if state.Wind == 0 {
 		t.Fatalf("重置后风场不应为 0（游戏开始即应有风），got=%v", state.Wind)
@@ -151,7 +152,7 @@ func TestResetGameEntities_ResetsVotes(t *testing.T) {
 	now := int64(1234567890)
 	state.RestartTimerStart = &now
 
-	ResetGameEntities(state, RandomSpawnTimer())
+	ResetGameEntities(state, RandomSpawnTimer(testRNG()), testRNG())
 
 	if len(state.RestartVotes) != 0 {
 		t.Fatalf("重置后 RestartVotes 应为空，got=%d", len(state.RestartVotes))
@@ -280,7 +281,7 @@ func BenchmarkDeserializeState(b *testing.B) {
 func BenchmarkNewGameState(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		NewGameState("BENCH")
+		NewGameState("BENCH", testRNG())
 	}
 }
 

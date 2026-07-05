@@ -35,7 +35,7 @@ func (t *trackingRoomRepo) CreateGameSession(_ context.Context, _ *domain.GameSe
 }
 
 func TestRoom_EnqueueGameResultAsync_NoHub(t *testing.T) {
-	r := &Room{state: NewGameState("TEST"), logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
+	r := &Room{state: NewGameState("TEST", testRNG()), logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
 	r.state.SessionID = "sess-1"
 	r.enqueueGameResultAsync()
 }
