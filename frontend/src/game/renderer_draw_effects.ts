@@ -31,7 +31,10 @@ function rippleColor(
 
 export function drawRipples(now: number, playerMap: Map<number, { palette: number }>): void {
   const currentRipples = getState().ripples;
-  const remaining = currentRipples.filter(r => now - r.time <= RIPPLE_DURATION_S * 1000);
+  let remaining = currentRipples.filter(r => now - r.time <= RIPPLE_DURATION_S * 1000);
+  while (remaining.length > 50) {
+    remaining.shift();
+  }
   if (remaining.length !== currentRipples.length) {
     dispatch({ type: 'SET_STATE', partial: { ripples: remaining } });
   }
