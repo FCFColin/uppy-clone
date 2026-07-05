@@ -10,14 +10,14 @@ import (
 // ─── 幽灵 AI ────────────────────────────────────────────────────────
 
 // UpdateGhostAI 更新幽灵 AI
-func UpdateGhostAI(state *domain.GameState) {
+func UpdateGhostAI(state *domain.GameState, rng RNGSource) {
 	ghost := &state.Ghost
 
 	if !ghost.Active {
 		ghost.SpawnTimer--
 		if ghost.SpawnTimer <= 0 {
 			// 从随机位置生成（对应 TS spawnGhost）
-			spawned := spawnGhost()
+			spawned := spawnGhost(rng)
 			ghost.X = spawned.X
 			ghost.Y = spawned.Y
 			ghost.VX = spawned.VX
@@ -33,7 +33,7 @@ func UpdateGhostAI(state *domain.GameState) {
 	if ghost.RepelTimer > 0 {
 		applyGhostRepel(ghost, state)
 	} else {
-		applyGhostAttractOrWander(ghost, state)
+		applyGhostAttractOrWander(ghost, state, rng)
 	}
 
 	clampGhostVelocity(ghost)
@@ -55,7 +55,7 @@ func UpdateGhostAI(state *domain.GameState) {
 	// 离开屏幕（仅 X 轴）：销毁并等待重生
 	if ghost.X < -0.15 || ghost.X > 1.15 {
 		ghost.Active = false
-		ghost.SpawnTimer = int(protocol.GhostSpawnMin + randFloat64()*float64(protocol.GhostSpawnMax-protocol.GhostSpawnMin))
+		ghost.SpawnTimer = int(protocol.GhostSpawnMin + rng.Float64()*float64(protocol.GhostSpawnMax-protocol.GhostSpawnMin))
 	}
 }
 
@@ -71,7 +71,7 @@ func applyGhostRepel(ghost *domain.GhostState, state *domain.GameState) {
 	ghost.VY += (dy / dist) * protocol.GhostRepelForce
 }
 
-func applyGhostAttractOrWander(ghost *domain.GhostState, state *domain.GameState) {
+func applyGhostAttractOrWander(ghost *domain.GhostState, state *domain.GameState, rng RNGSource) {
 	dx := state.Balloon.X - ghost.X
 	dy := state.Balloon.Y - ghost.Y
 	dist := math.Hypot(dx, dy)
@@ -83,7 +83,7 @@ func applyGhostAttractOrWander(ghost *domain.GhostState, state *domain.GameState
 	}
 
 	if state.TickCount%protocol.GhostWanderChangeInterval == 0 {
-		angle := randFloat64() * 2 * math.Pi
+		angle := rng.Float64() * 2 * math.Pi
 		ghost.VX = math.Cos(angle) * protocol.GhostSpeed
 		ghost.VY = math.Sin(angle) * protocol.GhostSpeed
 	}

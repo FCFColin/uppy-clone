@@ -36,7 +36,7 @@ func TestQuickPlay_NewUser(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
 	mock.ExpectBegin()
@@ -66,7 +66,7 @@ func TestQuickPlay_ExistingCookie(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	token, _ := jwtMgr.SignToken("existing-user", "Existing")
 
@@ -98,7 +98,7 @@ func TestQuickPlay_CreateUserDuplicateContinues(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
 	mock.ExpectBegin()
@@ -116,7 +116,7 @@ func TestQuickPlay_CreateUserDuplicateContinues(t *testing.T) {
 
 func TestQuickPlay_ExistingCookieLookupError(t *testing.T) {
 	db, mock := newQuickPlayPostgresStore(t)
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, _ := jwtMgr.SignToken("existing-user", "Existing")
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
@@ -134,7 +134,7 @@ func TestQuickPlay_ExistingCookieLookupError(t *testing.T) {
 
 func TestQuickPlay_CreateUserError(t *testing.T) {
 	db, mock := newQuickPlayPostgresStore(t)
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	mock.ExpectBegin().WillReturnError(errors.New("db down"))
 
@@ -152,7 +152,7 @@ func TestRefreshSession_Success(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	ctx := context.Background()
 
@@ -181,7 +181,7 @@ func TestRefreshSession_InvalidToken(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
 	_, err = RefreshSession(context.Background(), refreshMgr, jwtMgr, &mockUserDataStore{}, "bad-token")
@@ -197,7 +197,7 @@ func TestRefreshSession_GetUserError(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	ctx := context.Background()
 
@@ -215,7 +215,7 @@ func TestRefreshSession_UserNotFound(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	ctx := context.Background()
 
@@ -233,7 +233,7 @@ func TestRefreshSession_GenerateError(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	ctx := context.Background()
 
@@ -290,7 +290,7 @@ func TestRefreshSession_SignTokenError(t *testing.T) {
 func TestRefreshSession_RevokesOldToken(t *testing.T) {
 	mr := miniredis.RunT(t)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	ctx := context.Background()
 
 	oldRefresh, err := refreshMgr.Generate(ctx, "user-refresh")

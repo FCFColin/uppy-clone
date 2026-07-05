@@ -2,8 +2,8 @@ package config
 
 // AuthConfig defines auth-related configuration methods.
 type AuthConfig interface {
-	GetJWTSecret() string
-	GetAdminJWTSecret() string
+	GetJWTPrivateKey() string
+	GetJWTPublicKey() string
 	GetEncryptionKey() string
 	GetAuditSecret() string
 }

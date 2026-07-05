@@ -5,7 +5,8 @@ type Config struct {
 	ResendAPIKey  string
 	EmailFrom     string
 	AdminPassword string
-	JWTSecret     string
+	JWTPrivateKey string
+	JWTPublicKey  string
 	DatabaseURL   string
 	RedisURL      string
 	Port          string

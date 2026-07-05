@@ -107,8 +107,8 @@ func (h *AdminHandler) signAdminTokenImpl() (string, string, error) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AdminTokenTTL)),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString(h.adminJwtMgr.Secret())
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	signed, err := token.SignedString(h.adminJwtMgr.PrivateKey())
 	if err != nil {
 		return "", "", err
 	}
@@ -153,10 +153,10 @@ func (h *AdminHandler) VerifyAdminTokenClaims(r *http.Request) (*adminClaims, bo
 	}
 
 	token, err := jwt.ParseWithClaims(cookie.Value, &adminClaims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+		if _, ok := t.Method.(*jwt.SigningMethodECDSA); !ok {
 			return nil, jwt.ErrSignatureInvalid
 		}
-		return h.adminJwtMgr.Secret(), nil
+		return h.adminJwtMgr.PublicKey(), nil
 	})
 	if err != nil {
 		return nil, false

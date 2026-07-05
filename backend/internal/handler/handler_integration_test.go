@@ -31,7 +31,7 @@ func TestQuickPlayRoundTrip(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx, rdb := testutil.SetupRedisStore(t)
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(rdb.Client())
 
 	timeouts := config.DefaultTimeoutConfig()
@@ -84,7 +84,7 @@ func TestMagicLinkRequestVerify(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	_, rdb := testutil.SetupRedisStore(t)
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	timeouts := config.DefaultTimeoutConfig()
 	authSvc := newMockAuthSvc(jwtMgr, nil, rdb, db, "re_test", "test@test.com", timeouts)
 	authHandler := NewAuthHandler(db, rdb, authSvc, &Config{

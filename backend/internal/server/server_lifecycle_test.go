@@ -371,7 +371,7 @@ func TestRunServer_MockDeps(t *testing.T) {
 	t.Cleanup(restoreMig)
 
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
 	t.Setenv("REDIS_URL", addr)
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
@@ -381,7 +381,7 @@ func TestRunServer_MockDeps(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -460,7 +460,7 @@ func TestRun_SuccessMocked(t *testing.T) {
 	t.Cleanup(restoreMig)
 
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
 	t.Setenv("REDIS_URL", redisStore.Client().Options().Addr)
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
@@ -470,7 +470,7 @@ func TestRun_SuccessMocked(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -533,7 +533,7 @@ func TestRunServer_FullHappyPath(t *testing.T) {
 	addr := redisStore.Client().Options().Addr
 
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", dbURL)
 	t.Setenv("REDIS_URL", addr)
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
@@ -543,7 +543,7 @@ func TestRunServer_FullHappyPath(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -585,7 +585,7 @@ func TestRunServer_FullHappyPath(t *testing.T) {
 
 func TestRunServer_InvalidDatabase(t *testing.T) {
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", "postgres://invalid-host:59999/nodb?sslmode=disable&connect_timeout=1")
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	t.Setenv("REDIS_URL", "127.0.0.1:6379")
@@ -748,8 +748,11 @@ func TestStartWorkers_Short(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	var wg sync.WaitGroup
 	cfg := &handler.Config{ResendAPIKey: "re_test", EmailFrom: "test@example.com"}
-	startWorkers(ctx, cfg, redisStore, db, appConfig.DefaultTimeoutConfig())
+	startWorkers(ctx, &wg, redisStore, db, appConfig.DefaultTimeoutConfig())
+	cancel()
+	wg.Wait()
 }
 
 func TestStartMetricsCollector_Cancel(t *testing.T) {
@@ -800,7 +803,7 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 	t.Cleanup(restoreMig)
 
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
 	t.Setenv("REDIS_URL", "127.0.0.1:59999")
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
@@ -819,7 +822,7 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 
 func TestRunServer_InitCryptoFail(t *testing.T) {
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("ENCRYPTION_KEY", "not-valid-hex")
 	prevEnv := serverEnv
@@ -879,7 +882,7 @@ func TestRun_ExitsOnInitCryptoFailure(t *testing.T) {
 	t.Cleanup(func() { exitFunc = origExit })
 
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("ADMIN_JWT_SECRET", "test-admin-jwt-secret-padded-32bytes!")
 	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
 	t.Setenv("REDIS_URL", "127.0.0.1:6379")
@@ -963,7 +966,7 @@ func TestServe_StartsAndStops(t *testing.T) {
 		MaxWSConnections:  100,
 		MaxPlayersPerRoom: 8,
 		AllowedOrigins:    "http://localhost",
-		AdminJWTSecret:    "test-admin-jwt-secret-padded-32bytes!",
+		
 	}
 	t.Cleanup(func() { serverEnv = prevEnv })
 
@@ -976,7 +979,7 @@ func TestServe_StartsAndStops(t *testing.T) {
 
 	cfg := &handler.Config{
 		Port:      strconv.Itoa(port),
-		JWTSecret: testsecrets.TestJWTSecret,
+		JWTPrivateKey: testsecrets.TestJWTPrivateKeyPEM,
 	}
 	timeouts := appConfig.DefaultTimeoutConfig()
 	ctx := context.Background()
@@ -1052,7 +1055,7 @@ func TestRunServer_TracerInitError(t *testing.T) {
 	t.Cleanup(store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil }))
 
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
 	t.Setenv("REDIS_URL", redisStore.Client().Options().Addr)
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
@@ -1062,7 +1065,7 @@ func TestRunServer_TracerInitError(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1129,7 +1132,7 @@ func TestRunServer_TracerShutdownError(t *testing.T) {
 	t.Cleanup(store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil }))
 
 	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_SECRET", testsecrets.TestJWTSecret)
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
 	t.Setenv("REDIS_URL", redisStore.Client().Options().Addr)
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
@@ -1139,7 +1142,7 @@ func TestRunServer_TracerShutdownError(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 	serverEnv.AllowedOrigins = "http://localhost"
-	serverEnv.AdminJWTSecret = "test-admin-jwt-secret-padded-32bytes!"
+	serverEnv.
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

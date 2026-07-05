@@ -23,7 +23,7 @@ func TestQuickPlayResponseMatchesOpenAPISchema(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	_, rdb := testutil.SetupRedisStore(t)
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(rdb.Client())
 	timeouts := config.DefaultTimeoutConfig()
 

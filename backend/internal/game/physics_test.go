@@ -9,15 +9,6 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-func TestRandFloat64_InRange(t *testing.T) {
-	for i := 0; i < 200; i++ {
-		v := randFloat64()
-		if v < 0 || v >= 1 {
-			t.Fatalf("randFloat64() = %v, want in [0,1)", v)
-		}
-	}
-}
-
 func TestUpdateWind_ClampAndEdgeZone(t *testing.T) {
 	state := createTestState()
 	state.Wind = 10
@@ -27,7 +18,7 @@ func TestUpdateWind_ClampAndEdgeZone(t *testing.T) {
 	state.WindMidCountdown = 1
 	state.WindChangeCountdown = 1
 	state.Balloon.X = 0.01
-	UpdateWind(state)
+	UpdateWind(state, testRNG())
 	if state.Wind > protocol.WindClamp {
 		t.Fatalf("Wind should be clamped, got %v", state.Wind)
 	}
@@ -37,7 +28,7 @@ func TestUpdateWind_ClampAndEdgeZone(t *testing.T) {
 	state.WindMicroCountdown = 1
 	state.WindMidCountdown = 1
 	state.WindChangeCountdown = 1
-	UpdateWind(state)
+	UpdateWind(state, testRNG())
 	if state.Wind < -protocol.WindClamp {
 		t.Fatalf("Wind should be clamped low, got %v", state.Wind)
 	}
@@ -298,7 +289,7 @@ func TestUpdateGhostAI_Movement(t *testing.T) {
 	xBefore := state.Ghost.X
 	yBefore := state.Ghost.Y
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	moved := state.Ghost.X != xBefore || state.Ghost.Y != yBefore
 	if !moved {
@@ -315,7 +306,7 @@ func TestUpdateGhostAI_MaxSpeed(t *testing.T) {
 	state.Ghost.VY = protocol.GhostSpeed * 10
 	state.Ghost.RepelTimer = 0
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	speed := math.Sqrt(state.Ghost.VX*state.Ghost.VX + state.Ghost.VY*state.Ghost.VY)
 	maxSpeed := protocol.GhostSpeed * 4
@@ -333,7 +324,7 @@ func TestUpdateGhostAI_YBoundaryBounce(t *testing.T) {
 	state.Ghost.VY = -0.005 // 向下移动
 	state.Ghost.RepelTimer = 0
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	if state.Ghost.Y < 0.02 {
 		t.Fatalf("幽灵 Y 应被弹反至 >= 0.02，got Y=%v", state.Ghost.Y)
@@ -352,7 +343,7 @@ func TestUpdateGhostAI_YBoundaryTopBounce(t *testing.T) {
 	state.Ghost.VY = 0.005 // 向上移动
 	state.Ghost.RepelTimer = 0
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	if state.Ghost.Y > 0.98 {
 		t.Fatalf("幽灵 Y 应被弹反至 <= 0.98，got Y=%v", state.Ghost.Y)
@@ -371,7 +362,7 @@ func TestUpdateGhostAI_Offscreen(t *testing.T) {
 	state.Ghost.VY = 0
 	state.Ghost.RepelTimer = 0
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	if state.Ghost.Active {
 		t.Fatal("幽灵离开屏幕时应被销毁")
@@ -392,7 +383,7 @@ func TestUpdateGhostAI_Repel(t *testing.T) {
 	state.Balloon.X = 0.6
 	state.Balloon.Y = 0.5
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	if state.Ghost.VX >= 0 {
 		t.Fatalf("被驱离时幽灵应远离气球（VX 应为负），got VX=%v", state.Ghost.VX)
@@ -411,7 +402,7 @@ func TestUpdateGhostAI_Attract(t *testing.T) {
 	state.Balloon.Y = 0.5
 	state.TickCount = 1
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	if state.Ghost.VX <= 0 {
 		t.Fatalf("吸引半径内幽灵应朝气球加速（VX 应为正），got VX=%v", state.Ghost.VX)
@@ -423,7 +414,7 @@ func TestUpdateGhostAI_SpawnWhenInactive(t *testing.T) {
 	state.Ghost.Active = false
 	state.Ghost.SpawnTimer = 0
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	if !state.Ghost.Active {
 		t.Fatal("未激活且倒计时到 0 时应生成新幽灵")
@@ -438,7 +429,7 @@ func TestUpdateGhostAI_CountdownWhenInactive(t *testing.T) {
 	state.Ghost.Active = false
 	state.Ghost.SpawnTimer = 10
 
-	UpdateGhostAI(state)
+	UpdateGhostAI(state, testRNG())
 
 	if state.Ghost.Active {
 		t.Fatal("倒计时未到不应生成幽灵")
@@ -457,7 +448,7 @@ func TestUpdateBirdAI_Spawn(t *testing.T) {
 	state.Balloon.X = 0.5
 	state.Balloon.Y = 0.5
 
-	UpdateBirdAI(&state.Bird, &state.Balloon, 0)
+	UpdateBirdAI(&state.Bird, &state.Balloon, 0, testRNG())
 
 	if !state.Bird.Active {
 		t.Fatal("倒计时到 0 时鸟应激活")
@@ -473,7 +464,7 @@ func TestUpdateBirdAI_Move(t *testing.T) {
 	state.Bird.VY = 0
 	xBefore := state.Bird.X
 
-	UpdateBirdAI(&state.Bird, &state.Balloon, 1)
+	UpdateBirdAI(&state.Bird, &state.Balloon, 1, testRNG())
 
 	if state.Bird.X == xBefore {
 		t.Fatal("激活的鸟应移动")
@@ -488,7 +479,7 @@ func TestUpdateBirdAI_Offscreen(t *testing.T) {
 	state.Bird.VX = 0.01
 	state.Bird.VY = 0
 
-	UpdateBirdAI(&state.Bird, &state.Balloon, 1)
+	UpdateBirdAI(&state.Bird, &state.Balloon, 1, testRNG())
 
 	if state.Bird.Active {
 		t.Fatal("鸟离开屏幕时应被销毁")
@@ -508,7 +499,7 @@ func TestUpdateBirdAI_Recalibrate(t *testing.T) {
 	state.Balloon.X = 0.8
 	state.Balloon.Y = 0.5
 
-	UpdateBirdAI(&state.Bird, &state.Balloon, 30)
+	UpdateBirdAI(&state.Bird, &state.Balloon, 30, testRNG())
 
 	if state.Bird.VX <= 0 {
 		t.Fatalf("每 30 ticks 重新校准方向，鸟应朝气球加速（VX 应为正），got VX=%v", state.Bird.VX)
@@ -565,7 +556,7 @@ func TestUpdateWind_UpdatesCountdowns(t *testing.T) {
 	state.WindMidCountdown = 1
 	state.WindChangeCountdown = 1
 
-	UpdateWind(state)
+	UpdateWind(state, testRNG())
 
 	if state.WindMicroCountdown != protocol.WindMicroInterval {
 		t.Fatalf("WindMicroCountdown = %d, want %d", state.WindMicroCountdown, protocol.WindMicroInterval)
@@ -585,7 +576,7 @@ func TestUpdateWind_Clamp(t *testing.T) {
 	state.WindMidOffset = protocol.WindClamp
 
 	for i := 0; i < 30; i++ {
-		UpdateWind(state)
+		UpdateWind(state, testRNG())
 	}
 
 	if state.Wind > protocol.WindClamp {
@@ -601,7 +592,7 @@ func TestUpdateWind_EdgeSoftZone(t *testing.T) {
 	state.WindTarget = 1.0
 	state.WindMidOffset = 0
 
-	UpdateWind(state)
+	UpdateWind(state, testRNG())
 
 	edgeState := createTestState()
 	edgeState.Balloon.X = 0.5
@@ -609,7 +600,7 @@ func TestUpdateWind_EdgeSoftZone(t *testing.T) {
 	edgeState.Wind = 1.0
 	edgeState.WindTarget = 1.0
 	edgeState.WindMidOffset = 0
-	UpdateWind(edgeState)
+	UpdateWind(edgeState, testRNG())
 
 	if math.Abs(state.Balloon.VX) >= math.Abs(edgeState.Balloon.VX) {
 		t.Fatalf("edge wind effect should be weaker: edge VX=%v, center VX=%v", state.Balloon.VX, edgeState.Balloon.VX)
@@ -649,7 +640,7 @@ func TestGenerateRoomCode(t *testing.T) {
 	validChars := regexp.MustCompile(`^[A-HJ-NP-Z2-9]+$`)
 
 	for i := 0; i < 50; i++ {
-		code := GenerateRoomCode()
+		code := GenerateRoomCode(testRNG())
 		if len(code) != 5 {
 			t.Fatalf("房间码应为 5 字符，got len=%d, code=%s", len(code), code)
 		}
@@ -690,7 +681,7 @@ func BenchmarkUpdateGhostAI(b *testing.B) {
 	state.Ghost.VY = 0
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		UpdateGhostAI(state)
+		UpdateGhostAI(state, testRNG())
 	}
 }
 
@@ -703,7 +694,7 @@ func BenchmarkUpdateBirdAI(b *testing.B) {
 	state.Bird.VY = 0
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		UpdateBirdAI(&state.Bird, &state.Balloon, state.TickCount)
+		UpdateBirdAI(&state.Bird, &state.Balloon, state.TickCount, testRNG())
 		state.TickCount++
 	}
 }

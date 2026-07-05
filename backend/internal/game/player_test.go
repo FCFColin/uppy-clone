@@ -8,7 +8,7 @@ import (
 )
 
 func TestHandleSetNickname_FirstChangeSkipsCooldown(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -24,7 +24,7 @@ func TestHandleSetNickname_FirstChangeSkipsCooldown(t *testing.T) {
 }
 
 func TestHandleSetNickname_ControlCharacters(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -43,7 +43,7 @@ func TestHandleSetNickname_ControlCharacters(t *testing.T) {
 }
 
 func TestHandleSetNickname_HTMLCharacters(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -62,7 +62,7 @@ func TestHandleSetNickname_HTMLCharacters(t *testing.T) {
 }
 
 func TestHandleSetNickname_LengthLimit(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -82,7 +82,7 @@ func TestHandleSetNickname_LengthLimit(t *testing.T) {
 }
 
 func TestHandleSetNickname_SameNickname(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "SameName",
@@ -98,7 +98,7 @@ func TestHandleSetNickname_SameNickname(t *testing.T) {
 }
 
 func TestHandleSetNickname_DuplicateNickname(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -117,7 +117,7 @@ func TestHandleSetNickname_DuplicateNickname(t *testing.T) {
 }
 
 func TestHandleSetNickname_UpdatesUsedNames(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -137,7 +137,7 @@ func TestHandleSetNickname_UpdatesUsedNames(t *testing.T) {
 }
 
 func TestHandleSetNickname_UpdatesLastNicknameChange(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -156,7 +156,7 @@ func TestHandleSetNickname_UpdatesLastNicknameChange(t *testing.T) {
 }
 
 func TestHandleSetNickname_EmptyNickname(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -172,7 +172,7 @@ func TestHandleSetNickname_EmptyNickname(t *testing.T) {
 }
 
 func TestHandleSetNickname_CooldownNotExpired(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	now := time.Now().UnixMilli()
 	player := &domain.PlayerState{
 		ID:                 "p1",
@@ -189,7 +189,7 @@ func TestHandleSetNickname_CooldownNotExpired(t *testing.T) {
 }
 
 func TestHandleSetNickname_CooldownExpired(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	now := time.Now().UnixMilli()
 	player := &domain.PlayerState{
 		ID:                 "p1",
@@ -206,7 +206,7 @@ func TestHandleSetNickname_CooldownExpired(t *testing.T) {
 }
 
 func TestHandleSetNickname_DangerousChars(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",
@@ -225,7 +225,7 @@ func TestHandleSetNickname_DangerousChars(t *testing.T) {
 }
 
 func TestHandleSetNickname_TruncateLongName(t *testing.T) {
-	state := NewGameState("TEST")
+	state := NewGameState("TEST", testRNG())
 	player := &domain.PlayerState{
 		ID:                 "p1",
 		Nickname:           "OldName",

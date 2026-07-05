@@ -15,7 +15,7 @@ func TestEnvValidate_RequiresJWT(t *testing.T) {
 
 func TestEnvValidate_RejectsWeakJWTInProd(t *testing.T) {
 	e := &Env{
-		JWTSecret:     "DEV_ONLY_secret_012345678901234567890",
+		JWTPrivateKey: "DEV_ONLY_secret_012345678901234567890",
 		DatabaseURL:   "postgres://localhost/test",
 		EncryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		EnableHSTS:    true,
@@ -28,13 +28,13 @@ func TestEnvValidate_RejectsWeakJWTInProd(t *testing.T) {
 func TestEnvValidate_DevMode(t *testing.T) {
 	e := Load()
 	e.EnableHSTS = false
-	e.JWTSecret = "dev-only-test-secret-32bytes!!"
+	e.JWTPrivateKey = "dev-only-test-secret-32bytes!!"
 	e.DatabaseURL = "postgres://localhost/test"
 	e.EncryptionKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	if err := e.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	_ = os.Getenv("JWT_SECRET")
+	_ = os.Getenv("JWT_PRIVATE_KEY")
 }
 
 func TestEnvValidate_RequiresTrustedProxyCIDRsInProd(t *testing.T) {
@@ -71,8 +71,8 @@ func TestEnvValidate_AcceptsValidTrustedProxyCIDRsInProd(t *testing.T) {
 
 func validProdEnv() *Env {
 	return &Env{
-		JWTSecret:         "strong-production-jwt-secret-32bytes!",
-		AdminJWTSecret:    "strong-production-admin-jwt-secret-32b!",
+		JWTPrivateKey:     "strong-production-jwt-secret-32bytes!",
+		JWTPublicKey:      "strong-production-jwt-public-key-32bytes!",
 		DatabaseURL:       "postgres://localhost/test",
 		EncryptionKey:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		EnableHSTS:        true,
@@ -80,27 +80,8 @@ func validProdEnv() *Env {
 	}
 }
 
-func TestEnvValidate_AdminJWTTooShort(t *testing.T) {
-	e := validProdEnv()
-	e.AdminJWTSecret = "too-short"
-	if err := e.Validate(); err == nil {
-		t.Fatal("expected ADMIN_JWT_SECRET length error")
-	}
-}
-
-func TestEnv_AdminJWTSecretOrUser(t *testing.T) {
-	e := &Env{AdminJWTSecret: "admin-secret", JWTSecret: "jwt-secret"}
-	if got := e.AdminJWTSecretOrUser(); got != "admin-secret" {
-		t.Errorf("got %q", got)
-	}
-	e.AdminJWTSecret = ""
-	if got := e.AdminJWTSecretOrUser(); got != "jwt-secret" {
-		t.Errorf("fallback got %q", got)
-	}
-}
-
 func TestEnv_AuditSecretOrJWT(t *testing.T) {
-	e := &Env{AuditSecret: "audit", JWTSecret: "jwt"}
+	e := &Env{AuditSecret: "audit", JWTPrivateKey: "jwt"}
 	if got := e.AuditSecretOrJWT(); got != "audit" {
 		t.Errorf("got %q", got)
 	}
@@ -161,7 +142,7 @@ func TestGetEnvIntPositive(t *testing.T) {
 
 func TestEnvValidate_RejectsDevOnlyMarker(t *testing.T) {
 	e := validProdEnv()
-	e.JWTSecret = "my-DEV_ONLY-secret-key-at-least-32-bytes-long!!"
+	e.JWTPrivateKey = "my-DEV_ONLY-secret-key-at-least-32-bytes-long!!"
 	if err := e.Validate(); err == nil {
 		t.Fatal("expected weak JWT rejection for DEV_ONLY marker")
 	}
@@ -169,7 +150,7 @@ func TestEnvValidate_RejectsDevOnlyMarker(t *testing.T) {
 
 func TestIsWeakJWTSecret_RejectsChangeInProduction(t *testing.T) {
 	e := validProdEnv()
-	e.JWTSecret = "strong-change-in-production-secret-32bytes!"
+	e.JWTPrivateKey = "strong-change-in-production-secret-32bytes!"
 	if err := e.Validate(); err == nil {
 		t.Fatal("expected weak JWT rejection for change-in-production marker")
 	}

@@ -12,8 +12,12 @@ import (
 	"github.com/uppy-clone/backend/internal/nicknames"
 )
 
+func testRNG() RNGSource {
+	return newSeededRNG(42)
+}
+
 func createTestState() *domain.GameState {
-	return NewGameState("TEST1")
+	return NewGameState("TEST1", testRNG())
 }
 
 func getAllNicknameCombinations() []string {

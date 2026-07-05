@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"net/http"
 	"time"
 
@@ -60,7 +61,8 @@ type LeaderboardStore interface {
 type JWTManager interface {
 	SignToken(userID, nickname string) (string, error)
 	VerifyToken(tokenStr string) (userID, nickname, jti string, err error)
-	Secret() []byte
+	PrivateKey() *ecdsa.PrivateKey
+	PublicKey() *ecdsa.PublicKey
 }
 
 // RefreshTokenManager defines refresh token lifecycle operations used by handlers.

@@ -237,7 +237,7 @@ func (r *Room) StartGame() error {
 	r.state.StartedAt = time.Now().UnixMilli()
 	r.state.SessionID = idgen.UUID()
 
-	ResetGameEntities(r.state, RandomSpawnTimer())
+	ResetGameEntities(r.state, RandomSpawnTimer(r.rng), r.rng)
 
 	r.scheduleCountdownFromNow()
 	r.broadcastCountdownPhase()

@@ -30,7 +30,7 @@ func TestHub_registerRoomLocked_ReturnsExisting(t *testing.T) {
 
 func TestHub_MaterializeRoom(t *testing.T) {
 	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
-	state := NewGameState("REST1")
+	state := NewGameState("REST1", testRNG())
 	state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "nick1"}
 	room := h.materializeRoom("REST1", state)
 	if room == nil || room.state.LobbyCode != "REST1" {
@@ -60,7 +60,7 @@ func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
 	bc := newMockBroadcaster()
 	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, 8, bc)
 
-	state := NewGameState("ROOM1")
+	state := NewGameState("ROOM1", testRNG())
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -107,7 +107,7 @@ func TestHub_RestoreRooms_SkipsForeignOwner(t *testing.T) {
 		t.Fatalf("RegisterRoom: %v", err)
 	}
 
-	state := NewGameState("ROOM2")
+	state := NewGameState("ROOM2", testRNG())
 	stateJSON, _ := json.Marshal(state)
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
@@ -272,7 +272,7 @@ func TestRoom_handleAutoRestart_WithVotes(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom(t *testing.T) {
-	state := NewGameState("LOAD1")
+	state := NewGameState("LOAD1", testRNG())
 	stateJSON, _ := json.Marshal(state)
 
 	mock, err := pgxmock.NewPool()
@@ -344,7 +344,7 @@ func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
 
-	state := NewGameState("EXIST")
+	state := NewGameState("EXIST", testRNG())
 	stateJSON, _ := json.Marshal(state)
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
@@ -478,13 +478,13 @@ func (p *paginatedRestoreRepo) LoadAllActiveLobbies(_ context.Context, limit int
 		lobbies := make([]domain.LobbyState, limit)
 		for i := range lobbies {
 			code := fmt.Sprintf("ROOM%03d", i+1)
-			state := NewGameState(code)
+			state := NewGameState(code, testRNG())
 			data, _ := json.Marshal(state)
 			lobbies[i] = domain.LobbyState{Code: code, State: string(data)}
 		}
 		return &domain.LobbyListResult{Lobbies: lobbies, Total: limit + 1}, nil
 	}
-	state := NewGameState("ROOM101")
+	state := NewGameState("ROOM101", testRNG())
 	data, _ := json.Marshal(state)
 	return &domain.LobbyListResult{
 		Lobbies: []domain.LobbyState{{Code: "ROOM101", State: string(data)}},
@@ -532,7 +532,7 @@ func TestHub_loadOrMaterializeRoom_ReturnsExisting(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	state := NewGameState("EXIST1")
+	state := NewGameState("EXIST1", testRNG())
 	stateJSON, _ := json.Marshal(state)
 
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").

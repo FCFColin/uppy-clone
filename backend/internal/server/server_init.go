@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/auth"
@@ -65,24 +66,29 @@ func initHub(db *store.PostgresStore, redis *store.RedisStore, timeouts appConfi
 	return hub
 }
 
-func startWorker(ctx context.Context, name string, fn func(context.Context)) {
-	go fn(ctx)
+func startWorker(ctx context.Context, wg *sync.WaitGroup, name string, fn func(context.Context)) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		fn(ctx)
+		slog.Info(name + " worker stopped")
+	}()
 	slog.Info(name + " worker started")
 }
 
 // startWorkers starts async workers (EmailWorker, GameResultWorker, Outbox Publisher).
 // 企业为何需要：异步架构将慢操作（邮件发送、DB批量写入、事件发布）从请求热路径移出，提升响应延迟。
-func startWorkers(ctx context.Context, cfg *handler.Config, redis *store.RedisStore, db *store.PostgresStore, timeouts appConfig.TimeoutConfig) {
+func startWorkers(ctx context.Context, wg *sync.WaitGroup, cfg *handler.Config, redis *store.RedisStore, db *store.PostgresStore, timeouts appConfig.TimeoutConfig) {
 	if cfg.ResendAPIKey != "" {
-		startWorker(ctx, "email worker", worker.NewEmailWorker(redis.Client(), cfg.ResendAPIKey, cfg.EmailFrom, timeouts).Start)
+		startWorker(ctx, wg, "email worker", worker.NewEmailWorker(redis.Client(), cfg.ResendAPIKey, cfg.EmailFrom, timeouts).Start)
 	}
 
-	startWorker(ctx, "game result worker", worker.NewGameResultWorker(redis.Client(), db.Pool()).Start)
-	startWorker(ctx, "outbox publisher", outbox.NewPublisher(db.Pool(), redis.Client()).Start)
+	startWorker(ctx, wg, "game result worker", worker.NewGameResultWorker(redis.Client(), db.Pool()).Start)
+	startWorker(ctx, wg, "outbox publisher", outbox.NewPublisher(db.Pool(), redis.Client()).Start)
 
 	retentionDays := getEnvInt("GDPR_RETENTION_DAYS", 30)
 	cleanupInterval := time.Duration(getEnvInt("GDPR_CLEANUP_INTERVAL_HOURS", 24)) * time.Hour
-	startWorker(ctx, "gdpr cleanup worker", worker.NewGDPRCleanupWorker(db, retentionDays, cleanupInterval).Start)
+	startWorker(ctx, wg, "gdpr cleanup worker", worker.NewGDPRCleanupWorker(db, retentionDays, cleanupInterval).Start)
 	slog.Info("gdpr cleanup worker started", "retention_days", retentionDays)
 }
 

@@ -95,15 +95,15 @@ func RestartAndStart(room *Room) error {
 
 	// 清理后无活跃玩家时，重置为 waiting
 	if len(activePlayerIDs) == 0 {
-		room.state = NewGameState(room.state.LobbyCode)
+		room.state = NewGameState(room.state.LobbyCode, room.rng)
 		room.state.Phase = domain.PhaseWaiting
 		room.stopTick()
 		room.saveState()
 		return nil
 	}
 
-	room.state = buildRestartState(room.state.LobbyCode, players, nextPlayerIndex)
-	ResetGameEntities(room.state, RandomSpawnTimer())
+	room.state = buildRestartState(room.state.LobbyCode, players, nextPlayerIndex, room.rng)
+	ResetGameEntities(room.state, RandomSpawnTimer(room.rng), room.rng)
 	room.countdownStart = time.Now().UnixMilli()
 
 	room.scheduleCountdownFromNow()
@@ -136,8 +136,8 @@ func cleanupDisconnectedPlayers(room *Room, players map[string]*domain.PlayerSta
 
 // buildRestartState creates a fresh GameState for a restart, preserving players
 // and the next-player index, then transitioning to the countdown phase.
-func buildRestartState(lobbyCode string, players map[string]*domain.PlayerState, nextPlayerIndex int) *domain.GameState {
-	state := NewGameState(lobbyCode)
+func buildRestartState(lobbyCode string, players map[string]*domain.PlayerState, nextPlayerIndex int, rng RNGSource) *domain.GameState {
+	state := NewGameState(lobbyCode, rng)
 	state.RestartVotes = make(map[string]bool)
 	state.RestartTimerStart = nil
 	state.Players = players

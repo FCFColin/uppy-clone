@@ -780,7 +780,7 @@ func TestHub_RestoreRooms_WithDB(t *testing.T) {
 	}()
 
 	// Persist two rooms to the DB.
-	state1 := NewGameState("RST01")
+	state1 := NewGameState("RST01", testRNG())
 	state1JSON, _ := SerializeState(state1)
 	if err := db.SaveLobbyState(ctx, &domain.LobbyState{
 		Code:      "RST01",
@@ -791,7 +791,7 @@ func TestHub_RestoreRooms_WithDB(t *testing.T) {
 		t.Fatalf("SaveLobbyState RST01 failed: %v", err)
 	}
 
-	state2 := NewGameState("RST02")
+	state2 := NewGameState("RST02", testRNG())
 	state2JSON, _ := SerializeState(state2)
 	if err := db.SaveLobbyState(ctx, &domain.LobbyState{
 		Code:      "RST02",

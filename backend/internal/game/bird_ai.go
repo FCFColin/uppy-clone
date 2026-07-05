@@ -2,7 +2,6 @@ package game
 
 import (
 	"math"
-	"math/rand/v2"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
@@ -22,17 +21,17 @@ func setBirdVelocityToward(bird *domain.BirdState, balloon *domain.BalloonState,
 }
 
 // UpdateBirdAI 更新鸟 AI
-func UpdateBirdAI(bird *domain.BirdState, balloon *domain.BalloonState, tickCount int) {
+func UpdateBirdAI(bird *domain.BirdState, balloon *domain.BalloonState, tickCount int, rng RNGSource) {
 	if !bird.Active {
 		bird.SpawnTimer--
 		if bird.SpawnTimer <= 0 {
-			fromLeft := randFloat64() > 0.5
+			fromLeft := rng.Float64() > 0.5
 			if fromLeft {
 				bird.X = -0.1
 			} else {
 				bird.X = 1.1
 			}
-			bird.Y = randFloat64()*0.6 + 0.2 // 0.2 到 0.8
+			bird.Y = rng.Float64()*0.6 + 0.2 // 0.2 到 0.8
 			bird.Active = true
 
 			setBirdVelocityToward(bird, balloon, false)
@@ -49,15 +48,15 @@ func UpdateBirdAI(bird *domain.BirdState, balloon *domain.BalloonState, tickCoun
 		// 离开屏幕时销毁
 		if bird.X < -0.1 || bird.X > 1.1 || bird.Y < -0.1 || bird.Y > 1.1 {
 			bird.Active = false
-			bird.SpawnTimer = RandomSpawnTimer()
+			bird.SpawnTimer = RandomSpawnTimer(rng)
 		}
 	}
 }
 
-func RandomSpawnTimer() int {
+func RandomSpawnTimer(rng RNGSource) int {
 	lo := protocol.BirdSpawnMin
 	hi := protocol.BirdSpawnMax
-	return lo + rand.IntN(hi-lo+1)
+	return lo + rng.IntN(hi-lo+1)
 }
 
 // CheckBirdCollision 检测鸟与气球碰撞

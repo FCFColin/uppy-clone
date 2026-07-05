@@ -56,7 +56,7 @@ func TestVerifyMagicLink_ExistingUser(t *testing.T) {
 	}
 	defer mr.Close()
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	req := httptest.NewRequest("GET", "https://example.com/", nil)
 
 	cookie, resp, err := VerifyMagicLink(redisStore, db, jwtMgr, refreshMgr, token, req)
@@ -136,7 +136,7 @@ func TestIssueMagicLinkSession(t *testing.T) {
 		WithArgs("user-1").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	user := &domain.User{ID: "user-1", Nickname: "Magic", Email: "magic@example.com"}
 
@@ -167,7 +167,7 @@ func TestIssueMagicLinkSession_LastLoginErrorIgnored(t *testing.T) {
 		WithArgs("user-1").
 		WillReturnError(errors.New("update failed"))
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	user := &domain.User{ID: "user-1", Nickname: "Magic", Email: "magic@example.com"}
 
@@ -199,7 +199,7 @@ func TestIssueMagicLinkSession_RefreshError(t *testing.T) {
 	defer mr.Close()
 	mr.SetError("redis unavailable")
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	user := &domain.User{ID: "user-1", Nickname: "Magic", Email: "magic@example.com"}
 
@@ -354,7 +354,7 @@ func TestFindOrCreateUserByEmail_CreateError(t *testing.T) {
 func TestVerifyMagicLink_InvalidToken(t *testing.T) {
 	setupMagicLinkCrypto(t)
 	redisStore, _ := setupMagicLinkRedis(t)
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	req := httptest.NewRequest("GET", "/", nil)
 
 	_, _, err := VerifyMagicLink(redisStore, nil, jwtMgr, nil, "bad-token", req)
@@ -387,7 +387,7 @@ func TestVerifyMagicLink_UserLookupError(t *testing.T) {
 		WithArgs(pgxmock.AnyArg(), "lookup-fail@example.com").
 		WillReturnError(errors.New("db down"))
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	req := httptest.NewRequest("GET", "/", nil)
 
 	_, _, err = VerifyMagicLink(redisStore, db, jwtMgr, nil, token, req)
@@ -409,7 +409,7 @@ func TestIssueMagicLinkSession_SignTokenError(t *testing.T) {
 		WithArgs("user-1").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
 	defer SetRandReadHook(func([]byte) (int, error) { return 0, errors.New("rand failed") })()

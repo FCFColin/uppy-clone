@@ -466,7 +466,7 @@ func TestQuickPlay_WithDB(t *testing.T) {
 	t.Cleanup(mr.Close)
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
@@ -495,7 +495,7 @@ func TestExportUserData_WithDB(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, nil, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, nil, authSvc, &Config{})
 
@@ -531,7 +531,7 @@ func TestDeleteUserData_Success(t *testing.T) {
 	t.Cleanup(mr.Close)
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
@@ -558,7 +558,7 @@ func TestDeleteUserData_DBError(t *testing.T) {
 	db := store.NewPostgresStoreWithPool(mock)
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
@@ -581,7 +581,7 @@ func TestRequestMagicLink_Success(t *testing.T) {
 		t.Fatalf("crypto.Init: %v", err)
 	}
 	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "re_test", "test@test.com", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(nil, redisStore, authSvc, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
@@ -602,7 +602,7 @@ func TestCheckAuth_WithDB(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-db", "CookieNick")
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
@@ -644,7 +644,7 @@ func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 	}
 	t.Cleanup(mr.Close)
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "re_test", "test@test.com", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(nil, redisStore, authSvc, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
@@ -665,7 +665,7 @@ func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 
 func TestRequestMagicLink_InvalidEmail(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(nil, redisStore, authSvc, &Config{})
 
@@ -712,7 +712,7 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 	t.Cleanup(mr.Close)
 	refreshMgr := auth.NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
@@ -734,7 +734,7 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 
 func TestVerifyMagicLinkToken_InvalidToken(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(nil, redisStore, authSvc, &Config{})
 
@@ -762,7 +762,7 @@ func TestRefreshToken_Success(t *testing.T) {
 	t.Cleanup(mr.Close)
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
@@ -795,7 +795,7 @@ func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(testutil.SetupMiniredisStore(t).Client())
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, nil, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, nil, authSvc, &Config{})
@@ -819,7 +819,7 @@ func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
 }
 
 func TestExportUserData_NilDB(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, nil, nil, "", "", config.DefaultTimeoutConfig())
 		h := NewAuthHandler(nil, nil, authSvc, &Config{})
 
@@ -839,7 +839,7 @@ func TestExportUserData_NotFound(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, nil, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, nil, authSvc, &Config{})
 
@@ -863,7 +863,7 @@ func TestCheckAuth_DBErrorDegraded(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-db-err", "Nick")
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
@@ -889,7 +889,7 @@ func TestCheckAuth_DBErrorDegraded(t *testing.T) {
 
 func TestRefreshToken_InvalidToken(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	mock, err := pgxmock.NewPool()
 	if err != nil {
@@ -914,7 +914,7 @@ func TestRequestMagicLink_InternalError(t *testing.T) {
 	if err := redisStore.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, redisStore, nil, "re_test", "test@test.com", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(nil, redisStore, authSvc, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
@@ -934,7 +934,7 @@ func TestLogout_RevokesRefreshToken(t *testing.T) {
 	}
 	t.Cleanup(mr.Close)
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, nil, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(nil, redisStore, authSvc, &Config{})
@@ -965,7 +965,7 @@ func TestRefreshToken_NilDB(t *testing.T) {
 	}
 	t.Cleanup(mr.Close)
 	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, nil, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(nil, redisStore, authSvc, &Config{})

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/go-chi/chi/v5"
@@ -78,15 +79,16 @@ func runServer(logger *slog.Logger) error {
 }
 
 func serve(ctx context.Context, cfg *handler.Config, timeouts appConfig.TimeoutConfig, db *store.PostgresStore, redis *store.RedisStore) error {
-	jwtMgr := auth.NewJWTManager(cfg.JWTSecret)
-	adminJwtMgr := auth.NewJWTManager(serverEnv.AdminJWTSecretOrUser())
+	jwtMgr := auth.NewJWTManager(cfg.JWTPrivateKey)
+	adminJwtMgr := auth.NewJWTManager(cfg.JWTPrivateKey)
 	broadcaster := game.NewPubSubBroadcaster(redis.Client())
 	hub := initHub(db, redis, timeouts, broadcaster)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go hub.CleanupLoop(ctx)
-	startWorkers(ctx, cfg, redis, db, timeouts)
+	var wg sync.WaitGroup
+	startWorkers(ctx, &wg, cfg, redis, db, timeouts)
 	startMetricsCollector(ctx, hub, db, redis)
 
 	authHandler, lobbyHandler, adminHandler, statsHandler := initHandlers(jwtMgr, adminJwtMgr, db, redis, cfg, timeouts, hub)
@@ -96,6 +98,7 @@ func serve(ctx context.Context, cfg *handler.Config, timeouts appConfig.TimeoutC
 
 	srv := startServer(r, cfg)
 	waitForShutdown(srv, cancel, hub, broadcaster)
+	wg.Wait()
 	return nil
 }
 

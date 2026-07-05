@@ -35,7 +35,7 @@ func TestGetAuthenticatedUser_Missing(t *testing.T) {
 }
 
 func TestAuthenticatedUserFromRequest_Cookie(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, _ := jwtMgr.SignToken("cookie-user", "CookieNick")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -48,7 +48,7 @@ func TestAuthenticatedUserFromRequest_Cookie(t *testing.T) {
 }
 
 func TestAuthenticatedUserFromRequestWithRevocation_Revoked(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := newFakeRevocationChecker()
 	token, _ := jwtMgr.SignToken("user-rev", "Revoked")
 	_, _, jti, _ := jwtMgr.VerifyToken(token)
@@ -143,7 +143,7 @@ func (scardFailHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.P
 }
 
 func TestAuthenticatedUserFromRequestWithRevocation_RevokerError(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := &fakeRevocationChecker{err: errors.New("redis down")}
 	token, _ := jwtMgr.SignToken("user-rev-err", "Nick")
 
@@ -164,7 +164,7 @@ func TestAuthenticatedUserFromRequest_NilJWTManager(t *testing.T) {
 }
 
 func TestAuthMiddleware_InvalidCookieSkipped(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	validToken, _ := jwtMgr.SignToken("valid-user", "Valid")
 
 	called := false
@@ -185,7 +185,7 @@ func TestAuthMiddleware_InvalidCookieSkipped(t *testing.T) {
 }
 
 func TestAuthMiddleware_InjectsRequestLogger(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, _ := jwtMgr.SignToken("user-log", "Logger")
 
 	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +207,7 @@ func TestAuthMiddleware_InjectsRequestLogger(t *testing.T) {
 }
 
 func TestAuthMiddleware_RevocationCheckError(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := &fakeRevocationChecker{err: context.DeadlineExceeded}
 	token, _ := jwtMgr.SignToken("user-err", "Err")
 
@@ -226,7 +226,7 @@ func TestAuthMiddleware_RevocationCheckError(t *testing.T) {
 }
 
 func TestAuthenticatedUserFromCookies_RevokedSkipped(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := newFakeRevocationChecker()
 	token, _ := jwtMgr.SignToken("revoked-user", "Revoked")
 	_, _, jti, _ := jwtMgr.VerifyToken(token)
@@ -263,7 +263,7 @@ type redisRevoker struct {
 func (r *redisRevoker) Client() *redis.Client { return r.client }
 
 func TestAuthenticatedUserFromRequestWithRevocation_RevokedContinues(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := newFakeRevocationChecker()
 	revokedToken, _ := jwtMgr.SignToken("revoked-user", "Revoked")
 	validToken, _ := jwtMgr.SignToken("valid-user", "Valid")
@@ -292,7 +292,7 @@ func TestAuthMiddleware_MultiIPWithRedisProvider(t *testing.T) {
 		client:                redis.NewClient(&redis.Options{Addr: mr.Addr()}),
 	}
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, _ := jwtMgr.SignToken("user-ip", "IPUser")
 
 	called := false
@@ -315,7 +315,7 @@ func TestAuthMiddleware_MultiIPWithRedisProvider(t *testing.T) {
 }
 
 func TestAuthMiddleware_UnauthorizedNoValidCookie(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not run")
 	}))
@@ -328,7 +328,7 @@ func TestAuthMiddleware_UnauthorizedNoValidCookie(t *testing.T) {
 }
 
 func TestAuthMiddleware_NoLoggerInContext(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, _ := jwtMgr.SignToken("user-1", "Nick")
 	called := false
 	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -350,21 +350,21 @@ func TestAuthenticatedUserFromRequest_PrefersContext(t *testing.T) {
 	req = req.WithContext(WithAuthenticatedUser(req.Context(), "ctx-user", "CtxNick"))
 	req.AddCookie(&http.Cookie{Name: "session", Value: "bad.token"})
 
-	uid, nick, ok := AuthenticatedUserFromRequestWithRevocation(req, NewJWTManager(testsecrets.TestJWTSecret), nil)
+	uid, nick, ok := AuthenticatedUserFromRequestWithRevocation(req, NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), nil)
 	if !ok || uid != "ctx-user" || nick != "CtxNick" {
 		t.Fatalf("got (%q, %q, %v)", uid, nick, ok)
 	}
 }
 
 func TestAuthenticatedUserFromRequest_NoAuth(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	if _, _, ok := AuthenticatedUserFromRequestWithRevocation(httptest.NewRequest(http.MethodGet, "/", nil), jwtMgr, nil); ok {
 		t.Fatal("expected false with no context and no valid cookies")
 	}
 }
 
 func TestAuthMiddleware_NoValidCookies(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not run")
 	}))
@@ -380,7 +380,7 @@ func TestAuthMiddleware_NoValidCookies(t *testing.T) {
 }
 
 func TestAuthenticatedUserFromCookies_FromContext(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(WithAuthenticatedUser(req.Context(), "ctx-user", "CtxNick"))
 

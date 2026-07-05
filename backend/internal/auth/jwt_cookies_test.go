@@ -4,51 +4,32 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
-func TestNewJWTManagerWithRotation(t *testing.T) {
-	primary := "primary-secret-key-padded-to-32-bytes!!"
-	previous := "previous-secret-key-padded-to-32-bytes!"
-	mgr := NewJWTManagerWithRotation(primary, previous)
+func TestJWTManager_SignAndVerify(t *testing.T) {
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
 	token, err := mgr.SignToken("user-1", "Player")
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
 	}
 	if _, _, _, err := mgr.VerifyToken(token); err != nil {
-		t.Fatalf("VerifyToken with primary: %v", err)
-	}
-
-	legacyClaims := customClaims{
-		Nickname: "Legacy",
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   "user-old",
-			ID:        "legacy-jti",
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
-		},
-	}
-	legacyToken := jwt.NewWithClaims(jwt.SigningMethodHS256, legacyClaims)
-	legacyString, err := legacyToken.SignedString([]byte(previous))
-	if err != nil {
-		t.Fatalf("SignedString: %v", err)
-	}
-	if _, _, _, err := mgr.VerifyToken(legacyString); err != nil {
-		t.Fatalf("VerifyToken with previous secret: %v", err)
+		t.Fatalf("VerifyToken: %v", err)
 	}
 }
 
-func TestJWTManager_Secret(t *testing.T) {
-	secret := testsecrets.TestJWTSecret
-	mgr := NewJWTManager(secret)
-	if got := string(mgr.Secret()); got != secret {
-		t.Fatalf("Secret = %q, want %q", got, secret)
+func TestJWTManager_DifferentKeyFails(t *testing.T) {
+	alien := NewJWTManager("")
+	token, err := alien.SignToken("user-1", "Nick")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	if _, _, _, err := mgr.VerifyToken(token); err == nil {
+		t.Fatal("expected verify failure when keys differ")
 	}
 }
 
@@ -80,20 +61,5 @@ func TestBuildAuthCookie_Insecure(t *testing.T) {
 	cookie := BuildAuthCookie("session", "token", config.CookieMaxAge, false)
 	if cookie.Secure {
 		t.Fatal("Secure should be false when isSecure=false")
-	}
-}
-
-func TestVerifyToken_RotationBothKeysFail(t *testing.T) {
-	mgr := NewJWTManagerWithRotation(
-		"primary-secret-key-padded-to-32-bytes!!",
-		"previous-secret-key-padded-to-32-bytes!",
-	)
-	alien := NewJWTManager("third-secret-key-padded-to-32-bytes!!")
-	token, err := alien.SignToken("user-1", "Nick")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, _, err := mgr.VerifyToken(token); err == nil {
-		t.Fatal("expected verify failure when neither primary nor previous key matches")
 	}
 }

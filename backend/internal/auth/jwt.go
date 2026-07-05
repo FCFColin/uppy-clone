@@ -1,8 +1,13 @@
 package auth
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -13,31 +18,36 @@ import (
 	"github.com/uppy-clone/backend/internal/validate"
 )
 
-// JWTManager handles JWT signing and verification using HMAC-SHA256.
-// 支持密钥轮换：primarySecret 用于签发新 token，previousSecret（若设置）仅用于验证旧 token。
+// JWTManager handles JWT signing and verification using ECDSA P-256 (ES256).
 type JWTManager struct {
-	primarySecret  []byte
-	previousSecret []byte // nil if no rotation
+	privateKey *ecdsa.PrivateKey
+	publicKey  *ecdsa.PublicKey
 }
 
-// NewJWTManager creates a JWTManager with the given secret string.
-// 企业为何需要：HS256 要求至少 256 位（32 字节）密钥。短密钥可被暴力破解，导致 JWT 伪造。
-func NewJWTManager(secret string) *JWTManager {
-	if len(secret) < 32 {
-		panic(fmt.Sprintf("JWT_SECRET must be at least 32 bytes (256 bits) for HS256, got %d bytes", len(secret)))
+// NewJWTManager creates a JWTManager from PEM-encoded ECDSA P-256 keys.
+// If privateKeyPEM is empty, an ephemeral key pair is generated for dev.
+func NewJWTManager(privateKeyPEM string) *JWTManager {
+	if privateKeyPEM == "" {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			panic(fmt.Sprintf("generate ephemeral ECDSA key: %v", err))
+		}
+		return &JWTManager{privateKey: key, publicKey: &key.PublicKey}
 	}
-	return &JWTManager{primarySecret: []byte(secret)}
+	block, _ := pem.Decode([]byte(privateKeyPEM))
+	if block == nil {
+		panic("JWT_PRIVATE_KEY: failed to decode PEM block")
+	}
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		panic(fmt.Sprintf("JWT_PRIVATE_KEY: parse ECDSA private key: %v", err))
+	}
+	return &JWTManager{privateKey: key, publicKey: &key.PublicKey}
 }
 
-// NewJWTManagerWithRotation creates a JWT manager with key rotation support.
-// Tokens signed with previousSecret are still validated, but new tokens use primarySecret.
-// 企业为何需要：密钥轮换要求旧 token 在过渡期内仍可验证，避免轮换瞬间所有用户被登出。
-func NewJWTManagerWithRotation(primarySecret, previousSecret string) *JWTManager {
-	m := NewJWTManager(primarySecret)
-	if previousSecret != "" {
-		m.previousSecret = []byte(previousSecret)
-	}
-	return m
+// NewJWTManagerWithKeys creates a JWTManager from parsed ECDSA keys directly.
+func NewJWTManagerWithKeys(privateKey *ecdsa.PrivateKey, publicKey *ecdsa.PublicKey) *JWTManager {
+	return &JWTManager{privateKey: privateKey, publicKey: publicKey}
 }
 
 // customClaims extends jwt.RegisteredClaims with nickname.
@@ -65,13 +75,18 @@ func (m *JWTManager) SignToken(userId, nickname string) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL)),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(m.primarySecret)
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	return token.SignedString(m.privateKey)
 }
 
-// Secret returns the JWT signing secret (for admin token operations).
-func (m *JWTManager) Secret() []byte {
-	return m.primarySecret
+// PrivateKey returns the ECDSA private key.
+func (m *JWTManager) PrivateKey() *ecdsa.PrivateKey {
+	return m.privateKey
+}
+
+// PublicKey returns the ECDSA public key.
+func (m *JWTManager) PublicKey() *ecdsa.PublicKey {
+	return m.publicKey
 }
 
 // BuildAuthCookie creates an HttpOnly, SameSite=Lax, Secure cookie

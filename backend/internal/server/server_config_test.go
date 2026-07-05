@@ -29,14 +29,14 @@ func TestParseLogLevel(t *testing.T) {
 }
 
 func TestLoadConfig_MapsEnv(t *testing.T) {
-	t.Setenv("JWT_SECRET", "strong-secret-key-at-least-32-bytes-long!!")
+	t.Setenv("JWT_PRIVATE_KEY", "strong-secret-key-at-least-32-bytes-long!!")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("REDIS_URL", "redis:6379")
 	t.Setenv("PORT", "9090")
 	t.Setenv("RESEND_API_KEY", "re_test")
 
 	cfg := loadConfig()
-	if cfg.JWTSecret == "" || cfg.Port != "9090" || cfg.RedisURL != "redis:6379" {
+	if cfg.JWTPrivateKey == "" || cfg.Port != "9090" || cfg.RedisURL != "redis:6379" {
 		t.Fatalf("loadConfig: %+v", cfg)
 	}
 	if serverEnv == nil || serverEnv.Port != "9090" {

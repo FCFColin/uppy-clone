@@ -11,8 +11,8 @@ import (
 
 // Env holds server environment configuration loaded from process env.
 type Env struct {
-	JWTSecret         string
-	AdminJWTSecret    string
+	JWTPrivateKey     string
+	JWTPublicKey      string
 	DatabaseURL       string
 	RedisURL          string
 	EncryptionKey     string
@@ -35,8 +35,8 @@ type Env struct {
 // Load reads configuration from environment variables.
 func Load() *Env {
 	return &Env{
-		JWTSecret:         os.Getenv("JWT_SECRET"),
-		AdminJWTSecret:    os.Getenv("ADMIN_JWT_SECRET"),
+		JWTPrivateKey:     os.Getenv("JWT_PRIVATE_KEY"),
+		JWTPublicKey:      os.Getenv("JWT_PUBLIC_KEY"),
 		DatabaseURL:       os.Getenv("DATABASE_URL"),
 		RedisURL:          GetEnv("REDIS_URL", "localhost:6379"),
 		EncryptionKey:     os.Getenv("ENCRYPTION_KEY"),
@@ -61,15 +61,13 @@ func Load() *Env {
 func (e *Env) Validate() error {
 	var missing []string
 
-	if e.JWTSecret == "" {
-		missing = append(missing, "JWT_SECRET")
-	} else if e.EnableHSTS && isWeakJWTSecret(e.JWTSecret) {
-		return fmt.Errorf("JWT_SECRET contains a known weak/dev value; refuse to start in production mode (set ENABLE_HSTS=false only for local dev)")
+	if e.JWTPrivateKey == "" {
+		missing = append(missing, "JWT_PRIVATE_KEY")
+	} else if e.EnableHSTS && isWeakJWTSecret(e.JWTPrivateKey) {
+		return fmt.Errorf("JWT_PRIVATE_KEY contains a known weak/dev value; refuse to start in production mode (set ENABLE_HSTS=false only for local dev)")
 	}
-	if e.EnableHSTS && e.AdminJWTSecret == "" {
-		missing = append(missing, "ADMIN_JWT_SECRET")
-	} else if e.AdminJWTSecret != "" && len(e.AdminJWTSecret) < 32 {
-		return fmt.Errorf("ADMIN_JWT_SECRET must be at least 32 bytes (256 bits) for HS256")
+	if e.EnableHSTS && e.JWTPublicKey == "" {
+		missing = append(missing, "JWT_PUBLIC_KEY")
 	}
 	if e.DatabaseURL == "" {
 		missing = append(missing, "DATABASE_URL")
@@ -117,11 +115,11 @@ func validateTrustedProxyCIDRs(raw string) error {
 	return nil
 }
 
-// GetJWTSecret returns the JWT secret.
-func (e *Env) GetJWTSecret() string { return e.JWTSecret }
+// GetJWTPrivateKey returns the JWT private key PEM.
+func (e *Env) GetJWTPrivateKey() string { return e.JWTPrivateKey }
 
-// GetAdminJWTSecret returns the admin JWT secret.
-func (e *Env) GetAdminJWTSecret() string { return e.AdminJWTSecret }
+// GetJWTPublicKey returns the JWT public key PEM.
+func (e *Env) GetJWTPublicKey() string { return e.JWTPublicKey }
 
 // GetEncryptionKey returns the encryption key.
 func (e *Env) GetEncryptionKey() string { return e.EncryptionKey }
@@ -144,20 +142,14 @@ func (e *Env) GetEnableHSTS() bool { return e.EnableHSTS }
 // GetMaxPlayersPerRoom returns the max players per room.
 func (e *Env) GetMaxPlayersPerRoom() int { return e.MaxPlayersPerRoom }
 
-// AdminJWTSecretOrUser returns ADMIN_JWT_SECRET, falling back to JWT_SECRET for local dev.
-func (e *Env) AdminJWTSecretOrUser() string {
-	if e.AdminJWTSecret != "" {
-		return e.AdminJWTSecret
-	}
-	return e.JWTSecret
-}
 
-// AuditSecretOrJWT returns AUDIT_SECRET or falls back to JWT_SECRET.
+
+// AuditSecretOrJWT returns AUDIT_SECRET or falls back to JWT_PRIVATE_KEY.
 func (e *Env) AuditSecretOrJWT() string {
 	if e.AuditSecret != "" {
 		return e.AuditSecret
 	}
-	return e.JWTSecret
+	return e.JWTPrivateKey
 }
 
 // GetEnv returns the environment variable value or a default.

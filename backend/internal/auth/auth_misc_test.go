@@ -170,7 +170,7 @@ func TestDeleteUserData_RevokesTokensFromRequest(t *testing.T) {
 	}
 	defer redisStore.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	ctx := context.Background()
 

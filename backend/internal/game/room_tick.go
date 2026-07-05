@@ -104,9 +104,9 @@ func (r *Room) tickOnce(now time.Time) {
 		return
 	}
 
-	UpdateWind(r.state)
-	UpdateBirdAI(&r.state.Bird, &r.state.Balloon, r.state.TickCount)
-	UpdateGhostAI(r.state)
+	UpdateWind(r.state, r.rng)
+	UpdateBirdAI(&r.state.Bird, &r.state.Balloon, r.state.TickCount, r.rng)
+	UpdateGhostAI(r.state, r.rng)
 	if CheckGhostCollision(r.state) {
 		if err := r.EndGameWithReason(protocol.EndReasonGhost); err != nil {
 			r.logger.Warn("failed to end game on ghost collision", "error", err)

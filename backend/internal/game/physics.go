@@ -2,15 +2,10 @@ package game
 
 import (
 	"math"
-	"math/rand/v2"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
 )
-
-func randFloat64() float64 {
-	return rand.Float64()
-}
 
 // ApplyPhysics 应用气球物理，返回 gameOver 标志
 func ApplyPhysics(balloon *domain.BalloonState) bool {
@@ -71,26 +66,26 @@ func ApplyTapForce(balloon *domain.BalloonState, tapX, tapY float64) bool {
 // ─── 风场系统 ────────────────────────────────────────────────────────
 
 // UpdateWind 更新风场（三层频率系统）
-func UpdateWind(state *domain.GameState) {
+func UpdateWind(state *domain.GameState, rng RNGSource) {
 	// === 高频微扰动 ===
 	state.WindMicroCountdown--
 	if state.WindMicroCountdown <= 0 {
-		state.Wind += (randFloat64() - 0.5) * protocol.WindJitter * 2
+		state.Wind += (rng.Float64() - 0.5) * protocol.WindJitter * 2
 		state.WindMicroCountdown = protocol.WindMicroInterval
 	}
 
 	// === 中频变化 ===
 	state.WindMidCountdown--
 	if state.WindMidCountdown <= 0 {
-		state.WindMidOffset = (randFloat64() - 0.5) * 2 * protocol.WindMidMagnitude
+		state.WindMidOffset = (rng.Float64() - 0.5) * 2 * protocol.WindMidMagnitude
 		state.WindMidCountdown = protocol.WindMidInterval
 	}
 
 	// === 大变化 ===
 	state.WindChangeCountdown--
 	if state.WindChangeCountdown <= 0 {
-		state.WindTarget = (randFloat64() - 0.5) * protocol.WindTargetSpan
-		state.WindChangeCountdown = int(float64(protocol.WindChangeInterval) * (0.5 + randFloat64()))
+		state.WindTarget = (rng.Float64() - 0.5) * protocol.WindTargetSpan
+		state.WindChangeCountdown = int(float64(protocol.WindChangeInterval) * (0.5 + rng.Float64()))
 	}
 
 	// 缓慢趋向目标风向 + 中频偏移

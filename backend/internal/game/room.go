@@ -12,6 +12,10 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
+// defaultSeedRNG is the package-level RNG for non-game operations (room codes, nicknames).
+// It is separate from per-room RNG to keep game ticks deterministic.
+var defaultSeedRNG = newSeededRNG(time.Now().UnixNano())
+
 // PlayerConn 表示一个玩家的 WebSocket 连接
 type PlayerConn struct {
 	PlayerID string
@@ -125,6 +129,10 @@ type Room struct {
 	persistMu      sync.RWMutex
 	lastPersistAt  time.Time
 	persistCh      chan persistJob
+
+	// rng is the per-room deterministic RNG for game ticks.
+	// Seed is stored in GameState for replayability.
+	rng RNGSource
 }
 
 // NewRoom 创建新房间
@@ -138,8 +146,9 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 		broadcaster = hub.broadcaster
 		instanceID = hub.instanceID
 	}
+	seed := time.Now().UnixNano()
 	r := &Room{
-		state:       NewGameState(code),
+		state:       NewGameState(code, newSeededRNG(seed)),
 		usedNames:   make(map[string]bool),
 		connections: make(map[string]*PlayerConn),
 		hub:         hub,
@@ -151,6 +160,7 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 		broadcaster: broadcaster,
 		startDelay:  2000 * time.Millisecond,
 		lobbyCode:   code,
+		rng:         newSeededRNG(seed),
 	}
 	r.outbound = NewOutboundManager(code, instanceID, &r.syncOutbound, broadcaster, r, r.logger, &r.asyncWg)
 	return r

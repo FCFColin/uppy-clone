@@ -182,7 +182,7 @@ func TestIssueQuickPlayCredentials(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
 
@@ -203,7 +203,7 @@ func TestIssueQuickPlayCredentials_RefreshError(t *testing.T) {
 	defer mr.Close()
 	mr.SetError("redis unavailable")
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
 
@@ -220,7 +220,7 @@ func TestIssueQuickPlayCredentials_SignTokenError(t *testing.T) {
 	}
 	defer mr.Close()
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
 	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
 

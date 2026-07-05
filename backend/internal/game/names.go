@@ -1,8 +1,6 @@
 package game
 
 import (
-	"math/rand/v2"
-
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/nicknames"
 	"github.com/uppy-clone/backend/internal/validate"
@@ -11,10 +9,10 @@ import (
 const roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 // GenerateRoomCode 生成 config.RoomCodeLen 字符房间码
-func GenerateRoomCode() string {
+func GenerateRoomCode(rng RNGSource) string {
 	code := make([]byte, config.RoomCodeLen)
 	for i := range code {
-		code[i] = roomAlphabet[rand.IntN(len(roomAlphabet))]
+		code[i] = roomAlphabet[rng.IntN(len(roomAlphabet))]
 	}
 	return string(code)
 }

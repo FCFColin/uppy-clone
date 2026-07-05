@@ -31,12 +31,12 @@ func newTestRouter(t *testing.T) *chi.Mux {
 
 	prevEnv := serverEnv
 	serverEnv = &appConfig.Env{
-		JWTSecret:         testsecrets.TestJWTSecret,
+		JWTSecret:         testsecrets.TestJWTPrivateKeyPEM,
 		TrustedProxyCIDRs: "127.0.0.1/32",
 	}
 	t.Cleanup(func() { serverEnv = prevEnv })
 
-	jwtSecret := testsecrets.TestJWTSecret
+	jwtSecret := testsecrets.TestJWTPrivateKeyPEM
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 	adminJwtMgr := auth.NewJWTManager(jwtSecret)
 	timeouts := appConfig.DefaultTimeoutConfig()
@@ -123,7 +123,7 @@ func TestSetupRoutes_AdminPutConfigUnauthorized(t *testing.T) {
 }
 
 func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
-	jwtSecret := testsecrets.TestJWTSecret
+	jwtSecret := testsecrets.TestJWTPrivateKeyPEM
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 
 	mock, err := pgxmock.NewPool()
@@ -213,7 +213,7 @@ func TestSetupRoutes_MagicLinkRequestBadRequest(t *testing.T) {
 }
 
 func TestAuthMiddlewareWrapper_RejectsMissingAuth(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	mw := authMiddlewareWrapper(jwtMgr, nil)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -227,7 +227,7 @@ func TestAuthMiddlewareWrapper_RejectsMissingAuth(t *testing.T) {
 }
 
 func TestAdminAuthMiddleware_RejectsMissingToken(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	adminHandler := handler.NewAdminHandler(nil, jwtMgr, nil)
 	mw := adminAuthMiddleware(adminHandler)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +266,7 @@ func TestInitHandlers(t *testing.T) {
 	serverEnv = &appConfig.Env{AllowedOrigins: "http://localhost"}
 	t.Cleanup(func() { serverEnv = prevEnv })
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	cfg := &handler.Config{}
 	hub := game.NewHub(nil, nil, appConfig.DefaultTimeoutConfig(), 0, 0, nil)
 	redisStore := testutil.SetupMiniredisStore(t)
@@ -318,7 +318,7 @@ func TestStartServer_StartsAndShutsDown(t *testing.T) {
 
 func TestSetupStatsRoutes_NilHandlerSkipsRoutes(t *testing.T) {
 	r := chi.NewRouter()
-	setupStatsRoutes(r, nil, nil, auth.NewJWTManager(testsecrets.TestJWTSecret), rbac.NewEnforcer())
+	setupStatsRoutes(r, nil, nil, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), rbac.NewEnforcer())
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard", nil))
 	if rec.Code != http.StatusNotFound {
@@ -367,7 +367,7 @@ func TestSetupStaticRoutes_PathTraversalBlocked(t *testing.T) {
 }
 
 func TestAuthMiddlewareWrapper_AcceptsValidToken(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTSecret)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	redisStore := testutil.SetupMiniredisStore(t)
 	token, err := jwtMgr.SignToken("user-wrap", "Nick")
 	if err != nil {

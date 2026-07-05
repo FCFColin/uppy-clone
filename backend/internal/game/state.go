@@ -9,9 +9,9 @@ import (
 )
 
 // NewGameState 创建默认游戏状态（对应 TS createDefaultGameState）
-func NewGameState(lobbyCode string) *domain.GameState {
-	spawnTimer := RandomSpawnTimer()
-	ghost := spawnGhost()
+func NewGameState(lobbyCode string, rng RNGSource) *domain.GameState {
+	spawnTimer := RandomSpawnTimer(rng)
+	ghost := spawnGhost(rng)
 
 	state := &domain.GameState{
 		Phase:             domain.PhaseWaiting,
@@ -27,18 +27,18 @@ func NewGameState(lobbyCode string) *domain.GameState {
 		RestartVotes:      make(map[string]bool),
 		RestartTimerStart: nil,
 	}
-	initWind(state)
+	initWind(state, rng)
 	return state
 }
 
 // ResetGameEntities 重置游戏实体（气球、鸟、幽灵），保留玩家列表
-func ResetGameEntities(state *domain.GameState, spawnTimer int) {
+func ResetGameEntities(state *domain.GameState, spawnTimer int, rng RNGSource) {
 	state.Balloon = createInitialBalloon()
 	state.Bird = createInitialBird(spawnTimer)
-	state.Ghost = spawnGhost()
+	state.Ghost = spawnGhost(rng)
 	state.TickCount = 0
 
-	initWind(state)
+	initWind(state, rng)
 
 	// 重置重启投票
 	state.RestartVotes = make(map[string]bool)
@@ -69,8 +69,8 @@ func DeserializeState(data []byte) (*domain.GameState, error) {
 }
 
 // initWind 初始化风场状态（随机风速和风向 + 倒计时）
-func initWind(state *domain.GameState) {
-	wind, windTarget := initialWind()
+func initWind(state *domain.GameState, rng RNGSource) {
+	wind, windTarget := initialWind(rng)
 	state.Wind = wind
 	state.WindTarget = windTarget
 	state.WindChangeCountdown = 112
@@ -83,8 +83,8 @@ func initWind(state *domain.GameState) {
 
 // initialWind 生成随机初始风速和风向。
 // 游戏一开始就应有风场，让玩家立即感受到环境互动。
-func initialWind() (wind, windTarget float64) {
-	windTarget = (randFloat64() - 0.5) * protocol.WindTargetSpan
+func initialWind(rng RNGSource) (wind, windTarget float64) {
+	windTarget = (rng.Float64() - 0.5) * protocol.WindTargetSpan
 	// 初始风速设为目标值的 60%，使风场立即可感知但不至于过强
 	wind = windTarget * 0.6
 	if wind > protocol.WindClamp {
@@ -120,14 +120,14 @@ func createInitialBird(spawnTimer int) domain.BirdState {
 }
 
 // spawnGhost 生成新幽灵（对应 TS spawnGhost(1,1)）
-func spawnGhost() domain.GhostState {
+func spawnGhost(rng RNGSource) domain.GhostState {
 	// 在可见区域内随机生成（避开边缘 15% 和气球起始位置附近）
 	// x: 0.15-0.85，y: 0.3-0.75
-	x := 0.15 + randFloat64()*0.7
-	y := 0.3 + randFloat64()*0.45
+	x := 0.15 + rng.Float64()*0.7
+	y := 0.3 + rng.Float64()*0.45
 
 	// 初始速度：随机方向漫步
-	angle := randFloat64() * 2 * math.Pi
+	angle := rng.Float64() * 2 * math.Pi
 	vx := math.Cos(angle) * protocol.GhostSpeed
 	vy := math.Sin(angle) * protocol.GhostSpeed
 
@@ -137,7 +137,7 @@ func spawnGhost() domain.GhostState {
 		VX:         vx,
 		VY:         vy,
 		Active:     true,
-		SpawnTimer: int(protocol.GhostSpawnMin + randFloat64()*float64(protocol.GhostSpawnMax-protocol.GhostSpawnMin)),
+		SpawnTimer: int(protocol.GhostSpawnMin + rng.Float64()*float64(protocol.GhostSpawnMax-protocol.GhostSpawnMin)),
 		RepelTimer: 0,
 	}
 }

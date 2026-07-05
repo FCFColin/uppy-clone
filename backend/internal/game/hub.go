@@ -37,7 +37,7 @@ type Hub struct {
 }
 
 // generateRoomCodeFn generates room codes; tests may replace it to simulate conflicts.
-var generateRoomCodeFn = GenerateRoomCode
+var generateRoomCodeFn = func() string { return GenerateRoomCode(defaultSeedRNG) }
 
 // SetGenerateRoomCodeHook overrides room code generation in tests and returns a restore func.
 func SetGenerateRoomCodeHook(fn func() string) (restore func()) {
