@@ -1,6 +1,9 @@
 package domain
 
 import (
+	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -79,10 +82,132 @@ func TestEventTypes(t *testing.T) {
 		PlayerLeft{RoomCode: "ABCD2", At: now},
 		GameEnded{RoomCode: "ABCD2", At: now},
 		PhaseChanged{RoomCode: "ABCD2", At: now},
+		UserHardDeleted{UserID: "u1", At: now},
 	}
 	for _, e := range events {
 		if e.EventType() == "" || e.OccurredAt().IsZero() {
 			t.Errorf("invalid event %T", e)
 		}
+	}
+}
+
+func TestUserHardDeletedEvent(t *testing.T) {
+	now := time.Now()
+	e := UserHardDeleted{UserID: "u1", At: now}
+	if et := e.EventType(); et != "user.hard_deleted" {
+		t.Errorf("EventType = %q, want %q", et, "user.hard_deleted")
+	}
+	if at := e.OccurredAt(); at != now {
+		t.Errorf("OccurredAt = %v, want %v", at, now)
+	}
+}
+
+func TestContextKey_WithValue(t *testing.T) {
+	ctx := context.Background()
+	ctx = ContextKeyUserID.WithValue(ctx, "user123")
+	val, ok := ContextKeyUserID.Value(ctx)
+	if !ok {
+		t.Error("Value should return ok=true for set key")
+	}
+	if val != "user123" {
+		t.Errorf("Value = %q, want %q", val, "user123")
+	}
+}
+
+func TestContextKey_Value_NotFound(t *testing.T) {
+	ctx := context.Background()
+	_, ok := ContextKeyUserID.Value(ctx)
+	if ok {
+		t.Error("Value should return ok=false for unset key")
+	}
+}
+
+func TestContextKey_WrongType(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ContextKeyUserID, 42)
+	_, ok := ContextKeyUserID.Value(ctx)
+	if ok {
+		t.Error("Value should return ok=false for wrong value type")
+	}
+}
+
+func TestContextKey_MultipleKeys(t *testing.T) {
+	ctx := context.Background()
+	ctx = ContextKeyUserID.WithValue(ctx, "u1")
+	ctx = ContextKeyNickname.WithValue(ctx, "nick1")
+	ctx = ContextKeyRole.WithValue(ctx, "admin")
+	ctx = ContextKeyJTI.WithValue(ctx, "jti1")
+
+	val, ok := ContextKeyUserID.Value(ctx)
+	if !ok || val != "u1" {
+		t.Errorf("ContextKeyUserID = %q, ok=%v", val, ok)
+	}
+	val, ok = ContextKeyNickname.Value(ctx)
+	if !ok || val != "nick1" {
+		t.Errorf("ContextKeyNickname = %q, ok=%v", val, ok)
+	}
+	val, ok = ContextKeyRole.Value(ctx)
+	if !ok || val != "admin" {
+		t.Errorf("ContextKeyRole = %q, ok=%v", val, ok)
+	}
+	val, ok = ContextKeyJTI.Value(ctx)
+	if !ok || val != "jti1" {
+		t.Errorf("ContextKeyJTI = %q, ok=%v", val, ok)
+	}
+}
+
+func TestUnmarshalRoomRegistryInfo(t *testing.T) {
+	data := []byte(`{"code":"ABCD2","instance":"i1","address":"addr","created_at":1000}`)
+	info, err := UnmarshalRoomRegistryInfo(data)
+	if err != nil {
+		t.Fatalf("UnmarshalRoomRegistryInfo: %v", err)
+	}
+	if info.Code != "ABCD2" {
+		t.Errorf("Code = %q, want %q", info.Code, "ABCD2")
+	}
+	if info.Instance != "i1" {
+		t.Errorf("Instance = %q, want %q", info.Instance, "i1")
+	}
+	if info.Address != "addr" {
+		t.Errorf("Address = %q, want %q", info.Address, "addr")
+	}
+	if info.CreatedAt != 1000 {
+		t.Errorf("CreatedAt = %d, want %d", info.CreatedAt, 1000)
+	}
+}
+
+func TestUnmarshalRoomRegistryInfo_InvalidJSON(t *testing.T) {
+	_, err := UnmarshalRoomRegistryInfo([]byte(`{invalid}`))
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestGameState_SerializeDeserialize(t *testing.T) {
+	original := &GameState{
+		Players: map[string]*PlayerState{
+			"p1": {ID: "p1", ScoreContribution: 100},
+		},
+		Phase: PhasePlaying,
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var restored GameState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if restored.Phase != original.Phase {
+		t.Errorf("Phase mismatch: %v vs %v", restored.Phase, original.Phase)
+	}
+	if !reflect.DeepEqual(restored.Players["p1"], original.Players["p1"]) {
+		t.Errorf("Players mismatch: %+v vs %+v", restored.Players["p1"], original.Players["p1"])
+	}
+}
+
+func TestGameState_BadJSON(t *testing.T) {
+	var gs GameState
+	if err := json.Unmarshal([]byte(`{bad json}`), &gs); err == nil {
+		t.Error("expected unmarshal error")
 	}
 }

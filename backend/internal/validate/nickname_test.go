@@ -130,3 +130,39 @@ func TestNickname_WhitespaceHandling(t *testing.T) {
 		}
 	}
 }
+
+func TestNicknameValidatorFunc(t *testing.T) {
+	fn := NicknameValidatorFunc(func(s string) string {
+		return "fixed"
+	})
+	if got := fn.ValidateNickname("anything"); got != "fixed" {
+		t.Errorf("ValidateNickname = %q, want %q", got, "fixed")
+	}
+}
+
+func TestDefaultValidator(t *testing.T) {
+	got := DefaultValidator.ValidateNickname("<script>alert(1)</script>")
+	if len(got) >= len("<script>alert(1)</script>") {
+		t.Errorf("DefaultValidator should strip HTML: got %q", got)
+	}
+	if got != Nickname("<script>alert(1)</script>") {
+		t.Errorf("DefaultValidator result should match Nickname: got %q, Nickname gave %q", got, Nickname("<script>alert(1)</script>"))
+	}
+}
+
+func TestNickname_ControlStripping(t *testing.T) {
+	got := Nickname("hello\nworld")
+	if got != "helloworld" {
+		t.Errorf("Nickname with newline = %q, want %q", got, "helloworld")
+	}
+
+	got = Nickname("tab\there")
+	if got != "tabhere" {
+		t.Errorf("Nickname with tab = %q, want %q", got, "tabhere")
+	}
+
+	got = Nickname("\r\n")
+	if got != "" {
+		t.Errorf("Nickname with only CRLF = %q, want empty", got)
+	}
+}
