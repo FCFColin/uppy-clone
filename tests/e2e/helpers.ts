@@ -60,3 +60,16 @@ export async function createRoom(page: Page): Promise<string> {
   await quickplayAuth(page);
   return await matchRoom(page);
 }
+
+/** 快速认证+进入房间并提交昵称，返回 room code */
+export async function createTestUser(page: Page, nickname: string): Promise<string> {
+  const code = await createRoom(page);
+  await connectToRoom(page, code);
+  await submitNickname(page, nickname);
+  return code;
+}
+
+/** 通过 UI 进入房间（导航 + WS 连接 + 昵称提交 + 等待 waiting 页面）返回 room code */
+export async function createRoomViaUI(page: Page, nickname = 'host'): Promise<string> {
+  return await createTestUser(page, nickname);
+}
