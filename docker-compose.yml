@@ -1,10 +1,11 @@
 name: uppy-clone
+# Environment variables can be set in a .env file (see .env.example for reference).
 services:
   migrate:
     build: .
     entrypoint: ["./server", "-migrate-only"]
     environment:
-      - DATABASE_URL=postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL:-postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable}
     depends_on:
       postgres:
         condition: service_healthy
@@ -15,7 +16,7 @@ services:
     environment:
       # Production: use app_user instead of uppy for least privilege
       # DATABASE_URL=postgres://app_user:password@postgres:5432/uppy?sslmode=disable
-      - DATABASE_URL=postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL:-postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-dev-redis-secret}@redis:6379
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
@@ -43,7 +44,7 @@ services:
     image: postgres:16.4-alpine3.20
     environment:
       POSTGRES_USER: uppy
-      POSTGRES_PASSWORD: uppy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-uppy}
       POSTGRES_DB: uppy
     ports:
       # Host port 5434 to avoid conflict with native postgresql-x64-16 on 5432.
@@ -93,7 +94,7 @@ services:
       - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
