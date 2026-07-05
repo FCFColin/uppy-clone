@@ -17,15 +17,42 @@ provider "google" {
   region  = var.region
 }
 
+data "google_compute_network" "balloon_vpc" {
+  name = var.vpc_name
+}
+
+# Reserved IP range for private services (VPC peering with Google services).
+resource "google_compute_global_address" "private_ip_range" {
+  name          = "balloon-game-private-ip-range"
+  purpose       = "VPC_PEERING"
+  address_type  = "INTERNAL"
+  prefix_length = 16
+  network       = data.google_compute_network.balloon_vpc.id
+}
+
+resource "google_service_networking_connection" "private_vpc_connection" {
+  network                 = data.google_compute_network.balloon_vpc.id
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.private_ip_range.name]
+}
+
 # PostgreSQL instance
 resource "google_sql_database_instance" "uppy_db" {
   name             = "uppy-db"
   database_version = "POSTGRES_16"
   region           = var.region
+  depends_on = [
+    google_service_networking_connection.private_vpc_connection
+  ]
   settings {
     tier = "db-f1-micro"
     backup_configuration {
       enabled = true
+    }
+    ip_configuration {
+      ipv4_enabled    = false
+      private_network = data.google_compute_network.balloon_vpc.id
+      require_ssl     = true
     }
   }
   deletion_protection = true

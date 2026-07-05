@@ -14,3 +14,9 @@ variable "db_password" {
   type        = string
   sensitive   = true
 }
+
+variable "vpc_name" {
+  description = "VPC network name for private Cloud SQL and Redis"
+  type        = string
+  default     = "default"
+}
