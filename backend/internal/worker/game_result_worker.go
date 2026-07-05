@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,13 +22,14 @@ type gameResultDB interface {
 // GameResultWorker consumes game:results Redis Stream and batch-inserts into PostgreSQL.
 // 企业为何需要：游戏结束热路径不应被 PG 写入延迟阻塞，批量写入提升吞吐 10-50x。
 type GameResultWorker struct {
-	rdb *redis.Client
-	db  gameResultDB
+	rdb        *redis.Client
+	db         gameResultDB
+	maxRetries int
 }
 
 // NewGameResultWorker creates a new GameResultWorker.
 func NewGameResultWorker(rdb *redis.Client, db *pgxpool.Pool) *GameResultWorker {
-	return &GameResultWorker{rdb: rdb, db: db}
+	return &GameResultWorker{rdb: rdb, db: db, maxRetries: 5}
 }
 
 // GameResultPayload is the message format for game results.
@@ -138,7 +140,8 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 	tx, err := w.db.Begin(ctx)
 	if err != nil {
 		slog.Error("game result worker: begin tx", "error", err)
-		return // 不 ACK，等待重试
+		w.handleTransientFailure(ctx, msg, err)
+		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -150,7 +153,8 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 		 ON CONFLICT (id) DO UPDATE SET status = 'ended', ended_at = EXCLUDED.ended_at, final_score = EXCLUDED.final_score`,
 		payload.GameID, payload.RoomCode, payload.EndedAt, payload.FinalScore); err != nil {
 		slog.Error("game result worker: upsert session", "error", err, "game_id", payload.GameID)
-		return // 不 ACK，等待重试
+		w.handleTransientFailure(ctx, msg, err)
+		return
 	}
 
 	for _, r := range payload.Results {
@@ -161,14 +165,43 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 			 ON CONFLICT (id) DO NOTHING`,
 			resultID, payload.GameID, r.UserID, r.ScoreContribution, r.TapsCount, payload.EndedAt); err != nil {
 			slog.Error("game result worker: insert result", "error", err, "game_id", payload.GameID)
-			return // 不 ACK，等待重试
+			w.handleTransientFailure(ctx, msg, err)
+			return
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		slog.Error("game result worker: commit", "error", err, "game_id", payload.GameID)
-		return // 不 ACK，等待重试
+		w.handleTransientFailure(ctx, msg, err)
+		return
 	}
 
 	w.ackMessage(ctx, msg.ID)
+}
+
+// handleTransientFailure implements max-retry with dead-letter for transient failures.
+func (w *GameResultWorker) handleTransientFailure(ctx context.Context, msg redis.XMessage, _ error) {
+	retryCount := 0
+	if rcStr, ok := msg.Values["retry_count"].(string); ok {
+		if n, err := strconv.Atoi(rcStr); err == nil {
+			retryCount = n
+		}
+	}
+
+	if retryCount >= w.maxRetries {
+		w.rdb.XAdd(ctx, &redis.XAddArgs{
+			Stream: "game-result:dead-letter",
+			Values: msg.Values,
+		})
+		w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
+		slog.Error("game result worker: moved to dead-letter after max retries", "id", msg.ID, "retries", retryCount)
+		return
+	}
+
+	msg.Values["retry_count"] = strconv.Itoa(retryCount + 1)
+	w.rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: "game:results",
+		Values: msg.Values,
+	})
+	w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
 }
