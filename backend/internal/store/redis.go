@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -26,17 +28,24 @@ func NewRedisStore(redisURL string, timeouts config.TimeoutConfig) (*RedisStore,
 	poolSize := config.GetEnvIntPositive("REDIS_POOL_SIZE", 20)
 	minIdleConns := config.GetEnvIntPositive("REDIS_MIN_IDLE_CONNS", 5)
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:            conn.Addr,
-		Password:        conn.Password,
-		PoolSize:        poolSize,
-		MinIdleConns:    minIdleConns,
-		PoolTimeout:     4 * time.Second,
+	opts := &redis.Options{
+		Addr: conn.Addr,
+		Password: conn.Password,
+		PoolSize: poolSize,
+		MinIdleConns: minIdleConns,
+		PoolTimeout: 4 * time.Second,
 		ConnMaxIdleTime: 5 * time.Minute,
-		ReadTimeout:     timeouts.RedisReadTimeout,
-		WriteTimeout:    timeouts.RedisWriteTimeout,
-		MaxRetries:      0,
-	})
+		ReadTimeout: timeouts.RedisReadTimeout,
+		WriteTimeout: timeouts.RedisWriteTimeout,
+		MaxRetries: 0,
+	}
+	if strings.HasPrefix(redisURL, "rediss://") {
+		opts.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+
+	rdb := redis.NewClient(opts)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeouts.RedisConnectTimeout)
 	defer cancel()

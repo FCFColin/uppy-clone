@@ -20,6 +20,7 @@ func setupMiddleware(r *chi.Mux) {
 	r.Use(chiMiddleware.Logger)
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.RequestID)
+	r.Use(appMiddleware.Recovery)
 	r.Use(appMiddleware.RequestIDLogger)
 	r.Use(appMiddleware.TracingMiddleware)
 	r.Use(appMiddleware.PrometheusMiddleware)
