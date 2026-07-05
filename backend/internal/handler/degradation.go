@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/sony/gobreaker/v2"
+
 	"github.com/uppy-clone/backend/internal/apierror"
 )
 
@@ -59,4 +61,26 @@ func RequireHubDegraded(hub GameService, w http.ResponseWriter, status int, payl
 	}
 	WriteDegradedJSON(w, status, payload, message)
 	return false
+}
+
+// IsDegraded returns true if any circuit breaker is in an open or half-open state.
+func IsDegraded(cbs ...*gobreaker.CircuitBreaker[any]) bool {
+	for _, cb := range cbs {
+		if cb != nil {
+			state := cb.State()
+			if state == gobreaker.StateOpen || state == gobreaker.StateHalfOpen {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// DegradedHandler returns an HTTP handler that reports overall degradation status
+// based on the provided circuit breakers. Returns { "degraded": true/false }.
+func DegradedHandler(cbs ...*gobreaker.CircuitBreaker[any]) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"degraded": IsDegraded(cbs...)})
+	}
 }

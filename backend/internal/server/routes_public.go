@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	goredis "github.com/redis/go-redis/v9"
+	"github.com/sony/gobreaker/v2"
 
 	"github.com/uppy-clone/backend/internal/auth"
 	appConfig "github.com/uppy-clone/backend/internal/config"
@@ -45,6 +46,16 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, redis *sto
 	r.Get("/health", healthChecker.ReadyHandler)
 
 	r.Handle("/metrics", metricsAuthMiddleware(promhttp.Handler()))
+
+	// ─── Degradation detection ──────────────────────────────────────────
+	var cbs []*gobreaker.CircuitBreaker[any]
+	if db != nil {
+		cbs = append(cbs, db.CircuitBreaker())
+	}
+	if redis != nil {
+		cbs = append(cbs, redis.CircuitBreaker())
+	}
+	r.Get("/health/degraded", handler.DegradedHandler(cbs...))
 }
 
 // setupAuthRoutes registers auth and user-data (GDPR) routes.

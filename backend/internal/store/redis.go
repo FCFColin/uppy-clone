@@ -71,6 +71,9 @@ func NewRedisStoreFromClient(rdb *redis.Client) *RedisStore {
 // PoolStats returns the underlying Redis connection pool statistics.
 func (s *RedisStore) PoolStats() *redis.PoolStats { return s.rdb.PoolStats() }
 
+// CircuitBreaker returns the Redis circuit breaker for degradation detection.
+func (s *RedisStore) CircuitBreaker() *gobreaker.CircuitBreaker[any] { return s.cb }
+
 // Client exposes the underlying go-redis client for advanced use cases.
 func (s *RedisStore) Client() *redis.Client { return s.rdb }
 

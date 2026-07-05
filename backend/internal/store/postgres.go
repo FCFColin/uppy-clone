@@ -98,6 +98,9 @@ func NewPostgresStoreWithPool(pool pgPool) *PostgresStore {
 	}
 }
 
+// CircuitBreaker returns the PostgreSQL circuit breaker for degradation detection.
+func (s *PostgresStore) CircuitBreaker() *gobreaker.CircuitBreaker[any] { return s.cb }
+
 // Close releases the connection pool.
 func (s *PostgresStore) Close() {
 	s.pool.Close()
