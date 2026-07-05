@@ -4,11 +4,15 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/testsecrets"
@@ -277,5 +281,102 @@ func TestAuth_RevokeAllForUser(t *testing.T) {
 	_, err = refreshMgr.Validate(ctx, token2)
 	if err == nil {
 		t.Fatal("expected token2 to be revoked")
+	}
+}
+
+func TestAuth_ExpiredToken(t *testing.T) {
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"sub":      "user-exp",
+		"nickname": "Expired",
+		"jti":      "test-jti-exp",
+		"exp":      now.Add(-1 * time.Minute).Unix(),
+		"iat":      now.Add(-2 * time.Minute).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	tokenStr, err := token.SignedString(jwtMgr.PrivateKey())
+	if err != nil {
+		t.Fatalf("sign expired token: %v", err)
+	}
+
+	_, _, _, err = jwtMgr.VerifyToken(tokenStr)
+	if err == nil {
+		t.Fatal("expected error for expired token")
+	}
+}
+
+func TestAuth_InvalidJWTManager(t *testing.T) {
+	ephemeralMgr := auth.NewJWTManager("")
+	testMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+
+	token, err := testMgr.SignToken("user-diff", "DiffKey")
+	if err != nil {
+		t.Fatalf("SignToken: %v", err)
+	}
+
+	_, _, _, err = ephemeralMgr.VerifyToken(token)
+	if err == nil {
+		t.Fatal("expected verification failure with different key")
+	}
+}
+
+func TestAuth_ConcurrentQuickplay(t *testing.T) {
+	db := testutil.SetupPostgresStore(t)
+	redisStore := testutil.SetupMiniredisStore(t)
+
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
+
+	const goroutines = 5
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	userIDs := make(map[string]bool)
+	var errs []error
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			nickname := fmt.Sprintf("ConcurrentPlayer%d", idx)
+			req := httptest.NewRequest(http.MethodPost, "https://example.com/quickplay", strings.NewReader(`{"nickname":"`+nickname+`"}`))
+
+			cookie, resp, err := auth.QuickPlay(db, jwtMgr, refreshMgr, nil, nickname, req)
+			mu.Lock()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("goroutine %d: %w", idx, err))
+				mu.Unlock()
+				return
+			}
+			if cookie == nil {
+				errs = append(errs, fmt.Errorf("goroutine %d: nil cookie", idx))
+				mu.Unlock()
+				return
+			}
+			if resp == nil {
+				errs = append(errs, fmt.Errorf("goroutine %d: nil response", idx))
+				mu.Unlock()
+				return
+			}
+			if resp.UserID == "" {
+				errs = append(errs, fmt.Errorf("goroutine %d: empty UserID", idx))
+				mu.Unlock()
+				return
+			}
+			if userIDs[resp.UserID] {
+				errs = append(errs, fmt.Errorf("goroutine %d: duplicate UserID %q", idx, resp.UserID))
+			}
+			userIDs[resp.UserID] = true
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+
+	if len(errs) > 0 {
+		t.Fatalf("errors: %v", errs)
+	}
+	if len(userIDs) != goroutines {
+		t.Fatalf("expected %d unique user IDs, got %d", goroutines, len(userIDs))
 	}
 }

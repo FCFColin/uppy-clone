@@ -150,7 +150,7 @@ func TestWSHandler_ForbiddenOriginRejected(t *testing.T) {
 	}
 }
 
-func TestWSHandler_RateLimit(t *testing.T) {
+func TestWSHandler_ConnectionLimit(t *testing.T) {
 	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 2, 50, nil)
 	lobbyHandler := handler.NewLobbyHandler(hub, []string{"http://localhost"})
 
@@ -196,7 +196,7 @@ func TestWSHandler_RateLimit(t *testing.T) {
 	hdr3.Set("X-Test-User-ID", "user2")
 	_, resp3, err := dialer.Dial("ws"+server.URL[4:]+"/lobby/"+code+"/ws", hdr3)
 	if err == nil {
-		t.Fatal("expected dial 3 to fail (rate limit)")
+		t.Fatal("expected dial 3 to fail (connection limit)")
 	}
 	if resp3 == nil {
 		t.Fatal("expected HTTP response")
