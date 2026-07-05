@@ -58,8 +58,7 @@ export function createInitialState(): ClientState {
 export function gameReducer(state: ClientState, action: GameAction): ClientState {
   switch (action.type) {
     case 'SET_STATE':
-      Object.assign(state, action.partial);
-      return state;
+      return { ...state, ...action.partial };
     case 'ADD_RIPPLE':
       state.ripples = [...state.ripples, action.ripple];
       return state;
@@ -69,9 +68,7 @@ export function gameReducer(state: ClientState, action: GameAction): ClientState
     case 'RESET_ROUND':
       return resetRound(state);
     case 'RESET_ALL': {
-      const fresh = createInitialState();
-      Object.assign(state, fresh);
-      return state;
+      return { ...state, ...createInitialState() };
     }
     default:
       return state;
