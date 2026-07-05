@@ -1,0 +1,43 @@
+groups:
+  - name: balloon-game
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Error rate > 5% over 5 minutes"
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 latency > 500ms over 5 minutes"
+
+      - alert: ConnectionPoolExhaustion
+        expr: pgxpool_acquire_count - pgxpool_release_count > 20
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool near exhaustion"
+
+      - alert: DiskUsageHigh
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk usage > 85%"
+
+      - alert: MemoryUsageHigh
+        expr: process_resident_memory_bytes / 1073741824 > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory usage > 90%"
