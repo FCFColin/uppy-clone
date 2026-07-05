@@ -91,9 +91,13 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 					detectMultiIPLogin(r.Context(), provider.Client(), userId, requestctx.ExtractClientIP(r))
 				}
 			}
-			// Inject user_id into slog context for structured logging
+			// Inject user_id and role into slog context for structured logging
 			if logger := slogctx.LoggerFromContext(ctx); logger != nil {
 				logger = logger.With("user_id", userId)
+				ctx = slogctx.WithLogger(ctx, logger)
+			}
+			if logger := slogctx.LoggerFromContext(ctx); logger != nil {
+				logger = logger.With("role", "user")
 				ctx = slogctx.WithLogger(ctx, logger)
 			}
 			next(w, r.WithContext(ctx))
