@@ -76,6 +76,11 @@ func RecordWSMessage(msgType string, d time.Duration) {
 	WSMessageDuration.WithLabelValues(msgType).Observe(d.Seconds())
 }
 
+// RecordGameTickDuration records a single game tick duration in milliseconds.
+func RecordGameTickDuration(d time.Duration) {
+	GameTickDuration.Observe(float64(d.Milliseconds()))
+}
+
 // RecordRoomLockHold records how long Room.mu was held for an operation.
 func RecordRoomLockHold(operation string, d time.Duration) {
 	RoomLockHoldSeconds.WithLabelValues(operation).Observe(d.Seconds())

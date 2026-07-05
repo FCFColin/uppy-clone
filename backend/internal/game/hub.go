@@ -9,6 +9,7 @@ import (
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/metrics"
 )
 
 // RoomInfo 房间摘要信息
@@ -86,6 +87,7 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 
 	room := NewRoom(code, h, h.store, h.timeouts, h.maxPlayersPerRoom)
 	h.rooms[code] = room
+	metrics.ActiveRooms.Set(float64(len(h.rooms)))
 	h.mu.Unlock()
 
 	h.subscribeRoom(code)
@@ -100,6 +102,7 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 	})
 
 	h.logger.Info("room created", "code", code)
+	metrics.ActiveRooms.Set(float64(len(h.rooms)))
 	if _, err := domain.NewRoomCode(code); err != nil {
 		h.logger.Error("generated invalid room code", "code", code, "error", err)
 	}
@@ -138,6 +141,7 @@ func (h *Hub) CloseAllRooms() {
 		h.unsubscribeRoomLocked(code)
 		h.logger.Info("room closed on shutdown", "code", code)
 	}
+	metrics.ActiveRooms.Set(0)
 }
 
 // CheckRoom 检查房间是否存在

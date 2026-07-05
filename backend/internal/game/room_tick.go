@@ -66,6 +66,7 @@ func (r *Room) tick(ctx context.Context) {
 			tickCount := r.state.TickCount
 			recordRoomLock("tick", start)
 			r.mu.Unlock()
+			recordGameTickDuration(start)
 
 			if tickCount > 0 && tickCount%30 == 0 {
 				r.asyncSaveState()

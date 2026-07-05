@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/uppy-clone/backend/internal/audit"
+	"github.com/uppy-clone/backend/internal/metrics"
 )
 
 type removeRoomOptions struct {
@@ -19,6 +20,7 @@ func (h *Hub) removeRoomFromMemory(code string, logMsg string) *Room {
 		room = r
 		delete(h.rooms, code)
 		h.unsubscribeRoomLocked(code)
+		metrics.ActiveRooms.Set(float64(len(h.rooms)))
 		if logMsg != "" {
 			h.logger.Info(logMsg, "code", code)
 		}

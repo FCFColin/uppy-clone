@@ -174,6 +174,15 @@ var (
 		Buckets: []float64{0.1, 0.25, 0.5, 1.0, 2.0, 5.0},
 	}, []string{})
 
+	// GameTickDuration records game tick processing time in milliseconds.
+	GameTickDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "game_tick_duration_milliseconds",
+			Help:    "Game tick processing time in milliseconds",
+			Buckets: []float64{0.1, 0.5, 1, 2.5, 5, 10, 25, 50, 100},
+		},
+	)
+
 	// WSConnectionTotal counts WebSocket connection attempts by status.
 	WSConnectionTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_connection_total",
