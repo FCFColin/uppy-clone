@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { END_REASON, endReasonLabel } from './phase_sync.js';
+import { END_REASON, endReasonLabel } from './local_constants.js';
 
 describe('END_REASON constants', () => {
   it('has correct integer values', () => {

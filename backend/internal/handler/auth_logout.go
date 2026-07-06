@@ -3,6 +3,8 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/uppy-clone/backend/internal/auth"
 )
 
 // Logout handles POST /api/v1/auth/logout
@@ -14,7 +16,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	refreshToken := refreshTokenFromRequest(r)
+	refreshToken := auth.RefreshTokenFromRequest(r)
 	if refreshToken == "" {
 		refreshToken = body.RefreshToken
 	}
@@ -24,10 +26,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	h.auth.RevokeAllTokens(ctx, r)
 
-	secure := isSecure(r)
-	http.SetCookie(w, buildAuthCookie("quickplay", "", -1, secure))
-	http.SetCookie(w, buildAuthCookie("session", "", -1, secure))
-	http.SetCookie(w, buildRefreshCookie("", secure))
+	clearAuthCookies(w, isSecure(r))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

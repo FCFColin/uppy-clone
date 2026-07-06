@@ -17,16 +17,10 @@ export function showReconnectBanner(attempt: number): void {
 export function updatePingDisplay(rttMs: number): void {
   const $ping: HTMLElement | null = document.getElementById('ping-display');
   if (!$ping) return;
-  if (rttMs <= 150) {
-    $ping.classList.add('hidden');
-    return;
-  }
-  $ping.classList.remove('hidden');
-  $ping.textContent = `${rttMs}ms`;
-  if (rttMs > 200) {
-    $ping.classList.add('ping-unstable');
-  } else {
-    $ping.classList.remove('ping-unstable');
+  $ping.classList.toggle('hidden', rttMs <= 150);
+  if (rttMs > 150) {
+    $ping.textContent = `${rttMs}ms`;
+    $ping.classList.toggle('ping-unstable', rttMs > 200);
   }
 }
 

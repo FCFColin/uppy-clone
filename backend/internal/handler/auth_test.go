@@ -58,7 +58,7 @@ func (stubAuthService) DeleteUserData(_ context.Context, _ string, _ *http.Reque
 func (stubAuthService) RevokeRefreshToken(_ context.Context, _ string) error                { return nil }
 func (stubAuthService) RevokeAllTokens(_ context.Context, _ *http.Request) error              { return nil }
 func (stubAuthService) AuthenticatedUserFromRequest(r *http.Request) (string, string, bool) {
-	return getAuthenticatedUser(r)
+	return auth.GetAuthenticatedUser(r)
 }
 func (stubAuthService) GetJTI(r *http.Request) string           { return getJTI(r) }
 func (stubAuthService) IsJWTRevoked(_ context.Context, _ string) (bool, error) { return false, nil }
@@ -98,14 +98,7 @@ func newMockAuthSvc(jwtMgr *auth.JWTManager, refreshMgr *auth.RefreshTokenManage
 }
 
 func (s *testAuthService) RequestMagicLink(ctx context.Context, email string, r *http.Request) error {
-	err := s.magicLink.RequestMagicLink(s.tokens, s.users, s.resendKey, s.emailFrom, email, r, s.timeouts)
-	if errors.Is(err, auth.ErrTooManyRequests) {
-		return ErrTooManyRequests
-	}
-	if errors.Is(err, auth.ErrInvalidEmail) {
-		return ErrInvalidEmail
-	}
-	return err
+	return s.magicLink.RequestMagicLink(s.tokens, s.users, s.resendKey, s.emailFrom, email, r, s.timeouts)
 }
 func (s *testAuthService) RefreshSession(ctx context.Context, refreshToken string, r *http.Request) (string, string, int, error) {
 	result, err := auth.RefreshSession(ctx, s.refreshMgr, s.jwtMgr, s.users, refreshToken)

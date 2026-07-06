@@ -44,14 +44,39 @@ func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.Postg
 // newRedisStoreFn is replaceable in unit tests.
 var newRedisStoreFn = store.NewRedisStore
 
-// initRedis connects to Redis.
-func initRedis(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.RedisStore, error) {
-	redis, err := newRedisStoreFn(cfg.RedisURL, timeouts)
+// newRedisClusterFn is replaceable in unit tests.
+var newRedisClusterFn = store.NewRedisCluster
+
+// initRedisCluster connects to stateful and ephemeral Redis instances (ADR-029).
+// When REDIS_EPHEMERAL_URL is unset, both domains share the stateful instance.
+func initRedisCluster(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.RedisCluster, error) {
+	cluster, err := newRedisClusterFn(cfg.RedisURL, cfg.RedisEphemeralURL, timeouts)
 	if err != nil {
-		slog.Error("failed to connect to Redis", "error", err)
+		slog.Error("failed to connect to Redis cluster", "error", err)
 		return nil, err
 	}
-	return redis, nil
+	if cluster.IsSeparated() {
+		slog.Info("redis domain separation enabled",
+			"stateful", cfg.RedisURL,
+			"ephemeral", cfg.RedisEphemeralURL)
+	} else {
+		slog.Info("redis single-instance mode (set REDIS_EPHEMERAL_URL to enable domain separation)")
+	}
+	return cluster, nil
+}
+
+// initRedisPubSub connects to Redis for Pub/Sub, using a dedicated URL when configured.
+func initRedisPubSub(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.RedisStore, error) {
+	url := cfg.RedisPubSubURL
+	if url == "" {
+		url = cfg.RedisURL
+	}
+	if url == cfg.RedisURL {
+		slog.Info("pubsub redis: using main Redis (set REDIS_PUBSUB_URL to isolate)")
+	} else {
+		slog.Info("pubsub redis: dedicated instance", "url", url)
+	}
+	return newRedisStoreFn(url, timeouts)
 }
 
 // initHub creates the Hub and restores rooms from the database.

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/slogctx"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
@@ -36,7 +37,7 @@ func TracingMiddleware(next http.Handler) http.Handler {
 		ctx = slogctx.WithLogger(ctx, logger)
 
 		// Add enduser.id if user_id is in context
-		if userID, _, ok := getAuthenticatedUser(r); ok && userID != "" {
+		if userID, _, ok := auth.GetAuthenticatedUser(r); ok && userID != "" {
 			span.SetAttributes(attribute.String("enduser.id", userID))
 		}
 

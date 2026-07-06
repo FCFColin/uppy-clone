@@ -136,8 +136,10 @@ func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage,
 
 	if retryCount >= w.maxRetries {
 		w.rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream: "email:dead-letter",
-			Values: msg.Values,
+			Stream:   "email:dead-letter",
+			MaxLen:   10_000,
+			Approx:   true,
+			Values:       msg.Values,
 		})
 		w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID)
 		slog.Error("email worker: moved to dead-letter after max retries", "to", redactEmail(payload.To), "retries", retryCount)
@@ -146,8 +148,10 @@ func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage,
 
 	msg.Values["retry_count"] = strconv.Itoa(retryCount + 1)
 	w.rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: "email:queue",
-		Values: msg.Values,
+			Stream:   "email:queue",
+			MaxLen:   100_000,
+			Approx:   true,
+		Values:       msg.Values,
 	})
 	w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID)
 }

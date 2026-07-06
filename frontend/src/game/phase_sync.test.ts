@@ -97,7 +97,7 @@ describe('applyPhaseChange', () => {
     expect(mocks.state.myCooldownEnd).toBe(0);
     expect(mocks.resetInterpolation).toHaveBeenCalled();
     expect(mocks.hideCountdownOverlay).toHaveBeenCalled();
-    expect(mocks.updateUI).toHaveBeenCalledWith(true);
+    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
     expect(window.__gamePhase).toBe('playing');
   });
 

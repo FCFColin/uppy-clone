@@ -23,7 +23,7 @@ describe('decodeSnapshot with arbitrary binary input', () => {
           // decodeSnapshot may throw on inputs with oversized nickname length
           // bytes (known limitation). This test verifies the throw is contained.
           try {
-            const dv = new DataView(buffer.slice(0, buffer.length));
+            const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.length);
             decodeSnapshot(dv);
           } catch {
             // Known limitation: oversized nickname length bytes can cause throws.

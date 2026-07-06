@@ -13,12 +13,8 @@ interface RoomCheckResponse {
 export const ROOM_CODE_RE = /^[A-Z2-9]{5}$/;
 
 export function getLobbyCodeFromUrl(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  if (code && !ROOM_CODE_RE.test(code)) {
-    return null;
-  }
-  return code;
+  const code = new URLSearchParams(window.location.search).get('code');
+  return code && ROOM_CODE_RE.test(code) ? code : null;
 }
 
 export async function validateRoomCode(code: string): Promise<RoomValidateResult> {

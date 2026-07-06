@@ -69,7 +69,7 @@ func runServer(logger *slog.Logger) error {
 	audit.InitDBLogger(db.Pool(), serverEnv.AuditSecretOrJWT())
 	defer audit.CloseDBLogger()
 
-	redis, err := initRedis(cfg, timeouts)
+	redis, err := initRedisCluster(cfg, timeouts)
 	if err != nil {
 		return err
 	}
@@ -78,26 +78,31 @@ func runServer(logger *slog.Logger) error {
 	return serve(ctx, cfg, timeouts, db, redis)
 }
 
-func serve(ctx context.Context, cfg *handler.Config, timeouts appConfig.TimeoutConfig, db *store.PostgresStore, redis *store.RedisStore) error {
+func serve(ctx context.Context, cfg *handler.Config, timeouts appConfig.TimeoutConfig, db *store.PostgresStore, cluster *store.RedisCluster) error {
 	jwtMgr := auth.NewJWTManager(cfg.JWTPrivateKey)
 	adminJwtMgr := auth.NewJWTManager(cfg.JWTPrivateKey)
-	broadcaster := game.NewPubSubBroadcaster(redis.Client())
-	hub := initHub(db, redis, timeouts, broadcaster)
+
+	pubsubRedis, err := initRedisPubSub(cfg, timeouts)
+	if err != nil {
+		return err
+	}
+	broadcaster := game.NewPubSubBroadcaster(pubsubRedis.Client())
+	hub := initHub(db, cluster.Stateful, timeouts, broadcaster)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go hub.CleanupLoop(ctx)
 	var wg sync.WaitGroup
-	startWorkers(ctx, &wg, cfg, redis, db, timeouts)
-	startMetricsCollector(ctx, hub, db, redis)
+	startWorkers(ctx, &wg, cfg, cluster.Stateful, db, timeouts)
+	startMetricsCollector(ctx, hub, db, cluster)
 
-	authHandler, lobbyHandler, adminHandler, statsHandler := initHandlers(jwtMgr, adminJwtMgr, db, redis, cfg, timeouts, hub)
+	authHandler, lobbyHandler, adminHandler, statsHandler := initHandlers(jwtMgr, adminJwtMgr, db, cluster.Stateful, cfg, timeouts, hub)
 	rbacEnforcer := initRBAC()
 	r := chi.NewRouter()
-	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, db, redis, rbacEnforcer, cfg, hub)
+	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, db, cluster, rbacEnforcer, cfg, hub)
 
 	srv := startServer(r, cfg)
-	waitForShutdown(srv, cancel, hub, broadcaster)
+	waitForShutdown(srv, cancel, hub, broadcaster, pubsubRedis)
 	wg.Wait()
 	return nil
 }
@@ -126,7 +131,7 @@ func startServer(r *chi.Mux, cfg *handler.Config) *http.Server {
 
 // waitForShutdown handles graceful shutdown on SIGINT/SIGTERM.
 // Closes all rooms (persisting state) before shutting down the HTTP server (P2-24).
-func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub, broadcaster *game.PubSubBroadcaster) {
+func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub, broadcaster *game.PubSubBroadcaster, pubsubRedis *store.RedisStore) {
 	<-shutdownSignals()
 	slog.Info("shutting down server...")
 
@@ -135,6 +140,11 @@ func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub,
 	if broadcaster != nil {
 		if err := broadcaster.Close(); err != nil {
 			slog.Error("broadcaster close error", "error", err)
+		}
+	}
+	if pubsubRedis != nil {
+		if err := pubsubRedis.Close(); err != nil {
+			slog.Error("pubsub redis close error", "error", err)
 		}
 	}
 

@@ -63,7 +63,7 @@ lint-all: lint
 	cd frontend && npm run lint
 	cd frontend && npm run typecheck
 
-check: lint-all test-cover
+check: lint-all test-cover check-protocol-constants
 
 check-fast: lint-all test
 
@@ -71,6 +71,9 @@ ci: check test-containers audit check-repo-layout
 
 check-repo-layout:
 	@bash scripts/ci/check-repo-layout.sh 2>/dev/null || powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/check-repo-layout.ps1
+
+check-protocol-constants:
+	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/check-protocol-constants.ps1
 
 security-check:
 	@echo "==> detect-secrets (requires: pip install detect-secrets)"

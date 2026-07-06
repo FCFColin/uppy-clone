@@ -55,11 +55,13 @@ function interpolatePointPrevCurr(prev: InterpPoint, curr: InterpPoint, now: num
   };
 }
 
+function isTeleport(v: { x: number; y: number }, curr: { x: number; y: number }): boolean {
+  return Math.abs(v.x - curr.x) > TELEPORT_THRESHOLD || Math.abs(v.y - curr.y) > TELEPORT_THRESHOLD;
+}
+
 function resolvePrevBalloon(newBalloon: InterpPoint): InterpPoint {
   if (prevBalloon === null) return newBalloon;
-  const dx = Math.abs(newBalloon.x - currBalloon.x);
-  const dy = Math.abs(newBalloon.y - currBalloon.y);
-  if (dx > TELEPORT_THRESHOLD || dy > TELEPORT_THRESHOLD) {
+  if (isTeleport(newBalloon, currBalloon)) {
     return { ...newBalloon };
   }
   if (lastRenderedBalloon !== null) {
@@ -89,16 +91,8 @@ export function updateInterpolation(tickCount: number): void {
   }
 
   prevBalloon = resolvePrevBalloon(newBalloon);
-  if (Math.abs(newGhost.x - currGhost.x) > TELEPORT_THRESHOLD || Math.abs(newGhost.y - currGhost.y) > TELEPORT_THRESHOLD) {
-    prevGhost = { ...newGhost };
-  } else {
-    prevGhost = { ...currGhost };
-  }
-  if (Math.abs(newBird.x - currBird.x) > TELEPORT_THRESHOLD || Math.abs(newBird.y - currBird.y) > TELEPORT_THRESHOLD) {
-    prevBird = { ...newBird };
-  } else {
-    prevBird = { ...currBird };
-  }
+  prevGhost = isTeleport(newGhost, currGhost) ? { ...newGhost } : { ...currGhost };
+  prevBird = isTeleport(newBird, currBird) ? { ...newBird } : { ...currBird };
 
   currBalloon = newBalloon;
   currGhost = newGhost;
@@ -202,16 +196,6 @@ export function getSeenSeqsSize(): number {
   return seenSeqs.size;
 }
 
-export function getInterpState(): {
-  get prevBalloon(): InterpPoint | null;
-  get currBalloon(): InterpPoint;
-  get prevGhost(): InterpGhostPoint | null;
-  get currGhost(): InterpGhostPoint;
-} {
-  return {
-    get prevBalloon() { return prevBalloon; },
-    get currBalloon() { return currBalloon; },
-    get prevGhost() { return prevGhost; },
-    get currGhost() { return currGhost; },
-  };
+export function getInterpState() {
+  return { prevBalloon, currBalloon, prevGhost, currGhost };
 }

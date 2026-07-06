@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
@@ -52,10 +53,7 @@ func (h *AuthHandler) DeleteUserData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secure := isSecure(r)
-	http.SetCookie(w, buildAuthCookie("quickplay", "", -1, secure))
-	http.SetCookie(w, buildAuthCookie("session", "", -1, secure))
-	http.SetCookie(w, buildRefreshCookie("", secure))
+	clearAuthCookies(w, isSecure(r))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

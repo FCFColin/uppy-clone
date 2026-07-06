@@ -66,39 +66,40 @@ export interface DecodedSnapshot {
   playerCount: number;
 }
 
-export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
-  if (view.byteLength < 37) {
-    return null;
-  }
-
-  let o = 1;
-  const timestamp = view.getUint32(o, true); o += 4;
-  const score = view.getUint32(o, true); o += 4;
-  const phaseCode = view.getUint8(o); o += 1;
-  const phase = codeToPhase(phaseCode);
-
-  const balloon = {
-    x: view.getFloat32(o, true), y: view.getFloat32(o + 4, true),
-    vy: view.getFloat32(o + 8, true), vx: view.getFloat32(o + 12, true),
+function readBalloon(view: DataView, offset: number) {
+  return {
+    balloon: {
+      x: view.getFloat32(offset, true), y: view.getFloat32(offset + 4, true),
+      vy: view.getFloat32(offset + 8, true), vx: view.getFloat32(offset + 12, true),
+    },
+    bytesRead: 16,
   };
-  o += 16;
+}
 
-  const birdActive = view.getUint8(o) === 1; o += 1;
-  const bird = { active: birdActive, x: 0, y: 0 };
-  if (birdActive) {
-    bird.x = view.getFloat32(o, true); o += 4;
-    bird.y = view.getFloat32(o, true); o += 4;
+function readBird(view: DataView, offset: number) {
+  const active = view.getUint8(offset) === 1;
+  if (!active) {
+    return { bird: { active, x: 0, y: 0 }, bytesRead: 1 };
   }
+  return {
+    bird: { active, x: view.getFloat32(offset + 1, true), y: view.getFloat32(offset + 5, true) },
+    bytesRead: 9,
+  };
+}
 
+function readGhost(view: DataView, offset: number) {
   const ghost = {
-    active: view.getUint8(o) === 1,
-    x: view.getFloat32(o + 1, true),
-    y: view.getFloat32(o + 5, true),
-    repelTimer: view.getUint16(o + 9, true),
+    active: view.getUint8(offset) === 1,
+    x: view.getFloat32(offset + 1, true),
+    y: view.getFloat32(offset + 5, true),
+    repelTimer: view.getUint16(offset + 9, true),
   };
-  o += 11;
+  return { ghost, bytesRead: 11 };
+}
 
-  const playerCount = view.getUint8(o); o += 1;
+function readPlayers(view: DataView, offset: number) {
+  const playerCount = view.getUint8(offset);
+  let o = offset + 1;
   const players: DecodedPlayer[] = [];
   const now = Date.now();
   for (let i = 0; i < playerCount; i++) {
@@ -111,6 +112,36 @@ export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
     o += nickLen;
     players.push({ playerIndex, cooldownEndTime: now + cooldownRemainingMs, palette, scoreContribution, nickname });
   }
+  return { players, playerCount, bytesRead: o - offset };
+}
+
+export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
+  if (view.byteLength < 37) {
+    return null;
+  }
+
+  let o = 1;
+  const timestamp = view.getUint32(o, true); o += 4;
+  const score = view.getUint32(o, true); o += 4;
+  const phaseCode = view.getUint8(o); o += 1;
+  const phase = codeToPhase(phaseCode);
+
+  const balloonResult = readBalloon(view, o);
+  const balloon = balloonResult.balloon;
+  o += balloonResult.bytesRead;
+
+  const birdResult = readBird(view, o);
+  const bird = birdResult.bird;
+  o += birdResult.bytesRead;
+
+  const ghostResult = readGhost(view, o);
+  const ghost = ghostResult.ghost;
+  o += ghostResult.bytesRead;
+
+  const playersResult = readPlayers(view, o);
+  const players = playersResult.players;
+  const playerCount = playersResult.playerCount;
+  o += playersResult.bytesRead;
 
   const ripples: DecodedSnapshot['ripples'] = [];
   if (o < view.byteLength) {
@@ -140,7 +171,7 @@ export interface SnapshotApplyTarget {
 }
 
 export function applySnapshot(decoded: DecodedSnapshot, target?: SnapshotApplyTarget): SnapshotApplyTarget {
-  const result: SnapshotApplyTarget = {
+  const snapshot: SnapshotApplyTarget = {
     score: decoded.score,
     balloon: { ...decoded.balloon },
     bird: { ...decoded.bird },
@@ -148,7 +179,7 @@ export function applySnapshot(decoded: DecodedSnapshot, target?: SnapshotApplyTa
     players: decoded.players,
   };
   if (target) {
-    Object.assign(target, result);
+    Object.assign(target, snapshot);
   }
-  return result;
+  return snapshot;
 }

@@ -18,11 +18,17 @@ const adminRole = "admin"
 
 const maskedKey = "••••••••"
 
+// TokenSigner creates admin JWTs. Replaceable in tests.
+type TokenSigner interface {
+	SignToken() (token, jti string, err error)
+}
+
 // AdminHandler handles admin endpoints.
 type AdminHandler struct {
 	db          ConfigStore
 	adminJwtMgr JWTManager
 	redis       AdminCache
+	tokenSigner TokenSigner
 }
 
 // NewAdminHandler creates a new AdminHandler.
@@ -86,16 +92,16 @@ func maskSensitiveFields(cfg map[string]interface{}) map[string]interface{} {
 	return masked
 }
 
-// signAdminTokenFn is replaceable in unit tests to simulate signing failures.
-var signAdminTokenFn = (*AdminHandler).signAdminTokenImpl
-
 // signAdminToken creates an admin JWT with 30-minute expiry.
 // Returns the signed token string and its jti for session tracking (H5).
 func (h *AdminHandler) signAdminToken() (string, string, error) {
-	return signAdminTokenFn(h)
+	if h.tokenSigner != nil {
+		return h.tokenSigner.SignToken()
+	}
+	return h.signAdminTokenDefault()
 }
 
-func (h *AdminHandler) signAdminTokenImpl() (string, string, error) {
+func (h *AdminHandler) signAdminTokenDefault() (string, string, error) {
 	now := time.Now()
 	jti := uuid.NewString()
 	claims := adminClaims{
@@ -130,9 +136,6 @@ func (h *AdminHandler) revokeAllAdminSessions(ctx context.Context) {
 		if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
 			slog.Warn("failed to revoke admin jti", "jti", jti, "error", err)
 		}
-	}
-	// Clear the set so revoked jtis are not double-revoked.
-	for _, jti := range jtis {
 		if err := h.redis.RemoveAdminJTI(ctx, jti); err != nil {
 			slog.Warn("failed to remove admin jti from active set", "jti", jti, "error", err)
 		}

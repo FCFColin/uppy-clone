@@ -84,11 +84,10 @@ func (r *Room) broadcastTapResult(player *domain.PlayerState, cooldown int64) {
 
 func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) {
 	nickname, ok := protocol.DecodeNicknamePayload(payload)
-	if !ok {
-		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
-		return
+	sanitized := ""
+	if ok {
+		sanitized = validate.Nickname(nickname)
 	}
-	sanitized := validate.Nickname(nickname)
 	if sanitized == "" {
 		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
 		return

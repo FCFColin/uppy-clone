@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 )
 
@@ -56,7 +57,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
-	refreshToken := refreshTokenFromRequest(r)
+	refreshToken := auth.RefreshTokenFromRequest(r)
 	if refreshToken == "" {
 		refreshToken = body.RefreshToken
 	}
@@ -93,7 +94,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	secure := isSecure(r)
-	writeAuthCookies(w, r, buildAuthCookie(cookieName, accessToken, config.CookieMaxAge, secure), newRefreshToken)
+	writeAuthCookies(w, r, auth.BuildAuthCookie(cookieName, accessToken, config.CookieMaxAge, secure), newRefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

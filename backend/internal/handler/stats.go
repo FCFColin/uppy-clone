@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/uppy-clone/backend/internal/auth"
 )
 
 // StatsHandler serves public leaderboard and optional user stats.
@@ -58,7 +60,7 @@ func (h *StatsHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, _, ok := getAuthenticatedUser(r)
+	userID, _, ok := auth.GetAuthenticatedUser(r)
 	if !ok || userID == "" {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return

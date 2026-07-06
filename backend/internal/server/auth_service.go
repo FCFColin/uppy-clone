@@ -2,13 +2,11 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/handler"
 )
 
 type authServiceAdapter struct {
@@ -44,14 +42,7 @@ func newAuthServiceAdapter(
 }
 
 func (a *authServiceAdapter) RequestMagicLink(ctx context.Context, email string, r *http.Request) error {
-	err := a.magicLink.RequestMagicLink(a.tokens, a.users, a.resendKey, a.emailFrom, email, r, a.timeouts)
-	if errors.Is(err, auth.ErrTooManyRequests) {
-		return handler.ErrTooManyRequests
-	}
-	if errors.Is(err, auth.ErrInvalidEmail) {
-		return handler.ErrInvalidEmail
-	}
-	return err
+	return a.magicLink.RequestMagicLink(a.tokens, a.users, a.resendKey, a.emailFrom, email, r, a.timeouts)
 }
 
 func (a *authServiceAdapter) VerifyMagicLink(ctx context.Context, token string, r *http.Request) (userID, accessToken, refreshToken string, err error) {

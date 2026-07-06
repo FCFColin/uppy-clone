@@ -15,6 +15,9 @@ type Env struct {
 	JWTPublicKey      string
 	DatabaseURL       string
 	RedisURL          string
+	RedisEphemeralURL string
+	RedisRegionURL    string
+	RedisPubSubURL    string
 	EncryptionKey     string
 	ResendAPIKey      string
 	EmailFrom         string
@@ -39,6 +42,9 @@ func Load() *Env {
 		JWTPublicKey:      os.Getenv("JWT_PUBLIC_KEY"),
 		DatabaseURL:       os.Getenv("DATABASE_URL"),
 		RedisURL:          GetEnv("REDIS_URL", "localhost:6379"),
+		RedisEphemeralURL: GetEnv("REDIS_EPHEMERAL_URL", ""),
+		RedisRegionURL:    GetEnv("REDIS_REGIONAL_URL", ""),
+		RedisPubSubURL:    GetEnv("REDIS_PUBSUB_URL", ""),
 		EncryptionKey:     os.Getenv("ENCRYPTION_KEY"),
 		ResendAPIKey:      os.Getenv("RESEND_API_KEY"),
 		EmailFrom:         os.Getenv("EMAIL_FROM"),
@@ -132,6 +138,32 @@ func (e *Env) GetDatabaseURL() string { return e.DatabaseURL }
 
 // GetRedisURL returns the Redis URL.
 func (e *Env) GetRedisURL() string { return e.RedisURL }
+
+// GetRedisStatefulURL returns the Redis URL for stateful data (room registry, auth tokens).
+// When REDIS_REGIONAL_URL is set (Phase 3 multi-region), it takes precedence for stateful data.
+func (e *Env) GetRedisStatefulURL() string {
+	if e.RedisRegionURL != "" {
+		return e.RedisRegionURL
+	}
+	return e.RedisURL
+}
+
+// GetRedisEphemeralURL returns the Redis URL for ephemeral data (rate limiting, cache).
+// When REDIS_EPHEMERAL_URL is unset, falls back to the stateful URL (single-instance mode).
+func (e *Env) GetRedisEphemeralURL() string {
+	if e.RedisEphemeralURL != "" {
+		return e.RedisEphemeralURL
+	}
+	return e.GetRedisStatefulURL()
+}
+
+// GetRedisPubSubURL returns the Redis Pub/Sub URL, defaulting to the stateful Redis URL when empty.
+func (e *Env) GetRedisPubSubURL() string {
+	if e.RedisPubSubURL != "" {
+		return e.RedisPubSubURL
+	}
+	return e.GetRedisStatefulURL()
+}
 
 // GetPort returns the server port.
 func (e *Env) GetPort() string { return e.Port }

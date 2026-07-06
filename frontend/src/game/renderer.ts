@@ -44,10 +44,6 @@ export function gameLoop(timestamp: number): void {
   requestAnimationFrame(gameLoop);
 }
 
-function overlayBlocksGameRender(): boolean {
-  return getState().blockGameRender;
-}
-
 function render(): void {
   try {
     const now = Date.now();
@@ -56,7 +52,7 @@ function render(): void {
 
     drawBackground(now);
 
-    if (overlayBlocksGameRender()) {
+    if (getState().blockGameRender) {
       return;
     }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/middleware"
@@ -49,7 +50,7 @@ func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	secure := isSecure(r)
-	http.SetCookie(w, buildAuthCookie("admin_token", "", -1, secure))
+	http.SetCookie(w, auth.BuildAuthCookie("admin_token", "", -1, secure))
 
 	audit.Log(ctx, audit.AuditEntry{
 		Action:    "admin.logout",

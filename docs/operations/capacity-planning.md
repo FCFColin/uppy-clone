@@ -14,10 +14,16 @@
 
 ## 单实例估算
 
-- **并发 WS 连接上限：** `MAX_WS_CONNECTIONS`（舱壁）— 理论 10k FD，内存约 ~50MB+ 连接状态
-- **活跃房间：** 受 CPU tick（15Hz × 房间数）限制；benchmark `EncodeSnapshot` ~500ns/op → 单核 ~2M snapshot/s 理论，实际 ~500-2000 房间取决于玩家数
-- **REST RPS：** PG 池 25 连接 × ~50 QPS/连接 ≈ **1,250 DB-bound RPS** 上限
-- **DAU 粗算（休闲游戏）：** 峰值并发 = DAU × 5% 同时在线；10k WS → **~200k DAU** 单实例（峰值假设 5%）
+> 基于微基准（2026-07-06, i5-12450H）和理论推算。完整负载测试需部署后用 k6 执行。
+
+| 维度 | 估算 | 依据 |
+|------|------|------|
+| 并发 WS 连接上限 | 10,000 | `MAX_WS_CONNECTIONS` 舱壁，内存约 ~50MB+ 连接状态 |
+| 活跃房间（CPU bound） | 2,000–5,000 | 15Hz tick，BuildSnapshot 1.3µs + EncodeSnapshot 0.4µs/房间，单核 ~50k snapshot/s |
+| REST RPS | ~1,250 | PG 池 25 连接 × ~50 QPS/连接 |
+| DAU 粗算 | ~200k | 峰值 5% 同时在线 → 10k WS |
+| 状态持久化延迟 | ~6.4µs/房间 | SerializeState 6.4µs，异步队列不阻塞 tick |
+| 状态恢复延迟 | ~25.8µs/房间 | DeserializeState 25.8µs，仅在房间迁移时发生 |
 
 ## 扩展拐点（USL）
 
@@ -47,6 +53,8 @@
 
 ## 线性扩容验证
 
+> ⚠️ 以下压测需部署到 staging/生产环境后执行。微基准数据见 [benchmarks-go-microbench.md](../development/benchmarks-go-microbench.md)。
+
 - **REST**：`k6 run scripts/load/k6-smoke.js -e BASE_URL=...`，记录 `http_req_duration` P95。
 - **WebSocket/房间**：`k6 run scripts/load/k6-ws-soak.js -e BASE_URL=... -e WS_URL=ws://... -e VUS=2000`
   - 阈值：`ws_connect_time` p95<1s、`ws_first_snapshot_ms` p99<500ms、checks>95%。
@@ -58,9 +66,9 @@
 
 | 实例数 | 稳定并发 WS | 活跃房间 | message p99 | 瓶颈 |
 |--------|-------------|----------|-------------|------|
-| 1 | _填_ | _填_ | _填_ | _填_ |
-| 3 | _填_ | _填_ | _填_ | _填_ |
-| 10 | _填_ | _填_ | _填_ | _填_ |
+| 1 | 待压测 | 待压测 | 待压测 | 预期：WS 舱壁或 PG 池 |
+| 3 | 待压测 | 待压测 | 待压测 | 预期：PG 池或 CPU |
+| 10 | 待压测 | 待压测 | 待压测 | 预期：跨实例路由开销 |
 
 ### 多区域分布式高并发压测（P4）
 
@@ -79,7 +87,7 @@ HPA 实例数随 VUS 线性增长；跨区域重定向率应接近 0（就近接
 
 | 区域 | 峰值并发 WS | 活跃房间 | first-snapshot p99 | HPA 实例数 |
 |------|-------------|----------|--------------------|-----------|
-| us-east1 | _填_ | _填_ | _填_ | _填_ |
-| europe-west1 | _填_ | _填_ | _填_ | _填_ |
-| asia-southeast1 | _填_ | _填_ | _填_ | _填_ |
-| **全局** | _填_ | _填_ | _填_ | _填_ |
+| us-east1 | 待压测 | 待压测 | 待压测 | 待压测 |
+| europe-west1 | 待压测 | 待压测 | 待压测 | 待压测 |
+| asia-southeast1 | 待压测 | 待压测 | 待压测 | 待压测 |
+| **全局** | 待压测 | 待压测 | 待压测 | 待压测 |

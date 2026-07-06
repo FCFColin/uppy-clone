@@ -2,35 +2,18 @@ package handler
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"unicode"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-var (
-	ErrTooManyRequests = errors.New("too many requests")
-	ErrInvalidEmail    = errors.New("invalid email")
-)
-
 func isSecure(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-}
-
-func buildAuthCookie(name, value string, maxAge int, secure bool) *http.Cookie {
-	return &http.Cookie{
-		Name:     name,
-		Value:    value,
-		Path:     "/",
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
-	}
 }
 
 var refreshCookieName = "refresh"
@@ -40,24 +23,7 @@ func buildRefreshCookie(value string, secure bool) *http.Cookie {
 	if value == "" {
 		maxAge = -1
 	}
-	return buildAuthCookie(refreshCookieName, value, maxAge, secure)
-}
-
-func refreshTokenFromRequest(r *http.Request) string {
-	cookie, err := r.Cookie(refreshCookieName)
-	if err != nil {
-		return ""
-	}
-	return cookie.Value
-}
-
-func getAuthenticatedUser(r *http.Request) (userID, nickname string, ok bool) {
-	uid, ok1 := domain.ContextKeyUserID.Value(r.Context())
-	nick, ok2 := domain.ContextKeyNickname.Value(r.Context())
-	if !ok1 || !ok2 || uid == "" {
-		return "", "", false
-	}
-	return uid, nick, true
+	return auth.BuildAuthCookie(refreshCookieName, value, maxAge, secure)
 }
 
 func getJTI(r *http.Request) string {
@@ -66,6 +32,12 @@ func getJTI(r *http.Request) string {
 		return jti
 	}
 	return ""
+}
+
+func clearAuthCookies(w http.ResponseWriter, secure bool) {
+	http.SetCookie(w, auth.BuildAuthCookie("quickplay", "", -1, secure))
+	http.SetCookie(w, auth.BuildAuthCookie("session", "", -1, secure))
+	http.SetCookie(w, buildRefreshCookie("", secure))
 }
 
 func parseQuickPlayRequest(r *http.Request) (string, *apierror.ProblemDetails) {

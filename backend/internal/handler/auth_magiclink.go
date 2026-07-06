@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 )
 
@@ -28,9 +29,9 @@ func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 	err := h.auth.RequestMagicLink(r.Context(), body.Email, r)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrTooManyRequests):
+		case errors.Is(err, auth.ErrTooManyRequests):
 			apierror.TooManyRequests(err.Error()).Write(w)
-		case errors.Is(err, ErrInvalidEmail):
+		case errors.Is(err, auth.ErrInvalidEmail):
 			// 422 Unprocessable Entity: 请求格式正确但语义无效。企业为何需要：区分 400（语法错误如 JSON 解析失败）和 422（语义校验失败如邮箱格式）是 REST API 成熟度标志。
 			apierror.UnprocessableEntity(err.Error()).Write(w)
 		default:
@@ -92,7 +93,7 @@ func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Reques
 	}
 
 	secure := isSecure(r)
-	writeAuthCookies(w, r, buildAuthCookie("session", accessToken, config.CookieMaxAge, secure), refreshToken)
+	writeAuthCookies(w, r, auth.BuildAuthCookie("session", accessToken, config.CookieMaxAge, secure), refreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

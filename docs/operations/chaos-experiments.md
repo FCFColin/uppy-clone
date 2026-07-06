@@ -1,6 +1,10 @@
 # 混沌工程实验目录
 
 > 通过主动故障注入验证系统韧性，发现单点故障与级联失败（见 ADR-004）。
+>
+> **⚠️ 执行前提**：所有实验需在 staging GKE 集群执行，需安装 Chaos Mesh。
+> 本地开发环境无法执行。生产环境严禁执行。
+> **当前状态**：未执行 — 待 staging 集群就绪后按计划运行。
 
 ## 实验 1：PostgreSQL 宕机 30 秒
 
@@ -26,13 +30,16 @@
 
 ### 实验结果
 
-- 日期：2026-06-25（待在 staging 执行）
-- 发现：熔断见 `resilience/circuitbreaker.go`；降级见 `handler/degradation.go`；优雅关闭见 `internal/server/server_lifecycle.go`
-- **下次执行：** 每月第一个周二 staging
+- **状态**：⏳ 待执行（需 staging GKE + Chaos Mesh）
+- 日期：2026-06-25（计划，未执行）
+- 前置条件：staging 集群已部署、Chaos Mesh 已安装、Prometheus 告警规则已配置
+- **下次执行：** staging 集群就绪后立即执行
 
 ---
 
 ## 实验 2：Redis 不可达 60 秒
+
+> **⚠️ 需 staging 环境**：需 Chaos Mesh `NetworkChaos` CRD。
 
 ### 稳态假设
 
@@ -56,6 +63,8 @@
 
 ## 实验 3：网络延迟 +500ms
 
+> **⚠️ 需 staging 环境**：需 Chaos Mesh `NetworkChaos` 或 toxiproxy sidecar。
+
 ### 稳态假设
 
 - p99 从 <100ms 升至 <700ms 可接受
@@ -74,17 +83,19 @@ toxiproxy 或 Chaos Mesh 注入延迟
 
 ## 实验 4：单 Pod 驱逐（GKE）
 
+> **⚠️ 需 staging 环境**：需 GKE 集群 + PDB 配置。
+
 验证 PDB、drain、租约接管（ADR-005）。
 
 ---
 
 ## 执行清单
 
-| 实验 | 环境 | 频率 | 负责人 |
-|------|------|------|--------|
-| PG 宕机 | staging | 月 | SRE |
-| Redis 阻断 | staging | 月 | SRE |
-| 网络延迟 | staging | 季 | SRE |
-| Pod 驱逐 | staging | 季 | SRE |
+| 实验 | 环境 | 频率 | 负责人 | 状态 |
+|------|------|------|--------|------|
+| PG 宕机 | staging | 月 | SRE | ⏳ 待执行 |
+| Redis 阻断 | staging | 月 | SRE | ⏳ 待执行 |
+| 网络延迟 | staging | 季 | SRE | ⏳ 待执行 |
+| Pod 驱逐 | staging | 季 | SRE | ⏳ 待执行 |
 
 详见 [Runbook](runbook.md) 与 [SLO](slo.md)。

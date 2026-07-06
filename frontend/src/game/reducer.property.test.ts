@@ -88,7 +88,7 @@ describe('gameReducer ADD_RIPPLE invariants', () => {
             ripple: { playerIndex, x, y, time: Date.now() },
           });
           expect(state.ripples).toHaveLength(1);
-          expect(state.ripples[0].playerIndex).toBe(playerIndex);
+          expect(state.ripples[0]!.playerIndex).toBe(playerIndex);
         }
       )
     );
@@ -130,7 +130,7 @@ describe('gameReducer ADD_RIPPLE invariants', () => {
             ripple: { playerIndex, x: 0, y: 0, time: Date.now() },
           });
           expect(state.ripples).toHaveLength(1);
-          expect(state.ripples[0].playerIndex).toBe(playerIndex);
+          expect(state.ripples[0]!.playerIndex).toBe(playerIndex);
         }
       )
     );

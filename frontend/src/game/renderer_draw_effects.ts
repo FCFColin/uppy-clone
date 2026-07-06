@@ -61,7 +61,6 @@ export function drawRipples(now: number, playerMap: Map<number, { palette: numbe
       getCtx().moveTo(rx + s, ry - s);
       getCtx().lineTo(rx - s, ry + s);
       getCtx().stroke();
-      getCtx().globalAlpha = 1;
     } else {
       const { base } = rippleColor(ripple, playerMap);
       getCtx().beginPath();
@@ -70,8 +69,8 @@ export function drawRipples(now: number, playerMap: Map<number, { palette: numbe
       getCtx().strokeStyle = base + ')';
       getCtx().lineWidth = 2;
       getCtx().stroke();
-      getCtx().globalAlpha = 1;
     }
+    getCtx().globalAlpha = 1;
   }
 }
 

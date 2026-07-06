@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 )
 
 func init() {
@@ -170,7 +171,7 @@ func rateLimitKey(r *http.Request, endpoint string, jwtMgr JWTManager) string {
 	ip := extractClientIP(r)
 
 	// 1. Try auth context (set by AuthMiddleware)
-	if userID, _, ok := getAuthenticatedUser(r); ok && userID != "" {
+	if userID, _, ok := auth.GetAuthenticatedUser(r); ok && userID != "" {
 		return fmt.Sprintf("%s:%s:%s", endpoint, userID, ip)
 	}
 

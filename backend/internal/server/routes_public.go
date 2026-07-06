@@ -24,7 +24,7 @@ import (
 )
 
 // setupHealthAndMetricsRoutes registers health probes and the metrics endpoint.
-func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, redis *store.RedisStore, hub *game.Hub) {
+func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *store.RedisCluster, hub *game.Hub) {
 
 	// ─── Health probes ────────────────────────────────────────────────
 	// P2-10: readiness 探测纳入 WebSocket 舱壁负载，连接达上限时返回 503，
@@ -34,8 +34,8 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, redis *sto
 		pool = db.Pool()
 	}
 	var rdb *goredis.Client
-	if redis != nil {
-		rdb = redis.Client()
+	if cluster != nil {
+		rdb = cluster.Stateful.Client()
 	}
 	healthChecker := health.NewChecker(pool, rdb)
 	if hub != nil {
@@ -52,73 +52,76 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, redis *sto
 	if db != nil {
 		cbs = append(cbs, db.CircuitBreaker())
 	}
-	if redis != nil {
-		cbs = append(cbs, redis.CircuitBreaker())
+	if cluster != nil {
+		cbs = append(cbs, cluster.CircuitBreakers()...)
 	}
 	r.Get("/health/degraded", handler.DegradedHandler(cbs...))
 }
 
 // setupAuthRoutes registers auth and user-data (GDPR) routes.
-func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, redis *store.RedisStore, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
+// Rate limiting uses the ephemeral Redis (ADR-029); auth/session uses stateful Redis.
+func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Use(appMiddleware.AuthBulkhead.Middleware)
-		r.With(appMiddleware.EndpointRateLimit(redis, "auth:quickplay", jwtMgr), appMiddleware.RecordAuthMetrics("quickplay")).Post("/quickplay", authHandler.QuickPlay)
-		r.With(appMiddleware.EndpointRateLimit(redis, "auth:request", jwtMgr), appMiddleware.RecordAuthMetrics("request")).Post("/request", authHandler.RequestMagicLink)
-		r.With(appMiddleware.EndpointRateLimit(redis, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Get("/verify", authHandler.VerifyMagicLink)
-		r.With(appMiddleware.EndpointRateLimit(redis, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Post("/verify", authHandler.VerifyMagicLinkPost)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:quickplay", jwtMgr), appMiddleware.RecordAuthMetrics("quickplay")).Post("/quickplay", authHandler.QuickPlay)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:request", jwtMgr), appMiddleware.RecordAuthMetrics("request")).Post("/request", authHandler.RequestMagicLink)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Get("/verify", authHandler.VerifyMagicLink)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Post("/verify", authHandler.VerifyMagicLinkPost)
 		r.With(appMiddleware.RecordAuthMetrics("check")).Get("/check", authHandler.CheckAuth)
 		r.With(appMiddleware.RecordAuthMetrics("refresh")).Post("/refresh", authHandler.RefreshToken)
 		r.With(appMiddleware.RecordAuthMetrics("logout")).Post("/logout", authHandler.Logout)
 	})
 
 	r.Route("/api/v1/user", func(r chi.Router) {
-		r.With(authMiddlewareWrapper(jwtMgr, redis), rbacEnforcer.Middleware("user_data", "read")).Get("/data", authHandler.ExportUserData)
-		r.With(authMiddlewareWrapper(jwtMgr, redis), rbacEnforcer.Middleware("user_data", "delete")).Delete("/data", authHandler.DeleteUserData)
+		r.With(authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("user_data", "read")).Get("/data", authHandler.ExportUserData)
+		r.With(authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("user_data", "delete")).Delete("/data", authHandler.DeleteUserData)
 	})
 }
 
 // setupStatsRoutes registers leaderboard and user stats routes.
-func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, redis *store.RedisStore, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
+// Rate limiting uses ephemeral Redis (ADR-029).
+func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	if statsHandler == nil {
 		return
 	}
-	r.With(appMiddleware.EndpointRateLimit(redis, "stats:leaderboard", jwtMgr)).Get("/api/v1/leaderboard", statsHandler.GetLeaderboard)
+	r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "stats:leaderboard", jwtMgr)).Get("/api/v1/leaderboard", statsHandler.GetLeaderboard)
 	r.With(
-		authMiddlewareWrapper(jwtMgr, redis),
+		authMiddlewareWrapper(jwtMgr, cluster.Stateful),
 		rbacEnforcer.Middleware("user_data", "read"),
 	).Get("/api/v1/user/stats", statsHandler.GetUserStats)
 }
 
 // setupLobbyRoutes registers registry (room create/check/list) and lobby WebSocket routes.
-func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, redis *store.RedisStore, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
+// Rate limiting + idempotency use ephemeral Redis; auth/session uses stateful Redis (ADR-029).
+func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/registry", func(r chi.Router) {
 		r.Use(appMiddleware.LobbyBulkhead.Middleware)
 		r.With(
-			appMiddleware.EndpointRateLimit(redis, "registry:create", jwtMgr),
-			appMiddleware.IdempotencyMiddleware(redis.Client()),
-			authMiddlewareWrapper(jwtMgr, redis),
+			appMiddleware.EndpointRateLimit(cluster.Ephemeral, "registry:create", jwtMgr),
+			appMiddleware.IdempotencyMiddleware(cluster.Ephemeral.Client()),
+			authMiddlewareWrapper(jwtMgr, cluster.Stateful),
 			rbacEnforcer.Middleware("lobby", "create"),
 		).Post("/create", lobbyHandler.CreateRoom)
 
 		r.With(
-			appMiddleware.EndpointRateLimit(redis, "registry:check", jwtMgr),
+			appMiddleware.EndpointRateLimit(cluster.Ephemeral, "registry:check", jwtMgr),
 			rbacEnforcer.Middleware("lobby", "read"),
 		).Get("/check/{code}", lobbyHandler.CheckRoom)
 		r.With(
-			appMiddleware.EndpointRateLimit(redis, "registry:lobbies", jwtMgr),
+			appMiddleware.EndpointRateLimit(cluster.Ephemeral, "registry:lobbies", jwtMgr),
 			rbacEnforcer.Middleware("lobby", "read"),
 		).Get("/lobbies", lobbyHandler.ListLobbies)
 
 		r.With(
-			appMiddleware.EndpointRateLimit(redis, "registry:match", jwtMgr),
-			authMiddlewareWrapper(jwtMgr, redis),
+			appMiddleware.EndpointRateLimit(cluster.Ephemeral, "registry:match", jwtMgr),
+			authMiddlewareWrapper(jwtMgr, cluster.Stateful),
 			rbacEnforcer.Middleware("lobby", "join"),
 		).Post("/match", lobbyHandler.MatchRoom)
 	})
 
 	r.Route("/api/v1/lobby", func(r chi.Router) {
 		r.Use(appMiddleware.WebSocketBulkhead.Middleware)
-		r.With(authMiddlewareWrapper(jwtMgr, redis), rbacEnforcer.Middleware("lobby", "join")).Get("/{code}/ws", lobbyHandler.WebSocket)
+		r.With(authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("lobby", "join")).Get("/{code}/ws", lobbyHandler.WebSocket)
 	})
 }
 

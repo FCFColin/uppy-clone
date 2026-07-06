@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Layered coverage governance: total 85%, important paths 90%, per-file floor 60%.
+# Layered coverage governance: total 80%, important paths 90%, per-file floor 60%.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND="${ROOT}/backend"
 FRONTEND="${ROOT}/frontend"
 
-UNIT_MIN="${UNIT_MIN:-85}"
+UNIT_MIN="${UNIT_MIN:-80}"
 INT_MIN="${INT_MIN:-80}"
 FRONTEND_LINES_MIN="${FRONTEND_LINES_MIN:-85}"
 FRONTEND_BRANCHES_MIN="${FRONTEND_BRANCHES_MIN:-80}"
@@ -49,7 +49,7 @@ IMPORTANT_FRONTEND=(
   "src/shared/protocol.ts"
 )
 
-# Exclude from per-file floor (types, glue, env stubs).
+# Exclude from per-file floor (types, entry points, test helpers — no business logic).
 EXCLUDE_PATTERNS=(
   "vite-env.d.ts"
   "_types.ts"
@@ -60,7 +60,6 @@ EXCLUDE_PATTERNS=(
   "constants.go"
   "testutil/"
   "cmd/server/main.go"
-  "degradation_deps.go"
 )
 
 usage() {

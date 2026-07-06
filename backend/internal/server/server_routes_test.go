@@ -49,9 +49,10 @@ func newTestRouter(t *testing.T) *chi.Mux {
 	statsHandler := handler.NewStatsHandler(nil)
 	rbacEnforcer := rbac.NewEnforcer()
 	redisStore := testutil.SetupMiniredisStore(t)
+	cluster := store.NewRedisClusterFromStores(redisStore, nil)
 
 	r := chi.NewRouter()
-	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, nil, redisStore, rbacEnforcer, cfg, hub)
+	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, nil, cluster, rbacEnforcer, cfg, hub)
 	return r
 }
 
@@ -145,10 +146,11 @@ func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
 
 	db := store.NewPostgresStoreWithPool(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
+	cluster := store.NewRedisClusterFromStores(redisStore, nil)
 	adminHandler := handler.NewAdminHandler(db, jwtMgr, redisStore)
 
 	r := chi.NewRouter()
-	setupAdminRoutes(r, adminHandler, redisStore, jwtMgr, rbac.NewEnforcer())
+	setupAdminRoutes(r, adminHandler, cluster, jwtMgr, rbac.NewEnforcer())
 
 	loginRec := httptest.NewRecorder()
 	r.ServeHTTP(loginRec, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login",

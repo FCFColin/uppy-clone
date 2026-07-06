@@ -153,6 +153,6 @@ describe('handleRestartStatus', () => {
     handleRestartStatus(dv);
     expect(mocks.state.restartVotes.yes).toBe(2);
     expect(mocks.state.restartVotes.total).toBe(3);
-    expect(mocks.updateUI).toHaveBeenCalledWith(true);
+    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
   });
 });

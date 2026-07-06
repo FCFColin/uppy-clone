@@ -10,7 +10,7 @@ describe('audio', () => {
   it('handles AudioContext creation failure', () => {
     (window as unknown as Record<string, unknown>).AudioContext = class {
       constructor() { throw new Error('not supported'); }
-    } as unknown as AudioContextConstructor;
+    } as unknown as typeof AudioContext;
     expect(() => playTapSound()).not.toThrow();
     expect(() => playReadySound()).not.toThrow();
     expect(() => playGameOverSound()).not.toThrow();
@@ -26,7 +26,7 @@ describe('audio', () => {
       destination = {};
       currentTime = 0;
       resume = vi.fn();
-    } as unknown as AudioContextConstructor;
+    } as unknown as typeof AudioContext;
 
     expect(() => playTapSound()).not.toThrow();
     expect(mockOsc.start).toHaveBeenCalled();
@@ -41,7 +41,7 @@ describe('audio', () => {
       destination = {};
       currentTime = 0;
       resume = vi.fn();
-    } as unknown as AudioContextConstructor;
+    } as unknown as typeof AudioContext;
 
     expect(() => playTapSound()).not.toThrow();
     expect(() => playReadySound()).not.toThrow();
@@ -50,7 +50,7 @@ describe('audio', () => {
   });
 
   it('vibrate does not throw', () => {
-    if (navigator.vibrate) {
+    if (typeof navigator.vibrate === 'function') {
       vi.spyOn(navigator, 'vibrate').mockImplementation(() => true);
     }
     expect(() => vibrate(100)).not.toThrow();
@@ -61,7 +61,7 @@ describe('audio', () => {
     const mockAc = { resume: vi.fn() };
     (window as unknown as Record<string, unknown>).AudioContext = class {
       constructor() { return mockAc; }
-    } as unknown as AudioContextConstructor;
+    } as unknown as typeof AudioContext;
     expect(() => resumeAudioContext()).not.toThrow();
   });
 });

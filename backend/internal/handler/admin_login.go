@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/metrics"
@@ -103,7 +104,7 @@ func (h *AdminHandler) completeAdminLogin(w http.ResponseWriter, r *http.Request
 	}
 
 	secure := isSecure(r)
-	cookie := buildAuthCookie("admin_token", token, int(config.AdminTokenTTL.Seconds()), secure)
+	cookie := auth.BuildAuthCookie("admin_token", token, int(config.AdminTokenTTL.Seconds()), secure)
 	http.SetCookie(w, cookie)
 
 	w.Header().Set("Content-Type", "application/json")

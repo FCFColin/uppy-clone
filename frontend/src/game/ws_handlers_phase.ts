@@ -50,7 +50,7 @@ async function updateEndScreenRecords(): Promise<void> {
   const parts = [`本局 ${score}`, `个人最佳 ${Math.max(best, score)}`];
   if (cookieBest.isNewRecord || score > best) parts.push('新纪录！');
   bestEl.textContent = parts.join(' · ');
-  updateUI(true);
+  updateUI({ force: true });
 }
 
 export function handleRestartStatus(view: DataView): void {
@@ -61,5 +61,5 @@ export function handleRestartStatus(view: DataView): void {
     restartVotes: { yes, total, countdownMs, receivedAt: Date.now() },
   }});
   syncRestartVoteUI();
-  updateUI(true);
+  updateUI({ force: true });
 }

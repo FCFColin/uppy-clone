@@ -191,9 +191,104 @@ func TestDecrypt_TamperedCiphertext(t *testing.T) {
 	}
 }
 
-func TestRotateKey_NotImplemented(t *testing.T) {
-	if err := RotateKey(nil, []byte("x")); err == nil {
-		t.Fatal("expected not implemented error")
+func TestRotateKey_SwitchesActiveKey(t *testing.T) {
+	oldKey := make([]byte, 32)
+	for i := range oldKey {
+		oldKey[i] = byte(i)
+	}
+	newKey := make([]byte, 32)
+	for i := range newKey {
+		newKey[i] = byte(i + 100)
+	}
+
+	SetEncKeyForTest(oldKey)
+	t.Cleanup(ResetKeyForTest)
+
+	// Encrypt with old key.
+	enc, err := Encrypt("secret-data")
+	if err != nil {
+		t.Fatalf("Encrypt with old key: %v", err)
+	}
+
+	// Rotate to new key.
+	if err := RotateKey(oldKey, newKey); err != nil {
+		t.Fatalf("RotateKey: %v", err)
+	}
+
+	// New encryptions should use new key.
+	enc2, err := Encrypt("new-data")
+	if err != nil {
+		t.Fatalf("Encrypt with new key: %v", err)
+	}
+
+	// New ciphertext should decrypt with new key (encKey is now newKey).
+	got, err := Decrypt(enc2)
+	if err != nil || got != "new-data" {
+		t.Fatalf("Decrypt new = %q, %v", got, err)
+	}
+
+	// Old ciphertext cannot be decrypted with new key.
+	if _, err := Decrypt(enc); err == nil {
+		t.Fatal("expected decrypt error for old ciphertext with new key")
+	}
+}
+
+func TestRotateKey_InvalidNewKey(t *testing.T) {
+	if err := RotateKey(nil, []byte("too-short")); err == nil {
+		t.Fatal("expected error for short new key")
+	}
+}
+
+func TestReEncryptWithKey_RoundTrip(t *testing.T) {
+	oldKey := make([]byte, 32)
+	for i := range oldKey {
+		oldKey[i] = byte(i)
+	}
+	newKey := make([]byte, 32)
+	for i := range newKey {
+		newKey[i] = byte(i + 50)
+	}
+
+	SetEncKeyForTest(oldKey)
+	t.Cleanup(ResetKeyForTest)
+
+	// Encrypt with old key.
+	original := "my-secret-email@example.com"
+	enc, err := Encrypt(original)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	// Re-encrypt with new key.
+	reEncrypted, err := ReEncryptWithKey(oldKey, newKey, enc)
+	if err != nil {
+		t.Fatalf("ReEncryptWithKey: %v", err)
+	}
+
+	// Switch active key to new.
+	if err := RotateKey(oldKey, newKey); err != nil {
+		t.Fatalf("RotateKey: %v", err)
+	}
+
+	// Re-encrypted ciphertext should decrypt with new key.
+	got, err := Decrypt(reEncrypted)
+	if err != nil {
+		t.Fatalf("Decrypt re-encrypted: %v", err)
+	}
+	if got != original {
+		t.Fatalf("got %q, want %q", got, original)
+	}
+}
+
+func TestReEncryptWithKey_InvalidKeys(t *testing.T) {
+	validKey := make([]byte, 32)
+	shortKey := []byte("short")
+
+	if _, err := ReEncryptWithKey(shortKey, validKey, "v1:abcd"); err == nil {
+		t.Fatal("expected error for short old key")
+	}
+	if _, err := ReEncryptWithKey(validKey, shortKey, "v1:abcd"); err == nil {
+		t.Fatal("expected error for short new key")
 	}
 }
 

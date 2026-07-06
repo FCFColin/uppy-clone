@@ -21,7 +21,6 @@ func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 	}()
 
 	player := r.state.Players[playerID]
-	isReconnect := player != nil
 
 	r.closeExistingConnection(playerID, player)
 
@@ -45,7 +44,7 @@ func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 		player = newPlayer
 	}
 
-	r.notifyJoin(playerID, player, isReconnect)
+	r.notifyJoin(playerID, player, false)
 	r.normalizePhaseForNicknameGate()
 	r.transitionPhaseIfNeeded()
 

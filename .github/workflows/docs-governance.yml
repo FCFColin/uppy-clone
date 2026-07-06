@@ -72,7 +72,7 @@ jobs:
               exit 1
             fi
           }
-          ts="frontend/src/shared/protocol.ts"
+          ts="frontend/src/shared/game/protocol.ts"
           check SNAPSHOT 0x01 "$ts"
           check PLAYER_JOIN 0x02 "$ts"
           check PLAYER_LEAVE 0x03 "$ts"
@@ -81,6 +81,11 @@ jobs:
           check GAME_STATE_CHANGE 0x06 "$ts"
           check RESTART_STATUS 0x07 "$ts"
           check PONG 0x21 "$ts"
+          # Client message types (CLIENT_MSG)
+          check TAP 0x10 "$ts"
+          check SET_NICKNAME 0x11 "$ts"
+          check RESTART_VOTE 0x12 "$ts"
+          check PING 0x20 "$ts"
 
   asyncapi-validate:
     name: AsyncAPI validate

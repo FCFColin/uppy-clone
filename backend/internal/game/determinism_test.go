@@ -3,6 +3,7 @@ package game
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ func TestDeterministicTick_SameSeedSameHash(t *testing.T) {
 	hash2 := deterministicTickHash(t, tickCount, fixedTime)
 
 	if hash1 != hash2 {
-		t.Fatalf("deterministic tick mismatch (seed=42, ticks=%d):\n  run1: %x\n  run2: %x", tickCount, hash1, hash2)
+		t.Fatalf("deterministic tick mismatch (seed=42, ticks=%d):\n  run1: %s\n  run2: %s", tickCount, hash1, hash2)
 	}
 }
 
@@ -58,7 +59,7 @@ func deterministicTickHash(t *testing.T, tickCount int, fixedTime time.Time) str
 		t.Fatalf("json marshal: %v", err)
 	}
 	hash := sha256.Sum256(data)
-	return string(hash[:])
+	return fmt.Sprintf("%x", hash)
 }
 
 func TestDeterministicTick_DifferentSeedDifferentHash(t *testing.T) {
@@ -109,5 +110,5 @@ func deterministicTickHashWithSeed(t *testing.T, tickCount int, fixedTime time.T
 		t.Fatalf("json marshal: %v", err)
 	}
 	hash := sha256.Sum256(data)
-	return string(hash[:])
+	return fmt.Sprintf("%x", hash)
 }

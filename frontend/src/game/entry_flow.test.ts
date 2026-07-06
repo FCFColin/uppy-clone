@@ -55,7 +55,7 @@ import {
   routeConnectionError,
   clearStartCountdown,
 } from './entry_flow.js';
-import { clearWaitingInlineError } from './entry_flow_dom.js';
+import { clearWaitingInlineError } from './entry_flow.js';
 
 describe('entry_flow', () => {
   beforeEach(() => {

@@ -96,31 +96,35 @@ func (m *OutboundManager) Enqueue(payload []byte, excludePlayerID string, critic
 	}
 	m.startLoop()
 	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Warn("panic recovered in outbound enqueue", "panic", r, "room_code", m.lobbyCode)
-			}
-		}()
+		defer m.recoverPanic("enqueue")
 		select {
 		case m.ch <- msg:
 			metrics.SetRoomOutboundQueueDepth(m.lobbyCode, len(m.ch))
 		default:
 			if critical {
-				select {
-				case m.ch <- msg:
-					metrics.SetRoomOutboundQueueDepth(m.lobbyCode, len(m.ch))
-				case <-time.After(100 * time.Millisecond):
-					metrics.WSMessagesDroppedTotal.WithLabelValues(m.lobbyCode).Inc()
-					slog.Warn("critical outbound queue blocked, dropping to avoid room lock hold",
-						"room_code", m.lobbyCode)
-				}
+				m.enqueueCritical(msg)
 				return
 			}
-			metrics.WSMessagesDroppedTotal.WithLabelValues(m.lobbyCode).Inc()
-			slog.Warn("outbound queue full, dropping non-critical message",
-				"room_code", m.lobbyCode)
+			m.droppedNonCritical()
 		}
 	}()
+}
+
+func (m *OutboundManager) enqueueCritical(msg outboundMsg) {
+	select {
+	case m.ch <- msg:
+		metrics.SetRoomOutboundQueueDepth(m.lobbyCode, len(m.ch))
+	case <-time.After(100 * time.Millisecond):
+		metrics.WSMessagesDroppedTotal.WithLabelValues(m.lobbyCode).Inc()
+		slog.Warn("critical outbound queue blocked, dropping to avoid room lock hold",
+			"room_code", m.lobbyCode)
+	}
+}
+
+func (m *OutboundManager) droppedNonCritical() {
+	metrics.WSMessagesDroppedTotal.WithLabelValues(m.lobbyCode).Inc()
+	slog.Warn("outbound queue full, dropping non-critical message",
+		"room_code", m.lobbyCode)
 }
 
 func (m *OutboundManager) deliver(msg outboundMsg) {
@@ -146,17 +150,19 @@ func (m *OutboundManager) publishIfNeeded(msg outboundMsg) {
 func (m *OutboundManager) deliverToTargets(targets []connTarget, msg outboundMsg) {
 	for _, t := range targets {
 		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Warn("panic recovered in outbound deliverToTargets", "panic", r, "room_code", m.lobbyCode)
-				}
-			}()
+			defer m.recoverPanic("deliverToTargets")
 			if msg.critical {
 				m.deliverCritical(t, msg)
 				return
 			}
 			m.deliverNonCritical(t, msg)
 		}()
+	}
+}
+
+func (m *OutboundManager) recoverPanic(context string) {
+	if r := recover(); r != nil {
+		slog.Warn("panic recovered in outbound "+context, "panic", r, "room_code", m.lobbyCode)
 	}
 }
 

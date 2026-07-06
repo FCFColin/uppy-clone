@@ -48,10 +48,10 @@ export function createInitialState(): ClientState {
     ...INITIAL_STATE,
     ripples: [],
     players: [],
-    balloon: { x: 0.5, y: 0.5, vx: 0, vy: 0 },
-    bird: { x: 0, y: 0, active: false },
-    ghost: { x: 0, y: 0, active: false, repelTimer: 0 },
-    restartVotes: { yes: 0, total: 0, countdownMs: 0 },
+    balloon: { ...INITIAL_STATE.balloon },
+    bird: { ...INITIAL_STATE.bird },
+    ghost: { ...INITIAL_STATE.ghost },
+    restartVotes: { ...INITIAL_STATE.restartVotes },
   };
 }
 
@@ -60,11 +60,9 @@ export function gameReducer(state: ClientState, action: GameAction): ClientState
     case 'SET_STATE':
       return { ...state, ...action.partial };
     case 'ADD_RIPPLE':
-      state.ripples = [...state.ripples, action.ripple];
-      return state;
+      return { ...state, ripples: [...state.ripples, action.ripple] };
     case 'SET_END_REASON':
-      state.endReason = action.reason;
-      return state;
+      return { ...state, endReason: action.reason };
     case 'RESET_ROUND':
       return resetRound(state);
     case 'RESET_ALL': {
@@ -76,17 +74,19 @@ export function gameReducer(state: ClientState, action: GameAction): ClientState
 }
 
 function resetRound(state: ClientState): ClientState {
-  state.ripples = [];
-  state.explosionEffect = null;
-  state.myCooldownEnd = 0;
-  state.lastTapX = null;
-  state.lastTapY = null;
-  state.restartClicked = false;
-  state.restartVotes = { yes: 0, total: 0, countdownMs: 0 };
-  state.score = 0;
-  state.balloon = { x: 0.5, y: 0.95, vx: 0, vy: 0 };
-  state.bird = { x: 0, y: 0, active: false };
-  state.ghost = { x: 0, y: 0, active: false, repelTimer: 0 };
-  state.wind = 0;
-  return state;
+  return {
+    ...state,
+    ripples: [],
+    explosionEffect: null,
+    myCooldownEnd: 0,
+    lastTapX: null,
+    lastTapY: null,
+    restartClicked: false,
+    restartVotes: { yes: 0, total: 0, countdownMs: 0 },
+    score: 0,
+    balloon: { x: 0.5, y: 0.95, vx: 0, vy: 0 },
+    bird: { x: 0, y: 0, active: false },
+    ghost: { x: 0, y: 0, active: false, repelTimer: 0 },
+    wind: 0,
+  };
 }

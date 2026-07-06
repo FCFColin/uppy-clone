@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/uppy-clone/backend/internal/testutil"
@@ -96,7 +97,7 @@ func TestOutbox_ConcurrentInserts(t *testing.T) {
 	done := make(chan error, 10)
 	for i := 0; i < 5; i++ {
 		go func(idx int) {
-			payload := []byte(`{"concurrent":true,"index":` + string(rune('0'+idx)) + `}`)
+			payload := []byte(fmt.Sprintf(`{"concurrent":true,"index":%d}`, idx))
 			done <- db.InsertOutboxEvent(ctx, "room", "room-concurrent", payload)
 		}(i)
 	}

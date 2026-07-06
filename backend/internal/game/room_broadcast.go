@@ -3,7 +3,6 @@ package game
 import (
 	"time"
 
-	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
@@ -13,19 +12,19 @@ import (
 // 连续 3 次丢弃记录 WARN 日志，连续 10 次丢弃强制断开慢客户端。
 // 调用方必须持有 r.mu 锁。实际投递在 outbound goroutine 中完成（不持锁）。
 func (r *Room) broadcast(data []byte, excludePlayerID string) {
-	r.enqueueOutbound(data, excludePlayerID, false, false)
+	r.enqueueOutbound(data, broadcastOpts{excludePlayerID: excludePlayerID})
 }
 
 // broadcastLocal 仅向本地连接投递数据，不发布到 Redis。
 // 由 Hub 在收到 Redis Pub/Sub 远程消息时调用，避免回环。
 func (r *Room) broadcastLocal(data []byte, excludePlayerID string) {
-	r.enqueueOutbound(data, excludePlayerID, false, true)
+	r.enqueueOutbound(data, broadcastOpts{excludePlayerID: excludePlayerID, skipRedis: true})
 }
 
 // broadcastCritical sends a critical phase message with blocking delivery per client.
 // 调用方必须持有 r.mu 锁。
 func (r *Room) broadcastCritical(message []byte) {
-	r.enqueueOutbound(message, "", true, false)
+	r.enqueueOutbound(message, broadcastOpts{critical: true})
 }
 
 // sendToPlayer 发送数据给指定玩家（同步非阻塞，单玩家路径足够快）。
@@ -36,11 +35,6 @@ func (r *Room) sendToPlayer(playerID string, data []byte) {
 		default:
 		}
 	}
-}
-
-// modelPhaseToProtocol 将 domain.GamePhase 转换为 protocol.GamePhase
-func modelPhaseToProtocol(p domain.GamePhase) protocol.GamePhase {
-	return protocol.GamePhase(string(p))
 }
 
 // buildSnapshot 编码当前状态为快照
@@ -66,7 +60,7 @@ func (r *Room) buildSnapshot() []byte {
 	r.players = players
 
 	return protocol.EncodeSnapshot(
-		modelPhaseToProtocol(r.state.Phase),
+		protocol.GamePhase(r.state.Phase),
 		uint32(r.state.TickCount), //nolint:gosec:G115 // tick counter wraps naturally
 		uint32(r.state.Balloon.Score),
 		protocol.BalloonState{

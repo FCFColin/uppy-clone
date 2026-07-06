@@ -15,7 +15,7 @@ import {
   initEntryFlow, bindEntryUI, onNicknameSubmit, onWebSocketOpen, getEntryStep,
 } from './entry_flow.js';
 
-function submitSetupNickname(): Promise<void> {
+function submitSetupNickname(): void {
   const input: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
   let nickname: string = input ? input.value.trim() : '';
   if (!nickname) {
@@ -28,22 +28,31 @@ function submitSetupNickname(): Promise<void> {
   const msg: ArrayBuffer = encodeSetNickname(nickname);
   sendOrQueue(msg);
 
-  updateUI(true);
+  updateUI({ force: true });
   showToast(`欢迎，${nickname}！`);
-  return Promise.resolve();
 }
 
-export function boot(): void {
-  normalizeAuthHost();
-
-  localStorage.setItem('uppy-game-url', window.location.href);
-
+function initNickname(): void {
   const savedNickname: string | null = localStorage.getItem('uppy-nickname');
   if (savedNickname && $setupNicknameInput) {
     $setupNicknameInput.value = savedNickname;
   } else if ($setupNicknameInput) {
     $setupNicknameInput.value = generateRandomNickname();
   }
+}
+
+function initConnection(): void {
+  connectWebSocket();
+  setTimeout(() => {
+    if (getEntryStep() !== 'connecting') return;
+    showConnectionError('连接超时，请检查网络或稍后重试', { showActions: true });
+  }, 8000);
+}
+
+export function boot(): void {
+  normalizeAuthHost();
+  localStorage.setItem('uppy-game-url', window.location.href);
+  initNickname();
 
   initEntryFlow();
   bindEntryUI(() => {
@@ -55,17 +64,12 @@ export function boot(): void {
     void connectWebSocket();
   });
 
-  connectWebSocket();
+  initConnection();
   requestAnimationFrame(gameLoop);
-
-  setTimeout(() => {
-    if (getEntryStep() !== 'connecting') return;
-    showConnectionError('连接超时，请检查网络或稍后重试', { showActions: true });
-  }, 8000);
 
   window.addEventListener('game-ws-open', () => {
     onWebSocketOpen();
-    updateUI(true);
+    updateUI({ force: true });
   });
 
   resizeCanvas();

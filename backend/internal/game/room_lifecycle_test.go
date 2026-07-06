@@ -419,9 +419,9 @@ func TestModelPhaseToProtocol(t *testing.T) {
 		{domain.PhaseEnded, protocol.PhaseEnded},
 	}
 	for _, tt := range tests {
-		got := modelPhaseToProtocol(tt.input)
+		got := protocol.GamePhase(tt.input)
 		if got != tt.expected {
-			t.Errorf("modelPhaseToProtocol(%q) = %q, want %q", tt.input, got, tt.expected)
+			t.Errorf("protocol.GamePhase(%q) = %q, want %q", tt.input, got, tt.expected)
 		}
 	}
 }

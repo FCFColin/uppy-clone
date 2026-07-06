@@ -7,8 +7,9 @@ import {
   onWebSocketOpen,
   onWebSocketClosed,
   getEntryStep,
+  routeConnectionError,
+  clearWaitingInlineError,
 } from './entry_flow.js';
-import { clearWaitingInlineError } from './entry_flow_dom.js';
 import { resolveLobbyCode } from './lobby_match.js';
 import {
   getLobbyCodeFromUrl,

@@ -60,7 +60,7 @@ import {
   setLobbyCodeDisplay,
   renderEntryFullScreenError,
   renderStartCountdownTitle,
-} from './entry_flow_dom.js';
+} from './entry_flow.js';
 import { resetEntryFlowForTest } from './entry_flow.js';
 import type { EntryOverlayContext } from './entry_flow.js';
 

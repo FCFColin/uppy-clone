@@ -9,7 +9,7 @@ import {
   $nicknameSetupScreen,
 } from './ui_elements.js';
 import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
-import { endReasonLabel } from './phase_sync.js';
+import { endReasonLabel } from './local_constants.js';
 import { refreshLayout } from './ui_utils.js';
 import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff, getWaitingTitleText } from './entry_flow.js';
@@ -156,8 +156,9 @@ function renderEndPlayerList(force: boolean, phaseChanged: boolean): void {
   renderPlayerItems($endPlayerList, true, sorted);
 }
 
-export function updateUI(force = false): void {
+export function updateUI(opts?: { force?: boolean }): void {
   const phaseChanged = getState().phase !== lastPhase;
+  const force = opts?.force ?? false;
   if (phaseChanged || force) {
     lastPhase = getState().phase;
     setOverlayVisibility();

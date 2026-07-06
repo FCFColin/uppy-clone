@@ -13,10 +13,7 @@ import (
 
 // RevokeJWT stores a JWT jti in the revocation list until TTL expires.
 func (s *RedisStore) RevokeJWT(ctx context.Context, jti string, ttl time.Duration) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "redis.RevokeJWT",
-		trace.WithAttributes(attribute.String("db.system", "redis"),
-			attribute.String("db.operation", "SET")),
-	)
+	ctx, span := startRedisSpan(ctx, "redis.RevokeJWT", "SET")
 	defer span.End()
 
 	key := jwtRevokedKey(jti)
@@ -31,10 +28,7 @@ func (s *RedisStore) RevokeJWT(ctx context.Context, jti string, ttl time.Duratio
 
 // IsJWTRevoked reports whether a JWT jti has been revoked.
 func (s *RedisStore) IsJWTRevoked(ctx context.Context, jti string) (bool, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "redis.IsJWTRevoked",
-		trace.WithAttributes(attribute.String("db.system", "redis"),
-			attribute.String("db.operation", "GET")),
-	)
+	ctx, span := startRedisSpan(ctx, "redis.IsJWTRevoked", "GET")
 	defer span.End()
 
 	key := jwtRevokedKey(jti)
@@ -185,3 +179,11 @@ func (s *RedisStore) GetAllAdminJTIs(ctx context.Context) ([]string, error) {
 }
 
 func jwtRevokedKey(jti string) string { return "jwt_revoked:" + jti }
+
+func startRedisSpan(ctx context.Context, name, operation string) (context.Context, trace.Span) {
+	ctx, span := telemetry.Tracer().Start(ctx, name,
+		trace.WithAttributes(attribute.String("db.system", "redis"),
+			attribute.String("db.operation", operation)),
+	)
+	return ctx, span
+}

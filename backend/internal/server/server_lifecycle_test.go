@@ -158,7 +158,7 @@ func TestWaitForShutdown_AlreadyClosedServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, broadcaster)
+		waitForShutdown(srv.Config, cancel, hub, broadcaster, nil)
 		close(done)
 	}()
 
@@ -191,7 +191,7 @@ func TestWaitForShutdown_NilBroadcaster(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, nil)
+		waitForShutdown(srv.Config, cancel, hub, nil, nil)
 		close(done)
 	}()
 
@@ -227,7 +227,7 @@ func TestWaitForShutdown_BroadcasterCloseError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, broadcaster)
+		waitForShutdown(srv.Config, cancel, hub, broadcaster, nil)
 		close(done)
 	}()
 
@@ -625,6 +625,7 @@ func TestStartMetricsCollector_TickInShort(t *testing.T) {
 	t.Cleanup(func() { metricsCollectInterval = prev })
 
 	redisStore := testutil.SetupMiniredisStore(t)
+	cluster := store.NewRedisClusterFromStores(redisStore, nil)
 	mock, err := pgxmock.NewPool()
 	if err != nil {
 		t.Fatalf("pgxmock: %v", err)
@@ -634,7 +635,7 @@ func TestStartMetricsCollector_TickInShort(t *testing.T) {
 	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startMetricsCollector(ctx, hub, db, redisStore)
+	startMetricsCollector(ctx, hub, db, cluster)
 	time.Sleep(metricsCollectInterval + 25*time.Millisecond)
 	cancel()
 	time.Sleep(20 * time.Millisecond)
@@ -646,6 +647,7 @@ func TestStartMetricsCollector_UpdatesOnTick(t *testing.T) {
 	}
 
 	redisStore := testutil.SetupMiniredisStore(t)
+	cluster := store.NewRedisClusterFromStores(redisStore, nil)
 	mock, err := pgxmock.NewPool()
 	if err != nil {
 		t.Fatalf("pgxmock: %v", err)
@@ -655,32 +657,32 @@ func TestStartMetricsCollector_UpdatesOnTick(t *testing.T) {
 	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startMetricsCollector(ctx, hub, db, redisStore)
+	startMetricsCollector(ctx, hub, db, cluster)
 	time.Sleep(appConfig.MetricsInterval + time.Second)
 	cancel()
 	time.Sleep(50 * time.Millisecond)
 }
 
-func TestInitRedis_Success(t *testing.T) {
+func TestInitRedisCluster_Success(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	addr := redisStore.Client().Options().Addr
 	cfg := &handler.Config{RedisURL: addr}
-	got, err := initRedis(cfg, appConfig.DefaultTimeoutConfig())
+	got, err := initRedisCluster(cfg, appConfig.DefaultTimeoutConfig())
 	if err != nil {
-		t.Fatalf("initRedis: %v", err)
+		t.Fatalf("initRedisCluster: %v", err)
 	}
 	defer got.Close()
 }
 
-func TestInitRedis_InvalidURL(t *testing.T) {
+func TestInitRedisCluster_InvalidURL(t *testing.T) {
 	cfg := &handler.Config{RedisURL: "redis://invalid-host:59999"}
-	_, err := initRedis(cfg, appConfig.TimeoutConfig{
+	_, err := initRedisCluster(cfg, appConfig.TimeoutConfig{
 		RedisConnectTimeout: time.Second,
 		RedisReadTimeout:    time.Second,
 		RedisWriteTimeout:   time.Second,
 	})
 	if err == nil {
-		t.Fatal("expected initRedis error")
+		t.Fatal("expected initRedisCluster error")
 	}
 }
 
@@ -754,6 +756,7 @@ func TestStartWorkers_Short(t *testing.T) {
 
 func TestStartMetricsCollector_Cancel(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
+	cluster := store.NewRedisClusterFromStores(redisStore, nil)
 	mock, err := pgxmock.NewPool()
 	if err != nil {
 		t.Fatalf("pgxmock: %v", err)
@@ -763,7 +766,7 @@ func TestStartMetricsCollector_Cancel(t *testing.T) {
 	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startMetricsCollector(ctx, hub, db, redisStore)
+	startMetricsCollector(ctx, hub, db, cluster)
 	cancel()
 	time.Sleep(50 * time.Millisecond)
 }
@@ -915,7 +918,7 @@ func TestWaitForShutdown_Graceful(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, broadcaster)
+		waitForShutdown(srv.Config, cancel, hub, broadcaster, nil)
 		close(done)
 	}()
 
@@ -957,6 +960,7 @@ func TestServe_StartsAndStops(t *testing.T) {
 
 	db := store.NewPostgresStoreWithPool(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
+	cluster := store.NewRedisClusterFromStores(redisStore, nil)
 
 	prevEnv := serverEnv
 	serverEnv = &appConfig.Env{
@@ -975,15 +979,16 @@ func TestServe_StartsAndStops(t *testing.T) {
 	_ = ln.Close()
 
 	cfg := &handler.Config{
-		Port:      strconv.Itoa(port),
+		Port:          strconv.Itoa(port),
 		JWTPrivateKey: testsecrets.TestJWTPrivateKeyPEM,
+		RedisURL:      redisStore.Client().Options().Addr,
 	}
 	timeouts := appConfig.DefaultTimeoutConfig()
 	ctx := context.Background()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- serve(ctx, cfg, timeouts, db, redisStore)
+		done <- serve(ctx, cfg, timeouts, db, cluster)
 	}()
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -1190,7 +1195,7 @@ func TestWaitForShutdown_ServerShutdownError(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, nil)
+		waitForShutdown(srv.Config, cancel, hub, nil, nil)
 		close(done)
 	}()
 

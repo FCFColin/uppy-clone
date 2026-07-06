@@ -8,23 +8,9 @@ import {
   startCooldownUpdater, stopCooldownUpdater,
 } from './ui.js';
 import { tryEntryHandoff } from './entry_flow.js';
+import { END_REASON } from './local_constants.js';
 
-export const END_REASON = {
-  NONE: 0,
-  GROUND: 1,
-  BIRD: 2,
-  GHOST: 3,
-} as const;
-
-const END_REASON_LABELS: Record<number, string> = {
-  [END_REASON.GROUND]: '气球落地',
-  [END_REASON.BIRD]: '被鸟撞到',
-  [END_REASON.GHOST]: '被幽灵碰到',
-};
-
-export function endReasonLabel(code: number): string {
-  return END_REASON_LABELS[code] ?? '';
-}
+export { END_REASON };
 
 /**
  * Whether a snapshot phase transition is allowed from the current client phase.
@@ -137,6 +123,6 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
   tryEntryHandoff(nextPhase);
   phaseEnterHooks[nextPhase](countdownSeconds);
 
-  updateUI(true);
+  updateUI({ force: true });
   return true;
 }

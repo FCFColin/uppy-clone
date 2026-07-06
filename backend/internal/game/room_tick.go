@@ -84,12 +84,7 @@ func (r *Room) tickOnce(now time.Time) {
 		return
 	}
 
-	if !hasAnyConnectedPlayer(r.state.Players) && len(r.state.Players) > 0 {
-		r.stopTick()
-		return
-	}
-
-	if len(r.state.Players) == 0 {
+	if len(r.state.Players) == 0 || !hasAnyConnectedPlayer(r.state.Players) {
 		r.stopTick()
 		return
 	}
@@ -124,11 +119,8 @@ func (r *Room) tickOnce(now time.Time) {
 	r.broadcast(r.buildSnapshot(), "")
 }
 
-// startTick 启动 tick 循环
-func (r *Room) startTick() {
-	if r.tickCancel != nil {
-		return
-	}
+// startTickGoroutine launches a tick goroutine (caller must hold r.mu).
+func (r *Room) startTickGoroutine() {
 	r.wg.Add(1)
 	ctx, cancel := context.WithCancel(context.Background())
 	r.tickCancel = cancel
@@ -136,6 +128,14 @@ func (r *Room) startTick() {
 		defer r.wg.Done()
 		r.tick(ctx)
 	}()
+}
+
+// startTick 启动 tick 循环
+func (r *Room) startTick() {
+	if r.tickCancel != nil {
+		return
+	}
+	r.startTickGoroutine()
 }
 
 // stopTick 停止 tick 循环。调用方须持有 r.mu。
@@ -151,14 +151,8 @@ func (r *Room) stopTick() {
 func (r *Room) restartTick() {
 	r.mu.Lock()
 	if r.tickCancel == nil {
-		r.wg.Add(1)
-		ctx, cancel := context.WithCancel(context.Background())
-		r.tickCancel = cancel
+		r.startTickGoroutine()
 		r.mu.Unlock()
-		go func() {
-			defer r.wg.Done()
-			r.tick(ctx)
-		}()
 		return
 	}
 	oldCancel := r.tickCancel
@@ -169,14 +163,8 @@ func (r *Room) restartTick() {
 	r.wg.Wait()
 
 	r.mu.Lock()
-	r.wg.Add(1)
-	ctx, cancel := context.WithCancel(context.Background())
-	r.tickCancel = cancel
+	r.startTickGoroutine()
 	r.mu.Unlock()
-	go func() {
-		defer r.wg.Done()
-		r.tick(ctx)
-	}()
 }
 
 // cleanupDisconnected 清理超过 30 秒优雅期的断连玩家

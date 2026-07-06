@@ -42,7 +42,7 @@ func TestRoom_enqueueOutbound_CriticalDoesNotBlockIndefinitely(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		r.enqueueOutbound([]byte("critical"), "", true, false)
+		r.enqueueOutbound([]byte("critical"), broadcastOpts{critical: true})
 		close(done)
 	}()
 
@@ -60,7 +60,7 @@ func TestRoom_enqueueOutbound_CriticalDoesNotBlockIndefinitely(t *testing.T) {
 func blockOutboundConsumerAndFillQueue(t *testing.T, r *Room) {
 	t.Helper()
 	r.mu.Lock()
-	r.startOutboundLoop()
+	r.outbound.startLoop()
 	r.outbound.ch <- outboundMsg{payload: []byte("hold"), skipRedis: true}
 	time.Sleep(20 * time.Millisecond)
 	for i := 0; i < outboundQueueSize; i++ {
@@ -76,7 +76,7 @@ func TestRoom_enqueueOutbound_DropsNonCriticalWhenFull(t *testing.T) {
 	r := NewRoom("OUT2", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = false
 	blockOutboundConsumerAndFillQueue(t, r)
-	r.enqueueOutbound([]byte("drop"), "", false, false)
+	r.enqueueOutbound([]byte("drop"), broadcastOpts{})
 	r.mu.Unlock()
 	r.stopOutbound()
 }
@@ -85,7 +85,7 @@ func TestRoom_enqueueOutbound_CriticalTimeoutDrop(t *testing.T) {
 	r := NewRoom("OUTCT", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = false
 	blockOutboundConsumerAndFillQueue(t, r)
-	r.enqueueOutbound([]byte("crit-drop"), "", true, false)
+	r.enqueueOutbound([]byte("crit-drop"), broadcastOpts{critical: true})
 	r.mu.Unlock()
 	r.stopOutbound()
 }
@@ -101,7 +101,7 @@ func TestRoom_enqueueOutbound_CriticalRetrySuccess(t *testing.T) {
 		r.mu.Unlock()
 	}()
 
-	r.enqueueOutbound([]byte("crit-ok"), "", true, false)
+	r.enqueueOutbound([]byte("crit-ok"), broadcastOpts{critical: true})
 
 	select {
 	case <-done:
@@ -115,12 +115,12 @@ func TestRoom_deliverToTargets_SlowClientDisconnect(t *testing.T) {
 	ch := make(chan []byte)
 	r.mu.Lock()
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-	targets := r.snapshotConnTargetsLocked("")
+	targets := r.SnapshotTargets("")
 	r.mu.Unlock()
 
 	msg := outboundMsg{payload: []byte("x"), critical: false}
 	for i := 0; i < 10; i++ {
-		r.deliverToTargets(targets, msg)
+		r.outbound.deliverToTargets(targets, msg)
 	}
 
 	r.mu.Lock()
@@ -138,7 +138,7 @@ func TestRoom_deliverOutbound_RemovesPendingDisconnect(t *testing.T) {
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1), pendingDisconnect: true}
 	r.mu.Unlock()
 
-	r.deliverOutbound(outboundMsg{payload: []byte("ok"), skipRedis: true})
+	r.outbound.deliver(outboundMsg{payload: []byte("ok"), skipRedis: true})
 
 	r.mu.Lock()
 	_, exists := r.connections["p1"]
@@ -164,7 +164,7 @@ func TestRoom_enqueueOutbound_SyncPath(t *testing.T) {
 	r.syncOutbound = true
 	addConnectedPlayer(r, "p1")
 	r.mu.Lock()
-	r.enqueueOutbound([]byte("sync-msg"), "", false, true)
+	r.enqueueOutbound([]byte("sync-msg"), broadcastOpts{skipRedis: true})
 	r.mu.Unlock()
 }
 
@@ -177,7 +177,7 @@ func TestRoom_enqueueOutbound_CriticalTimeout(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		r.mu.Lock()
-		r.enqueueOutbound([]byte("critical"), "", true, false)
+		r.enqueueOutbound([]byte("critical"), broadcastOpts{critical: true})
 		r.mu.Unlock()
 		close(done)
 	}()
@@ -192,7 +192,7 @@ func TestRoom_enqueueOutbound_CriticalTimeout(t *testing.T) {
 func TestRoom_stopOutbound(t *testing.T) {
 	r := NewRoom("STOP", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = false
-	r.startOutboundLoop()
+	r.outbound.startLoop()
 	r.stopOutbound()
 }
 
@@ -200,9 +200,9 @@ func TestRoom_enqueueOutbound_AsyncSuccess(t *testing.T) {
 	r := NewRoom("ASYNC", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = false
 	r.mu.Lock()
-	r.startOutboundLoop()
+	r.outbound.startLoop()
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-	r.enqueueOutbound([]byte("hello"), "", false, true)
+	r.enqueueOutbound([]byte("hello"), broadcastOpts{skipRedis: true})
 	r.mu.Unlock()
 
 	select {
@@ -221,7 +221,7 @@ func TestRoom_enqueueOutbound_NonCriticalNotFull(t *testing.T) {
 	r.syncOutbound = false
 	addConnectedPlayer(r, "p1")
 	r.mu.Lock()
-	r.enqueueOutbound([]byte("msg"), "", false, true)
+	r.enqueueOutbound([]byte("msg"), broadcastOpts{skipRedis: true})
 	r.mu.Unlock()
 	select {
 	case msg := <-r.connections["p1"].Send:
@@ -239,7 +239,7 @@ func TestRoom_enqueueOutbound_CriticalNotFull(t *testing.T) {
 	r.syncOutbound = false
 	addConnectedPlayer(r, "p1")
 	r.mu.Lock()
-	r.enqueueOutbound([]byte("crit"), "", true, true)
+	r.enqueueOutbound([]byte("crit"), broadcastOpts{critical: true, skipRedis: true})
 	r.mu.Unlock()
 	select {
 	case <-r.connections["p1"].Send:
@@ -255,7 +255,7 @@ func TestRoom_snapshotConnTargetsLocked_SkipsNilAndExcluded(t *testing.T) {
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1)}
 	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: nil}
 	r.connections["p3"] = nil
-	targets := r.snapshotConnTargetsLocked("p1")
+	targets := r.SnapshotTargets("p1")
 	r.mu.Unlock()
 	if len(targets) != 0 {
 		t.Fatalf("targets = %d, want 0 (excluded/nil only)", len(targets))

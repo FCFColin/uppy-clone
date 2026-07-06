@@ -138,6 +138,7 @@ spec:
                   name: balloon-game-secrets
                   key: internal-proxy-secret
             # 其余密钥（JWT_SECRET / ENCRYPTION_KEY / DATABASE_URL / REDIS_URL /
+            # REDIS_EPHEMERAL_URL / REDIS_REGIONAL_URL /
             # METRICS_USER / METRICS_PASSWORD 等）同样来自 balloon-game-secrets。
           envFrom:
             - secretRef:

@@ -78,7 +78,7 @@ func (s *RoomRegistryStore) ListActiveRooms(ctx context.Context) ([]string, erro
 	ctx, span := telemetry.Tracer().Start(ctx, "room_registry.ListActiveRooms",
 		trace.WithAttributes(
 			attribute.String("db.system", "redis"),
-			attribute.String("db.operation", "KEYS"),
+			attribute.String("db.operation", "SCAN"),
 		),
 	)
 	defer span.End()
@@ -86,10 +86,18 @@ func (s *RoomRegistryStore) ListActiveRooms(ctx context.Context) ([]string, erro
 	pattern := "room:*"
 	var keys []string
 	_, err := s.cb.Execute(func() (any, error) {
-		var getErr error
-		keys, getErr = s.rdb.Keys(ctx, pattern).Result()
-		if getErr != nil {
-			return nil, fmt.Errorf("list active rooms: %w", getErr)
+		var cursor uint64
+		for {
+			var batch []string
+			var scanErr error
+			batch, cursor, scanErr = s.rdb.Scan(ctx, cursor, pattern, 100).Result()
+			if scanErr != nil {
+				return nil, fmt.Errorf("list active rooms: %w", scanErr)
+			}
+			keys = append(keys, batch...)
+			if cursor == 0 {
+				break
+			}
 		}
 		return nil, nil
 	})

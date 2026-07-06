@@ -16,9 +16,11 @@ import (
 )
 
 // setupMiddleware registers global chi middleware (logging, recovery, security, CORS).
+// Note: chiMiddleware.Logger and chiMiddleware.Recoverer are intentionally omitted —
+// appMiddleware.RequestIDLogger covers structured request logging (with RequestID),
+// and appMiddleware.Recovery covers panic recovery with slog. The chi built-ins
+// were redundant and added noise without RequestID correlation.
 func setupMiddleware(r *chi.Mux) {
-	r.Use(chiMiddleware.Logger)
-	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.RequestID)
 	r.Use(appMiddleware.Recovery)
 	r.Use(appMiddleware.RequestIDLogger)

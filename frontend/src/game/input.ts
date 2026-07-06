@@ -51,15 +51,14 @@ export function requestRestart(): void {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     dispatch({ type: 'SET_STATE', partial: { restartClicked: true } });
     if ($restartProgress) $restartProgress.textContent = '连接已断开，正在重连…';
-    updateUI(true);
     return;
   }
   dispatch({ type: 'SET_STATE', partial: { restartClicked: true } });
   if ($restartProgress) {
     $restartProgress.textContent = '正在提交重启投票...';
   }
-  updateUI(true);
   const buf: ArrayBuffer = new ArrayBuffer(1);
   new DataView(buf).setUint8(0, CLIENT_MSG.RESTART_VOTE);
+  updateUI({ force: true });
   sendOrQueue(buf);
 }

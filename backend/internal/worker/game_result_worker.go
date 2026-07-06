@@ -190,8 +190,10 @@ func (w *GameResultWorker) handleTransientFailure(ctx context.Context, msg redis
 
 	if retryCount >= w.maxRetries {
 		w.rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream: "game-result:dead-letter",
-			Values: msg.Values,
+			Stream:   "game-result:dead-letter",
+			MaxLen:   10_000,
+			Approx:   true,
+			Values:       msg.Values,
 		})
 		w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
 		slog.Error("game result worker: moved to dead-letter after max retries", "id", msg.ID, "retries", retryCount)
@@ -200,8 +202,10 @@ func (w *GameResultWorker) handleTransientFailure(ctx context.Context, msg redis
 
 	msg.Values["retry_count"] = strconv.Itoa(retryCount + 1)
 	w.rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: "game:results",
-		Values: msg.Values,
+			Stream:   "game:results",
+			MaxLen:   100_000,
+			Approx:   true,
+		Values:       msg.Values,
 	})
 	w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
 }

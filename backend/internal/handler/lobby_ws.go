@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/metrics"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 )
@@ -91,7 +92,7 @@ func (h *LobbyHandler) reserveWSConnection(w http.ResponseWriter) bool {
 }
 
 func (h *LobbyHandler) authenticateWSRequest(w http.ResponseWriter, r *http.Request) (string, bool) {
-	userId, _, ok := getAuthenticatedUser(r)
+	userId, _, ok := auth.GetAuthenticatedUser(r)
 	if !ok || userId == "" {
 		apierror.Unauthorized("Unauthorized").Write(w)
 		return "", false

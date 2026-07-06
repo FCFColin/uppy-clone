@@ -28,6 +28,9 @@ type PlayerConn struct {
 	pendingDisconnect bool
 }
 
+// SendChannel returns the outbound message channel for interface access.
+func (p *PlayerConn) SendChannel() chan []byte { return p.Send }
+
 // SnapshotTargets implements ConnectionSource.
 func (r *Room) SnapshotTargets(excludePlayerID string) []connTarget {
 	targets := make([]connTarget, 0, len(r.connections))
@@ -163,6 +166,7 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 		rng:         newSeededRNG(seed),
 	}
 	r.outbound = NewOutboundManager(code, instanceID, &r.syncOutbound, broadcaster, r, r.logger, &r.asyncWg)
+	r.persist = newPersistManager(r, r.logger, &r.asyncWg)
 	return r
 }
 

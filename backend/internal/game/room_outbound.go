@@ -1,9 +1,16 @@
 package game
 
+// broadcastOpts controls outbound delivery behavior.
+type broadcastOpts struct {
+	excludePlayerID string
+	critical        bool
+	skipRedis       bool
+}
+
 // enqueueOutbound queues a broadcast for async delivery. Caller must hold r.mu.
-func (r *Room) enqueueOutbound(payload []byte, excludePlayerID string, critical, skipRedis bool) {
+func (r *Room) enqueueOutbound(payload []byte, opts broadcastOpts) {
 	r.initOutboundManager()
-	r.outbound.Enqueue(payload, excludePlayerID, critical, skipRedis)
+	r.outbound.Enqueue(payload, opts.excludePlayerID, opts.critical, opts.skipRedis)
 }
 
 func (r *Room) initOutboundManager() {
@@ -20,24 +27,4 @@ func (r *Room) stopOutbound() {
 	r.outbound.Stop()
 }
 
-// Bridge methods for test backward compatibility.
 
-func (r *Room) snapshotConnTargetsLocked(excludePlayerID string) []connTarget {
-	r.initOutboundManager()
-	return r.outbound.source.SnapshotTargets(excludePlayerID)
-}
-
-func (r *Room) startOutboundLoop() {
-	r.initOutboundManager()
-	r.outbound.startLoop()
-}
-
-func (r *Room) deliverOutbound(msg outboundMsg) {
-	r.initOutboundManager()
-	r.outbound.deliver(msg)
-}
-
-func (r *Room) deliverToTargets(targets []connTarget, msg outboundMsg) {
-	r.initOutboundManager()
-	r.outbound.deliverToTargets(targets, msg)
-}

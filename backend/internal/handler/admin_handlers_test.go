@@ -697,11 +697,17 @@ func TestAdminHandler_completeAdminLogin_ResetError(t *testing.T) {
 	}
 }
 
+type mockTokenSigner struct {
+	err error
+}
+
+func (m *mockTokenSigner) SignToken() (string, string, error) {
+	return "", "", m.err
+}
+
 func TestAdminHandler_completeAdminLogin_SignError(t *testing.T) {
 	h := newTestAdminHandler()
-	prev := signAdminTokenFn
-	signAdminTokenFn = func(*AdminHandler) (string, string, error) { return "", "", errors.New("sign failed") }
-	t.Cleanup(func() { signAdminTokenFn = prev })
+	h.tokenSigner = &mockTokenSigner{err: errors.New("sign failed")}
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/", nil)

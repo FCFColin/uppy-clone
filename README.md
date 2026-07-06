@@ -1,103 +1,49 @@
-# uppy-clone
+# Balloon Game — 多人网页气球对战
 
-多人网页气球对战游戏 — Go 后端 + TypeScript 前端。
+一个实时多人网页气球对战游戏，使用 Go 后端 + TypeScript 前端。项目以游戏为载体，实践企业级架构、安全纵深、可观测性和运维自动化。
 
-> **关于本项目的定位（请先读）**
-> 这是一个**学习型工程项目**：以一个极简的多人网页小游戏作为**载体**，端到端实践
-> **企业级多区域、多实例、水平高并发 SaaS 架构**（弹性、可观测、合规、多区域部署）。
-> 游戏玩法只是练习的依托，不是目的。因此本仓库刻意包含远超"一个小游戏所需"的
-> 重型组件（多区域 / CockroachDB / GDPR 合规 / OTel / owner 反向代理等），这些是
-> **设计目标而非过度工程**。完整的目标、非目标与"刻意保留清单"见
-> [docs/adr/000-project-charter.md](docs/adr/000-project-charter.md)。
-
-## Quick Start（约 15 分钟）
-
-### 前置条件
-
-- Docker Desktop（PostgreSQL + Redis）
-- Go 1.26+
-- Node.js 20+
-
-### 步骤
+## 快速开始
 
 ```bash
-# 1. 克隆并进入项目
-cd 多人网页游戏
-
-# 2. 配置环境变量（开发模式）
-cp .env.example .env
-# 编辑 .env：设置 JWT_SECRET / ENCRYPTION_KEY / ADMIN_PASSWORD（见下方生成命令）
-# 本地开发务必 ENABLE_HSTS=false（.env.example 已默认）
-
-# 3. 生成密钥
-export JWT_SECRET=$(openssl rand -hex 32)
-export ENCRYPTION_KEY=$(openssl rand -hex 32)
-export ADMIN_PASSWORD=$(openssl rand -base64 24)
-
-# 4. 启动依赖 + 应用
+# 安装依赖 & 启动开发服务
 make dev
-# 或：docker compose up -d postgres redis && cd backend && go run ./cmd/server
 
-# 5. 种子数据（可选）
-make seed
-
-# 6. 访问
-# 前端: http://localhost:5173
-# API:  http://localhost:8080/health
+# 运行测试
+make test         # 后端单元测试
+make test-all     # 后端 + 前端 + 集成测试
+make e2e          # Playwright E2E
+make check        # lint + test + 覆盖率
 ```
 
-### 常用命令
+## 项目架构
 
-| 命令 | 说明 |
-|------|------|
-| `make test` | 单元测试 |
-| `make lint` | golangci-lint |
-| `make bench` | 性能基准 |
-| `make audit` | govulncheck + gitleaks |
-| `make deadcode` | 死代码扫描 |
-| `make load-smoke` | k6 HTTP 冒烟 |
-| `make load-ws-soak` | k6 WebSocket soak |
-| `make load-single-room` | k6 单房间压测 |
-
-## 命名对照
-
-| 名称 | 用途 |
-|------|------|
-| **Uppy** / uppy-clone | 产品名；Go module `github.com/uppy-clone/backend`；npm 包名 |
-| **balloon-game** | GCR/K8s 镜像与部署资源名（`gcr.io/.../balloon-game`） |
-
-## Documentation
-
-完整文档索引见 [docs/README.md](docs/README.md)，包括架构、Runbook、SLO、API 契约与 ADR。
-
-## Environment Variables
-
-The following secrets **must be explicitly provided** at deploy time. The
-`docker-compose.yml` uses the `${VAR:?VAR required}` syntax, so the stack will
-refuse to start when any of them is missing.
-
-| Variable          | Required | Description                                      |
-|-------------------|----------|--------------------------------------------------|
-| `JWT_SECRET`      | Yes      | HMAC secret used to sign JWTs (>= 32 bytes).     |
-| `ADMIN_PASSWORD`  | Yes      | Initial admin password (bcrypt-hashed at boot).  |
-| `ENCRYPTION_KEY`  | Yes      | 32-byte hex key for AES-256-GCM field encryption.|
-| `METRICS_USER`    | Prod     | Basic auth for `/metrics` and pprof.             |
-| `METRICS_PASSWORD`| Prod     | Paired with METRICS_USER.                        |
-
-### Generating secure values
-
-```bash
-# JWT_SECRET — 32 random bytes as hex
-export JWT_SECRET=$(openssl rand -hex 32)
-
-# ENCRYPTION_KEY — 32 random bytes as hex (must be exactly 64 hex chars)
-export ENCRYPTION_KEY=$(openssl rand -hex 32)
-
-# ADMIN_PASSWORD — a strong password
-export ADMIN_PASSWORD=$(openssl rand -base64 24)
+```
+backend/           # Go 后端 (chi + pgx + gorilla-websocket)
+frontend/          # TypeScript 前端 (Vite + Canvas 2D)
+infra/             # 基础设施 (Terraform + K8s)
+scripts/           # CI/负载脚本
+docs/              # 文档
 ```
 
-> **Security note:** The backend additionally rejects `JWT_SECRET` values
-> containing `DEV_ONLY` or `change-in-production` when running in production
-> mode (`ENABLE_HSTS != "false"`). Never reuse dev secrets in production.
-> Production also requires `METRICS_USER` and `METRICS_PASSWORD`.
+## 文档
+
+| 位置 | 内容 |
+|------|------|
+| [docs/architecture/](docs/architecture/) | 系统架构说明 |
+| [docs/adr/](docs/adr/) | 架构决策记录（29 份） |
+| [docs/api/](docs/api/) | OpenAPI, AsyncAPI, WebSocket 协议 |
+| [docs/security/](docs/security/) | 威胁模型、安全自检清单 |
+| [docs/operations/](docs/operations/) | SLO、Runbook、环境说明 |
+| [docs/development/](docs/development/) | 覆盖策略、基准测试 |
+| [docs/README.md](docs/README.md) | 文档索引 |
+
+## 技术栈
+
+- **后端**: Go 1.26, chi, pgx, gorilla-websocket, go-redis, OpenTelemetry
+- **前端**: TypeScript 5.6, Vite 6, Vitest, Canvas 2D
+- **数据库**: PostgreSQL 16, Redis 7.4
+- **部署**: Docker, Kubernetes (GKE), Terraform (GCP)
+
+## 许可
+
+MIT — 详见 [LICENSE](LICENSE)

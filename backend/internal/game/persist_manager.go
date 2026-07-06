@@ -125,7 +125,7 @@ func (m *PersistManager) write(job persistJob) {
 	}
 }
 
-func (m *PersistManager) requestPersist(data []byte, code string) {
+func (m *PersistManager) enqueuePersist(data []byte, code string) {
 	m.startLoop()
 	job := persistJob{
 		code:      code,

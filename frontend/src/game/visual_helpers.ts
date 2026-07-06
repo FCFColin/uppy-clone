@@ -81,6 +81,8 @@ export function drawDangerVignettes(now: number): void {
 }
 
 export function drawFloatingTexts(now: number): void {
+  getCtx().font = '13px system-ui, sans-serif';
+  getCtx().textAlign = 'center';
   for (let i = floatingTexts.length - 1; i >= 0; i--) {
     const ft = floatingTexts[i]!;
     const age = now - ft.start;
@@ -91,8 +93,6 @@ export function drawFloatingTexts(now: number): void {
     const alpha = 1 - age / 1500;
     getCtx().globalAlpha = alpha * 0.9;
     getCtx().fillStyle = '#ccc';
-    getCtx().font = '13px system-ui, sans-serif';
-    getCtx().textAlign = 'center';
     getCtx().fillText(ft.text, ft.x * $canvas.width, (1 - ft.y) * $canvas.height - 20);
   }
   getCtx().globalAlpha = 1;

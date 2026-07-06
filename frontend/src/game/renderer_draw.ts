@@ -62,6 +62,38 @@ export function drawBalloon(now: number = Date.now()): void {
   getCtx().stroke();
 }
 
+function drawBirdTail(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.5, 0);
+  ctx.lineTo(-size * 0.85, -size * 0.2);
+  ctx.lineTo(-size * 0.8, 0);
+  ctx.lineTo(-size * 0.85, size * 0.2);
+  ctx.closePath();
+  ctx.fillStyle = '#dc2f02';
+  ctx.fill();
+}
+
+function drawBirdBeak(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.beginPath();
+  ctx.moveTo(size * 0.55, -size * 0.05);
+  ctx.lineTo(size * 0.8, 0);
+  ctx.lineTo(size * 0.55, size * 0.1);
+  ctx.closePath();
+  ctx.fillStyle = '#ffba08';
+  ctx.fill();
+}
+
+function drawBirdEyes(ctx: CanvasRenderingContext2D, size: number): void {
+  ctx.beginPath();
+  ctx.arc(size * 0.32, -size * 0.12, size * 0.1, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(size * 0.35, -size * 0.12, size * 0.05, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+}
+
 export function drawBird(now: number): void {
   const bird = getInterpolatedBird();
   if (!bird || !bird.active) return;
@@ -96,34 +128,9 @@ export function drawBird(now: number): void {
   getCtx().fillStyle = _wingGrad!;
   getCtx().fill();
 
-  // ── 尾巴 ──
-  getCtx().beginPath();
-  getCtx().moveTo(-size * 0.5, 0);
-  getCtx().lineTo(-size * 0.85, -size * 0.2);
-  getCtx().lineTo(-size * 0.8, 0);
-  getCtx().lineTo(-size * 0.85, size * 0.2);
-  getCtx().closePath();
-  getCtx().fillStyle = '#dc2f02';
-  getCtx().fill();
-
-  // ── 喙 ──
-  getCtx().beginPath();
-  getCtx().moveTo(size * 0.55, -size * 0.05);
-  getCtx().lineTo(size * 0.8, 0);
-  getCtx().lineTo(size * 0.55, size * 0.1);
-  getCtx().closePath();
-  getCtx().fillStyle = '#ffba08';
-  getCtx().fill();
-
-  // ── 眼睛 ──
-  getCtx().beginPath();
-  getCtx().arc(size * 0.32, -size * 0.12, size * 0.1, 0, Math.PI * 2);
-  getCtx().fillStyle = '#fff';
-  getCtx().fill();
-  getCtx().beginPath();
-  getCtx().arc(size * 0.35, -size * 0.12, size * 0.05, 0, Math.PI * 2);
-  getCtx().fillStyle = '#000';
-  getCtx().fill();
+  drawBirdTail(getCtx(), size);
+  drawBirdBeak(getCtx(), size);
+  drawBirdEyes(getCtx(), size);
 
   getCtx().restore();
 }

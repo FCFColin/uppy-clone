@@ -113,7 +113,9 @@ func (p *Publisher) publishBatch(ctx context.Context) {
 	for _, item := range batch {
 		stream := item.aggType + ".events"
 		pipe.XAdd(ctx, &redis.XAddArgs{
-			Stream: stream,
+			Stream:   stream,
+			MaxLen:   100_000,
+			Approx:   true,
 			Values: map[string]interface{}{
 				"aggregate_id": item.aggID,
 				"payload":      string(item.payload),

@@ -13,10 +13,11 @@ import (
 )
 
 // setupAdminRoutes registers admin login and admin-protected config routes.
-func setupAdminRoutes(r *chi.Mux, adminHandler *handler.AdminHandler, redis *store.RedisStore, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
+// Rate limiting uses ephemeral Redis (ADR-029).
+func setupAdminRoutes(r *chi.Mux, adminHandler *handler.AdminHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		r.Use(appMiddleware.AdminBulkhead.Middleware)
-		r.With(appMiddleware.EndpointRateLimit(redis, "admin:login", jwtMgr)).Post("/login", adminHandler.Login)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "admin:login", jwtMgr)).Post("/login", adminHandler.Login)
 
 		r.Group(func(r chi.Router) {
 			r.Use(adminAuthMiddleware(adminHandler))

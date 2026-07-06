@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 )
 
@@ -23,7 +24,7 @@ func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	secure := isSecure(r)
-	writeAuthCookies(w, r, buildAuthCookie("quickplay", accessToken, config.CookieMaxAge, secure), refreshToken)
+	writeAuthCookies(w, r, auth.BuildAuthCookie("quickplay", accessToken, config.CookieMaxAge, secure), refreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

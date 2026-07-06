@@ -55,9 +55,7 @@ vi.mock('./entry_flow.js', () => ({
   getEntryStep: connectMocks.getEntryStep,
   onWebSocketOpen: vi.fn(),
   onWebSocketClosed: vi.fn(),
-}));
-
-vi.mock('./entry_flow_dom.js', () => ({
+  routeConnectionError: vi.fn(),
   clearWaitingInlineError: vi.fn(),
 }));
 

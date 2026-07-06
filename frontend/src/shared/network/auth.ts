@@ -59,15 +59,10 @@ export async function fetchWithRefresh(url: string, options: RequestInit = {}): 
     if (refreshed) {
       return fetch(url, { ...options, credentials: 'include' });
     }
-    redirectToLogin();
+    window.location.href = '/';
   }
 
   return res;
-}
-
-/** 刷新失败时跳转到首页 */
-function redirectToLogin(): void {
-  window.location.href = '/';
 }
 
 /**
