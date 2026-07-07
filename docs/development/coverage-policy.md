@@ -35,5 +35,5 @@ bash scripts/ci/check-coverage.sh frontend
 
 - 单元测试：`go test -short`，Redis 用 miniredis（ADR-023）
 - 集成测试：`//go:build integration`，testcontainers
-- 每 Go 包 1–3 个 `*_test.go`（见 [code-simplification-plan.md](code-simplification-plan.md)）
+- 每 Go 包 1–3 个 `*_test.go`（见 `.cursor/skills/code-simplification/SKILL.md`）
 - **例外**：`backend/internal/game` 与 `backend/internal/handler` 在 megfile 拆分后按主题分文件（lifecycle、physics、hub 等），由 `scripts/codegen/split_go_tests.py` 维护

@@ -18,7 +18,7 @@ function Run-Step($label, [scriptblock]$block) {
 Write-Host 'Layer 2: Auth & session'
 Run-Step 'auth package' { Set-Location backend; go test ./internal/auth/... -count=1 }
 Run-Step 'auth handlers' { Set-Location backend; go test ./internal/handler/... -run 'Magic|QuickPlay|Admin|Logout|Refresh|Revoke' -count=1 }
-Run-Step 'frontend auth/session' { Set-Location frontend; npx vitest run src/shared/auth.test.ts src/shared/session.test.ts }
+Run-Step 'frontend auth/session' { Set-Location frontend; npx vitest run src/shared/network/auth.test.ts src/shared/network/session.test.ts }
 
 Write-Host 'Layer 3: WebSocket & game'
 Run-Step 'websocket handlers' { Set-Location backend; go test ./internal/handler/... -run 'WebSocket|WS' -count=1 }

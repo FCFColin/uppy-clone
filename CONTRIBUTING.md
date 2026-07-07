@@ -53,7 +53,7 @@ make lint-all
 仓库布局见 [ADR-021 Monorepo 结构](docs/adr/021-monorepo-structure.md)。要点：
 
 - **后端**：`backend/cmd/server` 为薄入口；路由与生命周期在 `backend/internal/server`
-- **前端**：wire 常量在 `frontend/src/shared/protocol.ts`；客户端编解码在 `frontend/src/game/message_codec.ts`
+- **前端**：wire 常量在 `frontend/src/shared/game/protocol.ts`；客户端编解码在 `frontend/src/game/message_codec.ts`
 - **文档**：仅 `docs/{adr,architecture,operations,development,security,data,api,templates}/`
 - **基础设施**：应用清单 `infra/k8s/`，GCP `infra/terraform/`；可观测性 `deploy/`（见各目录 `README.md`）
 - **脚本**：CI `scripts/ci/`，负载 `scripts/load/`；布局校验 `make check-repo-layout`
@@ -72,7 +72,7 @@ make lint-all
 
 ## Code Simplification
 
-重构与简化遵循 [代码简化计划](docs/development/code-simplification-plan.md)：
+重构与简化遵循 [代码简化技能](.cursor/skills/code-simplification/SKILL.md)：
 
 1. **行为不变** — 只改表达方式，不改语义
 2. **遵循项目约定** — 见上文测试约定与 ADR-021

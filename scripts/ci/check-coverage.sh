@@ -40,19 +40,16 @@ IMPORTANT_FRONTEND=(
   "src/game/ws_handlers.ts"
   "src/game/ws_handlers_events.ts"
   "src/game/ws_handlers_snapshot.ts"
-  "src/game/ws_auth.ts"
-  "src/game/ws_connect_lobby.ts"
-  "src/shared/auth.ts"
-  "src/game/state.ts"
+  "src/game/ws_connect.ts"
+  "src/shared/network/auth.ts"
+  "src/game/state_types.ts"
   "src/game/phase_sync.ts"
-  "src/game/snapshot_decode.ts"
-  "src/shared/protocol.ts"
+  "src/shared/game/protocol.ts"
 )
 
 # Exclude from per-file floor (types, entry points, test helpers — no business logic).
 EXCLUDE_PATTERNS=(
   "vite-env.d.ts"
-  "_types.ts"
   ".d.ts"
   "/main.ts"
   "/index.ts"

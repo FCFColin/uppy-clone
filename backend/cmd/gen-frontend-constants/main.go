@@ -17,7 +17,7 @@ type tsConst struct {
 }
 
 func main() {
-	outPath := "../../../frontend/src/shared/constants.ts"
+	outPath := "../../../frontend/src/shared/game/constants.ts"
 	if len(os.Args) > 2 && os.Args[1] == "--out" {
 		outPath = os.Args[2]
 	}

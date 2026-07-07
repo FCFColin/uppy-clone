@@ -45,7 +45,7 @@ auth → [UserDB, TokenStore] ← store
 
 ### 适配器模式
 
-`server/auth_service.go` 实现 `handler.AuthService`，将 `auth` 包的函数式 API 适配为接口方法。
+`handler/default_auth_service.go` 实现 `handler.AuthService`，将 `auth` 包的函数式 API 适配为接口方法。
 `server` 包是唯一的组合根，导入所有具体实现并完成依赖注入。
 
 ## 后果
@@ -60,7 +60,7 @@ auth → [UserDB, TokenStore] ← store
 **负面**
 - 接口定义与实现分离，增加少量间接层
 - 跨包共享类型（`domain.ContextKey`）需谨慎维护
-- 需要适配器（`auth_service.go`）桥接函数式 API 和接口
+- 需要适配器（`handler/default_auth_service.go`）桥接函数式 API 和接口
 
 **验证结果**
 - `go vet ./...` 零警告

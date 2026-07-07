@@ -8,7 +8,7 @@ ADR-017（限界上下文）规划了 handler → service → store 的分层架
 
 | 服务 | 文件 | 生产代码引用 |
 |------|------|-------------|
-| `AuthService` | `auth_service.go` | **部分**：仅 `RefreshSession` 和 `DeleteUserData`（`handler/auth.go:211,300`） |
+| `AuthService` | `handler/default_auth_service.go`（原 `server/auth_service.go`，ADR-028 后迁移） | **部分**：仅 `RefreshSession` 和 `DeleteUserData` |
 | `QueryService` | `query_service.go` | **零**（仅 `_test.go`） |
 | `CommandService` | `command_service.go` | **零**（仅 `_test.go`） |
 | `LobbyService` | `lobby_service.go` | **零**（仅 `_test.go`）；TODO 承认未迁移（`:10`） |

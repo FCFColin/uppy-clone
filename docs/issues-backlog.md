@@ -45,7 +45,7 @@ Source: Comprehensive codebase self-review (12 modules across 6 stages; fixes ve
 ## Backend Store
 
 ### P2
-- [ ] `store/result_repository.go:70-79` — `RecordGameResult` uses individual INSERTs in a loop (N+1 pattern); should use batch INSERT like `postgres_results.go:65-78`
+- [ ] `store/result_repository.go:69-78` — `RecordGameResult` uses individual INSERTs in a loop (N+1 pattern); should use batch INSERT like `result_repository.go:69-78`
 - [x] `store/outbox_repository.go` — Full duplicate of `postgres_outbox.go`; dead code from migration artifact. 5-6 `*_repository.go` files are exact copies of `postgres_*` equivalents. Remove unused copies.
 - [x] `outbox/publisher.go:129-133` — Per-row `UPDATE outbox_events SET processed_at = $1 WHERE id = $2`; should use `WHERE id = ANY($1)` for batch efficiency
 

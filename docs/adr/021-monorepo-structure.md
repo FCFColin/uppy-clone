@@ -12,7 +12,7 @@
 - 架构文档与 ADR（`docs/`）
 - E2E 测试（根 `tests/e2e/` + Playwright）
 
-二进制 WS 协议常量必须在前后端保持同步（`protocol/constants.go` ↔ `shared/protocol.ts`）。
+二进制 WS 协议常量必须在前后端保持同步（`protocol/constants.go` ↔ `shared/game/protocol.ts`）。
 
 ## 决策
 

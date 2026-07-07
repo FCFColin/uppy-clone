@@ -31,9 +31,6 @@ export default defineConfig({
 
         'src/verify.ts',
         'src/game/restart_vote_ui.ts',
-        'src/shared/types.ts',
-        'src/game/state.ts',
-        'src/game/websocket.ts',
         '**/game/window_events.ts',
         '**/game/lifecycle.ts',
       ],
