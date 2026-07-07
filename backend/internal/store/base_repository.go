@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 
+	"github.com/sethvargo/go-retry"
 	"github.com/sony/gobreaker/v2"
 	"github.com/uppy-clone/backend/internal/resilience"
 )
@@ -19,10 +20,12 @@ func newBaseRepository(pool pgPool) baseRepository {
 }
 
 func (b *baseRepository) withRetryRead(ctx context.Context, fn func(context.Context) error) error {
-	_, err := b.cb.Execute(func() (any, error) {
-		return nil, fn(ctx)
+	return retry.Do(ctx, resilience.DefaultDBRetry(), func(ctx context.Context) error {
+		_, err := b.cb.Execute(func() (any, error) {
+			return nil, fn(ctx)
+		})
+		return resilience.MaybeRetryable(err)
 	})
-	return err
 }
 
 func (b *baseRepository) withRetryWrite(ctx context.Context, fn func(context.Context) error) error {

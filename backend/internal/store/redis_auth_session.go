@@ -11,9 +11,22 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// RevokeJWT stores a JWT jti in the revocation list until TTL expires.
+const (
+	adminFailKeyPrefix    = "admin:login:fail:"
+	adminLockKeyPrefix    = "admin:login:lock:"
+	adminAcctFailPrefix   = "admin:login:acct_fail:"
+	adminAcctLockPrefix   = "admin:login:acct_lock:"
+	adminActiveJTISetKey  = "admin:active-jtis"
+	adminActiveJTIKeyPrefix = "admin:jti:"
+)
+
+func jwtRevokedKey(jti string) string { return "jwt_revoked:" + jti }
+
 func (s *RedisStore) RevokeJWT(ctx context.Context, jti string, ttl time.Duration) error {
-	ctx, span := startRedisSpan(ctx, "redis.RevokeJWT", "SET")
+	ctx, span := telemetry.Tracer().Start(ctx, "session_store.RevokeJWT",
+		trace.WithAttributes(attribute.String("db.system", "redis"),
+			attribute.String("db.operation", "SET")),
+	)
 	defer span.End()
 
 	key := jwtRevokedKey(jti)
@@ -26,9 +39,11 @@ func (s *RedisStore) RevokeJWT(ctx context.Context, jti string, ttl time.Duratio
 	return err
 }
 
-// IsJWTRevoked reports whether a JWT jti has been revoked.
 func (s *RedisStore) IsJWTRevoked(ctx context.Context, jti string) (bool, error) {
-	ctx, span := startRedisSpan(ctx, "redis.IsJWTRevoked", "GET")
+	ctx, span := telemetry.Tracer().Start(ctx, "session_store.IsJWTRevoked",
+		trace.WithAttributes(attribute.String("db.system", "redis"),
+			attribute.String("db.operation", "GET")),
+	)
 	defer span.End()
 
 	key := jwtRevokedKey(jti)
@@ -51,14 +66,6 @@ func (s *RedisStore) IsJWTRevoked(ctx context.Context, jti string) (bool, error)
 	return revoked, nil
 }
 
-const (
-	adminFailKeyPrefix  = "admin:login:fail:"
-	adminLockKeyPrefix  = "admin:login:lock:"
-	adminAcctFailPrefix = "admin:login:acct_fail:" // account-level tracking
-	adminAcctLockPrefix = "admin:login:acct_lock:"
-)
-
-// IncrementFailedLogin increments the failed admin login counter for an IP and account.
 func (s *RedisStore) IncrementFailedLogin(ctx context.Context, ip, account string) (int, int, error) {
 	ipKey := adminFailKeyPrefix + ip
 	acctKey := adminAcctFailPrefix + account
@@ -82,7 +89,6 @@ func (s *RedisStore) IncrementFailedLogin(ctx context.Context, ip, account strin
 	return int(ipVal), int(acctVal), nil
 }
 
-// IsLoginLocked reports whether an IP or account is locked out from admin login.
 func (s *RedisStore) IsLoginLocked(ctx context.Context, ip, account string) (bool, error) {
 	ipKey := adminLockKeyPrefix + ip
 	acctKey := adminAcctLockPrefix + account
@@ -100,7 +106,6 @@ func (s *RedisStore) IsLoginLocked(ctx context.Context, ip, account string) (boo
 	return ipLocked > 0 || acctLocked > 0, nil
 }
 
-// SetLoginLock locks admin login for an IP and account until TTL expires.
 func (s *RedisStore) SetLoginLock(ctx context.Context, ip, account string, ttl time.Duration) error {
 	ipKey := adminLockKeyPrefix + ip
 	acctKey := adminAcctLockPrefix + account
@@ -115,7 +120,6 @@ func (s *RedisStore) SetLoginLock(ctx context.Context, ip, account string, ttl t
 	return nil
 }
 
-// ResetFailedLogin clears the failed admin login counters for an IP and account.
 func (s *RedisStore) ResetFailedLogin(ctx context.Context, ip, account string) error {
 	ipFailKey := adminFailKeyPrefix + ip
 	ipLockKey := adminLockKeyPrefix + ip
@@ -132,11 +136,6 @@ func (s *RedisStore) ResetFailedLogin(ctx context.Context, ip, account string) e
 	return nil
 }
 
-// adminActiveJTISetKey is a Redis Set tracking all active admin JWT jtis.
-// Used to revoke all admin sessions on password change (H5).
-const adminActiveJTISetKey = "admin:active-jtis"
-
-// AddAdminJTI adds a JWT jti to the active admin sessions set.
 func (s *RedisStore) AddAdminJTI(ctx context.Context, jti string, ttl time.Duration) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		if err := s.rdb.SAdd(ctx, adminActiveJTISetKey, jti).Err(); err != nil {
@@ -150,7 +149,6 @@ func (s *RedisStore) AddAdminJTI(ctx context.Context, jti string, ttl time.Durat
 	return err
 }
 
-// RemoveAdminJTI removes a JWT jti from the active admin sessions set.
 func (s *RedisStore) RemoveAdminJTI(ctx context.Context, jti string) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		if err := s.rdb.SRem(ctx, adminActiveJTISetKey, jti).Err(); err != nil {
@@ -161,7 +159,6 @@ func (s *RedisStore) RemoveAdminJTI(ctx context.Context, jti string) error {
 	return err
 }
 
-// GetAllAdminJTIs returns all active admin JWT jtis.
 func (s *RedisStore) GetAllAdminJTIs(ctx context.Context) ([]string, error) {
 	var jtis []string
 	_, err := s.cb.Execute(func() (any, error) {
@@ -176,14 +173,4 @@ func (s *RedisStore) GetAllAdminJTIs(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return jtis, nil
-}
-
-func jwtRevokedKey(jti string) string { return "jwt_revoked:" + jti }
-
-func startRedisSpan(ctx context.Context, name, operation string) (context.Context, trace.Span) {
-	ctx, span := telemetry.Tracer().Start(ctx, name,
-		trace.WithAttributes(attribute.String("db.system", "redis"),
-			attribute.String("db.operation", operation)),
-	)
-	return ctx, span
 }

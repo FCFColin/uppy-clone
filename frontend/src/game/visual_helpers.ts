@@ -18,7 +18,11 @@ export function pushFloatingText(x: number, y: number, text: string): void {
   const now = Date.now();
   if (now - lastFloatingAt < 3000) return;
   lastFloatingAt = now;
-  floatingTexts.push({ x, y, text, start: now });
+  mutateFloatingTexts(ft => { ft.push({ x, y, text, start: now }); });
+}
+
+function mutateFloatingTexts(mutate: (arr: FloatingText[]) => void): void {
+  mutate(floatingTexts);
 }
 
 export function drawTutorialRangeCircle(now: number = Date.now()): void {
@@ -81,21 +85,27 @@ export function drawDangerVignettes(now: number): void {
 }
 
 export function drawFloatingTexts(now: number): void {
+  pruneFloatingTexts(now);
   getCtx().font = '13px system-ui, sans-serif';
   getCtx().textAlign = 'center';
-  for (let i = floatingTexts.length - 1; i >= 0; i--) {
-    const ft = floatingTexts[i]!;
+  for (const ft of floatingTexts) {
     const age = now - ft.start;
-    if (age > 1500) {
-      floatingTexts.splice(i, 1);
-      continue;
-    }
     const alpha = 1 - age / 1500;
     getCtx().globalAlpha = alpha * 0.9;
     getCtx().fillStyle = '#ccc';
     getCtx().fillText(ft.text, ft.x * $canvas.width, (1 - ft.y) * $canvas.height - 20);
   }
   getCtx().globalAlpha = 1;
+}
+
+function pruneFloatingTexts(now: number): void {
+  mutateFloatingTexts(arr => {
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (now - arr[i]!.start > 1500) {
+        arr.splice(i, 1);
+      }
+    }
+  });
 }
 
 export function isLowHeightDanger(): boolean {

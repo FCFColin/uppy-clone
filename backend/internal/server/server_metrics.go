@@ -15,49 +15,33 @@ var metricsCollectInterval = appConfig.MetricsInterval
 
 // startMetricsCollector starts all 3 Prometheus metrics goroutines.
 func startMetricsCollector(ctx context.Context, hub *game.Hub, db *store.PostgresStore, cluster *store.RedisCluster) {
-	// Periodically update business metrics for Prometheus
-	go func() {
-		ticker := time.NewTicker(metricsCollectInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				metrics.ActiveRooms.Set(float64(hub.RoomCount()))
-				metrics.ActivePlayers.Set(float64(hub.PlayerCount()))
-				phaseCounts := hub.PhaseCounts()
-				for _, phase := range []string{"waiting", "countdown", "playing", "ended"} {
-					metrics.RoomsByPhase.WithLabelValues(phase).Set(float64(phaseCounts[phase]))
-				}
-
-				// Monitor stream length for consumer lag (stateful Redis)
-				if streamLen, err := cluster.Stateful.Client().XLen(ctx, "game:results").Result(); err == nil {
-					metrics.GameResultsStreamLen.Set(float64(streamLen))
-				}
-				if emailLen, err := cluster.Stateful.Client().XLen(ctx, "email:queue").Result(); err == nil {
-					metrics.EmailQueueStreamLen.Set(float64(emailLen))
-				}
-			}
+	runCollector(ctx, func() {
+		metrics.ActiveRooms.Set(float64(hub.RoomCount()))
+		metrics.ActivePlayers.Set(float64(hub.PlayerCount()))
+		phaseCounts := hub.PhaseCounts()
+		for _, phase := range []string{"waiting", "countdown", "playing", "ended"} {
+			metrics.RoomsByPhase.WithLabelValues(phase).Set(float64(phaseCounts[phase]))
 		}
-	}()
-
-	// Periodically update DB pool metrics for Prometheus
-	// Includes DBPoolAcquireDuration observation via delta sampling.
-	go func() {
-		ticker := time.NewTicker(metricsCollectInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				db.ObservePoolStats()
-			}
+		if streamLen, err := cluster.Stateful.Client().XLen(ctx, "game:results").Result(); err == nil {
+			metrics.GameResultsStreamLen.Set(float64(streamLen))
 		}
-	}()
+		if emailLen, err := cluster.Stateful.Client().XLen(ctx, "email:queue").Result(); err == nil {
+			metrics.EmailQueueStreamLen.Set(float64(emailLen))
+		}
+	})
 
-	// Periodically update Redis pool metrics for Prometheus
+	runCollector(ctx, func() {
+		db.ObservePoolStats()
+	})
+
+	runCollector(ctx, func() {
+		stats := cluster.Stateful.PoolStats()
+		metrics.RedisPoolIdleConns.Set(float64(stats.IdleConns))
+		metrics.RedisPoolTotalConns.Set(float64(stats.TotalConns))
+	})
+}
+
+func runCollector(ctx context.Context, fn func()) {
 	go func() {
 		ticker := time.NewTicker(metricsCollectInterval)
 		defer ticker.Stop()
@@ -66,9 +50,7 @@ func startMetricsCollector(ctx context.Context, hub *game.Hub, db *store.Postgre
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				stats := cluster.Stateful.PoolStats()
-				metrics.RedisPoolIdleConns.Set(float64(stats.IdleConns))
-				metrics.RedisPoolTotalConns.Set(float64(stats.TotalConns))
+				fn()
 			}
 		}
 	}()

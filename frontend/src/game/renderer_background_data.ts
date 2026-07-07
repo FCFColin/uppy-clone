@@ -143,40 +143,28 @@ export function spawnCloud(layerCfg: CloudLayerConfig, x?: number): Cloud {
 
 export function initBackground(): void {
   initImages();
-  bgState.stars = [];
-  for (let i = 0; i < 60; i++) {
-    bgState.stars.push({
-      x: Math.random(),
-      y: Math.random() * 0.55,
-      size: Math.random() * 2 + 1.2,
-      twinkle: Math.random() * Math.PI * 2,
-    });
-  }
+  bgState.stars = Array.from({ length: 60 }, () => ({
+    x: Math.random(),
+    y: Math.random() * 0.55,
+    size: Math.random() * 2 + 1.2,
+    twinkle: Math.random() * Math.PI * 2,
+  }));
 
-  bgState.clouds = [];
-  for (const cfg of CLOUD_LAYERS) {
-    for (let i = 0; i < cfg.count; i++) {
-      bgState.clouds.push(spawnCloud(cfg));
-    }
-  }
+  bgState.clouds = CLOUD_LAYERS.flatMap(cfg =>
+    Array.from({ length: cfg.count }, () => spawnCloud(cfg)),
+  );
 
-  bgState.mountains = [];
-  for (let i = 0; i < 5; i++) {
-    bgState.mountains.push({
-      x: i * 0.25 - 0.05,
-      height: 0.15 + Math.random() * 0.1,
-      width: 0.3,
-    });
-  }
+  bgState.mountains = Array.from({ length: 5 }, (_, i) => ({
+    x: i * 0.25 - 0.05,
+    height: 0.15 + Math.random() * 0.1,
+    width: 0.3,
+  }));
 
-  bgState.particles = [];
-  for (let i = 0; i < 20; i++) {
-    bgState.particles.push({
-      x: Math.random(), y: Math.random() * 0.8,
-      size: 0.5 + Math.random() * 1,
-      life: Math.random(),
-    });
-  }
+  bgState.particles = Array.from({ length: 20 }, () => ({
+    x: Math.random(), y: Math.random() * 0.8,
+    size: 0.5 + Math.random() * 1,
+    life: Math.random(),
+  }));
 
   bgState.gradient = getCtx().createLinearGradient(0, 0, 0, $canvas.height);
   bgState.gradient.addColorStop(0, '#0f1729');

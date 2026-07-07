@@ -88,7 +88,9 @@ func (h *Hub) registerRoomLocked(code string, room *Room) *Room {
 	return room
 }
 
-func (h *Hub) loadOrMaterializeRoom(code string) *Room {
+// loadOrMaterializeRoomLocked 调用方须持有 h.mu.Lock()。
+// 返回值可能为 nil（加载失败或被其他实例认领）。
+func (h *Hub) loadOrMaterializeRoomLocked(code string) *Room {
 	if h.store == nil {
 		return nil
 	}
@@ -111,9 +113,15 @@ func (h *Hub) loadOrMaterializeRoom(code string) *Room {
 		return nil
 	}
 
+	return h.registerRoomLocked(code, room)
+}
+
+func (h *Hub) loadOrMaterializeRoom(code string) *Room {
 	h.mu.Lock()
-	room = h.registerRoomLocked(code, room)
+	room := h.loadOrMaterializeRoomLocked(code)
 	h.mu.Unlock()
-	h.finalizeMaterializedRoom(code)
+	if room != nil {
+		h.finalizeMaterializedRoom(code)
+	}
 	return room
 }

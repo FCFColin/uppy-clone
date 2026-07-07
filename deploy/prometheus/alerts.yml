@@ -26,13 +26,8 @@ groups:
         annotations:
           summary: "Database connection pool near exhaustion"
 
-      - alert: DiskUsageHigh
-        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes > 0.85
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Disk usage > 85%"
+      # NOTE: DiskUsageHigh removed — no node_exporter deployed to collect node_filesystem_* metrics.
+      # Re-add this rule with node_exporter scrape config when infrastructure monitoring is set up.
 
       - alert: MemoryUsageHigh
         expr: process_resident_memory_bytes / 1073741824 > 0.9

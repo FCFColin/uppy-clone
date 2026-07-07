@@ -77,8 +77,11 @@ function readBalloon(view: DataView, offset: number) {
 }
 
 function readBird(view: DataView, offset: number) {
+  if (view.byteLength < offset + 1) {
+    return { bird: { active: false, x: 0, y: 0 }, bytesRead: 0 };
+  }
   const active = view.getUint8(offset) === 1;
-  if (!active) {
+  if (!active || view.byteLength < offset + 9) {
     return { bird: { active, x: 0, y: 0 }, bytesRead: 1 };
   }
   return {
@@ -88,27 +91,32 @@ function readBird(view: DataView, offset: number) {
 }
 
 function readGhost(view: DataView, offset: number) {
-  const ghost = {
-    active: view.getUint8(offset) === 1,
-    x: view.getFloat32(offset + 1, true),
-    y: view.getFloat32(offset + 5, true),
-    repelTimer: view.getUint16(offset + 9, true),
-  };
-  return { ghost, bytesRead: 11 };
+  if (view.byteLength < offset + 1) {
+    return { ghost: { active: false, x: 0, y: 0, repelTimer: 0 }, bytesRead: 0 };
+  }
+  const active = view.getUint8(offset) === 1;
+  if (!active || view.byteLength < offset + 11) {
+    return { ghost: { active, x: 0, y: 0, repelTimer: 0 }, bytesRead: 1 };
+  }
+  return { ghost: { active, x: view.getFloat32(offset + 1, true), y: view.getFloat32(offset + 5, true), repelTimer: view.getUint16(offset + 9, true) }, bytesRead: 11 };
 }
 
 function readPlayers(view: DataView, offset: number) {
+  if (view.byteLength < offset + 1) {
+    return { players: [], playerCount: 0, bytesRead: 0 };
+  }
   const playerCount = view.getUint8(offset);
   let o = offset + 1;
   const players: DecodedPlayer[] = [];
   const now = Date.now();
   for (let i = 0; i < playerCount; i++) {
+    if (view.byteLength < o + 11) break;
     const playerIndex = view.getUint16(o, true); o += 2;
     const cooldownRemainingMs = view.getUint32(o, true); o += 4;
     const palette = view.getUint32(o, true); o += 4;
     const scoreContribution = view.getUint32(o, true); o += 4;
-    const nickLen = view.getUint8(o); o += 1;
-    const nickname = textDecoder.decode(new Uint8Array(view.buffer, view.byteOffset + o, nickLen));
+    const nickLen = view.byteLength > o ? Math.min(view.getUint8(o), view.byteLength - o - 1) : 0; o += 1;
+    const nickname = nickLen > 0 ? textDecoder.decode(new Uint8Array(view.buffer, view.byteOffset + o, nickLen)) : '';
     o += nickLen;
     players.push({ playerIndex, cooldownEndTime: now + cooldownRemainingMs, palette, scoreContribution, nickname });
   }
@@ -155,7 +163,7 @@ export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
   }
 
   let wind: number | undefined;
-  if (o < view.byteLength) {
+  if (o + 4 <= view.byteLength) {
     wind = view.getFloat32(o, true);
   }
 

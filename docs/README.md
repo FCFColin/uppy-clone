@@ -13,7 +13,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [代码简化计划](development/code-simplification-plan.md) | 全项目简化进度、PR 清单与验证清单 |
+| [综合自审报告](superpowers/reports/2026-07-06-comprehensive-self-audit.md) | 全项目审计结果、发现项与整改建议 |
 | [安全自检清单](security/self-check-checklist.md) | 发布阻塞项与分层安全自检（原 repo-cleanup 条目已并入） |
 | [测试覆盖率策略](development/coverage-policy.md) | 单元/集成/前端覆盖率门禁 |
 | [日志策略](security/logging-policy.md) | 日志级别、结构化字段、PII 禁止项 |
@@ -64,8 +64,7 @@
 | 文档 | 说明 |
 |------|------|
 | [Postmortem 模板](templates/postmortem.md) | P0/P1 事故复盘模板 |
-| [Enterprise checklist](../checklist-enterprise.md) | 企业级能力自检 |
-| [Vertical v2 checklist](../checklist-vertical-v2.md) | 垂直切片 v2 自检 |
+| [Superpowers 报告与规划](superpowers/) | 架构审计、测试覆盖改革、域拆分等报告与计划 |
 
 ## 路径变更说明（旧 flat 路径 → 当前位置）
 

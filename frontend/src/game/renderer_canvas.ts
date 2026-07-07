@@ -9,10 +9,6 @@ export interface CanvasLayout {
 let layout: CanvasLayout = { top: 0, bottom: 0, width: 0, height: 0 };
 let fallbackCanvas: HTMLCanvasElement | null = null;
 
-export function getCanvasLayout(): CanvasLayout {
-  return layout;
-}
-
 export function measureLayoutInsets(): CanvasLayout {
   const hud = document.getElementById('game-hud');
   const cooldown = document.getElementById('cooldown-indicator');
@@ -40,7 +36,7 @@ export function measureLayoutInsets(): CanvasLayout {
   return layout;
 }
 
-export const $canvas: HTMLCanvasElement = (document.getElementById('game-canvas') ?? (() => {
+export const $canvas = (document.getElementById('game-canvas') ?? (() => {
   fallbackCanvas = document.createElement('canvas');
   return fallbackCanvas;
 })()) as HTMLCanvasElement;

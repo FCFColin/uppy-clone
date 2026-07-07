@@ -4,16 +4,22 @@ const baseURL = process.env.E2E_BASE_URL || 'http://localhost:57266';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: false,
+  fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : 1,
+  retries: 1,
+  workers: 4,
   reporter: [['html'], ['list']],
   use: {
     baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
+  // projects: [
+  //   { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+  //   // TODO: Add Firefox and Safari for cross-browser coverage
+  //   // { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+  //   // { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+  // ],
   projects: [
     {
       name: 'chromium',

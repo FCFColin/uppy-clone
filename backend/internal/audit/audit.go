@@ -117,11 +117,16 @@ func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
 	prevHash := l.lastHash
 
 	// Compute payload for hashing
-	payload, _ := json.Marshal(entry)
+	payload, err := json.Marshal(entry)
+	if err != nil {
+		slog.Error("failed to marshal audit entry", "error", err, "action", entry.Action)
+		l.mu.Unlock()
+		return
+	}
 	thisHash := computeHash(l.secret, prevHash, payload)
 
 	// Insert into DB
-	_, err := l.pool.Exec(ctx,
+	_, err = l.pool.Exec(ctx,
 		`INSERT INTO audit_logs (action, actor_id, actor_ip, resource, before, after, request_id, trace_id, prev_hash, this_hash)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		entry.Action, entry.ActorID, entry.ActorIP, entry.Resource,
@@ -191,7 +196,7 @@ func Log(ctx context.Context, entry AuditEntry) {
 			// Channel 满：同步回退写入 DB（100ms 超时），不丢弃记录。
 			slog.Warn("audit log channel full, falling back to synchronous write",
 				"action", entry.Action)
-			fbCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			fbCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 			defer cancel()
 			dbLogger.writeToDB(fbCtx, entry)
 		}

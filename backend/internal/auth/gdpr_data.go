@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/domain"
@@ -106,10 +105,4 @@ func RefreshSession(ctx context.Context, refreshMgr *RefreshTokenManager, jwtMgr
 	return &RefreshSessionResult{AccessToken: accessToken, RefreshToken: newRefresh}, nil
 }
 
-// RefreshSessionWithReuseGrace is a non-rotating variant for cases where
-// clock skew or network jitter cause false-positive reuse detections.
-// It allows a small grace window during which reuse is accepted.
-// Not used in production — use RefreshSession for new code.
-func RefreshSessionWithReuseGrace(ctx context.Context, refreshMgr *RefreshTokenManager, jwtMgr *JWTManager, dataStore UserDataStore, oldToken string, grace time.Duration) (*RefreshSessionResult, error) {
-	return RefreshSession(ctx, refreshMgr, jwtMgr, dataStore, oldToken)
-}
+

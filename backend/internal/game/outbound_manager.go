@@ -128,10 +128,7 @@ func (m *OutboundManager) droppedNonCritical() {
 }
 
 func (m *OutboundManager) deliver(msg outboundMsg) {
-	targets := m.source.SnapshotTargets(msg.excludePlayerID)
-	m.deliverToTargets(targets, msg)
-	m.source.RemovePendingDisconnects()
-	m.publishIfNeeded(msg)
+	m.deliverLocked(msg.excludePlayerID, msg)
 }
 
 func (m *OutboundManager) deliverLocked(excludePlayerID string, msg outboundMsg) {

@@ -34,6 +34,7 @@ func (h *LobbyHandler) readPump(room *game.Room, playerID string, conn *websocke
 	})
 	var tapSpanCounter uint64
 	for {
+		_ = conn.SetReadDeadline(time.Now().Add(h.hub.Timeouts().WSPongTimeout))
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {

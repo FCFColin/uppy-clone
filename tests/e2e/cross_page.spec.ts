@@ -19,7 +19,7 @@ test.describe('Cross-page flows', () => {
     const leaderboardContainer = page.locator('#leaderboard-container');
     await expect(leaderboardContainer).toBeVisible({ timeout: 5000 });
 
-    const rows = page.locator('tr');
+    const rows = page.locator('li');
     const count = await rows.count();
     expect(count).toBeGreaterThanOrEqual(0);
   });

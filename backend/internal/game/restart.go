@@ -95,20 +95,20 @@ func RestartAndStart(room *Room) error {
 
 	// 清理后无活跃玩家时，重置为 waiting
 	if len(activePlayerIDs) == 0 {
-		room.state = NewGameState(room.state.LobbyCode, room.rng)
+		room.state = NewGameState(string(room.state.LobbyCode), room.rng)
 		room.state.Phase = domain.PhaseWaiting
 		room.stopTick()
-		room.saveState()
+		room.requestPersist()
 		return nil
 	}
 
-	room.state = buildRestartState(room.state.LobbyCode, players, nextPlayerIndex, room.rng)
+	room.state = buildRestartState(string(room.state.LobbyCode), players, nextPlayerIndex, room.rng)
 	ResetGameEntities(room.state, RandomSpawnTimer(room.rng), room.rng)
 	room.countdownStart = time.Now().UnixMilli()
 
 	room.scheduleCountdownFromNow()
 
-	room.saveState()
+	room.requestPersist()
 
 	room.broadcastCountdownPhase()
 

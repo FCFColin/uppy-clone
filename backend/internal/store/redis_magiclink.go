@@ -13,9 +13,19 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// StoreMagicToken persists hashed magic-link token data with a TTL.
+// consumeMagicTokenScript atomically GETs and DELETEs a magic link token.
+var consumeMagicTokenScript = redis.NewScript(`
+	local val = redis.call('GET', KEYS[1])
+	if val then
+		redis.call('DEL', KEYS[1])
+	end
+	return val
+`)
+
+func magicTokenKey(hash string) string { return "magic:" + hash }
+
 func (s *RedisStore) StoreMagicToken(ctx context.Context, hashedToken string, data []byte, ttl time.Duration) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "redis.StoreMagicToken",
+	ctx, span := telemetry.Tracer().Start(ctx, "magiclink_store.StoreMagicToken",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
 			attribute.String("db.operation", "SET")),
 	)
@@ -31,9 +41,8 @@ func (s *RedisStore) StoreMagicToken(ctx context.Context, hashedToken string, da
 	return err
 }
 
-// GetMagicToken loads hashed magic-link token data from Redis.
 func (s *RedisStore) GetMagicToken(ctx context.Context, hashedToken string) ([]byte, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "redis.GetMagicToken",
+	ctx, span := telemetry.Tracer().Start(ctx, "magiclink_store.GetMagicToken",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
 			attribute.String("db.operation", "GET")),
 	)
@@ -61,19 +70,8 @@ func (s *RedisStore) GetMagicToken(ctx context.Context, hashedToken string) ([]b
 	return result, nil
 }
 
-// consumeMagicTokenScript atomically GETs and DELETEs a magic link token.
-var consumeMagicTokenScript = redis.NewScript(`
-	local val = redis.call('GET', KEYS[1])
-	if val then
-		redis.call('DEL', KEYS[1])
-	end
-	return val
-`)
-
-// ConsumeMagicToken atomically gets and deletes a magic link token from Redis.
-// Uses a Lua script to eliminate the TOCTOU race between GET and DEL.
 func (s *RedisStore) ConsumeMagicToken(ctx context.Context, tokenHash string) ([]byte, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "redis.ConsumeMagicToken",
+	ctx, span := telemetry.Tracer().Start(ctx, "magiclink_store.ConsumeMagicToken",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
 			attribute.String("db.operation", "EVAL")),
 	)
@@ -102,7 +100,6 @@ func (s *RedisStore) ConsumeMagicToken(ctx context.Context, tokenHash string) ([
 	return result, nil
 }
 
-// DeleteMagicToken removes a hashed magic-link token from Redis.
 func (s *RedisStore) DeleteMagicToken(ctx context.Context, hashedToken string) error {
 	key := magicTokenKey(hashedToken)
 	_, err := s.cb.Execute(func() (any, error) {
@@ -113,5 +110,3 @@ func (s *RedisStore) DeleteMagicToken(ctx context.Context, hashedToken string) e
 	})
 	return err
 }
-
-func magicTokenKey(hash string) string { return "magic:" + hash }

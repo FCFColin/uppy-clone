@@ -21,12 +21,12 @@ var snapshotBufPool = sync.Pool{
 // msgType(1) + tickCount(uint32) + score(uint32) + phaseCode(uint8)
 // balloon: x(float32) + y(float32) + vy(float32) + vx(float32)
 // bird: active(uint8) + [x(float32)+y(float32) if active]
-// ghost: active(uint8) + x(float32) + y(float32) + repelTimer(uint16)
+// ghost: active(uint8) + [x(float32) + y(float32) + repelTimer(uint16) if active]
 // playerCount(uint8) + per-player: playerIndex(uint16) + cooldownMs(uint32) + palette(uint32) + scoreContribution(uint32) + nickLen(uint8) + nickname(bytes)
 // rippleCount(uint8) + per-ripple: playerIndex(uint16) + x(float32) + y(float32)
 // wind(float32)
 func EncodeSnapshot(phase GamePhase, tickCount uint32, score uint32, balloon BalloonState, bird BirdState, ghost GhostState, players []PlayerState, ripples []Ripple, wind float64) []byte {
-	size := calcSnapshotSize(bird, players, ripples)
+	size := calcSnapshotSize(bird, ghost, players, ripples)
 
 	buf := snapshotBufPool.Get().(*bytes.Buffer)
 	buf.Reset()
@@ -62,12 +62,15 @@ func EncodeSnapshot(phase GamePhase, tickCount uint32, score uint32, balloon Bal
 }
 
 // calcSnapshotSize pre-calculates the total buffer size to avoid reallocations.
-func calcSnapshotSize(bird BirdState, players []PlayerState, ripples []Ripple) int {
+func calcSnapshotSize(bird BirdState, ghost GhostState, players []PlayerState, ripples []Ripple) int {
 	size := 1 + 4 + 4 + 1 + 16 + 1 // header + balloon + bird active flag
 	if bird.Active {
 		size += 8
 	}
-	size += 1 + 8 + 2 + 1 // ghost flag + x + y + repelTimer + playerCount
+	size += 1 + 1 // ghost flag + playerCount
+	if ghost.Active {
+		size += 8 + 2 // x + y + repelTimer
+	}
 	for _, p := range players {
 		size += 2 + 4 + 4 + 4 + 1 + len(p.Nickname)
 	}
@@ -112,12 +115,12 @@ func encodeBird(buf *bytes.Buffer, b4 []byte, bird BirdState) {
 func encodeGhost(buf *bytes.Buffer, b4 []byte, b2 []byte, ghost GhostState) {
 	if ghost.Active {
 		buf.WriteByte(1)
+		writeUint32(buf, b4, math.Float32bits(ghost.X))
+		writeUint32(buf, b4, math.Float32bits(ghost.Y))
+		writeUint16(buf, b2, ghost.RepelTimer)
 	} else {
 		buf.WriteByte(0)
 	}
-	writeUint32(buf, b4, math.Float32bits(ghost.X))
-	writeUint32(buf, b4, math.Float32bits(ghost.Y))
-	writeUint16(buf, b2, ghost.RepelTimer)
 }
 
 // encodePlayers writes all player states to the buffer.
@@ -174,7 +177,9 @@ func EncodeTapRejected() []byte {
 // Binary layout:
 //   - msgType(1) + phaseCode(uint8)
 //   - when phase=countdown: + countdownRemainingMs(uint32 LE)
-//   - when phase=ended: + endReason(uint8)
+//
+// For PhaseEnded, use EncodeGameStateChangeEnded to include endReason.
+// Variadic countdownRemainingMs is only used when phase=PhaseCountdown.
 func EncodeGameStateChange(phase GamePhase, countdownRemainingMs ...uint32) []byte {
 	if phase == PhaseCountdown && len(countdownRemainingMs) > 0 {
 		buf := new(bytes.Buffer)

@@ -128,11 +128,17 @@ export function setLobbyCodeDisplay(lobbyCode: string): void {
   $hudCode.textContent = lobbyCode;
 }
 
+const ERROR_TITLES: Array<[string[], string]> = [
+  [['已结束'], '房间已结束'],
+  [['不存在'], '无法进入房间'],
+  [['超时', '网络', '连接'], '连接失败'],
+];
+
 function errorTitleForMessage(message: string, midGameDisconnect?: boolean): string {
   if (midGameDisconnect) return '对局连接中断';
-  if (message.includes('已结束')) return '房间已结束';
-  if (message.includes('不存在')) return '无法进入房间';
-  if (message.includes('超时') || message.includes('网络') || message.includes('连接')) return '连接失败';
+  for (const [keywords, title] of ERROR_TITLES) {
+    if (keywords.some(k => message.includes(k))) return title;
+  }
   return '无法进入房间';
 }
 
@@ -200,7 +206,6 @@ export function resetEntryDomState(): void {
   errorActionsBound = false;
 }
 
-let entryStep: EntryStep = 'connecting';
 let lobbyPublished = false;
 let wsConnected = false;
 let entryUiBound = false;
@@ -214,12 +219,12 @@ const STEP_RANK: Record<EntryStep, number> = {
 };
 
 function canAdvanceTo(next: EntryStep): boolean {
-  return STEP_RANK[next] >= STEP_RANK[entryStep];
+  return STEP_RANK[next] >= STEP_RANK[getState().entryStep];
 }
 
 function overlayContext(): EntryOverlayContext {
   return {
-    entryStep,
+    entryStep: getState().entryStep,
     wsConnected,
     lobbyCode: getState().lobbyCode,
     phase: getState().phase,
@@ -246,24 +251,24 @@ export function showEntryFullScreenError(message: string, options?: EntryFullScr
 }
 
 export function getEntryStep(): EntryStep {
-  return entryStep;
+  return getState().entryStep;
 }
 
 export function isEntryHandoff(): boolean {
-  return entryStep === 'handoff';
+  return getState().entryStep === 'handoff';
 }
 
 export function applyEntryStep(next: EntryStep): void {
   if (canAdvanceTo(next)) {
-    entryStep = next;
+    dispatch({ type: 'SET_STATE', partial: { entryStep: next } });
     syncOverlays();
   }
 }
 
 /** First lobby code resolved — idempotent after waiting/handoff. */
 export function onLobbyCodeReady(lobbyCode: string): void {
-  if (entryStep === 'waiting' || entryStep === 'handoff') return;
-  if (lobbyPublished && entryStep !== 'connecting' && entryStep !== 'error') return;
+  if (getState().entryStep === 'waiting' || getState().entryStep === 'handoff') return;
+  if (lobbyPublished && getState().entryStep !== 'connecting' && getState().entryStep !== 'error') return;
 
   dispatch({ type: 'SET_STATE', partial: { lobbyCode } });
   setLobbyCodeDisplay(lobbyCode);
@@ -273,7 +278,7 @@ export function onLobbyCodeReady(lobbyCode: string): void {
 
 /** User clicked「进入游戏」. */
 export function onNicknameSubmit(): void {
-  if (entryStep !== 'nickname') return;
+  if (getState().entryStep !== 'nickname') return;
   dispatch({ type: 'SET_STATE', partial: { nicknameSubmitted: true } });
   lobbyPublished = true;
   applyEntryStep('waiting');
@@ -313,7 +318,7 @@ export function bindEntryUI(onSubmit: () => void): void {
   const form = document.getElementById('nickname-entry-form');
   form?.addEventListener('submit', (e: Event) => {
     e.preventDefault();
-    if (entryStep !== 'nickname') return;
+    if (getState().entryStep !== 'nickname') return;
     onSubmit();
   });
 }
@@ -321,20 +326,20 @@ export function bindEntryUI(onSubmit: () => void): void {
 /** WebSocket connected — update waiting status only, never regress step. */
 export function onWebSocketOpen(): void {
   wsConnected = true;
-  if (entryStep === 'waiting') {
+  if (getState().entryStep === 'waiting') {
     if (startCountdownTimer === null) {
       updateWaitingStatusLine(overlayContext());
     }
-  } else if (entryStep === 'nickname') {
+  } else if (getState().entryStep === 'nickname') {
     nicknameReadyStatus(getState().lobbyCode, wsConnected);
   }
 }
 
 export function onWebSocketClosed(): void {
   wsConnected = false;
-  if (entryStep === 'waiting') {
+  if (getState().entryStep === 'waiting') {
     updateWaitingStatusLine(overlayContext());
-  } else if (entryStep === 'nickname') {
+  } else if (getState().entryStep === 'nickname') {
     const code = getState().lobbyCode || '-----';
     setNicknameStatus(`连接已断开 · 房间 ${code} · 仍可点击「进入游戏」（将自动重连）`);
   }
@@ -350,19 +355,17 @@ export function tryEntryHandoff(phase: GamePhase): void {
 
 /** Inline or full-screen connection error depending on entry step. */
 export function routeConnectionError(message: string, options?: EntryFullScreenErrorOptions): void {
-  if (options?.showActions) {
+  const showFull = options?.showActions || options?.midGameDisconnect ||
+    (getState().entryStep !== 'nickname' && getState().entryStep !== 'waiting');
+  if (showFull) {
     showEntryFullScreenError(message, options);
     return;
   }
-  if (!options?.midGameDisconnect && (entryStep === 'nickname' || entryStep === 'waiting')) {
-    if (entryStep === 'nickname') {
-      setNicknameStatus(message);
-    } else {
-      setWaitingInlineError(message);
-    }
-    return;
+  if (getState().entryStep === 'nickname') {
+    setNicknameStatus(message);
+  } else {
+    setWaitingInlineError(message);
   }
-  showEntryFullScreenError(message, options);
 }
 
 export function initEntryFlow(): void {
@@ -373,9 +376,9 @@ export function initEntryFlow(): void {
     dispatch({ type: 'SET_STATE', partial: { lobbyCode: code } });
     setLobbyCodeDisplay(code);
     lobbyPublished = true;
-    entryStep = 'nickname';
+    dispatch({ type: 'SET_STATE', partial: { entryStep: 'nickname' } });
   } else {
-    entryStep = 'connecting';
+    dispatch({ type: 'SET_STATE', partial: { entryStep: 'connecting' } });
   }
   syncOverlays();
 }
@@ -383,7 +386,7 @@ export function initEntryFlow(): void {
 /** Test-only reset */
 export function resetEntryFlowForTest(): void {
   clearStartCountdown();
-  entryStep = 'connecting';
+  dispatch({ type: 'SET_STATE', partial: { entryStep: 'connecting' } });
   lobbyPublished = false;
   wsConnected = false;
   entryUiBound = false;

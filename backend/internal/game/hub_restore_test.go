@@ -33,7 +33,7 @@ func TestHub_MaterializeRoom(t *testing.T) {
 	state := NewGameState("REST1", testRNG())
 	state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "nick1"}
 	room := h.materializeRoom("REST1", state)
-	if room == nil || room.state.LobbyCode != "REST1" {
+	if room == nil || string(room.state.LobbyCode) != "REST1" {
 		t.Fatalf("room = %+v", room)
 	}
 	if !room.usedNames["nick1"] {

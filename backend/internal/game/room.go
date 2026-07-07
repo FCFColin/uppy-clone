@@ -10,7 +10,11 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+var tracer = otel.Tracer("github.com/uppy-clone/backend/internal/game")
 
 // defaultSeedRNG is the package-level RNG for non-game operations (room codes, nicknames).
 // It is separate from per-room RNG to keep game ticks deterministic.
@@ -140,6 +144,9 @@ type Room struct {
 
 // NewRoom 创建新房间
 func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.TimeoutConfig, maxPlayers int) *Room {
+	_, span := tracer.Start(context.Background(), "game.new_room")
+	defer span.End()
+	span.SetAttributes(attribute.String("lobby.code", code))
 	if maxPlayers <= 0 {
 		maxPlayers = config.MaxPlayersPerRoom
 	}
@@ -196,13 +203,16 @@ func (r *Room) removeConnection(playerID string) {
 
 // Code returns the lobby code for this room.
 func (r *Room) Code() string {
-	return r.state.LobbyCode
+	return string(r.state.LobbyCode)
 }
 
 // Close 清理房间，确保 tick goroutine 退出并持久化状态。
 // 企业为何需要：优雅关闭时必须等待异步 tick goroutine 退出，避免写入已关闭的 channel
 // 或持久化不完整状态。saveState 确保崩溃/关闭时房间状态可恢复。
 func (r *Room) Close() {
+	_, span := tracer.Start(context.Background(), "game.room_close")
+	defer span.End()
+	span.SetAttributes(attribute.String("lobby.code", r.lobbyCode))
 	r.mu.Lock()
 	r.stopTick()
 	r.mu.Unlock()
@@ -246,7 +256,7 @@ func (r *Room) SerializeStateJSON() ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	return data, r.state.LobbyCode, nil
+	return data, string(r.state.LobbyCode), nil
 }
 
 // Store implements PersistSource.

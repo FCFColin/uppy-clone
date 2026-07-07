@@ -20,15 +20,8 @@ describe('decodeSnapshot with arbitrary binary input', () => {
       fc.property(
         fc.uint8Array({ minLength: 0, maxLength: 1024 }),
         (buffer) => {
-          // decodeSnapshot may throw on inputs with oversized nickname length
-          // bytes (known limitation). This test verifies the throw is contained.
-          try {
-            const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.length);
-            decodeSnapshot(dv);
-          } catch {
-            // Known limitation: oversized nickname length bytes can cause throws.
-            // This is acceptable — the decoder should not crash the application.
-          }
+          const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.length);
+          expect(() => decodeSnapshot(dv)).not.toThrow();
         }
       ),
       { numRuns: 200 }

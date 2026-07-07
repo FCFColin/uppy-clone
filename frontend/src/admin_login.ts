@@ -1,10 +1,10 @@
 export {};
 
-const loginSection: HTMLElement = document.getElementById('login-section')!;
-const configSection: HTMLElement = document.getElementById('config-section')!;
-const adminPasswordInput: HTMLInputElement = document.getElementById('admin-password') as HTMLInputElement;
-const loginBtn: HTMLButtonElement = document.getElementById('login-btn') as HTMLButtonElement;
-const loginError: HTMLElement = document.getElementById('login-error')!;
+const loginSection = document.getElementById('login-section')!;
+const configSection = document.getElementById('config-section')!;
+const adminPasswordInput = document.getElementById('admin-password') as HTMLInputElement;
+const loginBtn = document.getElementById('login-btn') as HTMLButtonElement;
+const loginError = document.getElementById('login-error')!;
 
 async function doLogin(
   onSuccess: () => void,

@@ -12,7 +12,7 @@ import (
 )
 
 func TestSaveLobbyState_Success(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 	ls := &domain.LobbyState{ID: "l1", Code: "ABCD1", State: "waiting", UpdatedAt: 100, CreatedAt: 50}
 
@@ -20,26 +20,26 @@ func TestSaveLobbyState_Success(t *testing.T) {
 		WithArgs(ls.ID, ls.Code, ls.State, ls.UpdatedAt, ls.CreatedAt).
 		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 
-	if err := s.SaveLobbyState(ctx, ls); err != nil {
+	if err := repo.SaveLobbyState(ctx, ls); err != nil {
 		t.Fatalf("SaveLobbyState: %v", err)
 	}
 }
 
 func TestSaveLobbyState_Error(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectExec("INSERT INTO lobby_states").
 		WillReturnError(errors.New("save failed"))
 
-	err := s.SaveLobbyState(ctx, &domain.LobbyState{ID: "l1", Code: "X"})
+	err := repo.SaveLobbyState(ctx, &domain.LobbyState{ID: "l1", Code: "X"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestLoadLobbyState_Found(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
@@ -48,7 +48,7 @@ func TestLoadLobbyState_Found(t *testing.T) {
 		WithArgs("ABCD1").
 		WillReturnRows(rows)
 
-	ls, err := s.LoadLobbyState(ctx, "ABCD1")
+	ls, err := repo.LoadLobbyState(ctx, "ABCD1")
 	if err != nil {
 		t.Fatalf("LoadLobbyState: %v", err)
 	}
@@ -58,14 +58,14 @@ func TestLoadLobbyState_Found(t *testing.T) {
 }
 
 func TestLoadLobbyState_NotFound(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("MISSING").
 		WillReturnError(pgx.ErrNoRows)
 
-	ls, err := s.LoadLobbyState(ctx, "MISSING")
+	ls, err := repo.LoadLobbyState(ctx, "MISSING")
 	if err != nil {
 		t.Fatalf("LoadLobbyState: %v", err)
 	}
@@ -75,32 +75,32 @@ func TestLoadLobbyState_NotFound(t *testing.T) {
 }
 
 func TestDeleteLobbyState_Success(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectExec("DELETE FROM lobby_states WHERE code").
 		WithArgs("ABCD1").
 		WillReturnResult(pgconn.NewCommandTag("DELETE 1"))
 
-	if err := s.DeleteLobbyState(ctx, "ABCD1"); err != nil {
+	if err := repo.DeleteLobbyState(ctx, "ABCD1"); err != nil {
 		t.Fatalf("DeleteLobbyState: %v", err)
 	}
 }
 
 func TestDeleteLobbyState_Error(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectExec("DELETE FROM lobby_states WHERE code").
 		WillReturnError(errors.New("delete failed"))
 
-	if err := s.DeleteLobbyState(ctx, "ABCD1"); err == nil {
+	if err := repo.DeleteLobbyState(ctx, "ABCD1"); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestLoadLobbyState_ScanError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
@@ -110,7 +110,7 @@ func TestLoadLobbyState_ScanError(t *testing.T) {
 		WithArgs("ABCD1").
 		WillReturnRows(rows)
 
-	_, err := s.LoadLobbyState(ctx, "ABCD1")
+	_, err := repo.LoadLobbyState(ctx, "ABCD1")
 	if err == nil {
 		t.Fatal("expected scan error")
 	}

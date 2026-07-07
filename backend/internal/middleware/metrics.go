@@ -8,6 +8,7 @@ import (
 )
 
 // RecordAuthMetrics returns middleware that records auth endpoint latency and status.
+// NOTE: This function has no dedicated unit tests.
 func RecordAuthMetrics(endpoint string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

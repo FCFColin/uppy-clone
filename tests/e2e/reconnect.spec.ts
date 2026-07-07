@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createRoom, connectToRoom, submitNickname, waitForPhase } from './helpers.js';
+import { createRoom, connectToRoom, submitNickname, closeWebSocket, waitForNicknameSubmitted } from './helpers.js';
 
 test.describe('Reconnection', () => {
   test('disconnect and reconnect within grace period restores state', async ({ page }) => {
@@ -13,10 +13,7 @@ test.describe('Reconnection', () => {
     await expect(page.locator('#waiting-screen:not(.hidden)')).toBeVisible({ timeout: 5000 });
 
     // 关闭 WebSocket 连接模拟断线
-    await page.evaluate(() => {
-      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      if (ws) ws.close();
-    });
+    await closeWebSocket(page);
 
     // 等待一小段时间然后重连
     await page.waitForTimeout(1000);
@@ -24,10 +21,7 @@ test.describe('Reconnection', () => {
 
     // 重连后应该能看到 waiting 界面（而非 nickname 设置界面）
     await expect(page.locator('#nickname-connect-status')).toContainText('服务器已连接', { timeout: 30000 });
-    await page.waitForFunction(
-      () => (window as unknown as { state?: { nicknameSubmitted?: boolean } }).state?.nicknameSubmitted === true,
-      { timeout: 10000 },
-    );
+    await waitForNicknameSubmitted(page);
   });
 
   test('reconnect during waiting phase', async ({ page }) => {
@@ -41,10 +35,7 @@ test.describe('Reconnection', () => {
     await expect(page.locator('#waiting-screen:not(.hidden)')).toBeVisible({ timeout: 5000 });
 
     // 断线
-    await page.evaluate(() => {
-      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      if (ws) ws.close();
-    });
+    await closeWebSocket(page);
 
     // 重连
     await page.waitForTimeout(1000);
@@ -52,13 +43,7 @@ test.describe('Reconnection', () => {
 
     // 重连后应该仍然在 waiting 阶段
     await expect(page.locator('#nickname-connect-status')).toContainText('服务器已连接', { timeout: 30000 });
-    await page.waitForFunction(
-      () => {
-        const s = (window as unknown as { state?: { nicknameSubmitted?: boolean; phase?: string } }).state;
-        return !!s && s.nicknameSubmitted === true;
-      },
-      { timeout: 10000 },
-    );
+    await waitForNicknameSubmitted(page);
     // 不应该看到 nickname 设置界面
     await expect(page.locator('#nickname-setup-screen')).toHaveClass(/hidden/);
   });

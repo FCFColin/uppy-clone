@@ -1,8 +1,6 @@
 ﻿let audioCtx: AudioContext | null = null;
-const muted = false;
 
 function ctx(): AudioContext | null {
-  if (muted) return null;
   if (typeof window === 'undefined') return null;
   if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
   if (!audioCtx) {

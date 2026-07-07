@@ -21,14 +21,22 @@ func (r *Room) startPersistLoop() {
 	r.persistCh = r.persist.ch
 }
 
+func (r *Room) canPersist() bool {
+	return r.store != nil && r.persist != nil
+}
+
+func (r *Room) serializeState() ([]byte, error) {
+	return serializeStateFn(r.state)
+}
+
 // asyncSaveState serializes state and queues a debounced persist outside the tick lock.
 func (r *Room) asyncSaveState() {
-	if r.store == nil || r.persist == nil {
+	if !r.canPersist() {
 		return
 	}
 	r.mu.Lock()
-	data, err := serializeStateFn(r.state)
-	code := r.state.LobbyCode
+	data, err := r.serializeState()
+	code := string(r.state.LobbyCode)
 	r.mu.Unlock()
 	if err != nil {
 		r.logger.Error("serialize state for async persist", "error", err)
@@ -39,26 +47,26 @@ func (r *Room) asyncSaveState() {
 
 // requestPersist queues a debounced persist. Caller must hold r.mu.
 func (r *Room) requestPersist() {
-	if r.store == nil || r.persist == nil {
+	if !r.canPersist() {
 		return
 	}
-	data, err := serializeStateFn(r.state)
+	data, err := r.serializeState()
 	if err != nil {
 		r.logger.Error("serialize state for persist", "error", err)
 		return
 	}
-	r.persist.enqueuePersist(data, r.state.LobbyCode)
-	metrics.SetRoomPersistLag(r.state.LobbyCode, 0)
+	r.persist.enqueuePersist(data, string(r.state.LobbyCode))
+	metrics.SetRoomPersistLag(string(r.state.LobbyCode), 0)
 }
 
 // flushPersistSync blocks until a final persist completes (used on Close).
 func (r *Room) flushPersistSync() {
-	if r.store == nil || r.persist == nil {
+	if !r.canPersist() {
 		return
 	}
 	r.mu.Lock()
-	data, err := serializeStateFn(r.state)
-	code := r.state.LobbyCode
+	data, err := r.serializeState()
+	code := string(r.state.LobbyCode)
 	r.mu.Unlock()
 	if err != nil {
 		r.logger.Error("serialize state for final persist", "error", err)

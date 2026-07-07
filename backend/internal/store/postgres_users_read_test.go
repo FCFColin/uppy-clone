@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetUserByEmail_Found(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	lastLogin := int64(200)
@@ -22,7 +22,7 @@ func TestGetUserByEmail_Found(t *testing.T) {
 		WithArgs(pgxmock.AnyArg(), "found@example.com").
 		WillReturnRows(rows)
 
-	user, err := s.GetUserByEmail(ctx, "found@example.com")
+	user, err := repo.GetUserByEmail(ctx, "found@example.com")
 	if err != nil {
 		t.Fatalf("GetUserByEmail: %v", err)
 	}
@@ -35,14 +35,14 @@ func TestGetUserByEmail_Found(t *testing.T) {
 }
 
 func TestGetUserByEmail_NotFound(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WithArgs(pgxmock.AnyArg(), "missing@example.com").
 		WillReturnError(pgx.ErrNoRows)
 
-	user, err := s.GetUserByEmail(ctx, "missing@example.com")
+	user, err := repo.GetUserByEmail(ctx, "missing@example.com")
 	if err != nil {
 		t.Fatalf("GetUserByEmail: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestGetUserByEmail_NotFound(t *testing.T) {
 }
 
 func TestGetUserByEmail_ScanError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
@@ -60,14 +60,14 @@ func TestGetUserByEmail_ScanError(t *testing.T) {
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WillReturnRows(rows)
 
-	_, err := s.GetUserByEmail(ctx, "bad@example.com")
+	_, err := repo.GetUserByEmail(ctx, "bad@example.com")
 	if err == nil {
 		t.Fatal("expected scan error")
 	}
 }
 
 func TestGetUserByID_Found(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	lastLogin := int64(60)
@@ -77,7 +77,7 @@ func TestGetUserByID_Found(t *testing.T) {
 		WithArgs("id-42").
 		WillReturnRows(rows)
 
-	user, err := s.GetUserByID(ctx, "id-42")
+	user, err := repo.GetUserByID(ctx, "id-42")
 	if err != nil {
 		t.Fatalf("GetUserByID: %v", err)
 	}
@@ -87,14 +87,14 @@ func TestGetUserByID_Found(t *testing.T) {
 }
 
 func TestGetUserByID_NotFound(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
 		WithArgs("missing-id").
 		WillReturnError(pgx.ErrNoRows)
 
-	user, err := s.GetUserByID(ctx, "missing-id")
+	user, err := repo.GetUserByID(ctx, "missing-id")
 	if err != nil {
 		t.Fatalf("GetUserByID: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestGetUserByEmail_DecryptError(t *testing.T) {
 		t.Fatalf("crypto.InitFromEnv: %v", err)
 	}
 
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	lastLogin := int64(2)
@@ -119,14 +119,14 @@ func TestGetUserByEmail_DecryptError(t *testing.T) {
 		WithArgs(pgxmock.AnyArg(), "bad@example.com").
 		WillReturnRows(rows)
 
-	_, err := s.GetUserByEmail(ctx, "bad@example.com")
+	_, err := repo.GetUserByEmail(ctx, "bad@example.com")
 	if err == nil || !strings.Contains(err.Error(), "decrypt email") {
 		t.Fatalf("GetUserByEmail = %v, want decrypt error", err)
 	}
 }
 
 func TestGetUserByID_ScanError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
@@ -135,7 +135,7 @@ func TestGetUserByID_ScanError(t *testing.T) {
 		WithArgs("id-42").
 		WillReturnRows(rows)
 
-	_, err := s.GetUserByID(ctx, "id-42")
+	_, err := repo.GetUserByID(ctx, "id-42")
 	if err == nil {
 		t.Fatal("expected scan error")
 	}
@@ -147,7 +147,7 @@ func TestGetUserByID_DecryptError(t *testing.T) {
 		t.Fatalf("crypto.InitFromEnv: %v", err)
 	}
 
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	lastLogin := int64(2)
@@ -157,7 +157,7 @@ func TestGetUserByID_DecryptError(t *testing.T) {
 		WithArgs("id-42").
 		WillReturnRows(rows)
 
-	_, err := s.GetUserByID(ctx, "id-42")
+	_, err := repo.GetUserByID(ctx, "id-42")
 	if err == nil || !strings.Contains(err.Error(), "decrypt email") {
 		t.Fatalf("GetUserByID = %v, want decrypt error", err)
 	}

@@ -18,10 +18,14 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # 客户端入口（80→8080）：来自 MCI/GCLB 健康检查与负载均衡器。
+    # 客户端入口（80→8080）：仅允许 GCP 健康检查与集群内 Pod。
     - from:
         - ipBlock:
-            cidr: 0.0.0.0/0
+            cidr: 35.191.0.0/16
+        - ipBlock:
+            cidr: 130.211.0.0/22
+        - ipBlock:
+            cidr: 10.0.0.0/8
       ports:
         - protocol: TCP
           port: 8080

@@ -78,6 +78,8 @@ resource "google_redis_instance" "uppy_redis" {
   redis_version              = "REDIS_7_0"
   auth_enabled               = true
   transit_encryption_enabled = true
+  authorized_network         = data.google_compute_network.balloon_vpc.id
+  connect_mode               = "DIRECT_PEERING"
 }
 
 # Secret Manager secrets

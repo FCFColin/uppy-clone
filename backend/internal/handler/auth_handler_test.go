@@ -142,7 +142,7 @@ func TestLogout_InvalidBody(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader("{bad"))
 	r.Header.Set("Content-Type", "application/json")
 	h.Logout(w, r)
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200 (invalid JSON body is ignored)", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (invalid JSON body should be rejected)", w.Code)
 	}
 }

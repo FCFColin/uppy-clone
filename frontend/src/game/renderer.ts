@@ -1,8 +1,9 @@
 import { getState } from './store.js';
+import type { ClientPlayer } from './state_types.js';
 import { commitRenderedState } from './state_interp.js';
 import { $canvas, getCtx, resizeCanvas as resizeCanvasBase } from './renderer_canvas.js';
 import { drawBackground, invalidateBackgroundStaticCache } from './renderer_background.js';
-import { drawBalloon, drawBird, drawGhost, drawRipples, drawExplosion } from './renderer_draw.js';
+import { drawBalloon, drawBird, drawGhost, drawRipples, drawExplosion, pruneEffects } from './renderer_draw.js';
 import {
   drawTutorialRangeCircle, drawDangerVignettes, drawFloatingTexts,
 } from './visual_helpers.js';
@@ -16,9 +17,27 @@ export function resizeCanvas(): void {
 }
 
 let renderActive = true;
+let cachedPlayerMap: Map<number, ClientPlayer> | null = null;
+let cachedPlayerMapKey: string | null = null;
 
 export function setRenderActive(active: boolean): void {
   renderActive = active;
+}
+
+function getPlayerMap(): Map<number, ClientPlayer> {
+  const players = getState().players;
+  const key = players.map(p => p.playerIndex + ':' + p.scoreContribution).join(',');
+  if (key === cachedPlayerMapKey && cachedPlayerMap !== null) {
+    return cachedPlayerMap;
+  }
+  cachedPlayerMapKey = key;
+  cachedPlayerMap = new Map(players.map(p => [p.playerIndex, p]));
+  return cachedPlayerMap;
+}
+
+export function invalidatePlayerMapCache(): void {
+  cachedPlayerMap = null;
+  cachedPlayerMapKey = null;
 }
 
 export function renderOnce(): void {
@@ -52,26 +71,25 @@ function render(): void {
 
     drawBackground(now);
 
-    if (getState().blockGameRender) {
-      return;
+    if (getState().blockGameRender) return;
+    if (getState().phase !== 'playing' && getState().phase !== 'ended') return;
+
+    if (getState().hasReceivedFirstSnapshot) {
+      drawTutorialRangeCircle(now);
+      drawBalloon(now);
+      drawBird(now);
+      drawGhost(now);
+      drawDangerVignettes(now);
+      if (getState().phase === 'playing') {
+        commitRenderedState(now);
+      }
     }
 
-    if (getState().phase === 'playing' || getState().phase === 'ended') {
-      if (getState().hasReceivedFirstSnapshot) {
-        drawTutorialRangeCircle(now);
-        drawBalloon(now);
-        drawBird(now);
-        drawGhost(now);
-        drawDangerVignettes(now);
-        if (getState().phase === 'playing') {
-          commitRenderedState(now);
-        }
-      }
-      const playerMap = new Map(getState().players.map(p => [p.playerIndex, p]));
-      drawRipples(now, playerMap);
-      drawFloatingTexts(now);
-      drawExplosion(now);
-    }
+    const playerMap = getPlayerMap();
+    pruneEffects();
+    drawRipples(now, playerMap);
+    drawFloatingTexts(now);
+    drawExplosion(now);
   } catch (err: unknown) {
     console.error('Render error:', err);
   }

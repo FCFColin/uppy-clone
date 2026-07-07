@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { dispatch, getState, select } from './store.js';
-import type { GameAction } from './reducer.js';
+import { dispatch, getState } from './store.js';
 
 beforeEach(() => {
   dispatch({ type: 'RESET_ALL' });
@@ -18,12 +17,6 @@ describe('store', () => {
   it('dispatch SET_STATE updates a field', () => {
     dispatch({ type: 'SET_STATE', partial: { phase: 'playing' } });
     expect(getState().phase).toBe('playing');
-  });
-
-  it('select returns derived value', () => {
-    dispatch({ type: 'SET_STATE', partial: { score: 100 } });
-    const score = select(s => s.score);
-    expect(score).toBe(100);
   });
 
   it('RESET_ROUND resets gameplay fields but keeps lobbyCode/pendingNickname', () => {

@@ -6,6 +6,8 @@
  * 当 API 返回 401 时，自动尝试 refresh，成功则重试原请求
  */
 
+import { fetchWithRetry } from './fetch.js';
+
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
@@ -57,7 +59,7 @@ export async function fetchWithRefresh(url: string, options: RequestInit = {}): 
   if (res.status === 401) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      return fetch(url, { ...options, credentials: 'include' });
+      return fetchWithRetry(url, { ...options, credentials: 'include' });
     }
     window.location.href = '/';
   }

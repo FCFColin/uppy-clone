@@ -41,3 +41,8 @@ CREATE TRIGGER no_delete_audit_logs
     BEFORE DELETE ON audit_logs
     FOR EACH ROW
     EXECUTE FUNCTION prevent_audit_log_modification();
+
+CREATE TRIGGER no_truncate_audit_logs
+    BEFORE TRUNCATE ON audit_logs
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION prevent_audit_log_modification();

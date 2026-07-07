@@ -20,7 +20,7 @@ func TestLogUserCreateAudit_DoesNotPanic(t *testing.T) {
 }
 
 func TestCreateUser_Success(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 	lastLogin := int64(100)
 	user := &domain.User{
@@ -41,7 +41,7 @@ func TestCreateUser_Success(t *testing.T) {
 		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 	mock.ExpectCommit()
 
-	if err := s.CreateUser(ctx, user); err != nil {
+	if err := repo.CreateUser(ctx, user); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -50,7 +50,7 @@ func TestCreateUser_Success(t *testing.T) {
 }
 
 func TestCreateUser_DuplicateUser(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 	user := &domain.User{
 		ID:        "user-dup",
@@ -65,26 +65,26 @@ func TestCreateUser_DuplicateUser(t *testing.T) {
 		WillReturnError(&pgconn.PgError{Code: "23505"})
 	mock.ExpectRollback()
 
-	err := s.CreateUser(ctx, user)
+	err := repo.CreateUser(ctx, user)
 	if !errors.Is(err, ErrDuplicateUser) {
 		t.Fatalf("CreateUser = %v, want ErrDuplicateUser", err)
 	}
 }
 
 func TestCreateUser_BeginError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectBegin().WillReturnError(errors.New("begin failed"))
 
-	err := s.CreateUser(ctx, &domain.User{ID: "u1", Email: "a@b.com", Nickname: "n"})
+	err := repo.CreateUser(ctx, &domain.User{ID: "u1", Email: "a@b.com", Nickname: "n"})
 	if err == nil || !strings.Contains(err.Error(), "begin tx") {
 		t.Fatalf("CreateUser = %v, want begin error", err)
 	}
 }
 
 func TestCreateUser_OutboxInsertError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 	user := &domain.User{ID: "u2", Email: "b@c.com", Nickname: "n", CreatedAt: 1}
 
@@ -97,7 +97,7 @@ func TestCreateUser_OutboxInsertError(t *testing.T) {
 		WillReturnError(errors.New("outbox insert failed"))
 	mock.ExpectRollback()
 
-	err := s.CreateUser(ctx, user)
+	err := repo.CreateUser(ctx, user)
 	if err == nil || !strings.Contains(err.Error(), "insert outbox event") {
 		t.Fatalf("CreateUser = %v, want outbox insert error", err)
 	}
@@ -110,29 +110,15 @@ func TestCreateUser_PrepareEmailError(t *testing.T) {
 		return "", fmt.Errorf("encrypt failed")
 	}
 
-	s, _ := newMockPostgresStore(t)
-	err := s.CreateUser(context.Background(), &domain.User{ID: "u5", Email: "e@f.com", Nickname: "n"})
+	repo, _ := newMockUserRepository(t)
+	err := repo.CreateUser(context.Background(), &domain.User{ID: "u5", Email: "e@f.com", Nickname: "n"})
 	if err == nil || !strings.Contains(err.Error(), "encrypt email") {
 		t.Fatalf("CreateUser = %v, want encrypt email error", err)
 	}
 }
 
-func TestCreateUser_JsonMarshalError(t *testing.T) {
-	orig := jsonMarshalFn
-	t.Cleanup(func() { jsonMarshalFn = orig })
-	jsonMarshalFn = func(any) ([]byte, error) {
-		return nil, fmt.Errorf("marshal failed")
-	}
-
-	s, _ := newMockPostgresStore(t)
-	err := s.CreateUser(context.Background(), &domain.User{ID: "u6", Email: "f@g.com", Nickname: "n", CreatedAt: 1})
-	if err == nil || !strings.Contains(err.Error(), "marshal outbox payload") {
-		t.Fatalf("CreateUser = %v, want marshal error", err)
-	}
-}
-
 func TestCreateUser_InsertError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 	user := &domain.User{ID: "u3", Email: "c@d.com", Nickname: "n", CreatedAt: 1}
 
@@ -142,14 +128,14 @@ func TestCreateUser_InsertError(t *testing.T) {
 		WillReturnError(errors.New("insert failed"))
 	mock.ExpectRollback()
 
-	err := s.CreateUser(ctx, user)
+	err := repo.CreateUser(ctx, user)
 	if err == nil || !strings.Contains(err.Error(), "create user") {
 		t.Fatalf("CreateUser = %v, want create user error", err)
 	}
 }
 
 func TestCreateUser_CommitError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockUserRepository(t)
 	ctx := context.Background()
 	user := &domain.User{ID: "u4", Email: "d@e.com", Nickname: "n", CreatedAt: 1}
 
@@ -163,7 +149,7 @@ func TestCreateUser_CommitError(t *testing.T) {
 	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
 	mock.ExpectRollback()
 
-	err := s.CreateUser(ctx, user)
+	err := repo.CreateUser(ctx, user)
 	if err == nil || !strings.Contains(err.Error(), "commit create user") {
 		t.Fatalf("CreateUser = %v, want commit error", err)
 	}

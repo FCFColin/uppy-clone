@@ -80,7 +80,7 @@ func TestSaveState_NilStoreDoesNotPanic(t *testing.T) {
 		store:  nil,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
-	room.saveState()
+	room.requestPersist()
 }
 
 func TestSaveState_StoreErrorDoesNotPanic(t *testing.T) {
@@ -92,5 +92,5 @@ func TestSaveState_StoreErrorDoesNotPanic(t *testing.T) {
 		store:  repo,
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
-	room.saveState()
+	room.requestPersist()
 }

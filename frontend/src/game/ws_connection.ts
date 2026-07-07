@@ -150,14 +150,19 @@ export function scheduleReconnect(): void {
   }, delay);
 }
 
-export function waitForWebSocket(maxWaitMs = 5000): Promise<void> {
-  return new Promise((resolve: () => void) => {
-    if (ws && ws.readyState === WebSocket.OPEN) return resolve();
+export function waitForWebSocket(maxWaitMs = 5000): Promise<boolean> {
+  let cancelled = false;
+  return new Promise<boolean>((resolve: (ok: boolean) => void) => {
+    if (ws && ws.readyState === WebSocket.OPEN) return resolve(true);
     const start = Date.now();
     const check: ReturnType<typeof setInterval> = setInterval(() => {
-      if ((ws && ws.readyState === WebSocket.OPEN) || Date.now() - start > maxWaitMs) {
+      if (cancelled) { clearInterval(check); return; }
+      if (ws && ws.readyState === WebSocket.OPEN) {
         clearInterval(check);
-        resolve();
+        resolve(true);
+      } else if (Date.now() - start > maxWaitMs) {
+        clearInterval(check);
+        resolve(false);
       }
     }, 100);
   });

@@ -56,11 +56,11 @@ func TestGetEnv_PrefersServerEnv(t *testing.T) {
 }
 
 func TestMetricsAuthMiddleware_ForbiddenInProduction(t *testing.T) {
-	t.Setenv("ENABLE_HSTS", "true")
+	t.Setenv("ENV", "production")
 	t.Setenv("METRICS_USER", "")
 	t.Setenv("METRICS_PASSWORD", "")
 	t.Cleanup(func() {
-		os.Unsetenv("ENABLE_HSTS")
+		os.Unsetenv("ENV")
 		os.Unsetenv("METRICS_USER")
 		os.Unsetenv("METRICS_PASSWORD")
 	})

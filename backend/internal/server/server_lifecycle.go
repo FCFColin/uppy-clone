@@ -41,7 +41,7 @@ func runServer(logger *slog.Logger) error {
 	ctx := context.Background()
 	shutdown, err := initTracerFn(ctx, "balloon-game", "1.0.0")
 	if err != nil {
-		slog.Error("failed to initialize tracer", "error", err)
+		return fmt.Errorf("init tracer: %w", err)
 	}
 	stopTracer := func() {
 		if shutdown != nil {
@@ -163,10 +163,11 @@ func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub,
 var exitFunc = os.Exit
 
 // Run is the application entrypoint invoked from cmd/server/main.go.
-func Run() {
+func Run() error {
 	logger := initLogger()
 	if err := runServer(logger); err != nil {
 		logger.Error("server failed", "error", err)
-		exitFunc(1)
+		return err
 	}
+	return nil
 }

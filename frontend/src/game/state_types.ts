@@ -20,7 +20,7 @@ interface ClientGhost {
   repelTimer: number;
 }
 
-interface ClientPlayer {
+export interface ClientPlayer {
   playerIndex: number;
   nickname: string;
   palette: number;
@@ -68,7 +68,10 @@ export interface ClientState {
   endReason: number | null;
   wasEverConnected: boolean;
   blockGameRender: boolean;
+  entryStep: EntryStep;
 }
+
+export type EntryStep = 'connecting' | 'error' | 'nickname' | 'waiting' | 'handoff';
 
 export const state: ClientState = {
   phase: 'waiting',
@@ -94,4 +97,5 @@ export const state: ClientState = {
   endReason: null,
   wasEverConnected: false,
   blockGameRender: false,
+  entryStep: 'connecting',
 };

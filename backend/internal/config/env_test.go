@@ -19,6 +19,7 @@ func TestEnvValidate_RejectsWeakJWTInProd(t *testing.T) {
 		DatabaseURL:   "postgres://localhost/test",
 		EncryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		EnableHSTS:    true,
+		Environment:   "production",
 	}
 	if err := e.Validate(); err == nil {
 		t.Fatal("expected weak JWT rejection in production mode")
@@ -76,6 +77,7 @@ func validProdEnv() *Env {
 		DatabaseURL:       "postgres://localhost/test",
 		EncryptionKey:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		EnableHSTS:        true,
+		Environment:       "production",
 		TrustedProxyCIDRs: "127.0.0.1/32",
 	}
 }
@@ -196,62 +198,62 @@ func TestEnv_GetterFunctions(t *testing.T) {
 		EnableHSTS:        true,
 		MaxPlayersPerRoom: 10,
 	}
-	if got := e.GetJWTPrivateKey(); got != "jwt_private" {
-		t.Errorf("GetJWTPrivateKey() = %q, want %q", got, "jwt_private")
+	if got := e.JWTPrivateKey; got != "jwt_private" {
+		t.Errorf("JWTPrivateKey = %q, want %q", got, "jwt_private")
 	}
-	if got := e.GetJWTPublicKey(); got != "jwt_public" {
-		t.Errorf("GetJWTPublicKey() = %q, want %q", got, "jwt_public")
+	if got := e.JWTPublicKey; got != "jwt_public" {
+		t.Errorf("JWTPublicKey = %q, want %q", got, "jwt_public")
 	}
-	if got := e.GetEncryptionKey(); got != "enc_key" {
-		t.Errorf("GetEncryptionKey() = %q, want %q", got, "enc_key")
+	if got := e.EncryptionKey; got != "enc_key" {
+		t.Errorf("EncryptionKey = %q, want %q", got, "enc_key")
 	}
-	if got := e.GetAuditSecret(); got != "audit_secret" {
-		t.Errorf("GetAuditSecret() = %q, want %q", got, "audit_secret")
+	if got := e.AuditSecret; got != "audit_secret" {
+		t.Errorf("AuditSecret = %q, want %q", got, "audit_secret")
 	}
-	if got := e.GetDatabaseURL(); got != "postgres://localhost/test" {
-		t.Errorf("GetDatabaseURL() = %q, want %q", got, "postgres://localhost/test")
+	if got := e.DatabaseURL; got != "postgres://localhost/test" {
+		t.Errorf("DatabaseURL = %q, want %q", got, "postgres://localhost/test")
 	}
-	if got := e.GetRedisURL(); got != "redis://localhost:6379" {
-		t.Errorf("GetRedisURL() = %q, want %q", got, "redis://localhost:6379")
+	if got := e.RedisURL; got != "redis://localhost:6379" {
+		t.Errorf("RedisURL = %q, want %q", got, "redis://localhost:6379")
 	}
-	if got := e.GetPort(); got != "9090" {
-		t.Errorf("GetPort() = %q, want %q", got, "9090")
+	if got := e.Port; got != "9090" {
+		t.Errorf("Port = %q, want %q", got, "9090")
 	}
-	if got := e.GetEnableHSTS(); got != true {
-		t.Errorf("GetEnableHSTS() = %v, want %v", got, true)
+	if got := e.EnableHSTS; got != true {
+		t.Errorf("EnableHSTS = %v, want %v", got, true)
 	}
-	if got := e.GetMaxPlayersPerRoom(); got != 10 {
-		t.Errorf("GetMaxPlayersPerRoom() = %d, want %d", got, 10)
+	if got := e.MaxPlayersPerRoom; got != 10 {
+		t.Errorf("MaxPlayersPerRoom = %d, want %d", got, 10)
 	}
 }
 
 func TestEnv_GetterFunctions_Empty(t *testing.T) {
 	e := &Env{}
-	if got := e.GetJWTPrivateKey(); got != "" {
-		t.Errorf("GetJWTPrivateKey() = %q, want empty", got)
+	if got := e.JWTPrivateKey; got != "" {
+		t.Errorf("JWTPrivateKey = %q, want empty", got)
 	}
-	if got := e.GetJWTPublicKey(); got != "" {
-		t.Errorf("GetJWTPublicKey() = %q, want empty", got)
+	if got := e.JWTPublicKey; got != "" {
+		t.Errorf("JWTPublicKey = %q, want empty", got)
 	}
-	if got := e.GetEncryptionKey(); got != "" {
-		t.Errorf("GetEncryptionKey() = %q, want empty", got)
+	if got := e.EncryptionKey; got != "" {
+		t.Errorf("EncryptionKey = %q, want empty", got)
 	}
-	if got := e.GetAuditSecret(); got != "" {
-		t.Errorf("GetAuditSecret() = %q, want empty", got)
+	if got := e.AuditSecret; got != "" {
+		t.Errorf("AuditSecret = %q, want empty", got)
 	}
-	if got := e.GetDatabaseURL(); got != "" {
-		t.Errorf("GetDatabaseURL() = %q, want empty", got)
+	if got := e.DatabaseURL; got != "" {
+		t.Errorf("DatabaseURL = %q, want empty", got)
 	}
-	if got := e.GetRedisURL(); got != "" {
-		t.Errorf("GetRedisURL() = %q, want empty", got)
+	if got := e.RedisURL; got != "" {
+		t.Errorf("RedisURL = %q, want empty", got)
 	}
-	if got := e.GetPort(); got != "" {
-		t.Errorf("GetPort() = %q, want empty", got)
+	if got := e.Port; got != "" {
+		t.Errorf("Port = %q, want empty", got)
 	}
-	if got := e.GetEnableHSTS(); got != false {
-		t.Errorf("GetEnableHSTS() = %v, want false", got)
+	if got := e.EnableHSTS; got != false {
+		t.Errorf("EnableHSTS = %v, want false", got)
 	}
-	if got := e.GetMaxPlayersPerRoom(); got != 0 {
-		t.Errorf("GetMaxPlayersPerRoom() = %d, want 0", got)
+	if got := e.MaxPlayersPerRoom; got != 0 {
+		t.Errorf("MaxPlayersPerRoom = %d, want 0", got)
 	}
 }

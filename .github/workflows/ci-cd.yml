@@ -197,6 +197,9 @@ jobs:
           TRUSTED_PROXY_CIDRS: ${{ secrets.TRUSTED_PROXY_CIDRS }}
         run: |
           cd "infra/k8s/overlays/${{ matrix.region }}"
+          # NOTE: sed-based placeholder substitution is fragile (breaks on special chars / slashes).
+          # Replace with `kubectl kustomize ... | kustomize edit set image ...` or Kustomize
+          # `images` field with digest pinning when CI pipeline is refactored.
           kubectl kustomize . \
             | sed "s/PROJECT_ID/${{ secrets.GCP_PROJECT_ID }}/g" \
             | sed "s/__IMAGE_TAG__/${{ github.sha }}/g" \

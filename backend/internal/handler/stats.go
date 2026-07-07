@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 )
 
@@ -20,7 +21,7 @@ func NewStatsHandler(db LeaderboardStore) *StatsHandler {
 // GetLeaderboard handles GET /api/v1/leaderboard?scope=global|weekly&limit=50
 func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 	if h.db == nil {
-		http.Error(w, `{"error":"service unavailable"}`, http.StatusServiceUnavailable)
+		apierror.New(http.StatusServiceUnavailable, "Service Unavailable", "service unavailable").Write(w)
 		return
 	}
 
@@ -29,7 +30,7 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 		scope = "global"
 	}
 	if scope != "global" && scope != "weekly" {
-		http.Error(w, `{"error":"invalid scope"}`, http.StatusBadRequest)
+		apierror.BadRequest("invalid scope").Write(w)
 		return
 	}
 
@@ -42,7 +43,7 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := h.db.GetLeaderboard(r.Context(), scope, limit)
 	if err != nil {
-		http.Error(w, `{"error":"failed to load leaderboard"}`, http.StatusInternalServerError)
+		apierror.InternalError("failed to load leaderboard").Write(w)
 		return
 	}
 
@@ -56,19 +57,19 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 // GetUserStats handles GET /api/v1/user/stats (authenticated).
 func (h *StatsHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
 	if h.db == nil {
-		http.Error(w, `{"error":"service unavailable"}`, http.StatusServiceUnavailable)
+		apierror.New(http.StatusServiceUnavailable, "Service Unavailable", "service unavailable").Write(w)
 		return
 	}
 
 	userID, _, ok := auth.GetAuthenticatedUser(r)
 	if !ok || userID == "" {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		apierror.Unauthorized("").Write(w)
 		return
 	}
 
 	bestScore, gamesPlayed, err := h.db.GetUserBestScore(r.Context(), userID)
 	if err != nil {
-		http.Error(w, `{"error":"failed to load stats"}`, http.StatusInternalServerError)
+		apierror.InternalError("failed to load stats").Write(w)
 		return
 	}
 

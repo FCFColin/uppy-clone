@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -55,7 +56,10 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := decodeJSONBody(w, r, &body); err != nil && err != io.EOF {
+		apierror.BadRequest("Invalid request body").Write(w)
+		return
+	}
 
 	refreshToken := auth.RefreshTokenFromRequest(r)
 	if refreshToken == "" {

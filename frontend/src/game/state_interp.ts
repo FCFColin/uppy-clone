@@ -1,6 +1,6 @@
 import { MAX_SEEN_SEQS } from './local_constants.js';
 import { PHYSICS } from '../shared/game/constants.js';
-import type { InterpBirdPoint, InterpGhostPoint, InterpPoint } from './interp_buffers.js';
+import type { InterpBirdPoint, InterpGhostPoint, InterpPoint, EntityAnchor } from './interp_buffers.js';
 import {
   TELEPORT_THRESHOLD,
   TICK_MS,
@@ -13,6 +13,8 @@ import {
   tryEntityFromDelayBuffer,
 } from './interp_buffers.js';
 import { getState } from './store.js';
+
+type ActivePoint = InterpGhostPoint;
 
 let currSnapshotAt = 0;
 let prevBalloon: InterpPoint | null = null;
@@ -103,18 +105,28 @@ export function updateInterpolation(tickCount: number): void {
   pushAnchors(tickCount);
 }
 
-function getInterpolatedGhostPrevCurr(now: number): InterpGhostPoint | null {
-  if (!currGhost.active) return null;
-  if (prevGhost === null) return currGhost;
-  const pos = interpolatePointPrevCurr(prevGhost, currGhost, now);
+function getInterpolatedEntityPrevCurr(
+  curr: ActivePoint,
+  prev: ActivePoint | null,
+  now: number,
+): ActivePoint | null {
+  if (!curr.active) return null;
+  if (prev === null) return curr;
+  const pos = interpolatePointPrevCurr(prev, curr, now);
   return { x: pos.x, y: pos.y, active: true };
 }
 
-function getInterpolatedBirdPrevCurr(now: number): InterpBirdPoint | null {
-  if (!currBird.active) return null;
-  if (prevBird === null) return currBird;
-  const pos = interpolatePointPrevCurr(prevBird, currBird, now);
-  return { x: pos.x, y: pos.y, active: true };
+function getInterpolatedEntity(
+  curr: ActivePoint,
+  prev: ActivePoint | null,
+  buffer: EntityAnchor[],
+  now: number,
+): ActivePoint | null {
+  if (!curr.active) return null;
+  const renderTime = getRenderTime();
+  const buffered = tryEntityFromDelayBuffer(buffer, renderTime);
+  if (buffered) return { x: buffered.x, y: buffered.y, active: true };
+  return getInterpolatedEntityPrevCurr(curr, prev, now);
 }
 
 export function resetInterpolation(): void {
@@ -151,19 +163,11 @@ export function getInterpolatedBalloon(now: number = Date.now()): InterpPoint {
 }
 
 export function getInterpolatedGhost(now: number = Date.now()): InterpGhostPoint | null {
-  if (!currGhost.active) return null;
-  const renderTime = getRenderTime();
-  const buffered = tryEntityFromDelayBuffer(ghostBuffer, renderTime);
-  if (buffered) return { x: buffered.x, y: buffered.y, active: true };
-  return getInterpolatedGhostPrevCurr(now);
+  return getInterpolatedEntity(currGhost, prevGhost, ghostBuffer, now) as InterpGhostPoint | null;
 }
 
 export function getInterpolatedBird(now: number = Date.now()): InterpBirdPoint | null {
-  if (!currBird.active) return null;
-  const renderTime = getRenderTime();
-  const buffered = tryEntityFromDelayBuffer(birdBuffer, renderTime);
-  if (buffered) return { x: buffered.x, y: buffered.y, active: true };
-  return getInterpolatedBirdPrevCurr(now);
+  return getInterpolatedEntity(currBird, prevBird, birdBuffer, now) as InterpBirdPoint | null;
 }
 
 export function commitRenderedState(now: number = Date.now()): void {

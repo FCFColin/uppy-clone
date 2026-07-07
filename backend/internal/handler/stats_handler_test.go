@@ -104,8 +104,8 @@ func TestGetLeaderboard_ResponseShape(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if _, ok := body["error"]; !ok {
-		t.Errorf("expected error field in degraded response, got %s", w.Body.String())
+	if _, ok := body["title"]; !ok {
+		t.Errorf("expected title field in degraded response, got %s", w.Body.String())
 	}
 }
 

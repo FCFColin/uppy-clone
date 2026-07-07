@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -126,32 +125,5 @@ func (w *EmailWorker) processMessage(ctx context.Context, msg redis.XMessage) {
 
 func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage, payload EmailPayload, sendErr error) {
 	slog.Error("email worker: send failed", "error", sendErr, "to", redactEmail(payload.To))
-
-	retryCount := 0
-	if rcStr, ok := msg.Values["retry_count"].(string); ok {
-		if n, err := strconv.Atoi(rcStr); err == nil {
-			retryCount = n
-		}
-	}
-
-	if retryCount >= w.maxRetries {
-		w.rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream:   "email:dead-letter",
-			MaxLen:   10_000,
-			Approx:   true,
-			Values:       msg.Values,
-		})
-		w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID)
-		slog.Error("email worker: moved to dead-letter after max retries", "to", redactEmail(payload.To), "retries", retryCount)
-		return
-	}
-
-	msg.Values["retry_count"] = strconv.Itoa(retryCount + 1)
-	w.rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream:   "email:queue",
-			MaxLen:   100_000,
-			Approx:   true,
-		Values:       msg.Values,
-	})
-	w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID)
+	handleRetry(ctx, w.rdb, msg, "email:queue", "email-workers", "email:dead-letter", w.maxRetries, "worker", "email", "to", redactEmail(payload.To))
 }

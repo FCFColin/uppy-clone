@@ -184,7 +184,7 @@ func TestPublisher_publishBatch_Success(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{"id", "aggregate_type", "aggregate_id", "payload", "created_at"}).
 			AddRow(int64(7), "game", "game-1", []byte(`{"started":true}`), int64(500)))
 	mock.ExpectExec("UPDATE outbox_events SET processed_at").
-		WithArgs(pgxmock.AnyArg(), int64(7)).
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
 	mock.ExpectCommit()
 
@@ -263,7 +263,7 @@ func TestPublisher_publishBatch_MarkProcessedError(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{"id", "aggregate_type", "aggregate_id", "payload", "created_at"}).
 			AddRow(int64(3), "room", "room-1", []byte(`{"e":1}`), int64(1000)))
 	mock.ExpectExec("UPDATE outbox_events SET processed_at").
-		WithArgs(pgxmock.AnyArg(), int64(3)).
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).
 		WillReturnError(errors.New("update failed"))
 	mock.ExpectRollback()
 
@@ -296,7 +296,7 @@ func TestPublisher_publishBatch_CommitError(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{"id", "aggregate_type", "aggregate_id", "payload", "created_at"}).
 			AddRow(int64(9), "game", "game-9", []byte(`{"done":true}`), int64(2000)))
 	mock.ExpectExec("UPDATE outbox_events SET processed_at").
-		WithArgs(pgxmock.AnyArg(), int64(9)).
+		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
 	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
 	mock.ExpectRollback()

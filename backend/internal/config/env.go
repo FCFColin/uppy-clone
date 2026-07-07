@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -29,6 +30,7 @@ type Env struct {
 	FrontendDir       string
 	MigrationsDir     string
 	EnableHSTS        bool
+	Environment       string
 	MaxWSConnections  int
 	MaxPlayersPerRoom int
 	MetricsUser       string
@@ -56,11 +58,17 @@ func Load() *Env {
 		FrontendDir:       os.Getenv("FRONTEND_DIR"),
 		MigrationsDir:     GetEnv("MIGRATIONS_DIR", "migrations"),
 		EnableHSTS:        os.Getenv("ENABLE_HSTS") != "false",
+		Environment:       os.Getenv("ENV"),
 		MaxWSConnections:  GetEnvInt("MAX_WS_CONNECTIONS", MaxWSConnections),
 		MaxPlayersPerRoom: GetEnvInt("MAX_PLAYERS_PER_ROOM", MaxPlayersPerRoom),
 		MetricsUser:       os.Getenv("METRICS_USER"),
 		MetricsPassword:   os.Getenv("METRICS_PASSWORD"),
 	}
+}
+
+// IsProduction returns true when the environment is set to production.
+func (e *Env) IsProduction() bool {
+	return e.Environment == "production"
 }
 
 // Validate returns an error listing all missing or invalid required fields.
@@ -69,10 +77,10 @@ func (e *Env) Validate() error {
 
 	if e.JWTPrivateKey == "" {
 		missing = append(missing, "JWT_PRIVATE_KEY")
-	} else if e.EnableHSTS && isWeakJWTSecret(e.JWTPrivateKey) {
-		return fmt.Errorf("JWT_PRIVATE_KEY contains a known weak/dev value; refuse to start in production mode (set ENABLE_HSTS=false only for local dev)")
+	} else if e.IsProduction() && isWeakJWTSecret(e.JWTPrivateKey) {
+		return fmt.Errorf("JWT_PRIVATE_KEY contains a known weak/dev value; refuse to start in production mode (set ENV=production only for production)")
 	}
-	if e.EnableHSTS && e.JWTPublicKey == "" {
+	if e.IsProduction() && e.JWTPublicKey == "" {
 		missing = append(missing, "JWT_PUBLIC_KEY")
 	}
 	if e.DatabaseURL == "" {
@@ -81,13 +89,13 @@ func (e *Env) Validate() error {
 	if e.EncryptionKey == "" {
 		missing = append(missing, "ENCRYPTION_KEY")
 	}
-	if e.EnableHSTS && strings.TrimSpace(e.TrustedProxyCIDRs) == "" {
+	if e.IsProduction() && strings.TrimSpace(e.TrustedProxyCIDRs) == "" {
 		missing = append(missing, "TRUSTED_PROXY_CIDRS")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
-	if e.EnableHSTS {
+	if e.IsProduction() {
 		if err := validateTrustedProxyCIDRs(e.TrustedProxyCIDRs); err != nil {
 			return err
 		}
@@ -121,24 +129,6 @@ func validateTrustedProxyCIDRs(raw string) error {
 	return nil
 }
 
-// GetJWTPrivateKey returns the JWT private key PEM.
-func (e *Env) GetJWTPrivateKey() string { return e.JWTPrivateKey }
-
-// GetJWTPublicKey returns the JWT public key PEM.
-func (e *Env) GetJWTPublicKey() string { return e.JWTPublicKey }
-
-// GetEncryptionKey returns the encryption key.
-func (e *Env) GetEncryptionKey() string { return e.EncryptionKey }
-
-// GetAuditSecret returns the audit secret.
-func (e *Env) GetAuditSecret() string { return e.AuditSecret }
-
-// GetDatabaseURL returns the database URL.
-func (e *Env) GetDatabaseURL() string { return e.DatabaseURL }
-
-// GetRedisURL returns the Redis URL.
-func (e *Env) GetRedisURL() string { return e.RedisURL }
-
 // GetRedisStatefulURL returns the Redis URL for stateful data (room registry, auth tokens).
 // When REDIS_REGIONAL_URL is set (Phase 3 multi-region), it takes precedence for stateful data.
 func (e *Env) GetRedisStatefulURL() string {
@@ -165,21 +155,15 @@ func (e *Env) GetRedisPubSubURL() string {
 	return e.GetRedisStatefulURL()
 }
 
-// GetPort returns the server port.
-func (e *Env) GetPort() string { return e.Port }
-
-// GetEnableHSTS returns whether HSTS is enabled.
-func (e *Env) GetEnableHSTS() bool { return e.EnableHSTS }
-
-// GetMaxPlayersPerRoom returns the max players per room.
-func (e *Env) GetMaxPlayersPerRoom() int { return e.MaxPlayersPerRoom }
-
-
-
 // AuditSecretOrJWT returns AUDIT_SECRET or falls back to JWT_PRIVATE_KEY.
+// In production, AUDIT_SECRET must be explicitly set - the fallback to JWTPrivateKey
+// is only acceptable in development/testing environments.
 func (e *Env) AuditSecretOrJWT() string {
 	if e.AuditSecret != "" {
 		return e.AuditSecret
+	}
+	if e.IsProduction() {
+		slog.Warn("AUDIT_SECRET not set in production, falling back to JWT_PRIVATE_KEY - set AUDIT_SECRET explicitly for proper key separation")
 	}
 	return e.JWTPrivateKey
 }

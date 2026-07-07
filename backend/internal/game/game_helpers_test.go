@@ -172,7 +172,7 @@ func (m *mockSnapshotEncoder) Encode(state *domain.GameState) ([]byte, error) {
 	if state == nil {
 		return []byte("null"), nil
 	}
-	return []byte(fmt.Sprintf(`{"phase":"%s","lobbyCode":"%s"}`, state.Phase, state.LobbyCode)), nil
+	return []byte(fmt.Sprintf(`{"phase":"%s","lobbyCode":"%s"}`, state.Phase, string(state.LobbyCode))), nil
 }
 
 func addConnectedPlayer(r *Room, playerID string) {
@@ -224,7 +224,7 @@ func buildTestGameState(now int64) *domain.GameState {
 		TickCount:           42,
 		StartedAt:           now,
 		SessionID:           "sess-123",
-		LobbyCode:           "ABCDE",
+		LobbyCode:           domain.RoomCode("ABCDE"),
 		Wind:                0.3,
 		WindTarget:          -0.2,
 		WindChangeCountdown: 100,

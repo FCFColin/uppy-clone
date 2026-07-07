@@ -63,7 +63,7 @@ func TestRoom_RunGameResultJob_Success(t *testing.T) {
 	h := NewHub(repo, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
 	r := NewRoom("TEST1", h, repo, config.DefaultTimeoutConfig(), 0)
 	r.state.SessionID = "sess-abc"
-	r.state.LobbyCode = "TEST1"
+	r.state.LobbyCode = domain.RoomCode("TEST1")
 	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", ScoreContribution: 10, TapsCount: 2}
 
 	r.enqueueGameResultAsync()
@@ -128,7 +128,7 @@ func TestRoom_CreateGameSessionAsync_NilSession(t *testing.T) {
 func TestRoom_FlushPersistSync(t *testing.T) {
 	repo := newMockRoomRepository()
 	r := NewRoom("TEST1", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.state.LobbyCode = "TEST1"
+	r.state.LobbyCode = domain.RoomCode("TEST1")
 
 	r.mu.Lock()
 	r.requestPersist()
@@ -144,7 +144,7 @@ func TestRoom_FlushPersistSync(t *testing.T) {
 func TestRoom_RunPersistLoop_FinalJob(t *testing.T) {
 	repo := newMockRoomRepository()
 	r := NewRoom("FINAL", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.state.LobbyCode = "FINAL"
+	r.state.LobbyCode = domain.RoomCode("FINAL")
 
 	r.startPersistLoop()
 	done := make(chan struct{})

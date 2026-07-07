@@ -16,7 +16,7 @@ func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 	start := time.Now()
 	r.mu.Lock()
 	defer func() {
-		recordRoomLock("join", start)
+		metrics.RecordRoomLockHold("join", time.Since(start))
 		r.mu.Unlock()
 	}()
 
@@ -68,7 +68,7 @@ func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 	player.DisconnectedAt = nil
 	r.logger.Info("player reconnected during grace period", "playerID", playerID)
 	r.sendToPlayer(playerID, r.buildSnapshot())
-	r.saveState()
+	r.requestPersist()
 
 	switch r.state.Phase {
 	case domain.PhaseWaiting:
@@ -135,7 +135,7 @@ func (r *Room) notifyJoin(playerID string, player *domain.PlayerState, isReconne
 	joinMsg := protocol.EncodePlayerJoin(uint16(player.PlayerIndex), player.Nickname, uint32(player.Palette)) //nolint:gosec:G115 // PlayerIndex < MaxPlayersPerRoom, Palette < 8
 	r.broadcast(joinMsg, playerID)
 
-	r.saveState()
+	r.requestPersist()
 }
 
 // normalizePhaseForNicknameGate 若有玩家未确认昵称，不应处于 countdown/playing。
@@ -242,7 +242,7 @@ func (r *Room) StartGame() error {
 	r.broadcastCountdownPhase()
 
 	r.logger.Info("startGame", "phase", "countdown", "countdownMs", countdownDurationMs())
-	r.saveState()
+	r.requestPersist()
 	return nil
 }
 
@@ -276,7 +276,7 @@ func (r *Room) EndGameWithReason(endReason uint8) error {
 func (r *Room) broadcastGameEnded(endReason uint8) {
 	r.broadcast(r.buildSnapshot(), "")
 	r.broadcastCritical(protocol.EncodeGameStateChangeEnded(endReason))
-	r.saveState()
+	r.requestPersist()
 }
 
 // setEndGameAlarm 设置 ended/countdown 阶段的闹钟定时器。
@@ -328,12 +328,12 @@ func (r *Room) handleCountdownEnd() {
 	if r.store != nil && r.state.SessionID != "" {
 		r.createGameSessionAsync(&domain.GameSession{
 			ID:        r.state.SessionID,
-			LobbyCode: r.state.LobbyCode,
+			LobbyCode: string(r.state.LobbyCode),
 			Status:    "active", // DB CHECK 约束只允许 'active' 或 'ended'
 			StartedAt: &r.state.StartedAt,
 		})
 	}
-	r.saveState()
+	r.requestPersist()
 	r.mu.Unlock()
 
 	r.restartTick()

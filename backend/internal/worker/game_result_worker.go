@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,10 +75,13 @@ func (w *GameResultWorker) Start(ctx context.Context) {
 		default:
 		}
 
-		consumer := "result-worker-" + os.Getenv("HOSTNAME")
-		if consumer == "result-worker-" {
-			consumer = "result-worker-1"
+		hostname := os.Getenv("HOSTNAME")
+		if hostname == "" {
+			hostname = "1"
 		}
+		// Hostname-based consumer IDs require unique hostnames per instance.
+		// If two instances share a hostname, they will conflict as consumers of the same Redis Stream group.
+		consumer := "result-worker-" + hostname
 
 		streams, err := w.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    "result-workers",
@@ -140,7 +142,7 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 	tx, err := w.db.Begin(ctx)
 	if err != nil {
 		slog.Error("game result worker: begin tx", "error", err)
-		w.handleTransientFailure(ctx, msg, err)
+		w.handleTransientFailure(ctx, msg)
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -153,7 +155,7 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 		 ON CONFLICT (id) DO UPDATE SET status = 'ended', ended_at = EXCLUDED.ended_at, final_score = EXCLUDED.final_score`,
 		payload.GameID, payload.RoomCode, payload.EndedAt, payload.FinalScore); err != nil {
 		slog.Error("game result worker: upsert session", "error", err, "game_id", payload.GameID)
-		w.handleTransientFailure(ctx, msg, err)
+		w.handleTransientFailure(ctx, msg)
 		return
 	}
 
@@ -165,47 +167,20 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 			 ON CONFLICT (id) DO NOTHING`,
 			resultID, payload.GameID, r.UserID, r.ScoreContribution, r.TapsCount, payload.EndedAt); err != nil {
 			slog.Error("game result worker: insert result", "error", err, "game_id", payload.GameID)
-			w.handleTransientFailure(ctx, msg, err)
+			w.handleTransientFailure(ctx, msg)
 			return
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		slog.Error("game result worker: commit", "error", err, "game_id", payload.GameID)
-		w.handleTransientFailure(ctx, msg, err)
+		w.handleTransientFailure(ctx, msg)
 		return
 	}
 
 	w.ackMessage(ctx, msg.ID)
 }
 
-// handleTransientFailure implements max-retry with dead-letter for transient failures.
-func (w *GameResultWorker) handleTransientFailure(ctx context.Context, msg redis.XMessage, _ error) {
-	retryCount := 0
-	if rcStr, ok := msg.Values["retry_count"].(string); ok {
-		if n, err := strconv.Atoi(rcStr); err == nil {
-			retryCount = n
-		}
-	}
-
-	if retryCount >= w.maxRetries {
-		w.rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream:   "game-result:dead-letter",
-			MaxLen:   10_000,
-			Approx:   true,
-			Values:       msg.Values,
-		})
-		w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
-		slog.Error("game result worker: moved to dead-letter after max retries", "id", msg.ID, "retries", retryCount)
-		return
-	}
-
-	msg.Values["retry_count"] = strconv.Itoa(retryCount + 1)
-	w.rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream:   "game:results",
-			MaxLen:   100_000,
-			Approx:   true,
-		Values:       msg.Values,
-	})
-	w.rdb.XAck(ctx, "game:results", "result-workers", msg.ID)
+func (w *GameResultWorker) handleTransientFailure(ctx context.Context, msg redis.XMessage) {
+	handleRetry(ctx, w.rdb, msg, "game:results", "result-workers", "game-result:dead-letter", w.maxRetries, "worker", "game-result")
 }

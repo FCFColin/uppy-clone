@@ -47,8 +47,8 @@ func TestNewGameState_InitialValues(t *testing.T) {
 	if state.RestartTimerStart != nil {
 		t.Fatal("初始 RestartTimerStart 应为 nil")
 	}
-	if state.LobbyCode != "TEST" {
-		t.Fatalf("LobbyCode 应为 TEST，got=%v", state.LobbyCode)
+	if string(state.LobbyCode) != "TEST" {
+		t.Fatalf("LobbyCode 应为 TEST，got=%v", string(state.LobbyCode))
 	}
 }
 
@@ -183,8 +183,8 @@ func TestDeserializeState_InitializesNilMaps(t *testing.T) {
 	if state.RestartVotes == nil {
 		t.Fatal("RestartVotes map should be initialized")
 	}
-	if state.LobbyCode != "MAPS1" {
-		t.Fatalf("LobbyCode = %q, want MAPS1", state.LobbyCode)
+	if string(state.LobbyCode) != "MAPS1" {
+		t.Fatalf("LobbyCode = %q, want MAPS1", string(state.LobbyCode))
 	}
 }
 
@@ -226,7 +226,7 @@ func BenchmarkSerializeState(b *testing.B) {
 		TickCount:           42,
 		StartedAt:           1700000000,
 		SessionID:           "sess-123",
-		LobbyCode:           "ABCDE",
+		LobbyCode:           domain.RoomCode("ABCDE"),
 		Wind:                0.3,
 		WindTarget:          -0.2,
 		WindChangeCountdown: 100,
@@ -261,7 +261,7 @@ func BenchmarkDeserializeState(b *testing.B) {
 		TickCount:           42,
 		StartedAt:           1700000000,
 		SessionID:           "sess-123",
-		LobbyCode:           "ABCDE",
+		LobbyCode:           domain.RoomCode("ABCDE"),
 		Wind:                0.3,
 		WindTarget:          -0.2,
 		WindChangeCountdown: 100,

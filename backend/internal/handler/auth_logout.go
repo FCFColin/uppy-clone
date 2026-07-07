@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
+	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 )
 
@@ -12,7 +14,10 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := decodeJSONBody(w, r, &body); err != nil && err != io.EOF {
+		apierror.BadRequest("Invalid request body").Write(w)
+		return
+	}
 
 	ctx := r.Context()
 

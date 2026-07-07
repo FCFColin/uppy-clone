@@ -96,6 +96,6 @@ const MetricsInterval = 15 * time.Second
 // StaticCacheMaxAge is the max-age for static file cache in seconds (24h).
 const StaticCacheMaxAge = 86400
 
-// OTLPInsecure controls whether the OTLP gRPC connection uses an insecure plaintext
-// connection. Set to false in production to require TLS. Overridable via OTLP_INSECURE env var.
-const OTLPInsecure = true
+// DefaultOTLPInsecure is the default for OTLP insecure mode.
+// Production deployments must set OTLP_INSECURE=false in the environment.
+const DefaultOTLPInsecure = true

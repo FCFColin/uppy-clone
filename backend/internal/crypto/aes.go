@@ -37,6 +37,7 @@ func Init(encryptionKey string) error {
 		return fmt.Errorf("ENCRYPTION_KEY must be 32 bytes (64 hex chars) for AES-256, got %d bytes", len(key))
 	}
 	encKey = key
+	initEmailHMACKey()
 	return nil
 }
 
@@ -214,5 +215,6 @@ func RotateKey(oldKey, newKey []byte) error {
 		return fmt.Errorf("new key must be 32 bytes for AES-256, got %d", len(newKey))
 	}
 	encKey = newKey
+	initEmailHMACKey()
 	return nil
 }

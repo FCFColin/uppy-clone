@@ -16,7 +16,7 @@ func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(w, r, &body); err != nil {
 		apierror.BadRequest("Invalid request body").Write(w)
 		return
 	}
@@ -58,7 +58,7 @@ func (h *AuthHandler) VerifyMagicLinkPost(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(w, r, &body); err != nil {
 		apierror.BadRequest("Invalid request body").Write(w)
 		return
 	}

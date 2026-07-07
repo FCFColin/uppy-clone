@@ -94,7 +94,8 @@ func TestAdminHandler_ParseConfigUpdates_InvalidJSON(t *testing.T) {
 
 	h := newTestAdminHandler()
 	r := httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader("{bad"))
-	_, err := h.parseConfigUpdates(r)
+	w := httptest.NewRecorder()
+	_, err := h.parseConfigUpdates(w, r)
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}

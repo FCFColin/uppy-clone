@@ -23,7 +23,7 @@ func NewGameState(lobbyCode string, rng RNGSource) *domain.GameState {
 		TickCount:         0,
 		StartedAt:         0,
 		SessionID:         "",
-		LobbyCode:         lobbyCode,
+		LobbyCode:         domain.RoomCode(lobbyCode),
 		RestartVotes:      make(map[string]bool),
 		RestartTimerStart: nil,
 	}
@@ -68,14 +68,20 @@ func DeserializeState(data []byte) (*domain.GameState, error) {
 	return &state, nil
 }
 
+const (
+	initWindChangeCountdown = 112
+	initWindMicroCountdown  = 10
+	initWindMidCountdown    = 75
+)
+
 // initWind 初始化风场状态（随机风速和风向 + 倒计时）
 func initWind(state *domain.GameState, rng RNGSource) {
 	wind, windTarget := initialWind(rng)
 	state.Wind = wind
 	state.WindTarget = windTarget
-	state.WindChangeCountdown = 112
-	state.WindMicroCountdown = 10
-	state.WindMidCountdown = 75
+	state.WindChangeCountdown = initWindChangeCountdown
+	state.WindMicroCountdown = initWindMicroCountdown
+	state.WindMidCountdown = initWindMidCountdown
 	state.WindMidOffset = 0
 }
 

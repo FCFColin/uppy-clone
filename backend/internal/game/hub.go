@@ -117,7 +117,20 @@ func (h *Hub) GetRoom(code string) *Room {
 	if ok {
 		return room
 	}
-	return h.loadOrMaterializeRoom(code)
+
+	// 双重检查锁定：避免 TOCTOU 竞态
+	h.mu.Lock()
+	room, ok = h.rooms[code]
+	if ok {
+		h.mu.Unlock()
+		return room
+	}
+	room = h.loadOrMaterializeRoomLocked(code)
+	h.mu.Unlock()
+	if room != nil {
+		h.finalizeMaterializedRoom(code)
+	}
+	return room
 }
 
 // RemoveRoom 移除房间
@@ -155,7 +168,7 @@ func (h *Hub) CheckRoom(code string) (*RoomInfo, error) {
 	defer room.mu.RUnlock()
 
 	return &RoomInfo{
-		Code:        room.state.LobbyCode,
+		Code:        string(room.state.LobbyCode),
 		Phase:       string(room.state.Phase),
 		PlayerCount: len(room.state.Players),
 		CreatedAt:   room.state.StartedAt,

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createRoom, connectToRoom, submitNickname, tapCanvas, waitForPhase } from './helpers';
+import { createRoom, connectToRoom, submitNickname, tapCanvas, waitForPhase, waitForNicknameSubmitted } from './helpers';
 
 test.describe('Gameplay Main Flow', () => {
   test('quickplay auth and registry match', async ({ request }) => {
@@ -29,9 +29,7 @@ test.describe('Gameplay Main Flow', () => {
     await submitNickname(page, 'E2EConnectedPlayer');
 
     await expect(page.locator('#lobby-code')).toHaveText(code);
-    await page.waitForFunction(
-      () => (window as unknown as { state?: { nicknameSubmitted?: boolean } }).state?.nicknameSubmitted === true,
-    );
+    await waitForNicknameSubmitted(page);
   });
 
   test('waiting screen stays after enter when WebSocket is slow', async ({ page }) => {
@@ -72,7 +70,7 @@ test.describe('Gameplay Main Flow', () => {
       await page.click('#enter-game-btn');
     }
 
-    await waitForPhase(page, 'playing', 90000);
+    await waitForPhase(page, 'playing', 30000);
     await tapCanvas(page);
 
     await page.waitForFunction(

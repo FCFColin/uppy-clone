@@ -5,10 +5,27 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sethvargo/go-retry"
 
 	"github.com/uppy-clone/backend/internal/resilience"
 )
+
+var (
+	gdprCleanupRuns = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "gdpr_cleanup_runs_total",
+		Help: "Total number of GDPR cleanup runs.",
+	})
+	gdprDeletedUsers = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "gdpr_deleted_users_total",
+		Help: "Total number of users hard-deleted by GDPR cleanup.",
+	})
+)
+
+func init() {
+	prometheus.MustRegister(gdprCleanupRuns)
+	prometheus.MustRegister(gdprDeletedUsers)
+}
 
 const defaultGDPRRetentionDays = 30
 const defaultGDPRCleanupInterval = 24 * time.Hour
@@ -58,6 +75,8 @@ func (w *GDPRCleanupWorker) Start(ctx context.Context) {
 }
 
 func (w *GDPRCleanupWorker) runOnce(ctx context.Context) {
+	gdprCleanupRuns.Inc()
+
 	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
@@ -71,6 +90,7 @@ func (w *GDPRCleanupWorker) runOnce(ctx context.Context) {
 		return
 	}
 	if deleted > 0 {
+		gdprDeletedUsers.Add(float64(deleted))
 		slog.Info("gdpr cleanup completed", "deleted_users", deleted, "retention_days", w.retentionDays)
 	}
 }

@@ -12,6 +12,13 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
+const defaultMaxBodyBytes = 1 << 20 // 1 MB
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, v interface{}) error {
+	r.Body = http.MaxBytesReader(w, r.Body, defaultMaxBodyBytes)
+	return json.NewDecoder(r.Body).Decode(v)
+}
+
 func isSecure(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
@@ -40,11 +47,11 @@ func clearAuthCookies(w http.ResponseWriter, secure bool) {
 	http.SetCookie(w, buildRefreshCookie("", secure))
 }
 
-func parseQuickPlayRequest(r *http.Request) (string, *apierror.ProblemDetails) {
+func parseQuickPlayRequest(w http.ResponseWriter, r *http.Request) (string, *apierror.ProblemDetails) {
 	var body struct {
 		Nickname string `json:"nickname"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(w, r, &body); err != nil {
 		return "", apierror.BadRequest("invalid request body")
 	}
 	nickname := strings.TrimSpace(body.Nickname)

@@ -6,6 +6,9 @@ import { clientToNormalized } from './renderer_canvas.js';
 import { playTapSound } from '../shared/ui/audio.js';
 import { updateUI } from './ui.js';
 
+const PLAYER_INDEX_REJECTED = -1;
+const PLAYER_INDEX_OPTIMISTIC = -2;
+
 export function handleTap(clientX: number, clientY: number): void {
   if (getState().phase !== 'playing') return;
 
@@ -13,7 +16,7 @@ export function handleTap(clientX: number, clientY: number): void {
 
   const now: number = Date.now();
   if (now < getState().myCooldownEnd) {
-    dispatch({ type: 'ADD_RIPPLE', ripple: { playerIndex: -1, x, y, time: now, rejected: true } });
+    dispatch({ type: 'ADD_RIPPLE', ripple: { playerIndex: PLAYER_INDEX_REJECTED, x, y, time: now, rejected: true } });
     return;
   }
 
@@ -22,7 +25,7 @@ export function handleTap(clientX: number, clientY: number): void {
   const optimisticCooldown: number = calculateCooldown(getState().players.length || 1);
   dispatch({ type: 'SET_STATE', partial: { myCooldownEnd: now + optimisticCooldown } });
 
-  dispatch({ type: 'ADD_RIPPLE', ripple: { playerIndex: -2, x, y, time: now, isOptimistic: true } });
+  dispatch({ type: 'ADD_RIPPLE', ripple: { playerIndex: PLAYER_INDEX_OPTIMISTIC, x, y, time: now, isOptimistic: true } });
 
   const buf: ArrayBuffer = new ArrayBuffer(9);
   const dv: DataView = new DataView(buf);

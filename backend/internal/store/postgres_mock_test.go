@@ -16,6 +16,46 @@ func newMockPostgresStore(t *testing.T) (*PostgresStore, pgxmock.PgxPoolIface) {
 	return NewPostgresStoreWithPool(mock), mock
 }
 
+func newMockUserRepository(t *testing.T) (*UserRepository, pgxmock.PgxPoolIface) {
+	t.Helper()
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock.NewPool: %v", err)
+	}
+	t.Cleanup(func() { mock.Close() })
+	return NewUserRepository(mock), mock
+}
+
+func newMockLobbyRepository(t *testing.T) (*LobbyRepository, pgxmock.PgxPoolIface) {
+	t.Helper()
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock.NewPool: %v", err)
+	}
+	t.Cleanup(func() { mock.Close() })
+	return NewLobbyRepository(mock), mock
+}
+
+func newMockResultRepository(t *testing.T) (*ResultRepository, pgxmock.PgxPoolIface) {
+	t.Helper()
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock.NewPool: %v", err)
+	}
+	t.Cleanup(func() { mock.Close() })
+	return NewResultRepository(mock), mock
+}
+
+func newMockConfigRepository(t *testing.T) (*ConfigRepository, pgxmock.PgxPoolIface) {
+	t.Helper()
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("pgxmock.NewPool: %v", err)
+	}
+	t.Cleanup(func() { mock.Close() })
+	return NewConfigRepository(mock), mock
+}
+
 func TestNewPostgresStoreWithPool(t *testing.T) {
 	mock, err := pgxmock.NewPool()
 	if err != nil {

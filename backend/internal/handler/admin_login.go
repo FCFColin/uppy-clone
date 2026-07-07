@@ -26,7 +26,7 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(w, r, &body); err != nil {
 		apierror.BadRequest("Invalid request body").Write(w)
 		return
 	}

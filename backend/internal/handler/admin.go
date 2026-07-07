@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -57,9 +56,9 @@ type configUpdates struct {
 }
 
 // parseConfigUpdates decodes the config update request body.
-func (h *AdminHandler) parseConfigUpdates(r *http.Request) (*configUpdates, error) {
+func (h *AdminHandler) parseConfigUpdates(w http.ResponseWriter, r *http.Request) (*configUpdates, error) {
 	var updates configUpdates
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+	if err := decodeJSONBody(w, r, &updates); err != nil {
 		return nil, err
 	}
 	return &updates, nil

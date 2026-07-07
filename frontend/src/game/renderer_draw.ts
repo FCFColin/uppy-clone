@@ -191,4 +191,4 @@ export function drawGhost(now: number): void {
   getCtx().fill();
 }
 
-export { drawRipples, drawExplosion } from './renderer_draw_effects.js';
+export { drawRipples, drawExplosion, pruneEffects } from './renderer_draw_effects.js';

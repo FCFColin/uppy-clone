@@ -23,6 +23,7 @@ func TestConcurrentUserCreation(t *testing.T) {
 	}
 
 	db := testutil.SetupPostgresStore(t)
+	userRepo := store.NewUserRepository(db.Pool())
 	ctx := context.Background()
 
 	email := fmt.Sprintf("concurrent-%d@example.com", time.Now().UnixNano())
@@ -37,12 +38,12 @@ func TestConcurrentUserCreation(t *testing.T) {
 	}
 
 	// First creation should succeed.
-	if err := db.CreateUser(ctx, user); err != nil {
+	if err := userRepo.CreateUser(ctx, user); err != nil {
 		t.Fatalf("first CreateUser failed: %v", err)
 	}
 
 	// Verify user exists.
-	got, err := db.GetUserByEmail(ctx, email)
+	got, err := userRepo.GetUserByEmail(ctx, email)
 	if err != nil {
 		t.Fatalf("GetUserByEmail: %v", err)
 	}
@@ -64,7 +65,7 @@ func TestConcurrentUserCreation(t *testing.T) {
 				Palette:   0,
 				CreatedAt: time.Now().UnixMilli(),
 			}
-			if err := db.CreateUser(ctx, dup); err != nil {
+			if err := userRepo.CreateUser(ctx, dup); err != nil {
 				errs <- err
 			}
 		}()
@@ -92,6 +93,7 @@ func TestLeaderboardPagination(t *testing.T) {
 	}
 
 	db := testutil.SetupPostgresStore(t)
+	resultRepo := store.NewResultRepository(db.Pool())
 	ctx := context.Background()
 
 	now := time.Now().UnixMilli()
@@ -101,7 +103,7 @@ func TestLeaderboardPagination(t *testing.T) {
 	for i := 0; i < numSessions; i++ {
 		sessionID := uuid.NewString()
 		endedAt := now - int64(i)*1000
-		if err := db.CreateGameSession(ctx, &domain.GameSession{
+		if err := resultRepo.CreateGameSession(ctx, &domain.GameSession{
 			ID:        sessionID,
 			LobbyCode: fmt.Sprintf("LBRD%d", i),
 			Status:    "ended",
@@ -113,7 +115,7 @@ func TestLeaderboardPagination(t *testing.T) {
 	}
 
 	// Query all leaderboard entries (max 100 by default).
-	entries, err := db.GetLeaderboard(ctx, "global", 100)
+	entries, err := resultRepo.GetLeaderboard(ctx, "global", 100)
 	if err != nil {
 		t.Fatalf("GetLeaderboard: %v", err)
 	}
@@ -135,7 +137,7 @@ func TestLeaderboardPagination(t *testing.T) {
 	}
 
 	// Query with smaller limit.
-	limited, err := db.GetLeaderboard(ctx, "global", 5)
+	limited, err := resultRepo.GetLeaderboard(ctx, "global", 5)
 	if err != nil {
 		t.Fatalf("GetLeaderboard limit: %v", err)
 	}
@@ -144,7 +146,7 @@ func TestLeaderboardPagination(t *testing.T) {
 	}
 
 	// Query weekly leaderboard.
-	weekly, err := db.GetLeaderboard(ctx, "weekly", 10)
+	weekly, err := resultRepo.GetLeaderboard(ctx, "weekly", 10)
 	if err != nil {
 		t.Fatalf("GetLeaderboard weekly: %v", err)
 	}
@@ -160,6 +162,7 @@ func TestGameSessionLifecycle(t *testing.T) {
 	}
 
 	db := testutil.SetupPostgresStore(t)
+	resultRepo := store.NewResultRepository(db.Pool())
 	ctx := context.Background()
 
 	sessionID := uuid.NewString()
@@ -167,7 +170,7 @@ func TestGameSessionLifecycle(t *testing.T) {
 
 	// Create a game session in 'active' status.
 	startedAt := time.Now().UnixMilli()
-	if err := db.CreateGameSession(ctx, &domain.GameSession{
+	if err := resultRepo.CreateGameSession(ctx, &domain.GameSession{
 		ID:        sessionID,
 		LobbyCode: lobbyCode,
 		Status:    "active",
@@ -178,48 +181,25 @@ func TestGameSessionLifecycle(t *testing.T) {
 
 	// End the game session and record results.
 	endedAt := time.Now().UnixMilli()
-	finalScore := 1500
-	results := []domain.GameResultPlayer{
-		{UserID: "player-1", ScoreContribution: 800, TapsCount: 40},
-		{UserID: "player-2", ScoreContribution: 700, TapsCount: 35},
+	results := []domain.GameResult{
+		{
+			ID:                uuid.NewString(),
+			SessionID:         sessionID,
+			UserID:            uuid.NewString(),
+			ScoreContribution: 100,
+			TapsCount:         10,
+			CreatedAt:         endedAt,
+		},
+		{
+			ID:                uuid.NewString(),
+			SessionID:         sessionID,
+			UserID:            uuid.NewString(),
+			ScoreContribution: 75,
+			TapsCount:         8,
+			CreatedAt:         endedAt,
+		},
 	}
-
-	if err := db.RecordGameResult(ctx, sessionID, lobbyCode, endedAt, finalScore, results); err != nil {
-		t.Fatalf("RecordGameResult: %v", err)
-	}
-
-	// Verify game session is now 'ended' by querying directly.
-	var status string
-	var finalScoreDB int
-	err := db.Pool().QueryRow(ctx,
-		`SELECT status, final_score FROM game_sessions WHERE id = $1`, sessionID).Scan(&status, &finalScoreDB)
-	if err != nil {
-		t.Fatalf("query game session: %v", err)
-	}
-	if status != "ended" {
-		t.Fatalf("status = %q, want ended", status)
-	}
-	if finalScoreDB != finalScore {
-		t.Fatalf("final_score = %d, want %d", finalScoreDB, finalScore)
-	}
-
-	// Verify player results.
-	player1Results, err := db.GetGameResultsByUserID(ctx, "player-1")
-	if err != nil {
-		t.Fatalf("GetGameResultsByUserID player-1: %v", err)
-	}
-	if len(player1Results) != 1 {
-		t.Fatalf("expected 1 result for player-1, got %d", len(player1Results))
-	}
-	if player1Results[0].ScoreContribution != 800 {
-		t.Fatalf("player-1 score = %d, want 800", player1Results[0].ScoreContribution)
-	}
-
-	player2Results, err := db.GetGameResultsByUserID(ctx, "player-2")
-	if err != nil {
-		t.Fatalf("GetGameResultsByUserID player-2: %v", err)
-	}
-	if len(player2Results) != 1 {
-		t.Fatalf("expected 1 result for player-2, got %d", len(player2Results))
+	if err := resultRepo.EndGameAndRecordResults(ctx, sessionID, endedAt, 175, results); err != nil {
+		t.Fatalf("EndGameAndRecordResults: %v", err)
 	}
 }

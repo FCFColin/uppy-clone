@@ -13,6 +13,4 @@ export function getState(): ClientState {
   return state;
 }
 
-export function select<T>(selector: (s: ClientState) => T): T {
-  return selector(state);
-}
+

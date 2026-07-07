@@ -3,11 +3,18 @@ package protocol
 import (
 	"bytes"
 	"testing"
-	"testing/quick"
+
+	"pgregory.net/rapid"
 )
 
 func TestProtocol_EncodeSnapshotSizeMatchesCalc(t *testing.T) {
-	f := func(x, y, vy, vx float32, tickCount uint32, score uint32) bool {
+	rapid.Check(t, func(t *rapid.T) {
+		x := rapid.Float32().Draw(t, "x")
+		y := rapid.Float32().Draw(t, "y")
+		vy := rapid.Float32().Draw(t, "vy")
+		vx := rapid.Float32().Draw(t, "vx")
+		tickCount := rapid.Uint32().Draw(t, "tickCount")
+		score := rapid.Uint32().Draw(t, "score")
 		balloon := BalloonState{X: x, Y: y, Vy: vy, Vx: vx}
 		bird := BirdState{X: 0.3, Y: 0.4, Active: true}
 		ghost := GhostState{X: 0.6, Y: 0.5, Active: true, RepelTimer: 10}
@@ -18,25 +25,27 @@ func TestProtocol_EncodeSnapshotSizeMatchesCalc(t *testing.T) {
 			{PlayerIndex: 0, X: 0.5, Y: 0.5},
 		}
 		data := EncodeSnapshot(PhasePlaying, tickCount, score, balloon, bird, ghost, players, ripples, 0.3)
-		expected := calcSnapshotSize(bird, players, ripples)
-		return len(data) == expected
-	}
-	if err := quick.Check(f, nil); err != nil {
-		t.Error(err)
-	}
+		expected := calcSnapshotSize(bird, ghost, players, ripples)
+		if len(data) != expected {
+			t.Fatalf("expected size %d, got %d", expected, len(data))
+		}
+	})
 }
 
 func TestProtocol_EncodeSnapshotEmptySlices(t *testing.T) {
-	f := func(x, y, vy, vx float32) bool {
+	rapid.Check(t, func(t *rapid.T) {
+		x := rapid.Float32().Draw(t, "x")
+		y := rapid.Float32().Draw(t, "y")
+		vy := rapid.Float32().Draw(t, "vy")
+		vx := rapid.Float32().Draw(t, "vx")
 		balloon := BalloonState{X: x, Y: y, Vy: vy, Vx: vx}
 		bird := BirdState{}
 		ghost := GhostState{}
 		data := EncodeSnapshot(PhaseWaiting, 0, 0, balloon, bird, ghost, nil, nil, 0)
-		return len(data) > 0 && data[0] == MsgSnapshot
-	}
-	if err := quick.Check(f, nil); err != nil {
-		t.Error(err)
-	}
+		if len(data) <= 0 || data[0] != MsgSnapshot {
+			t.Fatal("unexpected snapshot data")
+		}
+	})
 }
 
 func TestProtocol_EncodeSnapshotDifferentInputsDiffer(t *testing.T) {
@@ -65,17 +74,19 @@ func TestProtocol_EncodeSnapshotDifferentInputsDiffer(t *testing.T) {
 }
 
 func TestProtocol_CalcSnapshotSizeNonNegative(t *testing.T) {
-	f := func(active bool, playerCount uint8, rippleCount uint8) bool {
+	rapid.Check(t, func(t *rapid.T) {
+		active := rapid.Bool().Draw(t, "active")
+		playerCount := rapid.Uint8().Draw(t, "playerCount")
+		rippleCount := rapid.Uint8().Draw(t, "rippleCount")
 		bird := BirdState{Active: active}
 		players := make([]PlayerState, playerCount%10)
 		for i := range players {
 			players[i] = PlayerState{PlayerIndex: uint16(i), Nickname: "p"}
 		}
 		ripples := make([]Ripple, rippleCount%10)
-		size := calcSnapshotSize(bird, players, ripples)
-		return size > 0
-	}
-	if err := quick.Check(f, nil); err != nil {
-		t.Error(err)
-	}
+		size := calcSnapshotSize(bird, GhostState{}, players, ripples)
+		if size <= 0 {
+			t.Fatal("expected size > 0")
+		}
+	})
 }

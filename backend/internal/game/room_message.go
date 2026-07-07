@@ -97,7 +97,7 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 	metrics.NicknameConfirmTotal.WithLabelValues("accepted").Inc()
 
 	if HandleSetNickname(r.state, player, sanitized, r.usedNames) {
-		r.saveState()
+		r.requestPersist()
 	}
 	r.broadcast(r.buildSnapshot(), "")
 	r.tryStartWhenAllReady()

@@ -57,7 +57,7 @@ func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 // UpdateConfig handles PATCH /api/v1/admin/config (requires admin JWT)
 func (h *AdminHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
-	updates, err := h.parseConfigUpdates(r)
+	updates, err := h.parseConfigUpdates(w, r)
 	if err != nil {
 		apierror.BadRequest("Invalid request body").Write(w)
 		return

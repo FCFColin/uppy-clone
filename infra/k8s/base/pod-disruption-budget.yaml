@@ -5,7 +5,7 @@ metadata:
   labels:
     app: balloon-game
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: balloon-game

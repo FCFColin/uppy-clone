@@ -29,16 +29,30 @@ function rippleColor(
   return { base: _cachedPaletteRgb[idx]!, alpha: 1 };
 }
 
-export function drawRipples(now: number, playerMap: Map<number, { palette: number }>): void {
-  const currentRipples = getState().ripples;
-  let remaining = currentRipples.filter(r => now - r.time <= RIPPLE_DURATION_S * 1000);
-  while (remaining.length > 50) {
-    remaining.shift();
-  }
-  if (remaining.length !== currentRipples.length) {
-    dispatch({ type: 'SET_STATE', partial: { ripples: remaining } });
-  }
+let _pruneScheduled = false;
 
+export function pruneEffects(): void {
+  if (_pruneScheduled) return;
+  _pruneScheduled = true;
+  requestAnimationFrame(() => {
+    _pruneScheduled = false;
+    const currentRipples = getState().ripples;
+    const remaining = currentRipples.filter(r => Date.now() - r.time <= RIPPLE_DURATION_S * 1000).slice(-50);
+    if (remaining.length !== currentRipples.length) {
+      dispatch({ type: 'SET_STATE', partial: { ripples: remaining } });
+    }
+
+    const explosion = getState().explosionEffect;
+    if (explosion && Date.now() - explosion.startTime > 500) {
+      dispatch({ type: 'SET_STATE', partial: { explosionEffect: null } });
+    }
+  });
+}
+
+export function drawRipples(now: number, playerMap: Map<number, { palette: number }>): void {
+  const remaining = getState().ripples;
+
+  const ctx = getCtx();
   for (const ripple of remaining) {
     const age = (now - ripple.time) / 1000;
     const t = Math.min(1, age / RIPPLE_DURATION_S);
@@ -51,46 +65,43 @@ export function drawRipples(now: number, playerMap: Map<number, { palette: numbe
     const alpha = (1 - t) * 0.85;
 
     if (ripple.rejected) {
-      getCtx().globalAlpha = alpha;
-      getCtx().strokeStyle = _rejectedRgb + ')';
-      getCtx().lineWidth = 3;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = _rejectedRgb + ')';
+      ctx.lineWidth = 3;
       const s = 12 + 8 * t;
-      getCtx().beginPath();
-      getCtx().moveTo(rx - s, ry - s);
-      getCtx().lineTo(rx + s, ry + s);
-      getCtx().moveTo(rx + s, ry - s);
-      getCtx().lineTo(rx - s, ry + s);
-      getCtx().stroke();
+      ctx.beginPath();
+      ctx.moveTo(rx - s, ry - s);
+      ctx.lineTo(rx + s, ry + s);
+      ctx.moveTo(rx + s, ry - s);
+      ctx.lineTo(rx - s, ry + s);
+      ctx.stroke();
     } else {
       const { base } = rippleColor(ripple, playerMap);
-      getCtx().beginPath();
-      getCtx().arc(rx, ry, radius, 0, Math.PI * 2);
-      getCtx().globalAlpha = alpha;
-      getCtx().strokeStyle = base + ')';
-      getCtx().lineWidth = 2;
-      getCtx().stroke();
+      ctx.beginPath();
+      ctx.arc(rx, ry, radius, 0, Math.PI * 2);
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = base + ')';
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
-    getCtx().globalAlpha = 1;
+    ctx.globalAlpha = 1;
   }
 }
 
 export function drawExplosion(now: number): void {
   const explosion = getState().explosionEffect;
   if (!explosion) return;
-  const elapsed = now - explosion.startTime;
-  const duration = 500;
-  if (elapsed > duration) {
-    dispatch({ type: 'SET_STATE', partial: { explosionEffect: null } });
-    return;
-  }
   if (!gameImages['explosion']!.loaded) return;
 
+  const elapsed = now - explosion.startTime;
+  const duration = 500;
+  const ctx = getCtx();
   const progress = elapsed / duration;
   const ex = explosion.x * $canvas.width;
   const ey = (1 - explosion.y) * $canvas.height;
   const baseSize = Math.min($canvas.width, $canvas.height) * 0.15;
   const size = baseSize * (0.5 + progress * 0.5);
-  getCtx().globalAlpha = 1 - progress;
-  getCtx().drawImage(gameImages['explosion']!.img, ex - size / 2, ey - size / 2, size, size);
-  getCtx().globalAlpha = 1;
+  ctx.globalAlpha = 1 - progress;
+  ctx.drawImage(gameImages['explosion']!.img, ex - size / 2, ey - size / 2, size, size);
+  ctx.globalAlpha = 1;
 }

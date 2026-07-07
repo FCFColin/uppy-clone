@@ -20,7 +20,8 @@ func TestNewNickname_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewNickname: %v", err)
 	}
-	if n.String() != "  Hello World  " {
+	// truncated to MaxNicknameLen (12) runes
+	if n.String() != "  Hello Worl" {
 		t.Errorf("got %q", n.String())
 	}
 }
@@ -32,12 +33,12 @@ func TestNewNickname_Empty(t *testing.T) {
 }
 
 func TestNewNickname_StripsDangerousChars(t *testing.T) {
-	// Identity validator preserves all input
+	// Identity validator preserves all input, truncated to MaxNicknameLen
 	n, err := NewNickname("<script>alert</script>", _testValidator)
 	if err != nil {
 		t.Fatalf("NewNickname: %v", err)
 	}
-	if n.String() != "<script>alert</script>" {
+	if n.String() != "<script>aler" {
 		t.Errorf("got %q", n.String())
 	}
 }
@@ -48,8 +49,8 @@ func TestNewNickname_TruncatesToTwelveRunes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len([]rune(n.String())) != 20 {
-		t.Errorf("len = %d", len([]rune(n.String())))
+	if len([]rune(n.String())) != 12 {
+		t.Errorf("expected 12 runes, got %d", len([]rune(n.String())))
 	}
 }
 
@@ -78,11 +79,11 @@ func TestNewRoomCode_InvalidChar(t *testing.T) {
 func TestEventTypes(t *testing.T) {
 	now := time.Now()
 	events := []Event{
-		PlayerJoined{RoomCode: "ABCD2", At: now},
-		PlayerLeft{RoomCode: "ABCD2", At: now},
-		GameEnded{RoomCode: "ABCD2", At: now},
-		PhaseChanged{RoomCode: "ABCD2", At: now},
-		UserHardDeleted{UserID: "u1", At: now},
+		PlayerJoined{DomainEvent: DomainEvent{At: now}, RoomCode: "ABCD2"},
+		PlayerLeft{DomainEvent: DomainEvent{At: now}, RoomCode: "ABCD2"},
+		GameEnded{DomainEvent: DomainEvent{At: now}, RoomCode: "ABCD2"},
+		PhaseChanged{DomainEvent: DomainEvent{At: now}, RoomCode: "ABCD2"},
+		UserHardDeleted{DomainEvent: DomainEvent{At: now}, UserID: "u1"},
 	}
 	for _, e := range events {
 		if e.EventType() == "" || e.OccurredAt().IsZero() {
@@ -93,7 +94,7 @@ func TestEventTypes(t *testing.T) {
 
 func TestUserHardDeletedEvent(t *testing.T) {
 	now := time.Now()
-	e := UserHardDeleted{UserID: "u1", At: now}
+	e := UserHardDeleted{DomainEvent: DomainEvent{At: now}, UserID: "u1"}
 	if et := e.EventType(); et != "user.hard_deleted" {
 		t.Errorf("EventType = %q, want %q", et, "user.hard_deleted")
 	}

@@ -2,7 +2,7 @@ package game
 
 import "github.com/uppy-clone/backend/internal/domain"
 
-func hasAnyConnectedPlayer(players map[string]*domain.PlayerState) bool {
+func anyPlayerConnected(players map[string]*domain.PlayerState) bool {
 	for _, p := range players {
 		if !p.Disconnected {
 			return true

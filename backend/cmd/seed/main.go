@@ -40,23 +40,26 @@ func runSeed(dbURL string) error {
 	}
 	defer db.Close()
 
+	userRepo := store.NewUserRepository(db.Pool())
+	resultRepo := store.NewResultRepository(db.Pool())
+
 	ctx := context.Background()
 	now := time.Now().Unix()
-	users := seedUsers(ctx, db, now)
-	sessionIDs := seedSessions(ctx, db, now)
-	seedResults(ctx, db, now, users, sessionIDs)
+	users := seedUsers(ctx, userRepo, now)
+	sessionIDs := seedSessions(ctx, resultRepo, now)
+	seedResults(ctx, resultRepo, now, users, sessionIDs)
 	return nil
 }
 
 // seedUsers inserts 3 test users and returns them for use by other seed helpers.
-func seedUsers(ctx context.Context, db *store.PostgresStore, now int64) []*domain.User {
+func seedUsers(ctx context.Context, userRepo *store.UserRepository, now int64) []*domain.User {
 	users := []*domain.User{
 		{ID: idgen.UUID(), Email: "alice@test.com", Nickname: "Alice", Palette: 0, CreatedAt: now},
 		{ID: idgen.UUID(), Email: "bob@test.com", Nickname: "Bob", Palette: 1, CreatedAt: now},
 		{ID: idgen.UUID(), Email: "charlie@test.com", Nickname: "Charlie", Palette: 2, CreatedAt: now},
 	}
 	for _, u := range users {
-		if err := db.CreateUser(ctx, u); err != nil {
+		if err := userRepo.CreateUser(ctx, u); err != nil {
 			log.Printf("create user %s: %v (may already exist)", u.Nickname, err)
 		}
 	}
@@ -64,7 +67,7 @@ func seedUsers(ctx context.Context, db *store.PostgresStore, now int64) []*domai
 }
 
 // seedSessions inserts 5 completed game sessions and returns their IDs.
-func seedSessions(ctx context.Context, db *store.PostgresStore, now int64) []string {
+func seedSessions(ctx context.Context, resultRepo *store.ResultRepository, now int64) []string {
 	sessionIDs := make([]string, 5)
 	for i := 0; i < 5; i++ {
 		code := fmt.Sprintf("SEED%d", i)
@@ -79,7 +82,7 @@ func seedSessions(ctx context.Context, db *store.PostgresStore, now int64) []str
 			FinalScore: 1000 - i*100,
 		}
 		sessionIDs[i] = session.ID
-		if err := db.CreateGameSession(ctx, session); err != nil {
+		if err := resultRepo.CreateGameSession(ctx, session); err != nil {
 			log.Printf("create game session %s: %v (may already exist)", code, err)
 		}
 	}
@@ -87,7 +90,7 @@ func seedSessions(ctx context.Context, db *store.PostgresStore, now int64) []str
 }
 
 // seedResults inserts 10 game results (2 per session, cycling through users).
-func seedResults(ctx context.Context, db *store.PostgresStore, now int64, users []*domain.User, sessionIDs []string) {
+func seedResults(ctx context.Context, resultRepo *store.ResultRepository, now int64, users []*domain.User, sessionIDs []string) {
 	for i := 0; i < 10; i++ {
 		sessionIdx := i / 2
 		userIdx := i % len(users)
@@ -105,7 +108,7 @@ func seedResults(ctx context.Context, db *store.PostgresStore, now int64, users 
 			TapsCount:         20 + i*3,
 			CreatedAt:         now - int64(i*60),
 		}
-		if err := db.InsertSeedGameResult(ctx, result); err != nil {
+		if err := resultRepo.InsertSeedGameResult(ctx, result); err != nil {
 			log.Printf("create game result %d: %v (may already exist)", i, err)
 		}
 	}

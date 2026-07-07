@@ -150,7 +150,9 @@ func TestGameStateAddPlayer(t *testing.T) {
 	t.Parallel()
 	gs := &GameState{Players: make(map[string]*PlayerState)}
 	p := &PlayerState{ID: "p1", Nickname: "Alice"}
-	gs.AddPlayer(p)
+	if err := gs.AddPlayer(p); err != nil {
+		t.Fatalf("AddPlayer returned error: %v", err)
+	}
 
 	if _, ok := gs.Players["p1"]; !ok {
 		t.Error("AddPlayer should add player to Players map")

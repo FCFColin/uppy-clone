@@ -42,6 +42,10 @@ export interface EntityAnchor {
   active: boolean;
 }
 
+function capBuffer<T>(buf: T[], max: number): void {
+  while (buf.length > max) buf.shift();
+}
+
 export const balloonBuffer: BalloonAnchor[] = [];
 export const ghostBuffer: EntityAnchor[] = [];
 export const birdBuffer: EntityAnchor[] = [];
@@ -75,9 +79,9 @@ export function pushAnchors(tickCount: number): void {
     y: s.bird.y,
     active: s.bird.active,
   });
-  while (balloonBuffer.length > MAX_SNAPSHOT_BUFFER) balloonBuffer.shift();
-  while (ghostBuffer.length > MAX_SNAPSHOT_BUFFER) ghostBuffer.shift();
-  while (birdBuffer.length > MAX_SNAPSHOT_BUFFER) birdBuffer.shift();
+  capBuffer(balloonBuffer, MAX_SNAPSHOT_BUFFER);
+  capBuffer(ghostBuffer, MAX_SNAPSHOT_BUFFER);
+  capBuffer(birdBuffer, MAX_SNAPSHOT_BUFFER);
 }
 
 export function clearAnchorBuffers(): void {

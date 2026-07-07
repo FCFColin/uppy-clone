@@ -12,7 +12,11 @@ import (
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/slogctx"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+var tracer = otel.Tracer("github.com/uppy-clone/backend/internal/auth")
 
 // JWTRevocationChecker checks if a JWT has been revoked by its jti.
 // 企业为何需要：无撤销机制的 JWT 意味着被盗 token 在过期前持续有效。JWT 撤销列表是登出安全的行业标准实现，
@@ -59,6 +63,10 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := tracer.Start(r.Context(), "auth.middleware")
+		defer span.End()
+		r = r.WithContext(ctx)
+
 		// Try "session" cookie first (Magic Link login), then "quickplay" cookie
 		for _, cookieName := range []string{"session", "quickplay"} {
 			userId, nickname, jti := tryCookie(r, jwtMgr, cookieName)
@@ -66,19 +74,24 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 				continue
 			}
 			if rev != nil {
-				revoked, revErr := rev.IsJWTRevoked(r.Context(), jti)
+				_, revSpan := tracer.Start(ctx, "auth.revocation_check")
+				revoked, revErr := rev.IsJWTRevoked(ctx, jti)
 				if revErr != nil {
 					slog.Error("jwt revocation check failed", "error", revErr)
+					revSpan.End()
 					apierror.Unauthorized("Unauthorized").Write(w)
 					return
 				}
 				if revoked {
 					slog.Info("revoked jwt used", "jti", jti)
+					revSpan.SetAttributes(attribute.Bool("revoked", true))
+					revSpan.End()
 					apierror.Unauthorized("Unauthorized").Write(w)
 					return
 				}
+				revSpan.End()
 			}
-			ctx := context.WithValue(r.Context(), domain.ContextKeyUserID, userId)
+			ctx = context.WithValue(r.Context(), domain.ContextKeyUserID, userId)
 			ctx = context.WithValue(ctx, domain.ContextKeyNickname, nickname)
 			ctx = context.WithValue(ctx, domain.ContextKeyJTI, jti)
 			// 企业为何需要：普通用户 JWT 不含 role claim，统一标记为 "user"。
@@ -88,7 +101,9 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 			// 企业为何需要：多 IP 同账户登录是账户盗用/凭证共享的典型信号，需告警。
 			if rev != nil {
 				if provider, ok := rev.(redisClientProvider); ok {
-					detectMultiIPLogin(r.Context(), provider.Client(), userId, requestctx.ExtractClientIP(r))
+					_, ipSpan := tracer.Start(ctx, "auth.multi_ip_detection")
+					detectMultiIPLogin(ctx, provider.Client(), userId, requestctx.ExtractClientIP(r))
+					ipSpan.End()
 				}
 			}
 			// Inject user_id and role into slog context for structured logging
@@ -105,6 +120,7 @@ func AuthMiddleware(jwtMgr *JWTManager, next http.HandlerFunc, revoker ...JWTRev
 		}
 
 		// Neither cookie is valid
+		span.SetAttributes(attribute.Bool("authenticated", false))
 		apierror.Unauthorized("Unauthorized").Write(w)
 	}
 }
@@ -117,10 +133,14 @@ func AuthenticatedUserFromRequestWithRevocation(r *http.Request, jwtMgr *JWTMana
 }
 
 func authenticatedUserFromCookies(r *http.Request, jwtMgr *JWTManager, rev JWTRevocationChecker) (userID, nickname string, ok bool) {
+	ctx, span := tracer.Start(r.Context(), "auth.authenticated_user_from_cookies")
+	defer span.End()
 	if uid, nick, ctxOK := GetAuthenticatedUser(r); ctxOK {
+		span.SetAttributes(attribute.Bool("from_context", true))
 		return uid, nick, true
 	}
 	if jwtMgr == nil {
+		span.SetAttributes(attribute.Bool("jwt_mgr_nil", true))
 		return "", "", false
 	}
 	for _, cookieName := range []string{"session", "quickplay"} {
@@ -129,11 +149,12 @@ func authenticatedUserFromCookies(r *http.Request, jwtMgr *JWTManager, rev JWTRe
 			continue
 		}
 		if rev != nil {
-			revoked, revErr := rev.IsJWTRevoked(r.Context(), jti)
+			revoked, revErr := rev.IsJWTRevoked(ctx, jti)
 			if revErr != nil || revoked {
 				continue
 			}
 		}
+		span.SetAttributes(attribute.String("user_id", uid))
 		return uid, nick, true
 	}
 	return "", "", false

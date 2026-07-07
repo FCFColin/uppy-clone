@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
@@ -19,7 +18,7 @@ type ResultRepository struct {
 }
 
 // NewResultRepository creates a ResultRepository.
-func NewResultRepository(pool *pgxpool.Pool) *ResultRepository {
+func NewResultRepository(pool pgPool) *ResultRepository {
 	return &ResultRepository{baseRepository: newBaseRepository(pool)}
 }
 
@@ -67,14 +66,18 @@ func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, room
 			return fmt.Errorf("upsert game session: %w", err)
 		}
 
-		for _, pr := range results {
-			resultID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(sessionID+pr.UserID)).String()
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at)
-				 VALUES ($1, $2, $3, $4, $5, $6)
-				 ON CONFLICT (id) DO NOTHING`,
-				resultID, sessionID, pr.UserID, pr.ScoreContribution, pr.TapsCount, endedAt); err != nil {
-				return fmt.Errorf("insert game result: %w", err)
+		if len(results) > 0 {
+			var placeholders []string
+			var values []interface{}
+			for i, pr := range results {
+				base := i * 6
+				placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d)", base+1, base+2, base+3, base+4, base+5, base+6))
+				resultID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(sessionID+pr.UserID)).String()
+				values = append(values, resultID, sessionID, pr.UserID, pr.ScoreContribution, pr.TapsCount, endedAt)
+			}
+			query := fmt.Sprintf("INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES %s ON CONFLICT (id) DO NOTHING", strings.Join(placeholders, ","))
+			if _, err := tx.Exec(ctx, query, values...); err != nil {
+				return fmt.Errorf("insert game results: %w", err)
 			}
 		}
 
@@ -131,6 +134,7 @@ func (r *ResultRepository) EndGameAndRecordResults(ctx context.Context, sessionI
 }
 
 func (r *ResultRepository) InsertSeedGameResult(ctx context.Context, result *domain.GameResult) error {
+	// Seed data is dev-only, non-critical — circuit breaker bypass is acceptable.
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
 		result.ID, result.SessionID, result.UserID, result.ScoreContribution, result.TapsCount, result.CreatedAt)

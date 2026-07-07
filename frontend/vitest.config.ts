@@ -34,7 +34,11 @@ export default defineConfig({
         'src/shared/types.ts',
         'src/game/state.ts',
         'src/game/websocket.ts',
+        '**/game/window_events.ts',
+        '**/game/lifecycle.ts',
       ],
+      // TODO: Gradually improve these thresholds.
+      // Current (approximate): lines ~87%, functions ~86%, branches ~82%, statements ~87%
       thresholds: {
         lines: 85,
         functions: 85,

@@ -476,6 +476,21 @@ curl -s localhost:8080/metrics | grep -E 'room_lock_hold|room_outbound|room_pers
    ```
 3. 重定向循环：通常因 `ws_endpoint` 指向了无该房间的区域；核对 DNS/endpoint 映射
 
+## Rollback
+
+### Current Process (Manual)
+```bash
+# Rollback to previous version
+kubectl rollout undo deployment/balloon-game -n balloongame
+
+# Verify rollout status
+kubectl rollout status deployment/balloon-game -n balloongame
+```
+
+### Future Automation (P2)
+- Evaluate Argo Rollouts or Flagger for automated canary/blue-green deployments
+- Add rollback testing to CI/CD pipeline
+
 ### 7.3 跨区域控制面 mTLS / 可观测性聚合故障
 
 **症状**

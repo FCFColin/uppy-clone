@@ -25,3 +25,24 @@ export const PHASE_CODE = {
 
 export type MsgType = typeof MSG_TYPE[keyof typeof MSG_TYPE];
 export type ClientMsgType = typeof CLIENT_MSG[keyof typeof CLIENT_MSG];
+
+import { type GamePhase } from './types.js';
+
+export function phaseFromCode(code: number): GamePhase {
+    switch (code) {
+        case PHASE_CODE.WAITING: return 'waiting';
+        case PHASE_CODE.COUNTDOWN: return 'countdown';
+        case PHASE_CODE.PLAYING: return 'playing';
+        case PHASE_CODE.ENDED: return 'ended';
+        default: return 'waiting';
+    }
+}
+
+export function phaseToCode(phase: GamePhase): number {
+    switch (phase) {
+        case 'waiting': return PHASE_CODE.WAITING;
+        case 'countdown': return PHASE_CODE.COUNTDOWN;
+        case 'playing': return PHASE_CODE.PLAYING;
+        case 'ended': return PHASE_CODE.ENDED;
+    }
+}

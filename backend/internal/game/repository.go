@@ -17,7 +17,10 @@ type RoomRepository interface {
 	RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error
 }
 
-// SnapshotEncoder encodes game snapshots (future DI).
+// SnapshotEncoder encodes game snapshots for persistence.
+// Reserved for future use when snapshot serialization becomes injectable
+// (e.g., for switching between JSON, protobuf, or compression). Currently
+// only referenced from tests.
 type SnapshotEncoder interface {
 	Encode(state *domain.GameState) ([]byte, error)
 }

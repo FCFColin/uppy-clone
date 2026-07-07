@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { submitNickname } from './helpers.js';
 
 test.describe('Error Handling', () => {
   test('invalid room code shows not found', async ({ page }) => {
@@ -24,8 +25,7 @@ test.describe('Error Handling', () => {
     await page.goto(`/play.html?code=${lobbyCode}`);
     await expect(page.locator('#nickname-connect-status')).toContainText('服务器已连接', { timeout: 30000 });
 
-    await page.fill('#setup-nickname-input', 'E2EEndedPlayer');
-    await page.click('#enter-game-btn');
+    await submitNickname(page, 'E2EEndedPlayer');
 
     // 等待游戏结束（对于单人房间，countdown 结束后气球的 phase 会变为 ended）
     await page.waitForFunction(

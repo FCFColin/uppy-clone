@@ -141,8 +141,8 @@ func TestRoom_Creation(t *testing.T) {
 	if r == nil {
 		t.Fatal("NewRoom returned nil")
 	}
-	if r.state.LobbyCode != "TEST1" {
-		t.Fatalf("expected LobbyCode TEST1, got %q", r.state.LobbyCode)
+	if string(r.state.LobbyCode) != "TEST1" {
+		t.Fatalf("expected LobbyCode TEST1, got %q", string(r.state.LobbyCode))
 	}
 	if r.state.Phase != domain.PhaseWaiting {
 		t.Fatalf("expected initial phase waiting, got %q", r.state.Phase)

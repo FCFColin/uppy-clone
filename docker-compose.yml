@@ -69,7 +69,7 @@ services:
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-dev-redis-secret}", "ping"]
+      test: ["sh", "-c", "REDISCLI_AUTH=$REDIS_PASSWORD redis-cli ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -81,7 +81,7 @@ services:
     ports:
       - "127.0.0.1:6380:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_EPHEMERAL_PASSWORD:-dev-redis-secret}", "ping"]
+      test: ["sh", "-c", "REDISCLI_AUTH=$REDIS_EPHEMERAL_PASSWORD redis-cli ping"]
       interval: 5s
       timeout: 5s
       retries: 5

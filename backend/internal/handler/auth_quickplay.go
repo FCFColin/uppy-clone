@@ -11,7 +11,7 @@ import (
 
 // QuickPlay handles POST /api/v1/auth/quickplay
 func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
-	nickname, apiErr := parseQuickPlayRequest(r)
+	nickname, apiErr := parseQuickPlayRequest(w, r)
 	if apiErr != nil {
 		apiErr.Write(w)
 		return

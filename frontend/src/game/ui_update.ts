@@ -1,4 +1,4 @@
-import { PALETTE_COLORS } from './local_constants.js';
+import { PALETTE_COLORS, endReasonLabel } from './local_constants.js';
 import type { GamePhase } from '../shared/game/types.js';
 import { dispatch, getState } from './store.js';
 import { state } from './state_types.js';
@@ -9,7 +9,6 @@ import {
   $nicknameSetupScreen,
 } from './ui_elements.js';
 import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
-import { endReasonLabel } from './local_constants.js';
 import { refreshLayout } from './ui_utils.js';
 import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff, getWaitingTitleText } from './entry_flow.js';
@@ -32,63 +31,73 @@ function endListKey(): string {
     .join('|');
 }
 
+let _savedNickname: string | null = null;
+
 function isCurrentPlayer(p: { nickname: string }): boolean {
-  const saved = localStorage.getItem('uppy-nickname') || getState().pendingNickname || '';
-  return saved !== '' && p.nickname === saved;
+  if (_savedNickname === null) {
+    _savedNickname = localStorage.getItem('uppy-nickname') || getState().pendingNickname || '';
+  }
+  return _savedNickname !== '' && p.nickname === _savedNickname;
+}
+
+export function invalidateNicknameCache(): void {
+  _savedNickname = null;
+}
+
+function isOverlayVisible(el: HTMLElement | null): boolean {
+  return !!el && !el.classList.contains('hidden');
 }
 
 function setOverlayVisibility(): void {
   const phase = getState().phase;
-  if (isEntryHandoff()) {
+  const playing = phase === 'playing';
+  const handoff = isEntryHandoff();
+
+  if (handoff) {
     $waitingScreen.classList.toggle('hidden', phase !== 'waiting');
   }
 
   $endedScreen.classList.toggle('hidden', phase !== 'ended');
-  $gameHud.classList.toggle('hidden', phase !== 'playing');
-  $cooldownIndicator.classList.toggle('hidden', phase !== 'playing');
+  $gameHud.classList.toggle('hidden', !playing);
+  $cooldownIndicator.classList.toggle('hidden', !playing);
   refreshLayout();
 
-  if (phase === 'playing') {
+  if (playing) {
     updateWindIndicator(getState().wind);
   } else {
     hideWindIndicator();
   }
 
-  if (phase === 'waiting' && isEntryHandoff()) {
-    const waitingTitle: HTMLElement | null = document.getElementById('waiting-title');
+  if (phase === 'waiting' && handoff) {
+    const waitingTitle = document.getElementById('waiting-title');
     if (waitingTitle) {
       waitingTitle.textContent = getWaitingTitleText();
     }
   }
 
-  if (isEntryHandoff()) {
-    const hideNick = phase === 'countdown' || phase === 'playing' || phase === 'ended';
+  if (handoff) {
+    const hideNick = phase === 'countdown' || playing || phase === 'ended';
     if ($nicknameSetupScreen && hideNick) $nicknameSetupScreen.classList.add('hidden');
   }
 
-  const tutorialEl = document.getElementById('tutorial-overlay');
-  dispatch({ type: 'SET_STATE', partial: {
-    blockGameRender:
-      (!$endedScreen.classList.contains('hidden')) ||
-      (!!$nicknameSetupScreen && !$nicknameSetupScreen.classList.contains('hidden') && !state.nicknameSubmitted) ||
-      (!$waitingScreen.classList.contains('hidden') && state.nicknameSubmitted && state.phase === 'waiting') ||
-      (!!tutorialEl && !tutorialEl.classList.contains('hidden'))
-  }});
+  dispatch({
+    type: 'SET_STATE',
+    partial: {
+      blockGameRender:
+        isOverlayVisible($endedScreen) ||
+        (isOverlayVisible($nicknameSetupScreen) && !state.nicknameSubmitted) ||
+        (isOverlayVisible($waitingScreen) && state.nicknameSubmitted && state.phase === 'waiting') ||
+        isOverlayVisible(document.getElementById('tutorial-overlay')),
+    },
+  });
 }
 
 function displayNickname(p: { playerIndex: number; nickname: string }): string {
   const players = getState().players;
   const pending = getState().pendingNickname;
-  let name: string;
-  if (
-    pending
-    && players.length === 1
-    && players[0]?.playerIndex === p.playerIndex
-  ) {
-    name = pending;
-  } else {
-    name = p.nickname || 'P' + p.playerIndex;
-  }
+  const name = (pending && players.length === 1 && players[0]?.playerIndex === p.playerIndex)
+    ? pending
+    : (p.nickname || 'P' + p.playerIndex);
   if (isCurrentPlayer(p)) return `${name}（你）`;
   return name;
 }
@@ -156,6 +165,12 @@ function renderEndPlayerList(force: boolean, phaseChanged: boolean): void {
   renderPlayerItems($endPlayerList, true, sorted);
 }
 
+function updateScoreHud(): void {
+  $hudScore.textContent = String(getState().score);
+  $hudScore.classList.toggle('score-danger', isLowHeightDanger());
+  $hudPlayers.textContent = String(getState().players.length);
+}
+
 export function updateUI(opts?: { force?: boolean }): void {
   const phaseChanged = getState().phase !== lastPhase;
   const force = opts?.force ?? false;
@@ -164,9 +179,7 @@ export function updateUI(opts?: { force?: boolean }): void {
     setOverlayVisibility();
   }
 
-  $hudScore.textContent = String(getState().score);
-  $hudScore.classList.toggle('score-danger', isLowHeightDanger());
-  $hudPlayers.textContent = String(getState().players.length);
+  updateScoreHud();
 
   if (getState().phase === 'ended') {
     $finalScore.textContent = String(getState().score);
@@ -192,9 +205,7 @@ export function updateUI(opts?: { force?: boolean }): void {
 }
 
 export function updateScoresOnly(): void {
-  $hudScore.textContent = String(getState().score);
-  $hudScore.classList.toggle('score-danger', isLowHeightDanger());
-  $hudPlayers.textContent = String(getState().players.length);
+  updateScoreHud();
 
   syncHudOrWaitingPlayerList(false, false);
 

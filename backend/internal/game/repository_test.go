@@ -278,7 +278,7 @@ func TestMockSnapshotEncoder_Encode(t *testing.T) {
 	enc := &mockSnapshotEncoder{}
 	state := &domain.GameState{
 		Phase:     domain.PhaseWaiting,
-		LobbyCode: "ENC01",
+		LobbyCode: domain.RoomCode("ENC01"),
 	}
 
 	data, err := enc.Encode(state)

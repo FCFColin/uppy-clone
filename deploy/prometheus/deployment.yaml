@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: prometheus
   labels:
@@ -9,6 +9,7 @@ spec:
   selector:
     matchLabels:
       app: prometheus
+  serviceName: prometheus
   template:
     metadata:
       labels:
@@ -31,7 +32,7 @@ spec:
               mountPath: /etc/prometheus
             - name: rules
               mountPath: /etc/prometheus/rules
-            - name: data
+            - name: prometheus-tsdb
               mountPath: /prometheus
           resources:
             requests:
@@ -56,7 +57,7 @@ spec:
             - name: http
               containerPort: 10902
           volumeMounts:
-            - name: data
+            - name: prometheus-tsdb
               mountPath: /prometheus
           resources:
             requests:
@@ -72,8 +73,15 @@ spec:
         - name: rules
           configMap:
             name: alertmanager-rules
-        - name: data
-          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: prometheus-tsdb
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 100Gi
+        storageClassName: ssd
 ---
 apiVersion: v1
 kind: Service

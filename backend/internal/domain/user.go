@@ -33,7 +33,7 @@ type GameResult struct {
 
 // GameResultPlayer is a lightweight player result for direct DB writes.
 type GameResultPlayer struct {
-	UserID            string
-	ScoreContribution int
-	TapsCount         int
+	UserID            string `json:"user_id"`
+	ScoreContribution int    `json:"score_contribution"`
+	TapsCount         int    `json:"taps_count"`
 }

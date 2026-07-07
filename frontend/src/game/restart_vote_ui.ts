@@ -16,19 +16,25 @@ export function syncRestartVoteProgress(): void {
   }
 }
 
+let restartCountdownTimer: ReturnType<typeof setInterval> | null = null;
+
+function noActiveCountdown(): boolean {
+  return !getState().restartVotes || getState().restartVotes.countdownMs <= 0;
+}
+
 export function syncRestartVoteCountdown(): void {
-  if (!getState().restartVotes || getState().restartVotes.countdownMs <= 0) {
+  if (noActiveCountdown()) {
     const $restartCountdown: HTMLElement | null = document.getElementById('restart-countdown');
     if ($restartCountdown) $restartCountdown.textContent = '';
     return;
   }
 
-  if (window._restartCountdownTimer) return;
+  if (restartCountdownTimer) return;
 
-  window._restartCountdownTimer = setInterval(() => {
-    if (!getState().restartVotes || getState().restartVotes.countdownMs <= 0) {
-      clearInterval(window._restartCountdownTimer!);
-      window._restartCountdownTimer = null;
+  restartCountdownTimer = setInterval(() => {
+    if (noActiveCountdown()) {
+      clearInterval(restartCountdownTimer!);
+      restartCountdownTimer = null;
       return;
     }
     const elapsed: number = Date.now() - (getState().restartVotes.receivedAt ?? 0);
@@ -38,8 +44,8 @@ export function syncRestartVoteCountdown(): void {
       $restartCountdown.textContent = `${Math.ceil(remaining / 1000)} 秒后自动重启`;
     } else if ($restartCountdown) {
       $restartCountdown.textContent = '';
-      clearInterval(window._restartCountdownTimer!);
-      window._restartCountdownTimer = null;
+      clearInterval(restartCountdownTimer!);
+      restartCountdownTimer = null;
     }
   }, 1000);
 }

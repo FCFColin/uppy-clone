@@ -68,13 +68,13 @@ func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, cluster *stor
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Get("/verify", authHandler.VerifyMagicLink)
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Post("/verify", authHandler.VerifyMagicLinkPost)
 		r.With(appMiddleware.RecordAuthMetrics("check")).Get("/check", authHandler.CheckAuth)
-		r.With(appMiddleware.RecordAuthMetrics("refresh")).Post("/refresh", authHandler.RefreshToken)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:refresh", jwtMgr), appMiddleware.RecordAuthMetrics("refresh")).Post("/refresh", authHandler.RefreshToken)
 		r.With(appMiddleware.RecordAuthMetrics("logout")).Post("/logout", authHandler.Logout)
 	})
 
 	r.Route("/api/v1/user", func(r chi.Router) {
-		r.With(authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("user_data", "read")).Get("/data", authHandler.ExportUserData)
-		r.With(authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("user_data", "delete")).Delete("/data", authHandler.DeleteUserData)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "user:data", jwtMgr), authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("user_data", "read")).Get("/data", authHandler.ExportUserData)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "user:data", jwtMgr), authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("user_data", "delete")).Delete("/data", authHandler.DeleteUserData)
 	})
 }
 
@@ -86,6 +86,7 @@ func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, cluster *s
 	}
 	r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "stats:leaderboard", jwtMgr)).Get("/api/v1/leaderboard", statsHandler.GetLeaderboard)
 	r.With(
+		appMiddleware.EndpointRateLimit(cluster.Ephemeral, "user:stats", jwtMgr),
 		authMiddlewareWrapper(jwtMgr, cluster.Stateful),
 		rbacEnforcer.Middleware("user_data", "read"),
 	).Get("/api/v1/user/stats", statsHandler.GetUserStats)

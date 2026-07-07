@@ -53,14 +53,10 @@ function clearRestartCountdownTimer(): void {
     clearInterval(interval);
     dispatch({ type: 'SET_STATE', partial: { countdownTimerInterval: null } });
   }
-  if (window._restartCountdownTimer) {
-    clearInterval(window._restartCountdownTimer);
-    window._restartCountdownTimer = null;
-  }
 }
 
 function onEnterPlaying(): void {
-  dispatch({ type: 'SET_END_REASON', reason: null as unknown as number });
+  dispatch({ type: 'SET_END_REASON', reason: null });
   resetRoundClientState();
   clearSeenSeqs();
   hideCountdownOverlay();

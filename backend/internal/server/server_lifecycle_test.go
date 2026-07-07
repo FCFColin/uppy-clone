@@ -1069,30 +1069,15 @@ func TestRunServer_TracerInitError(t *testing.T) {
 	serverEnv.AllowedOrigins = "http://localhost"
 	t.Cleanup(func() { serverEnv = prevEnv })
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	t.Setenv("PORT", strconv.Itoa(port))
-
-	sigCh := make(chan os.Signal, 1)
-	prevSig := shutdownSignals
-	shutdownSignals = func() <-chan os.Signal { return sigCh }
-	t.Cleanup(func() { shutdownSignals = prevSig })
-
 	done := make(chan error, 1)
 	go func() { done <- runServer(slog.Default()) }()
-	time.Sleep(300 * time.Millisecond)
-	sigCh <- syscall.SIGTERM
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("runServer: %v", err)
+		if err == nil {
+			t.Fatal("expected tracer init error")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("runServer did not shut down")
+		t.Fatal("runServer did not fail")
 	}
 }
 

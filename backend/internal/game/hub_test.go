@@ -61,8 +61,8 @@ func TestHub_GetRoom_Found(t *testing.T) {
 	if room == nil {
 		t.Fatal("expected to find room by code")
 	}
-	if room.state.LobbyCode != code {
-		t.Fatalf("room code mismatch: got %q, want %q", room.state.LobbyCode, code)
+	if string(room.state.LobbyCode) != code {
+		t.Fatalf("room code mismatch: got %q, want %q", string(room.state.LobbyCode), code)
 	}
 }
 
@@ -813,16 +813,16 @@ func TestHub_RestoreRooms_WithDB(t *testing.T) {
 	if room1 == nil {
 		t.Fatal("expected room RST01 to be restored")
 	}
-	if room1.state.LobbyCode != "RST01" {
-		t.Fatalf("restored room1 code = %q, want RST01", room1.state.LobbyCode)
+	if string(room1.state.LobbyCode) != "RST01" {
+		t.Fatalf("restored room1 code = %q, want RST01", string(room1.state.LobbyCode))
 	}
 
 	room2 := h.GetRoom("RST02")
 	if room2 == nil {
 		t.Fatal("expected room RST02 to be restored")
 	}
-	if room2.state.LobbyCode != "RST02" {
-		t.Fatalf("restored room2 code = %q, want RST02", room2.state.LobbyCode)
+	if string(room2.state.LobbyCode) != "RST02" {
+		t.Fatalf("restored room2 code = %q, want RST02", string(room2.state.LobbyCode))
 	}
 
 	// Verify idempotency: calling RestoreRooms again should not duplicate rooms.

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/resilience"
@@ -21,7 +20,7 @@ type ConfigRepository struct {
 }
 
 // NewConfigRepository creates a ConfigRepository.
-func NewConfigRepository(pool *pgxpool.Pool) *ConfigRepository {
+func NewConfigRepository(pool pgPool) *ConfigRepository {
 	return &ConfigRepository{baseRepository: newBaseRepository(pool)}
 }
 

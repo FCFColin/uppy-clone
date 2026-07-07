@@ -24,19 +24,23 @@ func (h *Hub) CleanupLoop(ctx context.Context) {
 }
 
 func (h *Hub) cleanupOnce() {
-	codes := h.snapshotRoomCodes()
-	now := time.Now().UnixMilli()
+	type roomEntry struct {
+		code string
+		room *Room
+	}
 
+	h.mu.RLock()
+	entries := make([]roomEntry, 0, len(h.rooms))
+	for code, room := range h.rooms {
+		entries = append(entries, roomEntry{code: code, room: room})
+	}
+	h.mu.RUnlock()
+
+	now := time.Now().UnixMilli()
 	var toCleanup []string
-	for _, code := range codes {
-		h.mu.RLock()
-		room, ok := h.rooms[code]
-		h.mu.RUnlock()
-		if !ok {
-			continue
-		}
-		if shouldCleanupRoom(room, now) {
-			toCleanup = append(toCleanup, code)
+	for _, entry := range entries {
+		if shouldCleanupRoom(entry.room, now) {
+			toCleanup = append(toCleanup, entry.code)
 		}
 	}
 
@@ -89,7 +93,7 @@ func shouldCleanupRoom(room *Room, now int64) bool {
 func allPlayersDisconnectedExpired(players map[string]*domain.PlayerState, now int64) bool {
 	for _, p := range players {
 		if p.Disconnected && p.DisconnectedAt != nil {
-			if !reconnectGraceExpired(*p.DisconnectedAt, now) {
+			if !(now-*p.DisconnectedAt > domain.ReconnectGraceMs) {
 				return false
 			}
 		} else {

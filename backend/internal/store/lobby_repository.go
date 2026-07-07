@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/resilience"
@@ -21,7 +20,7 @@ type LobbyRepository struct {
 }
 
 // NewLobbyRepository creates a LobbyRepository.
-func NewLobbyRepository(pool *pgxpool.Pool) *LobbyRepository {
+func NewLobbyRepository(pool pgPool) *LobbyRepository {
 	return &LobbyRepository{baseRepository: newBaseRepository(pool)}
 }
 

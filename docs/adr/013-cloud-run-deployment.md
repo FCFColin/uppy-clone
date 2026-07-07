@@ -1,7 +1,7 @@
 # ADR-013: 部署平台 — 从 Cloud Run 收敛到 GKE（多区域）
 
-> **⚠️ DEPRECATED**: Cloud Run 部署路径已于 ADR-014 废弃。当前唯一生产平台为 GKE。
-> 本 ADR 保留作为决策演进历史记录。
+> **⚠️ 已废弃**: 本项目已从 Cloud Run 迁移到 GKE，此 ADR 仅作历史记录保留。
+> 详见 ADR-028 (GKE multi-region)。
 
 ## 状态
 

@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/telemetry"
@@ -23,7 +22,7 @@ type UserRepository struct {
 }
 
 // NewUserRepository creates a UserRepository.
-func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
+func NewUserRepository(pool pgPool) *UserRepository {
 	return &UserRepository{baseRepository: newBaseRepository(pool)}
 }
 
@@ -38,6 +37,11 @@ func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error {
 		return err
 	}
 
+	// email is intentionally included as plaintext in the outbox event payload.
+	// This is a transactional outbox pattern: the outbox event is written in the same
+	// DB transaction as the user insert, ensuring at-least-once delivery to downstream
+	// consumers (e.g., welcome emails, analytics). The outbox consumer is responsible
+	// for redacting or encrypting PII before forwarding to external systems.
 	outboxPayload, err := json.Marshal(map[string]interface{}{
 		"event_type": "user.created",
 		"user_id":    u.ID,

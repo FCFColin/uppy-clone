@@ -30,29 +30,31 @@ func (h *Hub) finalizeMaterializedRoom(code string) {
 	h.registerRoomInRedis(code)
 }
 
-func (h *Hub) registerRoomInRedis(code string) {
-	if 	h.cache == nil {
+func (h *Hub) cacheOp(fn func(context.Context) error) {
+	if h.cache == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.RedisConnectTimeout)
 	defer cancel()
+	_ = fn(ctx)
+}
 
-	data, _ := json.Marshal(	domain.RoomRegistryInfo{
-		Code:      code,
-		Instance:  h.instanceID,
-		Address:   instanceAddress(),
-		CreatedAt: time.Now().UnixMilli(),
+func (h *Hub) registerRoomInRedis(code string) {
+	h.cacheOp(func(ctx context.Context) error {
+		data, _ := json.Marshal(domain.RoomRegistryInfo{
+			Code:      code,
+			Instance:  h.instanceID,
+			Address:   instanceAddress(),
+			CreatedAt: time.Now().UnixMilli(),
+		})
+		return h.cache.RegisterRoom(ctx, code, data, roomRegistryTTL)
 	})
-	_ = 	h.cache.RegisterRoom(ctx, code, data, roomRegistryTTL)
 }
 
 func (h *Hub) unregisterRoomFromRedis(code string) {
-	if 	h.cache == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), h.timeouts.RedisConnectTimeout)
-	defer cancel()
-	_ = 	h.cache.UnregisterRoom(ctx, code)
+	h.cacheOp(func(ctx context.Context) error {
+		return h.cache.UnregisterRoom(ctx, code)
+	})
 }
 
 func (h *Hub) subscribeRoom(code string) {

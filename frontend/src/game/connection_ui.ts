@@ -1,5 +1,11 @@
 import { routeConnectionError, type EntryFullScreenErrorOptions } from './entry_flow.js';
 
+export type ConnectionErrorOptions = EntryFullScreenErrorOptions;
+
+export function showConnectionError(message: string, options?: ConnectionErrorOptions): void {
+  routeConnectionError(message, options);
+}
+
 let retryBound = false;
 
 export function hideReconnectBanner(): void {
@@ -31,8 +37,4 @@ export function bindReconnectRetry(retryFn: () => void): void {
   btn?.addEventListener('click', () => retryFn());
 }
 
-export type ConnectionErrorOptions = EntryFullScreenErrorOptions;
 
-export function showConnectionError(message: string, options?: ConnectionErrorOptions): void {
-  routeConnectionError(message, options);
-}

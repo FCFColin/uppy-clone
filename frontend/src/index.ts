@@ -6,24 +6,28 @@ import { initCollapsibleLeaderboard } from './index_leaderboard.js';
 normalizeAuthHost();
 initCollapsibleLeaderboard();
 
-const emailInput: HTMLInputElement = document.getElementById('email-input') as HTMLInputElement;
-const loginBtn: HTMLButtonElement = document.getElementById('login-btn') as HTMLButtonElement;
-const successMsg: HTMLElement = document.getElementById('success-msg')!;
-const errorMsg: HTMLElement = document.getElementById('error-msg')!;
-const quickplayBtn: HTMLButtonElement = document.getElementById('quickplay-btn') as HTMLButtonElement;
-const joinCodeBtn: HTMLButtonElement = document.getElementById('join-code-btn') as HTMLButtonElement;
+const emailInput = document.getElementById('email-input') as HTMLInputElement;
+const loginBtn = document.getElementById('login-btn') as HTMLButtonElement;
+const successMsg = document.getElementById('success-msg')!;
+const errorMsg = document.getElementById('error-msg')!;
+const quickplayBtn = document.getElementById('quickplay-btn') as HTMLButtonElement;
+const joinCodeBtn = document.getElementById('join-code-btn') as HTMLButtonElement;
 
 function showError(message: string): void {
   errorMsg.textContent = message;
   errorMsg.style.display = 'block';
 }
 
+function resetButton(btn: HTMLButtonElement, text: string): void {
+  btn.disabled = false;
+  btn.textContent = text;
+}
+
 function resetEmailForm(): void {
   successMsg.style.display = 'none';
   emailInput.style.display = '';
   loginBtn.style.display = '';
-  loginBtn.disabled = false;
-  loginBtn.textContent = '发送登录链接';
+  resetButton(loginBtn, '发送登录链接');
   emailInput.value = '';
   emailInput.focus();
 }
@@ -55,13 +59,11 @@ async function requestLoginLink(): Promise<void> {
     } else {
       const data: { error?: string } = await res.json();
       showError(data.error || '发送失败，请重试');
-      loginBtn.disabled = false;
-      loginBtn.textContent = '发送登录链接';
+      resetButton(loginBtn, '发送登录链接');
     }
   } catch {
     showError('网络错误，请重试');
-    loginBtn.disabled = false;
-    loginBtn.textContent = '发送登录链接';
+    resetButton(loginBtn, '发送登录链接');
   }
 }
 
@@ -72,8 +74,7 @@ async function quickPlay(): Promise<void> {
     const session = await establishGameSession();
     if (!session.ok) {
       showError(sessionErrorMessage(session));
-      quickplayBtn.disabled = false;
-      quickplayBtn.textContent = '快速开始';
+      resetButton(quickplayBtn, '快速开始');
       return;
     }
     const matchRes: Response = await fetch('/api/v1/registry/match', {
@@ -83,8 +84,7 @@ async function quickPlay(): Promise<void> {
     });
     if (!matchRes.ok) {
       showError('匹配房间失败，请重试');
-      quickplayBtn.disabled = false;
-      quickplayBtn.textContent = '快速开始';
+      resetButton(quickplayBtn, '快速开始');
       return;
     }
     const matchData: { lobbyCode: string } = await matchRes.json();
@@ -93,8 +93,7 @@ async function quickPlay(): Promise<void> {
     window.location.href = `/play.html?code=${encodeURIComponent(matchData.lobbyCode)}`;
   } catch {
     showError('网络错误，请重试');
-    quickplayBtn.disabled = false;
-    quickplayBtn.textContent = '快速开始';
+    resetButton(quickplayBtn, '快速开始');
   }
 }
 
@@ -102,7 +101,7 @@ async function joinByCode(): Promise<void> {
   const input: HTMLInputElement = document.getElementById('join-code-input') as HTMLInputElement;
   const errorEl: HTMLElement = document.getElementById('join-code-error')!;
   const code: string = input.value.trim().toUpperCase();
-  if (!/^[A-Z0-9]{5}$/.test(code)) {
+  if (!/^[A-Z2-9]{5}$/.test(code)) {
     errorEl.textContent = '房间号为 5 位字母数字';
     errorEl.classList.remove('hidden');
     return;

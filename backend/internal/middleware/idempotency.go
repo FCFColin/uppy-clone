@@ -71,6 +71,17 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 // retry due to network failures. Common in payment systems and any
 // non-idempotent POST endpoint. Trade-off: Extra Redis round-trip per
 // request, but prevents duplicate rooms/charges.
+// TODO: The SETNX-based idempotency middleware path (claim, exec, cache) has no dedicated unit tests.
+// The middleware integrates with Redis via SETNX for atomic key claiming, then caches 2xx responses
+// for idempotent replay. Non-2xx responses delete the key to allow retry. Testing this path requires
+// a Redis instance or mock, which the current test suite does not provide. Key areas for test coverage:
+//   1. SETNX claim succeeds → handler executes → response cached on 2xx
+//   2. SETNX claim succeeds → handler executes → key deleted on non-2xx
+//   3. SETNX claim fails (key exists, status "processing") → 409 Conflict returned
+//   4. SETNX claim fails → cached response exists → replay cached response with X-Idempotent-Replayed header
+//   5. SETNX claim fails → cached response malformed JSON → 409 Conflict returned
+//   6. Empty/missing Idempotency-Key header → pass-through without Redis interaction
+//   7. Idempotency-Key exceeds max length → 400 Bad Request
 func IdempotencyMiddleware(rdb *redis.Client) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -89,35 +100,44 @@ func IdempotencyMiddleware(rdb *redis.Client) func(http.Handler) http.Handler {
 			hash := sha256.Sum256([]byte(key))
 			redisKey := "idem:" + hex.EncodeToString(hash[:])
 
-			// Check if we've seen this key before
-			val, err := rdb.Get(r.Context(), redisKey).Result()
-			if err == nil {
-				// Key exists — return cached response
-				var cached idempotencyCachedResponse
-				if decodeErr := json.Unmarshal([]byte(val), &cached); decodeErr != nil {
-					slog.Error("idempotency: failed to decode cached response", "key_hash", redisKey, "error", decodeErr)
-					// Fall through to execute handler normally
-				} else {
-					slog.Info("idempotency: returning cached response", "key_hash", redisKey)
-					w.Header().Set("Content-Type", "application/json")
-					w.Header().Set("X-Idempotent-Replayed", "true")
-					w.WriteHeader(cached.StatusCode)
-					_, _ = w.Write([]byte(cached.Body))
-					return
+			// Use SETNX to atomically claim the idempotency key
+			claimed, err := rdb.SetNX(r.Context(), redisKey, "processing", defaultIdempotencyTTL).Result()
+			if err != nil {
+				slog.Error("idempotency: failed to claim key", "key_hash", redisKey, "error", err)
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !claimed {
+				// Key exists — poll/return cached response
+				val, err := rdb.Get(r.Context(), redisKey).Result()
+				if err == nil && val != "processing" {
+					var cached idempotencyCachedResponse
+					if decodeErr := json.Unmarshal([]byte(val), &cached); decodeErr == nil {
+						w.Header().Set("Content-Type", "application/json")
+						w.Header().Set("X-Idempotent-Replayed", "true")
+						w.WriteHeader(cached.StatusCode)
+						_, _ = w.Write([]byte(cached.Body))
+						return
+					}
 				}
+				apierror.New(http.StatusConflict, "Request with this idempotency key is already in progress", "conflict").Write(w)
+				return
 			}
 
-			// No cached response — execute handler and capture response
+			// Claimed the key — execute handler and capture response
 			recorder := newResponseRecorder(w)
-			// Store key in context so handler can access it if needed
-			ctx := context.WithValue(r.Context(), idempCtxKey{}, redisKey)
-			next.ServeHTTP(recorder, r.WithContext(ctx))
+			next.ServeHTTP(recorder, r)
 
-			// Cache successful responses (2xx) automatically
 			if recorder.statusCode >= 200 && recorder.statusCode < 300 {
-				if saveErr := SaveIdempotencyResponse(r.Context(), rdb, redisKey, recorder.statusCode, recorder.body.Bytes(), defaultIdempotencyTTL); saveErr != nil {
-					slog.Error("idempotency: failed to save response", "key_hash", redisKey, "error", saveErr)
+				cached := idempotencyCachedResponse{
+					StatusCode: recorder.statusCode,
+					Body:       recorder.body.String(),
 				}
+				data, _ := json.Marshal(cached)
+				rdb.Set(r.Context(), redisKey, data, defaultIdempotencyTTL)
+			} else {
+				// TODO: SETNX non-2xx delete path also needs unit test coverage.
+				rdb.Del(r.Context(), redisKey)
 			}
 		})
 	}

@@ -3,7 +3,7 @@ import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
 import { getState, dispatch } from './store.js';
 import { resizeCanvas, gameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
 import {
-  updateUI, generateRandomNickname, copyCode, refreshLayout,
+  generateRandomNickname, copyCode, refreshLayout,
   showFallbackErrorScreen,
   $copyCodeBtn, $hudCopyBtn,
   $setupNicknameInput,

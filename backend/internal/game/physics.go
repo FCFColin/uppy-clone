@@ -17,6 +17,16 @@ func ApplyPhysics(balloon *domain.BalloonState) bool {
 	balloon.X += balloon.VX
 	balloon.VX *= protocol.HorizontalDrag
 
+	// 水平边界：反弹（速度减半）
+	if balloon.X <= 0 {
+		balloon.X = 0
+		balloon.VX = math.Abs(balloon.VX) * 0.5
+	}
+	if balloon.X >= 1 {
+		balloon.X = 1
+		balloon.VX = -math.Abs(balloon.VX) * 0.5
+	}
+
 	// 触底检测：y ≤ 0 → 游戏结束
 	if balloon.Y <= 0 {
 		return true
@@ -28,17 +38,6 @@ func ApplyPhysics(balloon *domain.BalloonState) bool {
 		if balloon.VY > 0 {
 			balloon.VY = 0
 		}
-		return false
-	}
-
-	// 水平边界：反弹（速度减半）
-	if balloon.X <= 0 {
-		balloon.X = 0
-		balloon.VX = math.Abs(balloon.VX) * 0.5
-	}
-	if balloon.X >= 1 {
-		balloon.X = 1
-		balloon.VX = -math.Abs(balloon.VX) * 0.5
 	}
 
 	return false
@@ -48,14 +47,19 @@ func ApplyPhysics(balloon *domain.BalloonState) bool {
 func ApplyTapForce(balloon *domain.BalloonState, tapX, tapY float64) bool {
 	dx := balloon.X - tapX
 	dy := balloon.Y - tapY
-	dist := math.Hypot(dx, dy)
-	if dist > protocol.TapRange {
+	distSq := dx*dx + dy*dy
+	if distSq > protocol.TapRange*protocol.TapRange {
 		return false
+	}
+	dist := math.Hypot(dx, dy)
+	if dist < math.SmallestNonzeroFloat64 {
+		balloon.VY += protocol.TapForce
+		return true
 	}
 	forceMultiplier := 1 - dist/protocol.TapRange
 	force := protocol.TapForce * forceMultiplier
-	nx := dx / dist
-	ny := dy / dist
+	nx := dx / safeDist(dist)
+	ny := dy / safeDist(dist)
 
 	balloon.VX += nx * force
 	balloon.VY += ny * force
@@ -63,30 +67,37 @@ func ApplyTapForce(balloon *domain.BalloonState, tapX, tapY float64) bool {
 	return true
 }
 
+// safeDist returns a safe non-zero distance to avoid division by zero.
+func safeDist(dist float64) float64 {
+	if dist < math.SmallestNonzeroFloat64 {
+		return math.SmallestNonzeroFloat64
+	}
+	return dist
+}
+
 // ─── 风场系统 ────────────────────────────────────────────────────────
+
+func tickCountdown(counter *int, resetFn func(), resetVal int) {
+	*counter--
+	if *counter <= 0 {
+		resetFn()
+		*counter = resetVal
+	}
+}
 
 // UpdateWind 更新风场（三层频率系统）
 func UpdateWind(state *domain.GameState, rng RNGSource) {
-	// === 高频微扰动 ===
-	state.WindMicroCountdown--
-	if state.WindMicroCountdown <= 0 {
+	tickCountdown(&state.WindMicroCountdown, func() {
 		state.Wind += (rng.Float64() - 0.5) * protocol.WindJitter * 2
-		state.WindMicroCountdown = protocol.WindMicroInterval
-	}
+	}, protocol.WindMicroInterval)
 
-	// === 中频变化 ===
-	state.WindMidCountdown--
-	if state.WindMidCountdown <= 0 {
+	tickCountdown(&state.WindMidCountdown, func() {
 		state.WindMidOffset = (rng.Float64() - 0.5) * 2 * protocol.WindMidMagnitude
-		state.WindMidCountdown = protocol.WindMidInterval
-	}
+	}, protocol.WindMidInterval)
 
-	// === 大变化 ===
-	state.WindChangeCountdown--
-	if state.WindChangeCountdown <= 0 {
+	tickCountdown(&state.WindChangeCountdown, func() {
 		state.WindTarget = (rng.Float64() - 0.5) * protocol.WindTargetSpan
-		state.WindChangeCountdown = int(float64(protocol.WindChangeInterval) * (0.5 + rng.Float64()))
-	}
+	}, int(float64(protocol.WindChangeInterval)*(0.5+rng.Float64())))
 
 	// 缓慢趋向目标风向 + 中频偏移
 	effectiveTarget := state.WindTarget + state.WindMidOffset

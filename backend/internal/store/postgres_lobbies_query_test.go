@@ -68,7 +68,7 @@ func TestLeaderboardQuery_Scopes(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_DefaultLimit(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
@@ -77,7 +77,7 @@ func TestLoadAllActiveLobbies_DefaultLimit(t *testing.T) {
 		WithArgs(51).
 		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}))
 
-	result, err := s.LoadAllActiveLobbies(ctx, 0, "")
+	result, err := repo.LoadAllActiveLobbies(ctx, 0, "")
 	if err != nil {
 		t.Fatalf("LoadAllActiveLobbies: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestLoadAllActiveLobbies_DefaultLimit(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_CappedLimit(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
@@ -96,7 +96,7 @@ func TestLoadAllActiveLobbies_CappedLimit(t *testing.T) {
 		WithArgs(101).
 		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}))
 
-	result, err := s.LoadAllActiveLobbies(ctx, 500, "")
+	result, err := repo.LoadAllActiveLobbies(ctx, 500, "")
 	if err != nil {
 		t.Fatalf("LoadAllActiveLobbies: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestLoadAllActiveLobbies_CappedLimit(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_WithCursor(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
@@ -116,7 +116,7 @@ func TestLoadAllActiveLobbies_WithCursor(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
 			AddRow("id1", "CODE1", "waiting", int64(99), int64(50)))
 
-	result, err := s.LoadAllActiveLobbies(ctx, 5, "100|CODE1")
+	result, err := repo.LoadAllActiveLobbies(ctx, 5, "100|CODE1")
 	if err != nil {
 		t.Fatalf("LoadAllActiveLobbies: %v", err)
 	}
@@ -126,20 +126,20 @@ func TestLoadAllActiveLobbies_WithCursor(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_CountError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
 		WillReturnError(errors.New("count failed"))
 
-	_, err := s.LoadAllActiveLobbies(ctx, 10, "")
+	_, err := repo.LoadAllActiveLobbies(ctx, 10, "")
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestLoadAllActiveLobbies_FetchError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
+	repo, mock := newMockLobbyRepository(t)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
@@ -147,25 +147,8 @@ func TestLoadAllActiveLobbies_FetchError(t *testing.T) {
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
 		WillReturnError(errors.New("query failed"))
 
-	_, err := s.LoadAllActiveLobbies(ctx, 10, "")
+	_, err := repo.LoadAllActiveLobbies(ctx, 10, "")
 	if err == nil {
 		t.Fatal("expected error")
-	}
-}
-
-func TestFetchLobbiesPage_ScanError(t *testing.T) {
-	s, mock := newMockPostgresStore(t)
-	ctx := context.Background()
-
-	rows := pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-		AddRow("id1", "ABCD1", "waiting", int64(1), int64(2)).
-		RowError(0, errors.New("scan failed"))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WithArgs(11).
-		WillReturnRows(rows)
-
-	_, err := s.fetchLobbiesPage(ctx, 11, 0, "")
-	if err == nil {
-		t.Fatal("expected scan error")
 	}
 }

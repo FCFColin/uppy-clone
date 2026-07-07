@@ -13,43 +13,45 @@ import (
 
 // WebSocket handles GET /lobby/{code}/ws upgrades for authenticated players.
 func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
+	established := false
+	defer func() {
+		if !established {
+			metrics.RecordWSConnection("rejected")
+		}
+	}()
+
 	code := chi.URLParam(r, "code")
 	if code == "" {
-		metrics.RecordWSConnection("rejected")
 		apierror.BadRequest("Room code is required").Write(w)
 		return
 	}
 
 	userId, ok := h.authenticateWSRequest(w, r)
 	if !ok {
-		metrics.RecordWSConnection("rejected")
 		return
 	}
 
 	if !h.validateWSOrigin(w, r) {
-		metrics.RecordWSConnection("rejected")
 		return
 	}
 
 	room := h.hub.GetRoom(code)
 	if room == nil {
-		metrics.RecordWSConnection("rejected")
 		apierror.NotFound("Room not found").Write(w)
 		return
 	}
 
 	if !h.reserveWSConnection(w) {
-		metrics.RecordWSConnection("rejected")
 		return
 	}
 
 	conn, ok := h.upgradeWSConnection(w, r)
 	if !ok {
 		h.hub.DecrementWSConnection()
-		metrics.RecordWSConnection("rejected")
 		return
 	}
 
+	established = true
 	metrics.RecordWSConnection("established")
 	h.startWSPumps(room, userId, conn, r.Context())
 }

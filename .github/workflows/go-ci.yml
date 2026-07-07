@@ -100,7 +100,6 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: backend/go.sum
-          cache-dependency-path: backend/go.sum
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -329,7 +328,7 @@ jobs:
         uses: sigstore/cosign-installer@v3
       - run: cosign sign --yes gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@0a33c98da4a4d9e35761d803bdde100295ae53d8
         with:
           image: gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}
           format: cyclonedx-json

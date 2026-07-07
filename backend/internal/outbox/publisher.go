@@ -93,6 +93,10 @@ func (p *Publisher) readPendingBatch(ctx context.Context, tx pgx.Tx) ([]outboxRo
 		}
 		batch = append(batch, r)
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("outbox publisher: rows iteration", "error", err)
+		return nil, 0
+	}
 	return batch, oldest
 }
 
@@ -128,9 +132,13 @@ func (p *Publisher) publishBatch(ctx context.Context) {
 	}
 
 	now := time.Now().UnixMilli()
-	for _, item := range batch {
-		if _, err := tx.Exec(ctx, `UPDATE outbox_events SET processed_at = $1 WHERE id = $2`, now, item.id); err != nil {
-			slog.Error("outbox publisher: mark processed", "error", err, "id", item.id)
+	if len(batch) > 0 {
+		ids := make([]int64, len(batch))
+		for i, item := range batch {
+			ids[i] = item.id
+		}
+		if _, err := tx.Exec(ctx, `UPDATE outbox_events SET processed_at = $1 WHERE id = ANY($2)`, now, ids); err != nil {
+			slog.Error("outbox publisher: mark processed", "error", err)
 			return
 		}
 	}

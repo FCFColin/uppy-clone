@@ -23,8 +23,8 @@ func RevokeAllTokens(ctx context.Context, jwtMgr *JWTManager, refreshMgr *Refres
 				if uid != "" {
 					userID = uid
 				}
-			if jti != "" && tokens != nil {
-				_ = tokens.RevokeJWT(ctx, jti, config.AccessTokenTTL)
+				if jti != "" && tokens != nil {
+					_ = tokens.RevokeJWT(ctx, jti, config.AccessTokenTTL)
 				}
 			}
 		}

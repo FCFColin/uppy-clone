@@ -41,10 +41,14 @@ func (r *Room) enqueueGameResultAsync() {
 	results := buildGameResults(r.state.Players)
 	finalScore := r.state.Balloon.Score
 	sessionID := r.state.SessionID
-	roomCode := r.state.LobbyCode
+	roomCode := string(r.state.LobbyCode)
 
-	r.recordGameResultDirect(sessionID, roomCode, endedAt, finalScore, results)
-	r.enqueueGameResultRedis(sessionID, roomCode, finalScore, results, endedAt)
+	r.asyncWg.Add(1)
+	go func() {
+		defer r.asyncWg.Done()
+		r.recordGameResultDirect(sessionID, roomCode, endedAt, finalScore, results)
+		r.enqueueGameResultRedis(sessionID, roomCode, finalScore, results, endedAt)
+	}()
 }
 
 func buildGameResults(players map[string]*domain.PlayerState) []domain.GameResultPlayer {
@@ -63,15 +67,11 @@ func (r *Room) recordGameResultDirect(sessionID, roomCode string, endedAt int64,
 	if r.store == nil {
 		return
 	}
-	r.asyncWg.Add(1)
-	go func() {
-		defer r.asyncWg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
-		defer cancel()
-		if err := r.store.RecordGameResult(ctx, sessionID, roomCode, endedAt, finalScore, results); err != nil {
-			slog.Error("direct record game result failed", "error", err, "session_id", sessionID)
-		}
-	}()
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
+	defer cancel()
+	if err := r.store.RecordGameResult(ctx, sessionID, roomCode, endedAt, finalScore, results); err != nil {
+		slog.Error("direct record game result failed", "error", err, "session_id", sessionID)
+	}
 }
 
 func (r *Room) enqueueGameResultRedis(sessionID, roomCode string, finalScore int, results []domain.GameResultPlayer, endedAt int64) {
@@ -106,11 +106,7 @@ func (r *Room) enqueueGameResultRedis(sessionID, roomCode string, finalScore int
 		payload:   payloadJSON,
 		outbox:    outboxPayload,
 	}
-	r.asyncWg.Add(1)
-	go func() {
-		defer r.asyncWg.Done()
-		r.runGameResultJob(job)
-	}()
+	r.runGameResultJob(job)
 }
 
 func resultsToMap(results []domain.GameResultPlayer) []map[string]interface{} {
@@ -154,5 +150,7 @@ func (r *Room) createGameSessionAsync(session *domain.GameSession) {
 				"error", err,
 				"room_code", session.LobbyCode)
 		}
+		// Game results are sent from enqueueGameResultAsync inside the room lifecycle,
+		// not from here. This goroutine is intentionally separate and tracked via asyncWg.
 	}()
 }

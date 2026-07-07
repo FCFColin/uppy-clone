@@ -12,67 +12,54 @@ type Event interface {
 	OccurredAt() time.Time
 }
 
+// DomainEvent 可嵌入到具体事件类型中，提供 OccurredAt 实现。
+type DomainEvent struct {
+	At time.Time
+}
+
+func (e DomainEvent) OccurredAt() time.Time { return e.At }
+
 // PlayerJoined 玩家加入房间事件。
 type PlayerJoined struct {
+	DomainEvent
 	RoomCode string
 	UserID   string
 	Nickname string
-	At       time.Time
 }
 
-// EventType 返回事件类型标识。
 func (e PlayerJoined) EventType() string { return "player.joined" }
-
-// OccurredAt 返回事件发生时间。
-func (e PlayerJoined) OccurredAt() time.Time { return e.At }
 
 // PlayerLeft 玩家离开房间事件。
 type PlayerLeft struct {
+	DomainEvent
 	RoomCode string
 	UserID   string
-	At       time.Time
 }
 
-// EventType 返回事件类型标识。
 func (e PlayerLeft) EventType() string { return "player.left" }
-
-// OccurredAt 返回事件发生时间。
-func (e PlayerLeft) OccurredAt() time.Time { return e.At }
 
 // GameEnded 游戏结束事件。
 type GameEnded struct {
+	DomainEvent
 	RoomCode string
-	At       time.Time
 }
 
-// EventType 返回事件类型标识。
 func (e GameEnded) EventType() string { return "game.ended" }
-
-// OccurredAt 返回事件发生时间。
-func (e GameEnded) OccurredAt() time.Time { return e.At }
 
 // PhaseChanged 游戏阶段转换事件。
 type PhaseChanged struct {
+	DomainEvent
 	RoomCode string
 	From     string
 	To       string
-	At       time.Time
 }
 
-// EventType 返回事件类型标识。
 func (e PhaseChanged) EventType() string { return "phase.changed" }
-
-// OccurredAt 返回事件发生时间。
-func (e PhaseChanged) OccurredAt() time.Time { return e.At }
 
 // UserHardDeleted 用户 GDPR 硬删除事件。
 type UserHardDeleted struct {
+	DomainEvent
 	UserID string
-	At     time.Time
 }
 
-// EventType 返回事件类型标识。
 func (e UserHardDeleted) EventType() string { return "user.hard_deleted" }
-
-// OccurredAt 返回事件发生时间。
-func (e UserHardDeleted) OccurredAt() time.Time { return e.At }

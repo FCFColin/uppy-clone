@@ -2,19 +2,31 @@ package game
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/protocol"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+// ErrRateLimited 玩家因消息频率过高被断开
+var ErrRateLimited = errors.New("player rate limited")
 
 // HandleMessage 处理客户端消息
 func (r *Room) HandleMessage(playerID string, msgType byte, payload []byte) error {
+	_, span := tracer.Start(context.Background(), "game.handle_message")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("player.id", playerID),
+		attribute.Int("msg_type", int(msgType)),
+	)
 	start := time.Now()
 	r.mu.Lock()
 	defer func() {
-		recordRoomLock("message", start)
+		metrics.RecordRoomLockHold("message", time.Since(start))
 		r.mu.Unlock()
 	}()
 
@@ -30,8 +42,9 @@ func (r *Room) HandleMessage(playerID string, msgType byte, payload []byte) erro
 	}
 	player.MessageCount++
 	if player.MessageCount > domain.MessageRateLimit {
+		player.MarkDisconnected(now)
 		r.removeConnectionLocked(playerID)
-		return nil
+		return ErrRateLimited
 	}
 
 	switch msgType {
@@ -57,16 +70,24 @@ func (r *Room) tick(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if ctx.Err() != nil {
-				return
-			}
+			_, span := tracer.Start(ctx, "game.tick_iteration")
 			now := time.Now()
+
 			r.mu.Lock()
-			r.tickOnce(now)
+			shouldBroadcast := r.tickOnceLocked(now)
+			var snapshot []byte
+			if shouldBroadcast {
+				snapshot = r.buildSnapshot()
+			}
 			tickCount := r.state.TickCount
-			recordRoomLock("tick", now)
 			r.mu.Unlock()
-			recordGameTickDuration(now)
+
+			if shouldBroadcast {
+				r.broadcast(snapshot, "")
+			}
+
+			metrics.RecordGameTickDuration(time.Since(now))
+			span.End()
 
 			if tickCount > 0 && tickCount%30 == 0 {
 				r.asyncSaveState()
@@ -75,48 +96,59 @@ func (r *Room) tick(ctx context.Context) {
 	}
 }
 
-// tickOnce 执行一次 tick 逻辑
-func (r *Room) tickOnce(now time.Time) {
+// tickOnceLocked 执行一次 tick 的状态变更逻辑（不含 broadcast）。
+// 返回 true 表示调用方应构建快照并广播（正常 tick 路径）。
+// 返回 false 表示 tick 提前结束（非 playing 阶段、无连接、或碰撞结束游戏）。
+// 调用方须持有 r.mu。
+func (r *Room) tickOnceLocked(now time.Time) bool {
 	nowMs := now.UnixMilli()
 	r.cleanupDisconnected(nowMs)
 
 	if r.state.Phase != domain.PhasePlaying {
-		return
+		return false
 	}
 
-	if len(r.state.Players) == 0 || !hasAnyConnectedPlayer(r.state.Players) {
+	if len(r.state.Players) == 0 || !anyPlayerConnected(r.state.Players) {
 		r.stopTick()
-		return
+		return false
 	}
 
 	r.state.TickCount++
 
-	gameOver := ApplyPhysics(&r.state.Balloon)
-	if gameOver {
-		if err := r.EndGameWithReason(protocol.EndReasonGround); err != nil {
-			r.logger.Warn("failed to end game on ground collision", "error", err)
-		}
-		return
+	if ApplyPhysics(&r.state.Balloon) {
+		r.endGameIf(protocol.EndReasonGround, "ground collision")
+		return false
 	}
 
 	UpdateWind(r.state, r.rng)
 	UpdateBirdAI(&r.state.Bird, &r.state.Balloon, r.state.TickCount, r.rng)
 	UpdateGhostAI(r.state, r.rng)
 	if CheckGhostCollision(r.state) {
-		if err := r.EndGameWithReason(protocol.EndReasonGhost); err != nil {
-			r.logger.Warn("failed to end game on ghost collision", "error", err)
-		}
-		return
+		r.endGameIf(protocol.EndReasonGhost, "ghost collision")
+		return false
 	}
 
 	if CheckBirdCollision(&r.state.Bird, &r.state.Balloon) {
-		if err := r.EndGameWithReason(protocol.EndReasonBird); err != nil {
-			r.logger.Warn("failed to end game on bird collision", "error", err)
-		}
-		return
+		r.endGameIf(protocol.EndReasonBird, "bird collision")
+		return false
 	}
 
-	r.broadcast(r.buildSnapshot(), "")
+	return true
+}
+
+// tickOnce 执行一次完整的 tick 逻辑（含 broadcast）。仅用于测试兼容。
+func (r *Room) tickOnce(now time.Time) {
+	_, span := tracer.Start(context.Background(), "game.tick_once")
+	defer span.End()
+	if r.tickOnceLocked(now) {
+		r.broadcast(r.buildSnapshot(), "")
+	}
+}
+
+func (r *Room) endGameIf(reason uint8, logLabel string) {
+	if err := r.EndGameWithReason(reason); err != nil {
+		r.logger.Warn("failed to end game on "+logLabel, "error", err)
+	}
 }
 
 // startTickGoroutine launches a tick goroutine (caller must hold r.mu).
@@ -170,7 +202,7 @@ func (r *Room) restartTick() {
 // cleanupDisconnected 清理超过 30 秒优雅期的断连玩家
 func (r *Room) cleanupDisconnected(now int64) {
 	for pid, player := range r.state.Players {
-		if player.Disconnected && player.DisconnectedAt != nil && reconnectGraceExpired(*player.DisconnectedAt, now) {
+		if player.Disconnected && player.DisconnectedAt != nil && now-*player.DisconnectedAt > domain.ReconnectGraceMs {
 			delete(r.state.Players, pid)
 			delete(r.usedNames, player.Nickname)
 			delete(r.state.RestartVotes, pid)

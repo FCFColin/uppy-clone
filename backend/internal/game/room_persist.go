@@ -34,14 +34,11 @@ func (r *Room) saveStateWithError() error {
 		return fmt.Errorf("serialize state: %w", err)
 	}
 
-	ls := newLobbyState(r.state.LobbyCode, data)
+	ls := newLobbyState(string(r.state.LobbyCode), data)
 	if err := r.store.SaveLobbyState(ctx, ls); err != nil {
 		return fmt.Errorf("save lobby state: %w", err)
 	}
 	return nil
 }
 
-// saveState 持久化到 PostgreSQL（异步 debounced）。
-func (r *Room) saveState() {
-	r.requestPersist()
-}
+

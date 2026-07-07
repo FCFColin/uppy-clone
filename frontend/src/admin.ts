@@ -11,15 +11,15 @@ export {};
 import { bindLoginEvents } from './admin_login.js';
 import { loadConfig, saveConfig, type AdminConfig } from './admin_config.js';
 
-const loginSection: HTMLElement = document.getElementById('login-section')!;
-const configSection: HTMLElement = document.getElementById('config-section')!;
-const emailEnabledInput: HTMLInputElement = document.getElementById('email-enabled') as HTMLInputElement;
-const emailStatusEl: HTMLElement = document.getElementById('email-status')!;
-const resendKeyInput: HTMLInputElement = document.getElementById('resend-key') as HTMLInputElement;
-const emailFromInput: HTMLInputElement = document.getElementById('email-from') as HTMLInputElement;
-const newAdminPasswordInput: HTMLInputElement = document.getElementById('new-admin-password') as HTMLInputElement;
-const saveBtn: HTMLButtonElement = document.getElementById('save-btn') as HTMLButtonElement;
-const toastEl: HTMLElement = document.getElementById('toast')!;
+const loginSection = document.getElementById('login-section')!;
+const configSection = document.getElementById('config-section')!;
+const emailEnabledInput = document.getElementById('email-enabled') as HTMLInputElement;
+const emailStatusEl = document.getElementById('email-status')!;
+const resendKeyInput = document.getElementById('resend-key') as HTMLInputElement;
+const emailFromInput = document.getElementById('email-from') as HTMLInputElement;
+const newAdminPasswordInput = document.getElementById('new-admin-password') as HTMLInputElement;
+const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
+const toastEl = document.getElementById('toast')!;
 
 function showToast(msg: string, type: 'success' | 'error'): void {
   toastEl.textContent = msg;

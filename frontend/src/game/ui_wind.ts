@@ -40,33 +40,46 @@ export function updateWindIndicator(wind: number): void {
   const pct = Math.round(magnitude * 100);
   const isCalm = magnitude < 0.08;
 
-  $windDirection.textContent = isCalm ? '·' : clamped >= 0 ? '→' : '←';
+  $windDirection.textContent = windDirArrow(clamped, isCalm);
   $windDirection.style.color = magnitude >= STRONG_WIND_THRESHOLD ? '#ffb4c4' : '#a8d4ff';
   $windStrength.textContent = `${pct}%`;
 
   $windMeterFill.classList.toggle('strong', magnitude >= STRONG_WIND_THRESHOLD);
+  applyWindMeterStyle($windMeterFill, clamped, magnitude, isCalm);
 
-  if (isCalm) {
-    $windMeterFill.style.width = '0%';
-    $windMeterFill.style.left = '50%';
-    $windMeterFill.style.right = 'auto';
-  } else if (clamped >= 0) {
-    $windMeterFill.style.left = '50%';
-    $windMeterFill.style.right = 'auto';
-    $windMeterFill.style.width = `${(magnitude * 50).toFixed(1)}%`;
-  } else {
-    $windMeterFill.style.right = '50%';
-    $windMeterFill.style.left = 'auto';
-    $windMeterFill.style.width = `${(magnitude * 50).toFixed(1)}%`;
-  }
-
-  const dirLabel = isCalm ? '无' : clamped >= 0 ? '东' : '西';
+  const dirLabel = windDirLabel(clamped, isCalm);
   $windIndicator.title = `风向 ${dirLabel} · 风力 ${pct}%`;
 
   if (!windHintShown && !isTutorialDone() && $windFirstHint) {
     windHintShown = true;
     $windFirstHint.classList.remove('hidden');
     setTimeout(() => $windFirstHint?.classList.add('hidden'), 3000);
+  }
+}
+
+function windDirArrow(clamped: number, isCalm: boolean): string {
+  if (isCalm) return '·';
+  return clamped >= 0 ? '→' : '←';
+}
+
+function windDirLabel(clamped: number, isCalm: boolean): string {
+  if (isCalm) return '无';
+  return clamped >= 0 ? '东' : '西';
+}
+
+function applyWindMeterStyle(el: HTMLElement, clamped: number, magnitude: number, isCalm: boolean): void {
+  if (isCalm) {
+    el.style.width = '0%';
+    el.style.left = '50%';
+    el.style.right = 'auto';
+  } else if (clamped >= 0) {
+    el.style.left = '50%';
+    el.style.right = 'auto';
+    el.style.width = `${(magnitude * 50).toFixed(1)}%`;
+  } else {
+    el.style.right = '50%';
+    el.style.left = 'auto';
+    el.style.width = `${(magnitude * 50).toFixed(1)}%`;
   }
 }
 

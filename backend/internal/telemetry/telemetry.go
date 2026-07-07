@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
@@ -61,10 +62,21 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 		return nil, fmt.Errorf("create OTLP exporter: %w", err)
 	}
 
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "development"
+	}
+	region := os.Getenv("CLOUD_REGION")
+	if region == "" {
+		region = os.Getenv("REGION")
+	}
+
 	res, err := resourceFactory(ctx,
 		sdkresource.WithAttributes(
 			semconv.ServiceNameKey.String(serviceName),
 			semconv.ServiceVersionKey.String(serviceVersion),
+			attribute.String("deployment.environment", env),
+			attribute.String("cloud.region", region),
 		),
 	)
 	if err != nil {

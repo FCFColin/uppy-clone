@@ -8,10 +8,14 @@ type Nickname string
 // NewNickname creates a Nickname from raw input using the provided validator.
 func NewNickname(name string, v NicknameValidator) (Nickname, error) {
 	sanitized := v.ValidateNickname(name)
-	if sanitized == "" {
+	runes := []rune(sanitized)
+	if len(runes) > MaxNicknameLen {
+		runes = runes[:MaxNicknameLen]
+	}
+	if len(runes) == 0 {
 		return "", fmt.Errorf("nickname cannot be empty")
 	}
-	return Nickname(sanitized), nil
+	return Nickname(string(runes)), nil
 }
 
 // String returns the string representation.

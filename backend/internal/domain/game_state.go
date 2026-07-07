@@ -20,6 +20,13 @@ type BalloonState struct {
 	Score int     `json:"score"`
 }
 
+func (b *BalloonState) Validate() error {
+	if b.Y < 0 {
+		return ErrValidation
+	}
+	return nil
+}
+
 // BirdState holds the state of the bird game object.
 type BirdState struct {
 	X          float64 `json:"x"`
@@ -28,6 +35,13 @@ type BirdState struct {
 	VY         float64 `json:"vy"`
 	Active     bool    `json:"active"`
 	SpawnTimer int     `json:"spawnTimer"`
+}
+
+func (b *BirdState) Validate() error {
+	if b.Y < 0 {
+		return ErrValidation
+	}
+	return nil
 }
 
 // GhostState holds the state of the ghost game object.
@@ -39,6 +53,13 @@ type GhostState struct {
 	Active     bool    `json:"active"`
 	SpawnTimer int     `json:"spawnTimer"`
 	RepelTimer int     `json:"repelTimer"`
+}
+
+func (g *GhostState) Validate() error {
+	if g.Y < 0 {
+		return ErrValidation
+	}
+	return nil
 }
 
 // PlayerState 表示房间内一个玩家的状态。
@@ -68,6 +89,9 @@ func (p *PlayerState) CanTap(now int64) bool {
 // RecordTap 记录一次点击：设置新冷却结束时间并累加统计。
 // 企业为何需要：点击统计与冷却更新是原子业务操作，封装避免遗漏字段。
 func (p *PlayerState) RecordTap(now int64, cooldown int64) {
+	if p.ScoreContribution >= MaxScore {
+		return
+	}
 	p.CooldownEndTime = now + cooldown
 	p.TapsCount++
 	p.ScoreContribution++
@@ -77,6 +101,8 @@ func (p *PlayerState) RecordTap(now int64, cooldown int64) {
 // windowMs 为窗口长度（毫秒），maxMessages 为窗口内最大消息数。
 func (p *PlayerState) IsRateLimited(now int64, windowMs int64, maxMessages int) bool {
 	if now-p.MessageWindowStart > windowMs {
+		p.MessageCount = 0
+		p.MessageWindowStart = now
 		return false
 	}
 	return p.MessageCount > maxMessages
@@ -106,7 +132,7 @@ type GameState struct {
 	TickCount           int                     `json:"tickCount"`
 	StartedAt           int64                   `json:"startedAt"`
 	SessionID           string                  `json:"sessionId"`
-	LobbyCode           string                  `json:"lobbyCode"`
+	LobbyCode           RoomCode                `json:"lobbyCode"`
 	Wind                float64                 `json:"wind"`
 	WindTarget          float64                 `json:"windTarget"`
 	WindChangeCountdown int                     `json:"windChangeCountdown"`
@@ -119,8 +145,15 @@ type GameState struct {
 
 // AddPlayer 添加一个玩家到游戏状态。
 // 企业为何需要：聚合方法统一玩家加入入口，便于未来加入不变量校验。
-func (g *GameState) AddPlayer(p *PlayerState) {
+func (g *GameState) AddPlayer(p *PlayerState) error {
+	if g.Players == nil {
+		g.Players = make(map[string]*PlayerState)
+	}
+	if _, exists := g.Players[p.ID]; exists {
+		return ErrDuplicateUser
+	}
 	g.Players[p.ID] = p
+	return nil
 }
 
 // RemovePlayer 从游戏状态移除指定玩家。
@@ -139,4 +172,12 @@ func (g *GameState) UpdatePlayerState(userID string, fn func(p *PlayerState)) {
 // IsGameOver 检查游戏是否已结束。
 func (g *GameState) IsGameOver() bool {
 	return g.Phase == PhaseEnded
+}
+
+// NewGameState 创建一个新的 GameState 实例，初始化 Maps。
+func NewGameState() *GameState {
+	return &GameState{
+		Players:      make(map[string]*PlayerState),
+		RestartVotes: make(map[string]bool),
+	}
 }

@@ -37,7 +37,7 @@ func setupMiddleware(r *chi.Mux) {
 func metricsAuthMiddleware(next http.Handler) http.Handler {
 	user := os.Getenv("METRICS_USER")
 	pass := os.Getenv("METRICS_PASSWORD")
-	production := os.Getenv("ENABLE_HSTS") != "false"
+	production := os.Getenv("ENV") == "production"
 	if production && (user == "" || pass == "") {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "Metrics endpoint disabled: configure METRICS_USER and METRICS_PASSWORD", http.StatusForbidden)

@@ -1,13 +1,16 @@
 /// <reference types="vite/client" />
+/// <reference lib="dom" />
 
-interface Window {
-  state: unknown;
-  __gamePhase: string;
-  requestRestart: () => void;
-  generateRandomNickname: () => string;
-  __seenSeqs: Set<number>;
-  __interp: unknown;
-  submitSetupNickname: () => Promise<void>;
-  __ws: WebSocket | null;
-  _restartCountdownTimer: ReturnType<typeof setInterval> | null;
+export {};
+
+declare global {
+  var state: unknown;
+  var __gamePhase: string;
+  var requestRestart: () => void;
+  var generateRandomNickname: () => string;
+  var __seenSeqs: Set<number>;
+  var __interp: unknown;
+  var submitSetupNickname: () => Promise<void>;
+  var __ws: WebSocket | null;
+  var _restartCountdownTimer: ReturnType<typeof setInterval> | null;
 }

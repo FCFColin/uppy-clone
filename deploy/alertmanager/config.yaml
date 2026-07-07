@@ -14,3 +14,6 @@ data:
       repeat_interval: 4h
     receivers:
       - name: default
+        slack_configs:
+          - api_url: https://hooks.slack.com/services/T00/B00/xxxxx
+            channel: '#alerts'

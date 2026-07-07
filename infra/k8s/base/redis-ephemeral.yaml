@@ -41,7 +41,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: redis
-          image: redis:7.4.0-alpine3.20  # 生产：用 @sha256:<digest> 固定
+          image: redis:7.4.0-alpine3.20@sha256:c35af3bbcef51a62c8bae5a9a563c6f1b60d7ebaea4cb5a3ccbcc157580ae098
           args: ["--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "no"]
           ports:
             - containerPort: 6379

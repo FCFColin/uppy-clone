@@ -837,6 +837,7 @@ func TestIdempotencyMiddleware_InvalidCachedResponse(t *testing.T) {
 	hash := sha256.Sum256([]byte(idemKey))
 	redisKey := "idem:" + hex.EncodeToString(hash[:])
 	ctx := context.Background()
+	// Pre-set with "not-json" - simulate a corrupted cache entry from a previous version
 	if err := rdb.Set(ctx, redisKey, "not-json", time.Minute).Err(); err != nil {
 		t.Fatal(err)
 	}
@@ -852,11 +853,13 @@ func TestIdempotencyMiddleware_InvalidCachedResponse(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if atomic.LoadInt32(&called) != 1 {
-		t.Fatal("invalid cached payload should fall through to handler")
+	// With SETNX, the existing key (even with invalid JSON) is treated as "in progress"
+	// and returns 409 Conflict - the handler is never called
+	if atomic.LoadInt32(&called) != 0 {
+		t.Fatal("existing idempotency key should not execute handler again")
 	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
 	}
 }
 

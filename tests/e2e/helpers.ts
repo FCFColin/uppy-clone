@@ -73,3 +73,19 @@ export async function createTestUser(page: Page, nickname: string): Promise<stri
 export async function createRoomViaUI(page: Page, nickname = 'host'): Promise<string> {
   return await createTestUser(page, nickname);
 }
+
+/** 关闭页面上的 WebSocket 连接 */
+export async function closeWebSocket(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+    if (ws) ws.close();
+  });
+}
+
+/** 等待 nicknameSubmitted 状态变为 true */
+export async function waitForNicknameSubmitted(page: Page, timeout = 10000): Promise<void> {
+  await page.waitForFunction(
+    () => (window as unknown as { state?: { nicknameSubmitted?: boolean } }).state?.nicknameSubmitted === true,
+    { timeout },
+  );
+}

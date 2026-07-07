@@ -149,7 +149,7 @@ func enqueueMagicLinkEmail(ctx context.Context, tokens TokenStore, r *http.Reque
 	emailPayload := map[string]interface{}{
 		"to":      email,
 		"subject": "Your Login Link",
-		"body":    fmt.Sprintf(`<p>Click <a href='%s'>here</a> to log in. Expires in 15 minutes.</p>`, magicLinkURL),
+		"body":    fmt.Sprintf(`<p>Click <a href='%s'>here</a> to log in. Expires in 10 minutes.</p>`, magicLinkURL),
 	}
 	payloadJSON, err := magiclinkJSONMarshal(emailPayload)
 	if err != nil {
@@ -239,7 +239,7 @@ func validateMagicToken(ctx context.Context, tokens TokenStore, token string) (s
 		}
 	}
 
-	// Verify not expired (15 minutes)
+	// Verify not expired (10 minutes)
 	if data.CreatedAt+int64(config.MagicLinkTTL/time.Millisecond) < time.Now().UnixMilli() {
 		return "", fmt.Errorf("invalid or expired token")
 	}

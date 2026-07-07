@@ -7,7 +7,6 @@ import {
   onWebSocketOpen,
   onWebSocketClosed,
   getEntryStep,
-  routeConnectionError,
   clearWaitingInlineError,
 } from './entry_flow.js';
 import { resolveLobbyCode } from './lobby_match.js';
@@ -67,26 +66,7 @@ async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
   return matched;
 }
 
-function openGameSocket(wsCode: string): void {
-  const existing = getWs();
-  if (existing && existing.readyState !== WebSocket.CLOSED) {
-    existing.onclose = null;
-    existing.close();
-  }
-
-  if (!ROOM_CODE_RE.test(wsCode)) {
-    showConnectionError('无效的房间码', { showActions: true });
-    return;
-  }
-
-  const protocol: string = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl: string = `${protocol}//${window.location.host}/api/v1/lobby/${wsCode}/ws`;
-
-  const socket = new WebSocket(wsUrl);
-  socket.binaryType = 'arraybuffer';
-  connectedLobbyCode = wsCode;
-  setWs(socket);
-
+function setupSocketHandlers(socket: WebSocket): void {
   socket.onopen = () => {
     setWsEverOpened(true);
     dispatch({ type: 'SET_STATE', partial: { wasEverConnected: true } });
@@ -129,6 +109,28 @@ function openGameSocket(wsCode: string): void {
   socket.onerror = () => {
     console.error('WebSocket error');
   };
+}
+
+function openGameSocket(wsCode: string): void {
+  const existing = getWs();
+  if (existing && existing.readyState !== WebSocket.CLOSED) {
+    existing.onclose = null;
+    existing.close();
+  }
+
+  if (!ROOM_CODE_RE.test(wsCode)) {
+    showConnectionError('无效的房间码', { showActions: true });
+    return;
+  }
+
+  const protocol: string = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl: string = `${protocol}//${window.location.host}/api/v1/lobby/${wsCode}/ws`;
+
+  const socket = new WebSocket(wsUrl);
+  socket.binaryType = 'arraybuffer';
+  connectedLobbyCode = wsCode;
+  setWs(socket);
+  setupSocketHandlers(socket);
 }
 
 export async function connectWebSocket(): Promise<void> {
