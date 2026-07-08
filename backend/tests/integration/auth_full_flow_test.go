@@ -15,6 +15,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
@@ -201,13 +202,14 @@ func TestAuth_RefreshTokenRevoke(t *testing.T) {
 func TestAuth_QuickPlayWithRealDB(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	redisStore := testutil.SetupMiniredisStore(t)
+	userRepo := store.NewUserRepository(db.Pool())
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/quickplay", strings.NewReader(`{"nickname":"IntegrationPlayer"}`))
 
-	cookie, resp, err := auth.QuickPlay(db, jwtMgr, refreshMgr, nil, "IntegrationPlayer", req)
+	cookie, resp, err := auth.QuickPlay(userRepo, jwtMgr, refreshMgr, nil, "IntegrationPlayer", req)
 	if err != nil {
 		t.Fatalf("QuickPlay: %v", err)
 	}
@@ -228,12 +230,13 @@ func TestAuth_QuickPlayWithRealDB(t *testing.T) {
 func TestAuth_QuickPlayExistingSession(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	redisStore := testutil.SetupMiniredisStore(t)
+	userRepo := store.NewUserRepository(db.Pool())
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 
 	firstReq := httptest.NewRequest(http.MethodPost, "https://example.com/quickplay", strings.NewReader(`{"nickname":"First"}`))
-	_, firstResp, err := auth.QuickPlay(db, jwtMgr, refreshMgr, nil, "First", firstReq)
+	_, firstResp, err := auth.QuickPlay(userRepo, jwtMgr, refreshMgr, nil, "First", firstReq)
 	if err != nil {
 		t.Fatalf("first QuickPlay: %v", err)
 	}
@@ -246,7 +249,7 @@ func TestAuth_QuickPlayExistingSession(t *testing.T) {
 	secondReq := httptest.NewRequest(http.MethodPost, "https://example.com/quickplay", strings.NewReader(`{"nickname":"Second"}`))
 	secondReq.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
 
-	_, secondResp, err := auth.QuickPlay(db, jwtMgr, refreshMgr, nil, "Second", secondReq)
+	_, secondResp, err := auth.QuickPlay(userRepo, jwtMgr, refreshMgr, nil, "Second", secondReq)
 	if err != nil {
 		t.Fatalf("second QuickPlay: %v", err)
 	}
@@ -325,6 +328,7 @@ func TestAuth_InvalidJWTManager(t *testing.T) {
 func TestAuth_ConcurrentQuickplay(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	redisStore := testutil.SetupMiniredisStore(t)
+	userRepo := store.NewUserRepository(db.Pool())
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
@@ -342,7 +346,7 @@ func TestAuth_ConcurrentQuickplay(t *testing.T) {
 			nickname := fmt.Sprintf("ConcurrentPlayer%d", idx)
 			req := httptest.NewRequest(http.MethodPost, "https://example.com/quickplay", strings.NewReader(`{"nickname":"`+nickname+`"}`))
 
-			cookie, resp, err := auth.QuickPlay(db, jwtMgr, refreshMgr, nil, nickname, req)
+			cookie, resp, err := auth.QuickPlay(userRepo, jwtMgr, refreshMgr, nil, nickname, req)
 			mu.Lock()
 			if err != nil {
 				errs = append(errs, fmt.Errorf("goroutine %d: %w", idx, err))

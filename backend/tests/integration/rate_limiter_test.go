@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -101,32 +102,39 @@ func TestRateLimiter_ConcurrentRequests(t *testing.T) {
 	ctx := context.Background()
 
 	key := "test:concurrent"
-	limit := int64(20)
+	limit := int64(5) // limit < goroutine count so some requests are denied
 	window := time.Minute
+	goroutines := 10
 
 	var wg sync.WaitGroup
-	errCh := make(chan error, 30)
-	for i := 0; i < 10; i++ {
+	var allowedCount int64
+	var deniedCount int64
+	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			allowed, err := redisStore.CheckRateLimit(ctx, key, limit, window)
 			if err != nil {
-				errCh <- err
+				t.Errorf("concurrent CheckRateLimit failed: %v", err)
 				return
 			}
-			if !allowed {
-				errCh <- nil
+			if allowed {
+				atomic.AddInt64(&allowedCount, 1)
+			} else {
+				atomic.AddInt64(&deniedCount, 1)
 			}
 		}()
 	}
 	wg.Wait()
-	close(errCh)
 
-	for err := range errCh {
-		if err != nil {
-			t.Fatalf("concurrent CheckRateLimit failed: %v", err)
-		}
+	// With limit=5 and 10 concurrent requests, exactly `limit` should be allowed
+	// and the rest denied (miniredis processes INCR atomically).
+	if allowedCount != limit {
+		t.Errorf("allowed = %d, want %d (limit)", allowedCount, limit)
+	}
+	wantDenied := int64(goroutines) - limit
+	if deniedCount != wantDenied {
+		t.Errorf("denied = %d, want %d", deniedCount, wantDenied)
 	}
 }
 

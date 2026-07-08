@@ -10,12 +10,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestPostgresStore_AnonymizeUser(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	userRepo := store.NewUserRepository(db.Pool())
 
 	email := fmt.Sprintf("gdpr-%d@example.com", time.Now().UnixNano())
 	user := &domain.User{
@@ -24,17 +26,19 @@ func TestPostgresStore_AnonymizeUser(t *testing.T) {
 		Nickname:  "GDPRUser",
 		CreatedAt: time.Now().UnixMilli(),
 	}
-	if err := db.CreateUser(ctx, user); err != nil {
+	if err := userRepo.CreateUser(ctx, user); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	if err := db.AnonymizeUser(ctx, user.ID); err != nil {
+	if err := userRepo.AnonymizeUser(ctx, user.ID); err != nil {
 		t.Fatalf("AnonymizeUser: %v", err)
 	}
-	got, err := db.GetUserByID(ctx, user.ID)
+	got, err := userRepo.GetUserByID(ctx, user.ID)
 	if err != nil || got == nil {
 		t.Fatalf("GetUserByID after anonymize: %v", err)
 	}
-	if got.Email != "" && got.Nickname == "GDPRUser" {
+	// Either field failing to anonymize must fail the test: use OR (||) so that
+	// a non-empty Email OR a still-original Nickname indicates incomplete anonymization.
+	if got.Email != "" || got.Nickname == "GDPRUser" {
 		t.Fatalf("expected anonymized user, got %+v", got)
 	}
 }
@@ -42,6 +46,7 @@ func TestPostgresStore_AnonymizeUser(t *testing.T) {
 func TestPostgresStore_LoadAllActiveLobbiesCursor(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	gameStore := store.NewGameStore(db.Pool())
 
 	for i, code := range []string{"AAAAA", "BBBBB", "CCCCC"} {
 		ls := &domain.LobbyState{
@@ -51,16 +56,16 @@ func TestPostgresStore_LoadAllActiveLobbiesCursor(t *testing.T) {
 			UpdatedAt: int64(1000 - i),
 			CreatedAt: time.Now().UnixMilli(),
 		}
-		if err := db.SaveLobbyState(ctx, ls); err != nil {
+		if err := gameStore.SaveLobbyState(ctx, ls); err != nil {
 			t.Fatalf("SaveLobbyState: %v", err)
 		}
 	}
 
-	page1, err := db.LoadAllActiveLobbies(ctx, 2, "")
+	page1, err := gameStore.LoadAllActiveLobbies(ctx, 2, "")
 	if err != nil || len(page1.Lobbies) != 2 || !page1.HasMore {
 		t.Fatalf("page1: lobbies=%d hasMore=%v err=%v", len(page1.Lobbies), page1.HasMore, err)
 	}
-	page2, err := db.LoadAllActiveLobbies(ctx, 2, page1.NextCursor)
+	page2, err := gameStore.LoadAllActiveLobbies(ctx, 2, page1.NextCursor)
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}

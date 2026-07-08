@@ -464,3 +464,49 @@ func BenchmarkDecodeMessage(b *testing.B) {
 		DecodeMessage(data)
 	}
 }
+
+// ─── Fuzz tests (v2-R-103~106) ───────────────────────────────────────
+
+// FuzzDecodeNicknamePayload ensures DecodeNicknamePayload never panics and
+// returns consistent results for arbitrary byte inputs.
+// Note: FuzzDecodeTap/FuzzDecodeMessage/FuzzDecodeSetNickname already exist
+// in decode_fuzz_test.go; this adds coverage for the standalone payload decoder.
+func FuzzDecodeNicknamePayload(f *testing.F) {
+	// Seed corpus: valid, empty, zero-length, truncated, oversized.
+	f.Add([]byte{5, 'h', 'e', 'l', 'l', 'o'})
+	f.Add([]byte{})
+	f.Add([]byte{0})
+	f.Add([]byte{3, 'a', 'b'})
+	f.Add([]byte{255, 'x'})
+	f.Add([]byte{1, 0xff})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		nickname, ok := DecodeNicknamePayload(data)
+		if !ok {
+			// On failure, nickname must be empty.
+			if nickname != "" {
+				t.Fatalf("on failure expected empty nickname, got %q", nickname)
+			}
+			return
+		}
+		// On success: data must have at least 1 byte (nickLen) and nickLen > 0.
+		if len(data) < 1 {
+			t.Fatalf("ok=true but data empty")
+		}
+		nickLen := int(data[0])
+		if nickLen <= 0 {
+			t.Fatalf("ok=true but nickLen=%d <= 0", nickLen)
+		}
+		if len(data) < 1+nickLen {
+			t.Fatalf("ok=true but data too short: len=%d, need %d", len(data), 1+nickLen)
+		}
+		// Nickname bytes must match the slice.
+		expected := string(data[1 : 1+nickLen])
+		if nickname != expected {
+			t.Fatalf("nickname=%q, want %q", nickname, expected)
+		}
+		if len(nickname) != nickLen {
+			t.Fatalf("len(nickname)=%d, want %d", len(nickname), nickLen)
+		}
+	})
+}

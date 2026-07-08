@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
@@ -23,6 +24,8 @@ import (
 func TestPostgresStore_Integration(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	userRepo := store.NewUserRepository(db.Pool())
+	gameStore := store.NewGameStore(db.Pool())
 
 	t.Run("CreateUserAndGetByEmail", func(t *testing.T) {
 		email := fmt.Sprintf("test-%d@example.com", time.Now().UnixNano())
@@ -33,11 +36,11 @@ func TestPostgresStore_Integration(t *testing.T) {
 			Palette:   0,
 			CreatedAt: time.Now().UnixMilli(),
 		}
-		if err := db.CreateUser(ctx, user); err != nil {
+		if err := userRepo.CreateUser(ctx, user); err != nil {
 			t.Fatalf("CreateUser failed: %v", err)
 		}
 
-		got, err := db.GetUserByEmail(ctx, email)
+		got, err := userRepo.GetUserByEmail(ctx, email)
 		if err != nil {
 			t.Fatalf("GetUserByEmail failed: %v", err)
 		}
@@ -61,11 +64,11 @@ func TestPostgresStore_Integration(t *testing.T) {
 			UpdatedAt: time.Now().UnixMilli(),
 			CreatedAt: time.Now().UnixMilli(),
 		}
-		if err := db.SaveLobbyState(ctx, lobby); err != nil {
+		if err := gameStore.SaveLobbyState(ctx, lobby); err != nil {
 			t.Fatalf("SaveLobbyState failed: %v", err)
 		}
 
-		got, err := db.LoadLobbyState(ctx, code)
+		got, err := gameStore.LoadLobbyState(ctx, code)
 		if err != nil {
 			t.Fatalf("LoadLobbyState failed: %v", err)
 		}
@@ -76,7 +79,7 @@ func TestPostgresStore_Integration(t *testing.T) {
 			t.Fatalf("expected code %s, got %s", code, got.Code)
 		}
 
-		result, err := db.LoadAllActiveLobbies(ctx, 10, "")
+		result, err := gameStore.LoadAllActiveLobbies(ctx, 10, "")
 		if err != nil {
 			t.Fatalf("LoadAllActiveLobbies failed: %v", err)
 		}

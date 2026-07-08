@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
@@ -15,14 +16,15 @@ func TestRedisStore_RegisterRoom_Smoke(t *testing.T) {
 	}
 
 	ctx, rdb := testutil.SetupRedisStore(t)
+	roomRegistry := store.NewRoomRegistryStore(rdb.Client())
 
 	code := "ROOM1"
 	data := []byte(`{"host":"Host1","players":1}`)
-	if err := rdb.RegisterRoom(ctx, code, data, 5*time.Minute); err != nil {
+	if err := roomRegistry.RegisterRoom(ctx, code, data, 5*time.Minute); err != nil {
 		t.Fatalf("RegisterRoom failed: %v", err)
 	}
 
-	rooms, err := rdb.ListActiveRooms(ctx)
+	rooms, err := roomRegistry.ListActiveRooms(ctx)
 	if err != nil {
 		t.Fatalf("ListActiveRooms failed: %v", err)
 	}

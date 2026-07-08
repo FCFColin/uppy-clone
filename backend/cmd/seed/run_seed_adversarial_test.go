@@ -6,7 +6,8 @@ import (
 )
 
 func TestRunSeed_MissingURL(t *testing.T) {
-	if err := runSeed(""); err == nil {
+	_, err := runSeed("")
+	if err == nil {
 		t.Fatal("expected error for empty DATABASE_URL")
 	}
 }
@@ -30,7 +31,7 @@ func TestRunSeed_RejectsProductionURLPatterns(t *testing.T) {
 
 	for _, tc := range reject {
 		t.Run(tc.name, func(t *testing.T) {
-			err := runSeed(tc.url)
+			_, err := runSeed(tc.url)
 			if err == nil {
 				t.Fatalf("expected rejection for %q", tc.url)
 			}
@@ -42,7 +43,7 @@ func TestRunSeed_RejectsProductionURLPatterns(t *testing.T) {
 }
 
 func TestRunSeed_AcceptsDevURLPattern(t *testing.T) {
-	err := runSeed("postgres://u:p@127.0.0.1:1/dev?sslmode=disable")
+	_, err := runSeed("postgres://u:p@127.0.0.1:1/dev?sslmode=disable")
 	if err == nil {
 		t.Fatal("expected connect error after guard passes")
 	}
@@ -51,9 +52,39 @@ func TestRunSeed_AcceptsDevURLPattern(t *testing.T) {
 	}
 }
 
-func TestRunSeed_WeakGuardSubstringBypass(t *testing.T) {
-	err := runSeed("postgres://u:p@host/db?sslmode=disable&sslmode=require")
-	if err != nil && strings.Contains(err.Error(), "SEED ABORTED") {
-		t.Fatal("substring guard accepts sslmode=disable even when require is also present")
+// v2-R-95: The bypass ?sslmode=disable&sslmode=require must now be REJECTED.
+// Previously the substring guard accepted it (libpq takes the last value =
+// require, but substring check found "disable"). The URL-parsed guard now
+// rejects duplicate sslmode keys and checks the final value.
+func TestRunSeed_GuardRejectsSSLModeBypass(t *testing.T) {
+	_, err := runSeed("postgres://u:p@host/db?sslmode=disable&sslmode=require")
+	if err == nil {
+		t.Fatal("expected rejection for sslmode bypass attempt")
+	}
+	if !strings.Contains(err.Error(), "SEED ABORTED") {
+		t.Fatalf("error = %v, want SEED ABORTED", err)
+	}
+}
+
+// v2-R-95: Even a single sslmode=require must be rejected (not just bypass).
+func TestRunSeed_GuardRejectsRequire(t *testing.T) {
+	_, err := runSeed("postgres://u:p@host/db?sslmode=require")
+	if err == nil {
+		t.Fatal("expected rejection for sslmode=require")
+	}
+	if !strings.Contains(err.Error(), "SEED ABORTED") {
+		t.Fatalf("error = %v, want SEED ABORTED", err)
+	}
+}
+
+// v2-R-95: Reverse bypass ?sslmode=require&sslmode=disable must also be
+// rejected (duplicate sslmode keys are ambiguous even if the last is disable).
+func TestRunSeed_GuardRejectsReverseBypass(t *testing.T) {
+	_, err := runSeed("postgres://u:p@host/db?sslmode=require&sslmode=disable")
+	if err == nil {
+		t.Fatal("expected rejection for duplicate sslmode keys")
+	}
+	if !strings.Contains(err.Error(), "SEED ABORTED") {
+		t.Fatalf("error = %v, want SEED ABORTED", err)
 	}
 }

@@ -7,15 +7,17 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestOutbox_InsertEvent(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	outboxRepo := store.NewOutboxRepository(db.Pool())
 
 	payload := []byte(`{"event":"test","value":42}`)
-	if err := db.InsertOutboxEvent(ctx, "room", "room-abc", payload); err != nil {
+	if err := outboxRepo.InsertOutboxEvent(ctx, "room", "room-abc", payload); err != nil {
 		t.Fatalf("InsertOutboxEvent: %v", err)
 	}
 }
@@ -23,6 +25,7 @@ func TestOutbox_InsertEvent(t *testing.T) {
 func TestOutbox_InsertMultipleEvents(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	outboxRepo := store.NewOutboxRepository(db.Pool())
 
 	events := []struct {
 		aggregateType string
@@ -36,7 +39,7 @@ func TestOutbox_InsertMultipleEvents(t *testing.T) {
 	}
 
 	for _, ev := range events {
-		if err := db.InsertOutboxEvent(ctx, ev.aggregateType, ev.aggregateID, ev.payload); err != nil {
+		if err := outboxRepo.InsertOutboxEvent(ctx, ev.aggregateType, ev.aggregateID, ev.payload); err != nil {
 			t.Fatalf("InsertOutboxEvent(%s, %s): %v", ev.aggregateType, ev.aggregateID, err)
 		}
 	}
@@ -45,8 +48,9 @@ func TestOutbox_InsertMultipleEvents(t *testing.T) {
 func TestOutbox_InsertEmptyPayload(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	outboxRepo := store.NewOutboxRepository(db.Pool())
 
-	if err := db.InsertOutboxEvent(ctx, "room", "room-empty", []byte(`{}`)); err != nil {
+	if err := outboxRepo.InsertOutboxEvent(ctx, "room", "room-empty", []byte(`{}`)); err != nil {
 		t.Fatalf("InsertOutboxEvent with empty payload: %v", err)
 	}
 }
@@ -54,6 +58,7 @@ func TestOutbox_InsertEmptyPayload(t *testing.T) {
 func TestOutbox_InsertLargePayload(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	outboxRepo := store.NewOutboxRepository(db.Pool())
 
 	data := make([]byte, 5000)
 	for i := range data {
@@ -61,7 +66,7 @@ func TestOutbox_InsertLargePayload(t *testing.T) {
 	}
 	payload := append(append([]byte(`{"data":"`), data...), []byte(`"}`)...)
 
-	if err := db.InsertOutboxEvent(ctx, "room", "room-large", payload); err != nil {
+	if err := outboxRepo.InsertOutboxEvent(ctx, "room", "room-large", payload); err != nil {
 		t.Fatalf("InsertOutboxEvent with large payload: %v", err)
 	}
 }
@@ -69,9 +74,10 @@ func TestOutbox_InsertLargePayload(t *testing.T) {
 func TestOutbox_InsertSpecialChars(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	outboxRepo := store.NewOutboxRepository(db.Pool())
 
 	payload := []byte(`{"name":"test's data with special chars: \"'\n\t"}`)
-	if err := db.InsertOutboxEvent(ctx, "room", "room-special", payload); err != nil {
+	if err := outboxRepo.InsertOutboxEvent(ctx, "room", "room-special", payload); err != nil {
 		t.Fatalf("InsertOutboxEvent with special chars: %v", err)
 	}
 }
@@ -79,13 +85,14 @@ func TestOutbox_InsertSpecialChars(t *testing.T) {
 func TestOutbox_InsertLongAggregateID(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	outboxRepo := store.NewOutboxRepository(db.Pool())
 
 	longID := ""
 	for i := 0; i < 255; i++ {
 		longID += "a"
 	}
 
-	if err := db.InsertOutboxEvent(ctx, "room", longID, []byte(`{"event":"test"}`)); err != nil {
+	if err := outboxRepo.InsertOutboxEvent(ctx, "room", longID, []byte(`{"event":"test"}`)); err != nil {
 		t.Fatalf("InsertOutboxEvent with long aggregateID: %v", err)
 	}
 }
@@ -93,12 +100,13 @@ func TestOutbox_InsertLongAggregateID(t *testing.T) {
 func TestOutbox_ConcurrentInserts(t *testing.T) {
 	db := testutil.SetupPostgresStore(t)
 	ctx := context.Background()
+	outboxRepo := store.NewOutboxRepository(db.Pool())
 
 	done := make(chan error, 10)
 	for i := 0; i < 5; i++ {
 		go func(idx int) {
 			payload := []byte(fmt.Sprintf(`{"concurrent":true,"index":%d}`, idx))
-			done <- db.InsertOutboxEvent(ctx, "room", "room-concurrent", payload)
+			done <- outboxRepo.InsertOutboxEvent(ctx, "room", "room-concurrent", payload)
 		}(i)
 	}
 
