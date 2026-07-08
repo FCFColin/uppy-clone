@@ -250,6 +250,36 @@ var (
 		Help:    "Number of outbox events processed per batch",
 		Buckets: []float64{1, 5, 10, 25, 50, 100},
 	})
+
+	// WorkerMessagesProcessed counts worker messages by worker name and outcome (v2-R-43).
+	// result label values: success, failure, deadletter, invalid_payload, skipped.
+	WorkerMessagesProcessed = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "worker_messages_processed_total",
+			Help: "Total worker messages processed by worker and result",
+		},
+		[]string{"worker", "result"},
+	)
+
+	// WorkerProcessingDuration records per-message worker processing latency in seconds (v2-R-43).
+	WorkerProcessingDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "worker_processing_seconds",
+			Help:    "Worker per-message processing duration in seconds",
+			Buckets: SLOBuckets,
+		},
+		[]string{"worker"},
+	)
+
+	// WorkerReadErrors counts transient XReadGroup errors per worker (v2-R-43).
+	// Used to alert on consumer-group connectivity issues independent of message outcomes.
+	WorkerReadErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "worker_read_errors_total",
+			Help: "Total worker XReadGroup errors by worker",
+		},
+		[]string{"worker"},
+	)
 )
 
 // GameSessionsTotal counts game sessions started across the server.

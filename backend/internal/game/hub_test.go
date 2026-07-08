@@ -768,21 +768,22 @@ func TestHub_RestoreRooms_WithDB(t *testing.T) {
 		t.Fatalf("failed to connect to DB: %v", err)
 	}
 	defer db.Close()
+	gameStore := store.NewGameStore(db.Pool())
 
 	ctx := context.Background()
 
 	// Clean up any leftover rooms from previous test runs.
-	_ = db.DeleteLobbyState(ctx, "RST01")
-	_ = db.DeleteLobbyState(ctx, "RST02")
+	_ = gameStore.DeleteLobbyState(ctx, "RST01")
+	_ = gameStore.DeleteLobbyState(ctx, "RST02")
 	defer func() {
-		_ = db.DeleteLobbyState(ctx, "RST01")
-		_ = db.DeleteLobbyState(ctx, "RST02")
+		_ = gameStore.DeleteLobbyState(ctx, "RST01")
+		_ = gameStore.DeleteLobbyState(ctx, "RST02")
 	}()
 
 	// Persist two rooms to the DB.
 	state1 := NewGameState("RST01", testRNG())
 	state1JSON, _ := SerializeState(state1)
-	if err := db.SaveLobbyState(ctx, &domain.LobbyState{
+	if err := gameStore.SaveLobbyState(ctx, &domain.LobbyState{
 		Code:      "RST01",
 		State:     string(state1JSON),
 		UpdatedAt: time.Now().UnixMilli(),
@@ -793,7 +794,7 @@ func TestHub_RestoreRooms_WithDB(t *testing.T) {
 
 	state2 := NewGameState("RST02", testRNG())
 	state2JSON, _ := SerializeState(state2)
-	if err := db.SaveLobbyState(ctx, &domain.LobbyState{
+	if err := gameStore.SaveLobbyState(ctx, &domain.LobbyState{
 		Code:      "RST02",
 		State:     string(state2JSON),
 		UpdatedAt: time.Now().UnixMilli(),
@@ -803,7 +804,7 @@ func TestHub_RestoreRooms_WithDB(t *testing.T) {
 	}
 
 	// Create a Hub with the DB and restore rooms.
-	h := NewHub(db, nil, timeouts, 0, 0, nil)
+	h := NewHub(gameStore, nil, timeouts, 0, 0, nil)
 	if err := h.RestoreRooms(); err != nil {
 		t.Fatalf("RestoreRooms failed: %v", err)
 	}

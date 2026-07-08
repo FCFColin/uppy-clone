@@ -8,7 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/constants"
+	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 func TestStatusWriter_DefaultOK(t *testing.T) {
@@ -47,7 +47,7 @@ func TestBeginAuth_RecordsOnEnd(t *testing.T) {
 }
 
 func TestWSMessageTypeName(t *testing.T) {
-	if got := metrics.WSMessageTypeName(constants.MsgSetNickname); got != "set_nickname" {
+	if got := metrics.WSMessageTypeName(protocol.MsgSetNickname); got != "set_nickname" {
 		t.Fatalf("got %q, want set_nickname", got)
 	}
 }

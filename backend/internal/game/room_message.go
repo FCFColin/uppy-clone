@@ -13,19 +13,12 @@ import (
 func (r *Room) handleTap(player *domain.PlayerState, playerID string, payload []byte) {
 	now := time.Now().UnixMilli()
 
-	rejected := false
 	if !r.validateTapRequest(player, now) {
-		rejected = true
-	} else {
-		tapX, tapY, ok := r.decodeTapPayload(payload)
-		if !ok {
-			rejected = true
-		} else if !r.applyTapPhysics(float64(tapX), float64(tapY)) {
-			rejected = true
-		}
+		r.sendToPlayer(playerID, protocol.EncodeTapRejected())
+		return
 	}
-
-	if rejected {
+	tapX, tapY, ok := r.decodeTapPayload(payload)
+	if !ok || !r.applyTapPhysics(float64(tapX), float64(tapY)) {
 		r.sendToPlayer(playerID, protocol.EncodeTapRejected())
 		return
 	}

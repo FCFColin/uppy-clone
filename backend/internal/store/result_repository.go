@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/slogctx"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -51,7 +52,7 @@ func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, room
 	)
 	defer span.End()
 
-	return r.withRetryWrite(ctx, func(ctx context.Context) error {
+	err := r.withRetryWrite(ctx, func(ctx context.Context) error {
 		tx, txErr := r.pool.Begin(ctx)
 		if txErr != nil {
 			return fmt.Errorf("begin tx: %w", txErr)
@@ -86,6 +87,12 @@ func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, room
 		}
 		return nil
 	})
+	if err != nil {
+		slogctx.LoggerFromContext(ctx).Error("record game result failed",
+			"error", err, "session_id", sessionID)
+		return err
+	}
+	return nil
 }
 
 func (r *ResultRepository) EndGameAndRecordResults(ctx context.Context, sessionID string, endedAt int64, finalScore int, results []domain.GameResult) error {
@@ -130,7 +137,12 @@ func (r *ResultRepository) EndGameAndRecordResults(ctx context.Context, sessionI
 		}
 		return nil, nil
 	})
-	return err
+	if err != nil {
+		slogctx.LoggerFromContext(ctx).Error("end game and record results failed",
+			"error", err, "session_id", sessionID)
+		return err
+	}
+	return nil
 }
 
 func (r *ResultRepository) InsertSeedGameResult(ctx context.Context, result *domain.GameResult) error {

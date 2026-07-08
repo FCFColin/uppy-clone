@@ -163,7 +163,7 @@ func newAdminHandlerWithDB(t *testing.T) (*AdminHandler, pgxmock.PgxPoolIface, *
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewConfigRepository(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
 	h := NewAdminHandler(db, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), redisStore)
 	return h, mock, redisStore
@@ -505,7 +505,7 @@ func TestAdminHandler_Login_NilRedis(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewConfigRepository(mock)
 	h := NewAdminHandler(db, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), nil)
 	expectAdminConfigQuery(mock, string(cfgJSON))
 

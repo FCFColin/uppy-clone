@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestGenerateRandom_NonEmpty(t *testing.T) {
@@ -97,7 +98,8 @@ func TestGenerateRandom_PlayerFallback(t *testing.T) {
 				used[base] = true
 				for i := 2; i < 100; i++ {
 					candidate := base + "#" + strconv.Itoa(i)
-					if len(candidate) <= maxNicknameLength {
+					// v2-R-83: match generator's rune-count check, not byte length.
+					if utf8.RuneCountInString(candidate) <= maxNicknameLength {
 						used[candidate] = true
 					}
 				}
@@ -120,7 +122,8 @@ func TestGenerateRandom_SkipsOverlongSuffixCandidates(t *testing.T) {
 				used[base] = true
 				for i := 2; i < 100; i++ {
 					candidate := base + "#" + strconv.Itoa(i)
-					if len(candidate) <= maxNicknameLength {
+					// v2-R-83: match generator's rune-count check, not byte length.
+					if utf8.RuneCountInString(candidate) <= maxNicknameLength {
 						used[candidate] = true
 					}
 				}
@@ -164,7 +167,8 @@ func TestGenerateRandom_ReturnsValidSuffix(t *testing.T) {
 	base := adj + noun
 	used := map[string]bool{base: true}
 	want := base + "#2"
-	if len(want) > maxNicknameLength {
+	// v2-R-83: rune count, not byte length — Chinese base names are multi-byte.
+	if utf8.RuneCountInString(want) > maxNicknameLength {
 		t.Skip("base name too long for suffix test")
 	}
 	name := GenerateRandom(used)
@@ -185,12 +189,13 @@ func TestGenerateRandom_SkipsLongSuffixCandidate(t *testing.T) {
 	used := map[string]bool{base: true}
 	for i := 2; i < 100; i++ {
 		candidate := base + "#" + strconv.Itoa(i)
-		if len(candidate) > maxNicknameLength {
+		// v2-R-83: match generator's rune-count check.
+		if utf8.RuneCountInString(candidate) > maxNicknameLength {
 			used[candidate] = true
 		}
 	}
 	name := GenerateRandom(used)
-	if strings.HasPrefix(name, base+"#") && len(name) > maxNicknameLength {
+	if strings.HasPrefix(name, base+"#") && utf8.RuneCountInString(name) > maxNicknameLength {
 		t.Fatalf("should skip overlong suffix candidate, got %q", name)
 	}
 }

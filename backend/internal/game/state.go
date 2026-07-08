@@ -45,12 +45,10 @@ func ResetGameEntities(state *domain.GameState, spawnTimer int, rng RNGSource) {
 	state.RestartTimerStart = nil
 }
 
-// SerializeState 将 GameState 序列化为 JSON 字节
 func SerializeState(state *domain.GameState) ([]byte, error) {
 	return json.Marshal(state)
 }
 
-// DeserializeState 从 JSON 字节反序列化为 GameState
 func DeserializeState(data []byte) (*domain.GameState, error) {
 	var state domain.GameState
 	if err := json.Unmarshal(data, &state); err != nil {

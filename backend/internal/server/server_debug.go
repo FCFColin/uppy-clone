@@ -1,28 +1,56 @@
 package server
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+
+	"github.com/grafana/pyroscope-go"
 )
 
-// initProfiling starts continuous profiling with Pyroscope when enabled.
-// 企业为何需要：always-on profiling 让团队随时查看 CPU/内存火焰图，无需手动抓取。
+type pyroscopeLogger struct{}
+
+func (pyroscopeLogger) Infof(msg string, args ...interface{}) {
+	slog.Info(fmt.Sprintf(msg, args...))
+}
+
+func (pyroscopeLogger) Debugf(msg string, args ...interface{}) {
+	slog.Debug(fmt.Sprintf(msg, args...))
+}
+
+func (pyroscopeLogger) Errorf(msg string, args ...interface{}) {
+	slog.Error(fmt.Sprintf(msg, args...))
+}
+
 func initProfiling() {
 	if os.Getenv("ENABLE_PYROSCOPE") != "true" {
 		return
 	}
-	pyroscopeAddress := os.Getenv("PYROSCOPE_SERVER_ADDRESS")
-	if pyroscopeAddress == "" {
+	address := os.Getenv("PYROSCOPE_SERVER_ADDRESS")
+	if address == "" {
+		slog.Warn("PYROSCOPE_SERVER_ADDRESS not set, skipping profiling")
 		return
 	}
-	// TODO: add github.com/grafana/pyroscope-go dependency to enable always-on profiling.
-	slog.Info("Pyroscope continuous profiling enabled", "address", pyroscopeAddress)
+
+	_, err := pyroscope.Start(pyroscope.Config{
+		ApplicationName: "balloon-game",
+		ServerAddress:   address,
+		Logger:          pyroscopeLogger{},
+		ProfileTypes: []pyroscope.ProfileType{
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileInuseObjects,
+			pyroscope.ProfileInuseSpace,
+		},
+	})
+	if err != nil {
+		slog.Error("failed to start pyroscope", "error", err)
+		return
+	}
+	slog.Info("Pyroscope continuous profiling enabled", "address", address)
 }
 
-// initLogger sets up the structured logger.
-// Enterprise rationale: Structured JSON logs are required for log aggregation
-// systems (ELK, Loki, Datadog). Text logs cannot be efficiently queried.
-// LOG_FORMAT=text switches to text format for local development DX.
 func initLogger() *slog.Logger {
 	logLevel := parseLogLevel(getEnv("LOG_LEVEL", "info"))
 	opts := &slog.HandlerOptions{Level: logLevel}

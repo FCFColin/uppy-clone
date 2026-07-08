@@ -16,6 +16,7 @@ import (
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 )
@@ -170,8 +171,8 @@ func TestPrepareQuickPlayNickname(t *testing.T) {
 		t.Fatal("empty nickname should generate random name")
 	}
 	longName := "abcdefghijklmnopqrstuvwxyz"
-	if got := prepareQuickPlayNickname(longName); len([]rune(got)) > config.MaxNicknameLen {
-		t.Fatalf("nickname should truncate to %d runes, got %q", config.MaxNicknameLen, got)
+	if got := prepareQuickPlayNickname(longName); len([]rune(got)) > domain.MaxNicknameLen {
+		t.Fatalf("nickname should truncate to %d runes, got %q", domain.MaxNicknameLen, got)
 	}
 }
 
@@ -271,10 +272,10 @@ func TestPrepareQuickPlayNickname_SanitizeToEmpty(t *testing.T) {
 }
 
 func TestPrepareQuickPlayNickname_Truncate(t *testing.T) {
-	long := strings.Repeat("A", config.MaxNicknameLen+5)
+	long := strings.Repeat("A", domain.MaxNicknameLen+5)
 	got := prepareQuickPlayNickname(long)
-	if len([]rune(got)) != config.MaxNicknameLen {
-		t.Fatalf("nickname length = %d, want %d", len([]rune(got)), config.MaxNicknameLen)
+	if len([]rune(got)) != domain.MaxNicknameLen {
+		t.Fatalf("nickname length = %d, want %d", len([]rune(got)), domain.MaxNicknameLen)
 	}
 }
 

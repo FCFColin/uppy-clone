@@ -512,8 +512,8 @@ func TestRoom_SetNicknameChineseUTF8StartsCountdown(t *testing.T) {
 
 	nick := "好奇的中子"
 	payload := append([]byte{byte(len(nick))}, []byte(nick)...)
-	if len(nick) <= config.MaxNicknameLen {
-		t.Fatalf("test nickname byte length = %d, want > %d to reproduce the bug", len(nick), config.MaxNicknameLen)
+	if len(nick) <= domain.MaxNicknameLen {
+		t.Fatalf("test nickname byte length = %d, want > %d to reproduce the bug", len(nick), domain.MaxNicknameLen)
 	}
 
 	r.mu.Lock()
@@ -950,7 +950,7 @@ func TestRoom_handleCountdownEnd_WithStore(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	mock.ExpectExec("INSERT INTO game_sessions").WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 
 	r := NewRoom("HCE", nil, db, config.DefaultTimeoutConfig(), 4)

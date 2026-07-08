@@ -450,7 +450,7 @@ func TestQuickPlay_WithDB(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -487,7 +487,7 @@ func TestExportUserData_WithDB(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, nil, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, nil, authSvc, &Config{})
@@ -515,7 +515,7 @@ func TestDeleteUserData_Success(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -529,14 +529,10 @@ func TestDeleteUserData_Success(t *testing.T) {
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
-	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO outbox_events").
-		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
-		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	// AnonymizeUser uses pool.Exec directly (non-transactional, via withRetryWrite circuit breaker)
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-del").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
-	mock.ExpectCommit()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodDelete, "/api/v1/user/data", nil)
@@ -553,7 +549,7 @@ func TestDeleteUserData_DBError(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 
 	redisStore := testutil.SetupMiniredisStore(t)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
@@ -561,10 +557,7 @@ func TestDeleteUserData_DBError(t *testing.T) {
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
-	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO outbox_events").
-		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
-		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+	// AnonymizeUser uses pool.Exec directly (non-transactional, via withRetryWrite circuit breaker)
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-err").
 		WillReturnError(context.Canceled)
@@ -603,7 +596,7 @@ func TestCheckAuth_WithDB(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-db", "CookieNick")
 	if err != nil {
@@ -705,7 +698,7 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -755,7 +748,7 @@ func TestRefreshToken_Success(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -795,7 +788,7 @@ func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(testutil.SetupMiniredisStore(t).Client())
@@ -841,7 +834,7 @@ func TestExportUserData_NotFound(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	authSvc := newMockAuthSvc(jwtMgr, nil, nil, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, nil, authSvc, &Config{})
@@ -865,7 +858,7 @@ func TestCheckAuth_DBErrorDegraded(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-db-err", "Nick")
 	if err != nil {
@@ -899,7 +892,7 @@ func TestRefreshToken_InvalidToken(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, redisStore, db, "", "", config.DefaultTimeoutConfig())
 	h := NewAuthHandler(db, redisStore, authSvc, &Config{})
 
@@ -985,5 +978,37 @@ func TestRefreshToken_NilDB(t *testing.T) {
 	h.RefreshToken(w, r)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", w.Code)
+	}
+}
+
+// TestParseQuickPlayRequest_ChineseNickname verifies v2-R-83: Chinese nicknames
+// are measured by rune count, not byte length. A 7-Chinese-char nickname is
+// 21 UTF-8 bytes (would fail the old byte-length check > 20) but only 7 runes.
+func TestParseQuickPlayRequest_ChineseNickname(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		nick    string
+		wantErr bool
+	}{
+		{"7 chinese chars (21 bytes, 7 runes) — accepted", "快乐的气球玩家", false},
+		{"1 rune — too short", "快", true},
+		{"21 runes — too long", strings.Repeat("A", 21), true},
+		{"ascii 2 chars — ok", "AB", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			body := `{"nickname":"` + tc.nick + `"}`
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", strings.NewReader(body))
+			_, apiErr := parseQuickPlayRequest(w, r)
+			if tc.wantErr && apiErr == nil {
+				t.Fatalf("expected error for %q, got nil", tc.nick)
+			}
+			if !tc.wantErr && apiErr != nil {
+				t.Fatalf("unexpected error for %q: %v", tc.nick, apiErr)
+			}
+		})
 	}
 }

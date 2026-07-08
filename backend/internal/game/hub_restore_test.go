@@ -55,7 +55,7 @@ func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
 	bc := newMockBroadcaster()
 	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, 8, bc)
@@ -97,7 +97,7 @@ func TestHub_RestoreRooms_SkipsForeignOwner(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
 	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, 8, nil)
 
@@ -280,7 +280,7 @@ func TestHub_loadOrMaterializeRoom(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("LOAD1").
 		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
@@ -326,7 +326,7 @@ func TestHub_RestoreRooms_LoadError(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
 		WillReturnError(context.Canceled)
 
@@ -342,7 +342,7 @@ func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 
 	state := NewGameState("EXIST", testRNG())
 	stateJSON, _ := json.Marshal(state)
@@ -369,7 +369,7 @@ func TestHub_RestoreRooms_DeserializeError(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
@@ -403,7 +403,7 @@ func TestHub_loadOrMaterializeRoom_ForeignOwnerWithStore(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 
 	redisStore := testutil.SetupMiniredisStore(t)
 	foreign := []byte(`{"code":"LOAD5","instance":"other","address":"x","created_at":1}`)
@@ -421,7 +421,7 @@ func TestHub_loadOrMaterializeRoom_LoadError(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("LOAD3").
 		WillReturnError(context.Canceled)
@@ -438,7 +438,7 @@ func TestHub_loadOrMaterializeRoom_DeserializeError(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("LOAD4").
 		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
@@ -456,7 +456,7 @@ func TestHub_loadOrMaterializeRoom_NotFound(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("MISSING").
 		WillReturnError(pgx.ErrNoRows)
@@ -531,7 +531,7 @@ func TestHub_loadOrMaterializeRoom_ReturnsExisting(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewGameStore(mock)
 	state := NewGameState("EXIST1", testRNG())
 	stateJSON, _ := json.Marshal(state)
 

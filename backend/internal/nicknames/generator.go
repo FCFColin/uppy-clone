@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"math/big"
 	"strconv"
+	"unicode/utf8"
 )
 
 const maxNicknameLength = 12
@@ -40,7 +41,10 @@ func GenerateRandom(usedNames map[string]bool) string {
 	baseName := pickRandomCombo()
 	for i := 2; i < 100; i++ {
 		candidate := baseName + "#" + strconv.Itoa(i)
-		if len(candidate) <= maxNicknameLength && !usedNames[candidate] {
+		// v2-R-83: use rune count instead of byte length. The adjective/noun pools
+		// contain Chinese runes (3 bytes each), so a 5-rune base + "#2" = 7 runes
+		// but 17 bytes — byte length would wrongly skip valid candidates.
+		if utf8.RuneCountInString(candidate) <= maxNicknameLength && !usedNames[candidate] {
 			return candidate
 		}
 	}

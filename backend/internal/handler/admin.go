@@ -82,10 +82,9 @@ func (h *AdminHandler) auditConfigChange(ctx context.Context, r *http.Request, b
 func maskSensitiveFields(cfg map[string]interface{}) map[string]interface{} {
 	masked := make(map[string]interface{})
 	for k, v := range cfg {
+		masked[k] = v
 		if k == "admin_password" || k == "resend_api_key" {
 			masked[k] = maskedKey
-		} else {
-			masked[k] = v
 		}
 	}
 	return masked

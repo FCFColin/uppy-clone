@@ -36,10 +36,9 @@ func ExportUserData(ctx context.Context, dataStore UserDataStore, userID string)
 			"last_login": user.LastLogin,
 		},
 	}
+	exportData["game_results"] = []interface{}{}
 	if results, err := dataStore.GetGameResultsByUserID(ctx, userID); err == nil && results != nil {
 		exportData["game_results"] = results
-	} else {
-		exportData["game_results"] = []interface{}{}
 	}
 	return exportData, nil
 }

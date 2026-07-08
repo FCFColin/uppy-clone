@@ -26,10 +26,9 @@ func UpdateBirdAI(bird *domain.BirdState, balloon *domain.BalloonState, tickCoun
 		bird.SpawnTimer--
 		if bird.SpawnTimer <= 0 {
 			fromLeft := rng.Float64() > 0.5
+			bird.X = 1.1
 			if fromLeft {
 				bird.X = -0.1
-			} else {
-				bird.X = 1.1
 			}
 			bird.Y = rng.Float64()*0.6 + 0.2 // 0.2 到 0.8
 			bird.Active = true

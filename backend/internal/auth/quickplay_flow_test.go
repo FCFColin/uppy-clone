@@ -18,14 +18,14 @@ import (
 	"strings"
 )
 
-func newQuickPlayPostgresStore(t *testing.T) (*store.PostgresStore, pgxmock.PgxPoolIface) {
+func newQuickPlayPostgresStore(t *testing.T) (*store.UserRepository, pgxmock.PgxPoolIface) {
 	t.Helper()
 	mock, err := pgxmock.NewPool()
 	if err != nil {
 		t.Fatalf("pgxmock.NewPool: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	return store.NewPostgresStoreWithPool(mock), mock
+	return store.NewUserRepository(mock), mock
 }
 
 func TestQuickPlay_NewUser(t *testing.T) {

@@ -10,6 +10,8 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
+func roomInfoKey(code string) string { return "room:" + code }
+
 // GetRoomRegistry loads room registry metadata from Redis.
 func (s *RedisStore) GetRoomRegistry(ctx context.Context, code string) (*domain.RoomRegistryInfo, error) {
 	var info *domain.RoomRegistryInfo

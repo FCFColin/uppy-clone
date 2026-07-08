@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/slogctx"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -82,6 +83,10 @@ func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error {
 		return nil, nil
 	})
 	if err != nil {
+		if !errors.Is(err, domain.ErrDuplicateUser) {
+			slogctx.LoggerFromContext(ctx).Error("create user failed",
+				"error", err, "user_id", u.ID)
+		}
 		return err
 	}
 
@@ -118,6 +123,7 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 		return nil
 	})
 	if err != nil {
+		slogctx.LoggerFromContext(ctx).Error("get user by email failed", "error", err)
 		return nil, err
 	}
 	return u, nil
@@ -153,6 +159,8 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 		return nil
 	})
 	if err != nil {
+		slogctx.LoggerFromContext(ctx).Error("get user by id failed",
+			"error", err, "user_id", id)
 		return nil, err
 	}
 	return u, nil
@@ -171,6 +179,8 @@ func (r *UserRepository) UpdateUserLastLogin(ctx context.Context, id string) err
 		_, execErr := r.pool.Exec(ctx,
 			`UPDATE users SET last_login = EXTRACT(EPOCH FROM NOW())::bigint WHERE id = $1`, id)
 		if execErr != nil {
+			slogctx.LoggerFromContext(ctx).Error("update user last_login failed",
+				"error", execErr, "user_id", id)
 			return fmt.Errorf("update user last_login: %w", execErr)
 		}
 		return nil
@@ -194,7 +204,7 @@ func (r *UserRepository) AnonymizeUser(ctx context.Context, userID string) error
 	if err != nil {
 		return fmt.Errorf("encrypt anonymized email: %w", err)
 	}
-	return r.withRetryWrite(ctx, func(ctx context.Context) error {
+	err = r.withRetryWrite(ctx, func(ctx context.Context) error {
 		_, execErr := r.pool.Exec(ctx,
 			`UPDATE users SET email = $1, email_hash = $2, nickname = 'Deleted User', deleted_at = $3, email_anonymized = true WHERE id = $4`,
 			storedAnon, anonHash, now, userID)
@@ -203,6 +213,12 @@ func (r *UserRepository) AnonymizeUser(ctx context.Context, userID string) error
 		}
 		return nil
 	})
+	if err != nil {
+		slogctx.LoggerFromContext(ctx).Error("anonymize user failed",
+			"error", err, "user_id", userID)
+		return err
+	}
+	return nil
 }
 
 func (r *UserRepository) HardDeleteExpiredUsers(ctx context.Context, retentionDays int) (int64, error) {

@@ -112,6 +112,19 @@ func (s *PostgresStore) Pool() *pgxpool.Pool {
 	return p
 }
 
+// NewGameStore returns a GameStore backed by this store's pool.
+// Unlike NewGameStore(db.Pool()), this works with pgxmock-backed stores in tests
+// because it uses the internal pool abstraction directly.
+func (s *PostgresStore) NewGameStore() *GameStore {
+	return NewGameStore(s.pool)
+}
+
+// NewUserRepository returns a UserRepository backed by this store's pool.
+// Unlike NewUserRepository(db.Pool()), this works with pgxmock-backed stores in tests.
+func (s *PostgresStore) NewUserRepository() *UserRepository {
+	return NewUserRepository(s.pool)
+}
+
 // PoolStats returns the current connection pool statistics.
 func (s *PostgresStore) PoolStats() *pgxpool.Stat {
 	if p, ok := s.pool.(*pgxpool.Pool); ok {

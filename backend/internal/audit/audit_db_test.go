@@ -3,8 +3,10 @@ package audit
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -229,5 +231,66 @@ func TestDBAuditLogger_writeToDB_SuccessMocked(t *testing.T) {
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.success", ActorID: "u1", Resource: "r"})
 	if l.lastHash == "" || l.lastHash == "prev-hash" {
 		t.Fatalf("expected lastHash updated on success, got %q", l.lastHash)
+	}
+}
+
+// flakyAuditPool fails the first failN Exec calls with failErr, then succeeds.
+// Used to verify retry behavior in writeToDB (v2-R-37).
+type flakyAuditPool struct {
+	calls   int32 // atomic
+	failN   int32
+	failErr error
+}
+
+func (f *flakyAuditPool) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+	return fakeAuditRow{}
+}
+
+func (f *flakyAuditPool) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+	n := atomic.AddInt32(&f.calls, 1)
+	if n <= f.failN {
+		return pgconn.CommandTag{}, f.failErr
+	}
+	return pgconn.NewCommandTag("INSERT 1"), nil
+}
+
+// TestDBAuditLogger_writeToDB_RetriesAndSucceeds verifies that writeToDB retries
+// transient failures and updates the hash chain on eventual success (v2-R-37).
+func TestDBAuditLogger_writeToDB_RetriesAndSucceeds(t *testing.T) {
+	pool := &flakyAuditPool{failN: 2, failErr: io.EOF} // fail twice, succeed on 3rd
+	l := &dbAuditLogger{
+		pool:     pool,
+		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
+		lastHash: "prev-hash",
+	}
+	l.writeToDB(context.Background(), AuditEntry{Action: "test.retry", ActorID: "u1"})
+
+	calls := atomic.LoadInt32(&pool.calls)
+	if calls != 3 {
+		t.Fatalf("expected 3 Exec calls (2 failed + 1 success), got %d", calls)
+	}
+	if l.lastHash == "" || l.lastHash == "prev-hash" {
+		t.Fatalf("expected lastHash updated after retry success, got %q", l.lastHash)
+	}
+}
+
+// TestDBAuditLogger_writeToDB_RetriesExhaustedChainIntact verifies that when all
+// retries are exhausted, the audit chain is preserved (lastHash unchanged) (v2-R-37).
+func TestDBAuditLogger_writeToDB_RetriesExhaustedChainIntact(t *testing.T) {
+	pool := &flakyAuditPool{failN: 100, failErr: io.EOF} // always fail
+	l := &dbAuditLogger{
+		pool:     pool,
+		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
+		lastHash: "prev-hash",
+	}
+	l.writeToDB(context.Background(), AuditEntry{Action: "test.exhaust", ActorID: "u1"})
+
+	// DefaultDBRetry = 3 retries → 4 total attempts
+	calls := atomic.LoadInt32(&pool.calls)
+	if calls != 4 {
+		t.Fatalf("expected 4 Exec calls (1 initial + 3 retries), got %d", calls)
+	}
+	if l.lastHash != "prev-hash" {
+		t.Fatalf("lastHash must remain unchanged when all retries fail, got %q", l.lastHash)
 	}
 }

@@ -163,10 +163,12 @@ func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub,
 var exitFunc = os.Exit
 
 // Run is the application entrypoint invoked from cmd/server/main.go.
+// On failure, Run calls exitFunc(1) (os.Exit in production) to terminate.
 func Run() error {
 	logger := initLogger()
 	if err := runServer(logger); err != nil {
 		logger.Error("server failed", "error", err)
+		exitFunc(1)
 		return err
 	}
 	return nil

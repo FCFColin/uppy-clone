@@ -15,7 +15,7 @@ import (
 func TestNewStatsHandler(t *testing.T) {
 	t.Parallel()
 
-	var db store.PostgresStore
+	var db store.ResultRepository
 	h := NewStatsHandler(&db)
 	if h == nil || h.db != &db {
 		t.Fatal("NewStatsHandler should store db reference")
@@ -36,7 +36,7 @@ func TestGetLeaderboard_NilDB(t *testing.T) {
 func TestGetLeaderboard_InvalidScope(t *testing.T) {
 	t.Parallel()
 
-	var db store.PostgresStore
+	var db store.ResultRepository
 	h := NewStatsHandler(&db)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard?scope=daily", nil)
@@ -84,7 +84,7 @@ func TestGetUserStats_NilDB(t *testing.T) {
 func TestGetUserStats_Unauthorized(t *testing.T) {
 	t.Parallel()
 
-	var db store.PostgresStore
+	var db store.ResultRepository
 	h := NewStatsHandler(&db)
 	w := httptest.NewRecorder()
 	h.GetUserStats(w, httptest.NewRequest(http.MethodGet, "/api/v1/user/stats", nil))
@@ -115,7 +115,7 @@ func TestGetLeaderboard_WithDB(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
 	mock.ExpectQuery("SELECT final_score, lobby_code, ended_at").
@@ -137,7 +137,7 @@ func TestGetLeaderboard_WeeklyWithDB(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
 	mock.ExpectQuery("SELECT final_score, lobby_code, ended_at").
@@ -158,7 +158,7 @@ func TestGetLeaderboard_DBError(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
 	mock.ExpectQuery("SELECT final_score, lobby_code, ended_at").
@@ -178,7 +178,7 @@ func TestGetUserStats_DBError(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
 	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(score_contribution\\), 0\\), COUNT\\(\\*\\)").
@@ -200,7 +200,7 @@ func TestGetUserStats_WithDB(t *testing.T) {
 		t.Fatalf("pgxmock: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
 	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(score_contribution\\), 0\\), COUNT\\(\\*\\)").

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -15,7 +16,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/sethvargo/go-retry"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/uppy-clone/backend/internal/resilience"
 )
 
 // auditDBPool is the subset of pgxpool.Pool used by the audit logger (mockable in tests).
@@ -96,12 +100,19 @@ func CloseDBLogger() {
 }
 
 func (l *dbAuditLogger) loadLastHash() {
+	// v2-R-36: 5s timeout to prevent blocking startup when DB is unreachable.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Get the most recent this_hash to continue the chain
-	row := l.pool.QueryRow(context.Background(),
+	row := l.pool.QueryRow(ctx,
 		`SELECT this_hash FROM audit_logs ORDER BY id DESC LIMIT 1`)
 	var hash string
 	if err := row.Scan(&hash); err == nil {
 		l.lastHash = hash
+	} else if err != pgx.ErrNoRows {
+		// Empty table is expected on first run; other errors (incl. timeout) warrant a warning.
+		slog.Warn("audit loadLastHash failed", "error", err)
 	}
 }
 
@@ -125,16 +136,26 @@ func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
 	}
 	thisHash := computeHash(l.secret, prevHash, payload)
 
-	// Insert into DB
-	_, err = l.pool.Exec(ctx,
-		`INSERT INTO audit_logs (action, actor_id, actor_ip, resource, before, after, request_id, trace_id, prev_hash, this_hash)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		entry.Action, entry.ActorID, entry.ActorIP, entry.Resource,
-		entry.Before, entry.After, entry.RequestID, entry.TraceID,
-		prevHash, thisHash)
+	// v2-R-37: retry transient failures (3 retries, exponential backoff + jitter).
+	// Retry happens inside the lock to preserve audit chain integrity:
+	// prevHash/thisHash are captured before the loop, and lastHash is only
+	// updated on success, so concurrent writers cannot break the HMAC chain.
+	err = retry.Do(ctx, resilience.DefaultDBRetry(), func(ctx context.Context) error {
+		_, execErr := l.pool.Exec(ctx,
+			`INSERT INTO audit_logs (action, actor_id, actor_ip, resource, before, after, request_id, trace_id, prev_hash, this_hash)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			entry.Action, entry.ActorID, entry.ActorIP, entry.Resource,
+			entry.Before, entry.After, entry.RequestID, entry.TraceID,
+			prevHash, thisHash)
+		if execErr != nil {
+			return resilience.MaybeRetryable(fmt.Errorf("write audit log: %w", execErr))
+		}
+		return nil
+	})
 	if err != nil {
 		l.mu.Unlock()
-		slog.Error("failed to write audit log to DB", "error", err, "action", entry.Action)
+		slog.Error("audit writeToDB failed after retries",
+			"error", err, "action", entry.Action, "trace_id", entry.TraceID, "request_id", entry.RequestID)
 		return
 	}
 

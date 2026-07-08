@@ -40,7 +40,7 @@ func TestVerifyMagicLink_ExistingUser(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	lastLogin := int64(1)
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WithArgs(pgxmock.AnyArg(), "verify@example.com").
@@ -75,7 +75,7 @@ func TestFindOrCreateUserByEmail_CreatesUser(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
@@ -131,7 +131,7 @@ func TestIssueMagicLinkSession(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	mock.ExpectExec("UPDATE users SET last_login").
 		WithArgs("user-1").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
@@ -162,7 +162,7 @@ func TestIssueMagicLinkSession_LastLoginErrorIgnored(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	mock.ExpectExec("UPDATE users SET last_login").
 		WithArgs("user-1").
 		WillReturnError(errors.New("update failed"))
@@ -187,7 +187,7 @@ func TestIssueMagicLinkSession_RefreshError(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	mock.ExpectExec("UPDATE users SET last_login").
 		WithArgs("user-1").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
@@ -317,7 +317,7 @@ func TestFindOrCreateUserByEmail_LookupError(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WithArgs(pgxmock.AnyArg(), "fail@example.com").
 		WillReturnError(errors.New("db down"))
@@ -335,7 +335,7 @@ func TestFindOrCreateUserByEmail_CreateError(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WithArgs(pgxmock.AnyArg(), "create-fail@example.com").
 		WillReturnError(pgx.ErrNoRows)
@@ -382,7 +382,7 @@ func TestVerifyMagicLink_UserLookupError(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WithArgs(pgxmock.AnyArg(), "lookup-fail@example.com").
 		WillReturnError(errors.New("db down"))
@@ -404,7 +404,7 @@ func TestIssueMagicLinkSession_SignTokenError(t *testing.T) {
 	}
 	defer mock.Close()
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewUserRepository(mock)
 	mock.ExpectExec("UPDATE users SET last_login").
 		WithArgs("user-1").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))

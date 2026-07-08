@@ -84,7 +84,7 @@ func initRedisPubSub(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*st
 func initHub(db *store.PostgresStore, redis *store.RedisStore, timeouts appConfig.TimeoutConfig, broadcaster *game.PubSubBroadcaster) *game.Hub {
 	maxWSConnections := getEnvInt("MAX_WS_CONNECTIONS", appConfig.MaxWSConnections)
 	maxPlayersPerRoom := getEnvInt("MAX_PLAYERS_PER_ROOM", appConfig.MaxPlayersPerRoom)
-	gameStore := store.NewGameStore(db.Pool())
+	gameStore := db.NewGameStore()
 	hub := game.NewHub(gameStore, redis, timeouts, maxWSConnections, maxPlayersPerRoom, broadcaster)
 	if err := hub.RestoreRooms(); err != nil {
 		slog.Warn("failed to restore rooms", "error", err)
@@ -114,7 +114,7 @@ func startWorkers(ctx context.Context, wg *sync.WaitGroup, cfg *handler.Config, 
 
 	retentionDays := getEnvInt("GDPR_RETENTION_DAYS", 30)
 	cleanupInterval := time.Duration(getEnvInt("GDPR_CLEANUP_INTERVAL_HOURS", 24)) * time.Hour
-	startWorker(ctx, wg, "gdpr cleanup worker", worker.NewGDPRCleanupWorker(store.NewUserRepository(db.Pool()), retentionDays, cleanupInterval).Start)
+	startWorker(ctx, wg, "gdpr cleanup worker", worker.NewGDPRCleanupWorker(db.NewUserRepository(), retentionDays, cleanupInterval).Start)
 	slog.Info("gdpr cleanup worker started", "retention_days", retentionDays)
 }
 

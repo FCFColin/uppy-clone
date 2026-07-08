@@ -3,7 +3,6 @@ package outbox
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/metrics"
+	"github.com/uppy-clone/backend/internal/slogctx"
 )
 
 type pgPool interface {
@@ -53,6 +53,9 @@ func NewPublisher(db *pgxpool.Pool, rdb *redis.Client) *Publisher {
 
 // Start begins polling outbox_events. Blocks until ctx is canceled.
 func (p *Publisher) Start(ctx context.Context) {
+	logger := slogctx.LoggerFromContext(ctx).With("component", "outbox_publisher")
+	ctx = slogctx.WithLogger(ctx, logger)
+
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 
@@ -67,6 +70,7 @@ func (p *Publisher) Start(ctx context.Context) {
 }
 
 func (p *Publisher) readPendingBatch(ctx context.Context, tx pgx.Tx) ([]outboxRow, int64) {
+	logger := slogctx.LoggerFromContext(ctx)
 	rows, err := tx.Query(ctx,
 		`SELECT id, aggregate_type, aggregate_id, payload, created_at
 		 FROM outbox_events
@@ -75,7 +79,7 @@ func (p *Publisher) readPendingBatch(ctx context.Context, tx pgx.Tx) ([]outboxRo
 		 LIMIT $1
 		 FOR UPDATE SKIP LOCKED`, p.batchSize)
 	if err != nil {
-		slog.Error("outbox publisher: query", "error", err)
+		logger.Error("outbox publisher: query", "error", err)
 		return nil, 0
 	}
 	defer rows.Close()
@@ -85,7 +89,7 @@ func (p *Publisher) readPendingBatch(ctx context.Context, tx pgx.Tx) ([]outboxRo
 	for rows.Next() {
 		var r outboxRow
 		if err := rows.Scan(&r.id, &r.aggType, &r.aggID, &r.payload, &r.createdAt); err != nil {
-			slog.Error("outbox publisher: scan", "error", err)
+			logger.Error("outbox publisher: scan", "error", err)
 			continue
 		}
 		if oldest == 0 || r.createdAt < oldest {
@@ -94,16 +98,17 @@ func (p *Publisher) readPendingBatch(ctx context.Context, tx pgx.Tx) ([]outboxRo
 		batch = append(batch, r)
 	}
 	if err := rows.Err(); err != nil {
-		slog.Error("outbox publisher: rows iteration", "error", err)
+		logger.Error("outbox publisher: rows iteration", "error", err)
 		return nil, 0
 	}
 	return batch, oldest
 }
 
 func (p *Publisher) publishBatch(ctx context.Context) {
+	logger := slogctx.LoggerFromContext(ctx)
 	tx, err := p.db.Begin(ctx)
 	if err != nil {
-		slog.Error("outbox publisher: begin tx", "error", err)
+		logger.Error("outbox publisher: begin tx", "error", err)
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -122,12 +127,13 @@ func (p *Publisher) publishBatch(ctx context.Context) {
 			Approx:   true,
 			Values: map[string]interface{}{
 				"aggregate_id": item.aggID,
+				"event_id":     strconv.FormatInt(item.id, 10),
 				"payload":      string(item.payload),
 			},
 		})
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
-		slog.Error("outbox publisher: pipeline XAdd", "error", err)
+		logger.Error("outbox publisher: pipeline XAdd", "error", err)
 		return
 	}
 
@@ -138,12 +144,12 @@ func (p *Publisher) publishBatch(ctx context.Context) {
 			ids[i] = item.id
 		}
 		if _, err := tx.Exec(ctx, `UPDATE outbox_events SET processed_at = $1 WHERE id = ANY($2)`, now, ids); err != nil {
-			slog.Error("outbox publisher: mark processed", "error", err)
+			logger.Error("outbox publisher: mark processed", "error", err)
 			return
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		slog.Error("outbox publisher: commit", "error", err)
+		logger.Error("outbox publisher: commit", "error", err)
 		return
 	}
 

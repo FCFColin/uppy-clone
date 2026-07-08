@@ -92,11 +92,10 @@ func shouldCleanupRoom(room *Room, now int64) bool {
 
 func allPlayersDisconnectedExpired(players map[string]*domain.PlayerState, now int64) bool {
 	for _, p := range players {
-		if p.Disconnected && p.DisconnectedAt != nil {
-			if !(now-*p.DisconnectedAt > domain.ReconnectGraceMs) {
-				return false
-			}
-		} else {
+		if !p.Disconnected || p.DisconnectedAt == nil {
+			return false
+		}
+		if now-*p.DisconnectedAt <= domain.ReconnectGraceMs {
 			return false
 		}
 	}

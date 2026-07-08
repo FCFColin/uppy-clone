@@ -19,7 +19,7 @@ func SetupRedisStore(t *testing.T) (context.Context, *store.RedisStore) {
 
 	ctx := context.Background()
 	redisContainer, err := tcredis.Run(ctx,
-		"redis:7-alpine",
+		"redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("Ready to accept connections").
 				WithStartupTimeout(10*time.Second)),

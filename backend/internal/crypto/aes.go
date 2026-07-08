@@ -75,21 +75,27 @@ var aesRandRead = rand.Read
 // aesNewGCM is injectable for unit tests (e.g. simulate cipher.NewGCM failures).
 var aesNewGCM = cipher.NewGCM
 
-// Encrypt encrypts plaintext using AES-256-GCM and returns versioned hex-encoded ciphertext.
-// Output format: "v1:hex_ciphertext" for versioned key rotation support.
-// 企业为何需要：版本前缀允许未来密钥轮换时区分新旧密文，批量重新加密可按版本筛选。
-func Encrypt(plaintext string) (string, error) {
+func newGCM() (cipher.AEAD, error) {
 	if encKey == nil {
-		return "", errors.New("encryption key not initialized: call Init() or InitFromEnv() first")
+		return nil, errors.New("encryption key not initialized: call Init() or InitFromEnv() first")
 	}
 	block, err := aes.NewCipher(encKey)
 	if err != nil {
-		return "", fmt.Errorf("create cipher: %w", err)
+		return nil, fmt.Errorf("create cipher: %w", err)
 	}
-
 	gcm, err := aesNewGCM(block)
 	if err != nil {
-		return "", fmt.Errorf("create GCM: %w", err)
+		return nil, fmt.Errorf("create GCM: %w", err)
+	}
+	return gcm, nil
+}
+
+// Encrypt encrypts plaintext using AES-256-GCM and returns versioned hex-encoded ciphertext.
+// Output format: "v1:hex_ciphertext" for versioned key rotation support.
+func Encrypt(plaintext string) (string, error) {
+	gcm, err := newGCM()
+	if err != nil {
+		return "", err
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
@@ -97,21 +103,13 @@ func Encrypt(plaintext string) (string, error) {
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
 
-	// nonce is prepended to ciphertext for decryption
 	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
 	return "v1:" + hex.EncodeToString(ciphertext), nil
 }
 
 // Decrypt decrypts hex-encoded AES-256-GCM ciphertext.
 // Supports both "v1:hex" format (new) and raw hex (legacy, for backward compatibility).
-// 企业为何需要：向后兼容旧密文格式，避免密钥轮换时数据不可读。
 func Decrypt(encoded string) (string, error) {
-	if encKey == nil {
-		return "", errors.New("encryption key not initialized: call Init() or InitFromEnv() first")
-	}
-
-	// Check for version prefix (new format); strip it for decryption.
-	// Legacy raw-hex ciphertext (without prefix) is still accepted.
 	encoded = strings.TrimPrefix(encoded, "v1:")
 
 	ciphertext, err := hex.DecodeString(encoded)
@@ -119,14 +117,9 @@ func Decrypt(encoded string) (string, error) {
 		return "", fmt.Errorf("decode hex: %w", err)
 	}
 
-	block, err := aes.NewCipher(encKey)
+	gcm, err := newGCM()
 	if err != nil {
-		return "", fmt.Errorf("create cipher: %w", err)
-	}
-
-	gcm, err := aesNewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("create GCM: %w", err)
+		return "", err
 	}
 
 	nonceSize := gcm.NonceSize()

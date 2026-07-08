@@ -79,7 +79,7 @@ func SetupPostgresConn(t *testing.T) (*pgx.Conn, string) {
 
 	ctx := context.Background()
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"postgres:16-alpine@sha256:fd1e8d0274f13f5a03a2673a207b28e14823c2f2efc3ca4bb4197c8a9f841bdc",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
@@ -121,7 +121,7 @@ func SetupPostgresPool(t *testing.T) *pgxpool.Pool {
 
 	ctx := context.Background()
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"postgres:16-alpine@sha256:fd1e8d0274f13f5a03a2673a207b28e14823c2f2efc3ca4bb4197c8a9f841bdc",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
@@ -170,7 +170,7 @@ func SetupPostgresStore(t *testing.T) *store.PostgresStore {
 
 	ctx := context.Background()
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"postgres:16-alpine@sha256:fd1e8d0274f13f5a03a2673a207b28e14823c2f2efc3ca4bb4197c8a9f841bdc",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),

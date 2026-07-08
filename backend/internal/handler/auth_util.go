@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
@@ -55,7 +56,11 @@ func parseQuickPlayRequest(w http.ResponseWriter, r *http.Request) (string, *api
 		return "", apierror.BadRequest("invalid request body")
 	}
 	nickname := strings.TrimSpace(body.Nickname)
-	if len(nickname) < 2 || len(nickname) > 20 {
+	// v2-R-83: use rune count instead of byte length so multi-byte characters
+	// (e.g. Chinese, where each rune is 3 UTF-8 bytes) are measured correctly.
+	// A 7-Chinese-char nickname is 21 bytes but 7 runes; byte length would reject it.
+	nickRunes := utf8.RuneCountInString(nickname)
+	if nickRunes < 2 || nickRunes > 20 {
 		return "", apierror.New(http.StatusBadRequest, "Invalid nickname", "nickname must be 2-20 characters")
 	}
 	for _, r := range nickname {

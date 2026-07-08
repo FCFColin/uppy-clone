@@ -74,6 +74,33 @@ func TestSetupRoutes_HealthReady(t *testing.T) {
 	}
 }
 
+func TestSetupRoutes_HealthDegraded(t *testing.T) {
+	r := newTestRouter(t)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health/degraded", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "degraded") {
+		t.Errorf("body = %s, want JSON with degraded field", rec.Body.String())
+	}
+}
+
+func TestSetupRoutes_MetricsEndpoint(t *testing.T) {
+	// Dev mode: metrics endpoint should be accessible without auth.
+	t.Setenv("ENABLE_HSTS", "false")
+	t.Setenv("METRICS_USER", "")
+	t.Setenv("METRICS_PASSWORD", "")
+
+	r := newTestRouter(t)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	// In dev mode without METRICS_USER/PASSWORD, should return 200.
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 in dev mode", rec.Code)
+	}
+}
+
 func TestSetupRoutes_LeaderboardNilDB(t *testing.T) {
 	r := newTestRouter(t)
 	rec := httptest.NewRecorder()
@@ -144,7 +171,7 @@ func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{"id", "config", "updated_at"}).
 			AddRow("global", string(loginCfg), int64(1000)))
 
-	db := store.NewPostgresStoreWithPool(mock)
+	db := store.NewConfigRepository(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
 	cluster := store.NewRedisClusterFromStores(redisStore, nil)
 	adminHandler := handler.NewAdminHandler(db, jwtMgr, redisStore)
