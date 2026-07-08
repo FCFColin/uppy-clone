@@ -3,8 +3,6 @@ package protocol
 
 import (
 	"encoding/binary"
-
-	"github.com/uppy-clone/backend/internal/constants"
 )
 
 // le is the package-level little-endian byte order for binary encoding.
@@ -13,23 +11,23 @@ var le = binary.LittleEndian
 // ─── 客户端消息类型（浏览器 → 服务端） ──────────────────────────────
 
 const (
-	MsgTap         = constants.MsgTap
-	MsgSetNickname = constants.MsgSetNickname
-	MsgRestartVote = constants.MsgRestartVote
-	MsgPing        = constants.MsgPing
+	MsgTap         = 0x10
+	MsgSetNickname = 0x11
+	MsgRestartVote = 0x12
+	MsgPing        = 0x20
 )
 
 // ─── 服务端消息类型（服务端 → 浏览器） ──────────────────────────────
 
 const (
-	MsgSnapshot        = constants.MsgSnapshot
-	MsgPlayerJoin      = constants.MsgPlayerJoin
-	MsgPlayerLeave     = constants.MsgPlayerLeave
-	MsgTapAccepted     = constants.MsgTapAccepted
-	MsgTapRejected     = constants.MsgTapRejected
-	MsgGameStateChange = constants.MsgGameStateChange
-	MsgRestartStatus   = constants.MsgRestartStatus
-	MsgPong            = constants.MsgPong
+	MsgSnapshot        = 0x01
+	MsgPlayerJoin      = 0x02
+	MsgPlayerLeave     = 0x03
+	MsgTapAccepted     = 0x04
+	MsgTapRejected     = 0x05
+	MsgGameStateChange = 0x06
+	MsgRestartStatus   = 0x07
+	MsgPong            = 0x21
 )
 
 // ─── 游戏阶段编码 ────────────────────────────────────────────────────
@@ -44,10 +42,14 @@ const (
 
 // End reason codes (sent as optional 3rd byte on MsgGameStateChange when phase=ended).
 const (
-	EndReasonNone   = 0
+	// @ts END_REASON.NONE
+	EndReasonNone = 0
+	// @ts END_REASON.GROUND
 	EndReasonGround = 1
-	EndReasonBird   = 2
-	EndReasonGhost  = 3
+	// @ts END_REASON.BIRD
+	EndReasonBird = 2
+	// @ts END_REASON.GHOST
+	EndReasonGhost = 3
 )
 
 // ─── 游戏阶段类型 ────────────────────────────────────────────────────
@@ -229,8 +231,9 @@ const (
 	CooldownMaxMs = 15000
 )
 
-// ─── 调色板颜色（10 色，与客户端 PALETTE_COLORS 对应） ──────────────
+// ─── 调色板颜色（10 色，由 go generate 自动同步到前端 constants.ts） ───
 
+// @ts PALETTE_COLORS
 // PaletteColors defines the color palette for players.
 var PaletteColors = [10][3]uint8{
 	{233, 69, 96},   // #e94560 red

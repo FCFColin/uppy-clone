@@ -116,10 +116,12 @@ func TestTimeoutConfigFromEnv_InvalidValue(t *testing.T) {
 	}
 }
 
-// ─── getDurationEnv ──────────────────────────────────────────────────
+// ─── GetEnvDuration (unified, v2-R-38) ──────────────────────────────
+// Verifies the unified duration parser accepts both bare-integer seconds
+// (legacy operator format) and Go duration strings (e.g. "8s", "500ms").
 
 func TestGetDurationEnv_Default(t *testing.T) {
-	d := getDurationEnv("NONEXISTENT_ENV_VAR_12345", 3*time.Second)
+	d := GetEnvDuration("NONEXISTENT_ENV_VAR_12345", 3*time.Second)
 	if d != 3*time.Second {
 		t.Fatalf("expected default 3s, got %v", d)
 	}
@@ -129,9 +131,19 @@ func TestGetDurationEnv_Override(t *testing.T) {
 	_ = os.Setenv("TEST_DURATION_ENV", "8")
 	defer func() { _ = os.Unsetenv("TEST_DURATION_ENV") }()
 
-	d := getDurationEnv("TEST_DURATION_ENV", 3*time.Second)
+	d := GetEnvDuration("TEST_DURATION_ENV", 3*time.Second)
 	if d != 8*time.Second {
 		t.Fatalf("expected 8s from env, got %v", d)
+	}
+}
+
+func TestGetDurationEnv_OverrideDurationString(t *testing.T) {
+	_ = os.Setenv("TEST_DURATION_ENV_DUR", "2500ms")
+	defer func() { _ = os.Unsetenv("TEST_DURATION_ENV_DUR") }()
+
+	d := GetEnvDuration("TEST_DURATION_ENV_DUR", 3*time.Second)
+	if d != 2500*time.Millisecond {
+		t.Fatalf("expected 2500ms from env, got %v", d)
 	}
 }
 
@@ -139,7 +151,7 @@ func TestGetDurationEnv_EmptyString(t *testing.T) {
 	_ = os.Setenv("TEST_DURATION_ENV_EMPTY", "")
 	defer func() { _ = os.Unsetenv("TEST_DURATION_ENV_EMPTY") }()
 
-	d := getDurationEnv("TEST_DURATION_ENV_EMPTY", 3*time.Second)
+	d := GetEnvDuration("TEST_DURATION_ENV_EMPTY", 3*time.Second)
 	if d != 3*time.Second {
 		t.Fatalf("empty env should use default, got %v", d)
 	}

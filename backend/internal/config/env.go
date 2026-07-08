@@ -76,7 +76,9 @@ func (e *Env) Validate() error {
 	var missing []string
 
 	if e.JWTPrivateKey == "" {
-		missing = append(missing, "JWT_PRIVATE_KEY")
+		if e.IsProduction() {
+			missing = append(missing, "JWT_PRIVATE_KEY")
+		}
 	} else if e.IsProduction() && isWeakJWTSecret(e.JWTPrivateKey) {
 		return fmt.Errorf("JWT_PRIVATE_KEY contains a known weak/dev value; refuse to start in production mode (set ENV=production only for production)")
 	}
@@ -199,11 +201,26 @@ func GetEnvIntPositive(key string, defaultVal int) int {
 }
 
 // GetEnvDuration returns the environment variable value as duration, or a default.
+//
+// Accepted formats (unified behavior, see v2-R-38):
+//   - Go duration string with unit suffix (e.g. "5s", "1m", "500ms") via time.ParseDuration.
+//   - Plain integer interpreted as seconds (e.g. "10" → 10*time.Second) for backwards
+//     compatibility with operators that historically supplied bare seconds.
+//
+// Non-positive durations and parse failures fall back to defaultVal.
 func GetEnvDuration(key string, defaultVal time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultVal
+	}
+	if d, err := time.ParseDuration(v); err == nil {
+		if d > 0 {
 			return d
 		}
+		return defaultVal
+	}
+	if seconds, err := strconv.Atoi(v); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
 	}
 	return defaultVal
 }

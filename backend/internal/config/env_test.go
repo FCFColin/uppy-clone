@@ -184,6 +184,11 @@ func TestGetEnvDuration(t *testing.T) {
 	if got := GetEnvDuration("TEST_DURATION", def); got != def {
 		t.Errorf("non-positive got %v", got)
 	}
+	// Bare integer is interpreted as seconds (legacy operator format, v2-R-38).
+	t.Setenv("TEST_DURATION", "90")
+	if got := GetEnvDuration("TEST_DURATION", def); got != 90*time.Second {
+		t.Errorf("bare-int got %v", got)
+	}
 }
 
 func TestEnv_GetterFunctions(t *testing.T) {
