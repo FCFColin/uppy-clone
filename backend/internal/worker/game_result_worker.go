@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"os"
 	"time"
 
@@ -11,7 +10,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/uppy-clone/backend/internal/metrics"
+	"github.com/uppy-clone/backend/internal/slogctx"
 )
+
+// gameResultWorkerName is the metrics label value for the game result worker.
+const gameResultWorkerName = "game_result"
 
 // gameResultDB begins transactions for persisting game results.
 type gameResultDB interface {
@@ -24,11 +28,33 @@ type GameResultWorker struct {
 	rdb        *redis.Client
 	db         gameResultDB
 	maxRetries int
+	consumerID string
 }
 
 // NewGameResultWorker creates a new GameResultWorker.
 func NewGameResultWorker(rdb *redis.Client, db *pgxpool.Pool) *GameResultWorker {
-	return &GameResultWorker{rdb: rdb, db: db, maxRetries: 5}
+	return &GameResultWorker{
+		rdb:        rdb,
+		db:         db,
+		maxRetries: 5,
+		consumerID: resolveGameResultConsumerID(),
+	}
+}
+
+// resolveGameResultConsumerID returns a consumer identifier for the game result worker.
+// Precedence (v2-R-42): GAME_RESULT_WORKER_CONSUMER_ID env > HOSTNAME env (pod name in K8s)
+// > os.Hostname() > fallback "1".
+func resolveGameResultConsumerID() string {
+	if v := os.Getenv("GAME_RESULT_WORKER_CONSUMER_ID"); v != "" {
+		return v
+	}
+	if h := os.Getenv("HOSTNAME"); h != "" {
+		return "result-worker-" + h
+	}
+	if h, err := os.Hostname(); err == nil && h != "" {
+		return "result-worker-" + h
+	}
+	return "result-worker-1"
 }
 
 // GameResultPayload is the message format for game results.
@@ -48,9 +74,15 @@ type PlayerGameResult struct {
 }
 
 // Start begins consuming the game results queue. Blocks until ctx is canceled.
+//
+// Backoff (v2-R-43): on XReadGroup errors, sleep with exponential backoff
+// (capped at maxReadBackoff) to avoid hammering Redis when it is degraded.
 func (w *GameResultWorker) Start(ctx context.Context) {
+	logger := slogctx.LoggerFromContext(ctx).With("worker", gameResultWorkerName, "consumer", w.consumerID)
+	ctx = slogctx.WithLogger(ctx, logger)
+
 	if err := w.rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "$").Err(); err != nil {
-		slog.Debug("game result worker: XGroupCreate (may already exist)", "error", err)
+		logger.Debug("game result worker: XGroupCreate (may already exist)", "error", err)
 	}
 
 	batch := make([]redis.XMessage, 0, 100)
@@ -65,6 +97,12 @@ func (w *GameResultWorker) Start(ctx context.Context) {
 		batch = batch[:0]
 	}
 
+	const (
+		initialBackoff = 100 * time.Millisecond
+		maxBackoff     = 10 * time.Second
+	)
+	backoff := initialBackoff
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -75,26 +113,30 @@ func (w *GameResultWorker) Start(ctx context.Context) {
 		default:
 		}
 
-		hostname := os.Getenv("HOSTNAME")
-		if hostname == "" {
-			hostname = "1"
-		}
-		// Hostname-based consumer IDs require unique hostnames per instance.
-		// If two instances share a hostname, they will conflict as consumers of the same Redis Stream group.
-		consumer := "result-worker-" + hostname
-
 		streams, err := w.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    "result-workers",
-			Consumer: consumer,
+			Consumer: w.consumerID,
 			Streams:  []string{"game:results", ">"},
 			Count:    100,
 			Block:    100 * time.Millisecond,
 		}).Result()
 		if err != nil && err != redis.Nil {
-			slog.Error("game result worker XReadGroup", "error", err)
-			time.Sleep(time.Second)
+			logger.Error("game result worker XReadGroup", "error", err)
+			metrics.WorkerReadErrors.WithLabelValues(gameResultWorkerName).Inc()
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
 			continue
 		}
+		backoff = initialBackoff
 
 		for _, stream := range streams {
 			batch = append(batch, stream.Messages...)
@@ -121,28 +163,39 @@ func (w *GameResultWorker) ackMessage(ctx context.Context, id string) {
 // 每条消息独立事务，避免一条失败导致整批事务中止（PostgreSQL 行为）。
 // 只有写入成功后才 XAck，保证 at-least-once 语义。
 func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessage) {
+	start := time.Now()
+	logger := slogctx.LoggerFromContext(ctx)
+
 	payloadStr, ok := msg.Values["payload"].(string)
 	if !ok {
-		slog.Error("game result worker: invalid payload", "id", msg.ID)
+		logger.Error("game result worker: invalid payload", "id", msg.ID)
 		w.ackMessage(ctx, msg.ID)
+		metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "invalid_payload").Inc()
+		metrics.WorkerProcessingDuration.WithLabelValues(gameResultWorkerName).Observe(time.Since(start).Seconds())
 		return
 	}
 	var payload GameResultPayload
 	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
-		slog.Error("game result worker: unmarshal", "error", err, "id", msg.ID)
+		logger.Error("game result worker: unmarshal", "error", err, "id", msg.ID)
 		w.ackMessage(ctx, msg.ID)
+		metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "invalid_payload").Inc()
+		metrics.WorkerProcessingDuration.WithLabelValues(gameResultWorkerName).Observe(time.Since(start).Seconds())
 		return
 	}
 	if _, err := uuid.Parse(payload.GameID); err != nil {
-		slog.Error("game result worker: invalid game_id", "error", err, "id", msg.ID)
+		logger.Error("game result worker: invalid game_id", "error", err, "id", msg.ID)
 		w.ackMessage(ctx, msg.ID)
+		metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "invalid_payload").Inc()
+		metrics.WorkerProcessingDuration.WithLabelValues(gameResultWorkerName).Observe(time.Since(start).Seconds())
 		return
 	}
 
 	tx, err := w.db.Begin(ctx)
 	if err != nil {
-		slog.Error("game result worker: begin tx", "error", err)
+		logger.Error("game result worker: begin tx", "error", err)
 		w.handleTransientFailure(ctx, msg)
+		metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "failure").Inc()
+		metrics.WorkerProcessingDuration.WithLabelValues(gameResultWorkerName).Observe(time.Since(start).Seconds())
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -154,8 +207,10 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 		 VALUES ($1, $2, 'ended', $3, $4)
 		 ON CONFLICT (id) DO UPDATE SET status = 'ended', ended_at = EXCLUDED.ended_at, final_score = EXCLUDED.final_score`,
 		payload.GameID, payload.RoomCode, payload.EndedAt, payload.FinalScore); err != nil {
-		slog.Error("game result worker: upsert session", "error", err, "game_id", payload.GameID)
+		logger.Error("game result worker: upsert session", "error", err, "game_id", payload.GameID)
 		w.handleTransientFailure(ctx, msg)
+		metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "failure").Inc()
+		metrics.WorkerProcessingDuration.WithLabelValues(gameResultWorkerName).Observe(time.Since(start).Seconds())
 		return
 	}
 
@@ -166,21 +221,30 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 			 VALUES ($1, $2, $3, $4, $5, $6)
 			 ON CONFLICT (id) DO NOTHING`,
 			resultID, payload.GameID, r.UserID, r.ScoreContribution, r.TapsCount, payload.EndedAt); err != nil {
-			slog.Error("game result worker: insert result", "error", err, "game_id", payload.GameID)
+			logger.Error("game result worker: insert result", "error", err, "game_id", payload.GameID)
 			w.handleTransientFailure(ctx, msg)
+			metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "failure").Inc()
+			metrics.WorkerProcessingDuration.WithLabelValues(gameResultWorkerName).Observe(time.Since(start).Seconds())
 			return
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		slog.Error("game result worker: commit", "error", err, "game_id", payload.GameID)
+		logger.Error("game result worker: commit", "error", err, "game_id", payload.GameID)
 		w.handleTransientFailure(ctx, msg)
+		metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "failure").Inc()
+		metrics.WorkerProcessingDuration.WithLabelValues(gameResultWorkerName).Observe(time.Since(start).Seconds())
 		return
 	}
 
 	w.ackMessage(ctx, msg.ID)
+	metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "success").Inc()
+	metrics.WorkerProcessingDuration.WithLabelValues(gameResultWorkerName).Observe(time.Since(start).Seconds())
 }
 
 func (w *GameResultWorker) handleTransientFailure(ctx context.Context, msg redis.XMessage) {
-	handleRetry(ctx, w.rdb, msg, "game:results", "result-workers", "game-result:dead-letter", w.maxRetries, "worker", "game-result")
+	deadLettered := handleRetry(ctx, w.rdb, msg, "game:results", "result-workers", "game-result:dead-letter", w.maxRetries, "worker", "game-result")
+	if deadLettered {
+		metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "deadletter").Inc()
+	}
 }

@@ -54,6 +54,7 @@ type RateLimiterStore interface {
 type RateLimitConfig struct {
 	MaxRequests int64
 	Window      time.Duration
+	FailClosed  bool // if true, reject requests when Redis is unavailable (v2-R-05)
 }
 
 // EndpointRateLimitConfig defines per-endpoint rate limits.
@@ -84,11 +85,12 @@ var DefaultEndpointRateLimits = map[string]EndpointRateLimitConfig{
 // RateLimit returns middleware that checks Redis-based rate limits.
 // It uses the client IP from X-Forwarded-For or RemoteAddr as the key.
 //
-// Fail-open 策略说明：当 Redis 出错时当前实现放行请求（fail-open，见下方
-// err 分支）。这是为了避免 Redis 短暂故障导致全部用户被阻断。对于安全
-// 敏感端点（如 auth/quickplay、admin/login），可考虑改为 fail-closed
-// （拒绝请求），但需权衡 Redis 宕机时阻断所有用户的风险。当前保持
-// fail-open，如需对某端点改为 fail-closed，可扩展一个布尔参数控制。
+// 当 Redis 出错时，行为由 config.FailClosed 控制（v2-R-05）：
+//   - FailClosed=false（默认）：放行请求（fail-open），避免 Redis 短暂故障阻断全部用户
+//   - FailClosed=true：拒绝请求（fail-closed），用于安全敏感端点防止 Redis 宕机时无限制攻击
+//
+// 生产路由使用 EndpointRateLimit（按端点配置 FailClosed），此基础函数主要供测试和
+// 自定义场景使用。
 func RateLimit(redisStore RateLimiterStore, config RateLimitConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +99,12 @@ func RateLimit(redisStore RateLimiterStore, config RateLimitConfig) func(http.Ha
 
 			allowed, err := redisStore.CheckRateLimit(r.Context(), key, config.MaxRequests, config.Window)
 			if err != nil {
-				// On Redis error, allow the request through (fail-open)
+				if config.FailClosed {
+					setRateLimitHeaders(w, int(config.MaxRequests), config.Window)
+					apierror.TooManyRequests("Service temporarily unavailable. Please try again later.").Write(w)
+					return
+				}
+				// Fail-open: allow the request through on Redis error
 				next.ServeHTTP(w, r)
 				return
 			}

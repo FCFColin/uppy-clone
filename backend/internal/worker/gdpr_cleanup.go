@@ -2,13 +2,13 @@ package worker
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sethvargo/go-retry"
 
 	"github.com/uppy-clone/backend/internal/resilience"
+	"github.com/uppy-clone/backend/internal/slogctx"
 )
 
 var (
@@ -59,6 +59,11 @@ func NewGDPRCleanupWorker(db userHardDeleter, retentionDays int, interval time.D
 
 // Start runs the cleanup loop until ctx is canceled.
 func (w *GDPRCleanupWorker) Start(ctx context.Context) {
+	// v2-R-84: inject a worker-scoped logger so all downstream log lines carry
+	// the worker tag without each call site repeating it.
+	logger := slogctx.LoggerFromContext(ctx).With("worker", "gdpr_cleanup")
+	ctx = slogctx.WithLogger(ctx, logger)
+
 	w.runOnce(ctx)
 
 	ticker := time.NewTicker(w.interval)
@@ -75,6 +80,7 @@ func (w *GDPRCleanupWorker) Start(ctx context.Context) {
 }
 
 func (w *GDPRCleanupWorker) runOnce(ctx context.Context) {
+	logger := slogctx.LoggerFromContext(ctx)
 	gdprCleanupRuns.Inc()
 
 	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -86,11 +92,11 @@ func (w *GDPRCleanupWorker) runOnce(ctx context.Context) {
 		deleted, err = w.db.HardDeleteExpiredUsers(ctx, w.retentionDays)
 		return resilience.MaybeRetryable(err)
 	}); err != nil {
-		slog.Error("gdpr cleanup failed after retries", "error", err)
+		logger.Error("gdpr cleanup failed after retries", "error", err)
 		return
 	}
 	if deleted > 0 {
 		gdprDeletedUsers.Add(float64(deleted))
-		slog.Info("gdpr cleanup completed", "deleted_users", deleted, "retention_days", w.retentionDays)
+		logger.Info("gdpr cleanup completed", "deleted_users", deleted, "retention_days", w.retentionDays)
 	}
 }

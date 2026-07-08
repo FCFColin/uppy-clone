@@ -2,13 +2,18 @@ package worker
 
 import (
 	"context"
-	"log/slog"
 	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/uppy-clone/backend/internal/slogctx"
 )
 
+// handleRetry re-enqueues msg to sourceStream with an incremented retry_count using
+// exponential backoff (100ms * 2^retryCount). After maxRetries attempts, the message
+// is moved to deadLetterStream and acked from the source group.
+//
+// Returns true when the message was moved to the dead-letter stream (v2-R-43 metric hook).
 func handleRetry(
 	ctx context.Context,
 	rdb *redis.Client,
@@ -16,7 +21,8 @@ func handleRetry(
 	sourceStream, sourceGroup, deadLetterStream string,
 	maxRetries int,
 	logAttrs ...any,
-) {
+) bool {
+	logger := slogctx.LoggerFromContext(ctx)
 	retryCount := 0
 	if rcStr, ok := msg.Values["retry_count"].(string); ok {
 		if n, err := strconv.Atoi(rcStr); err == nil {
@@ -32,21 +38,22 @@ func handleRetry(
 			Values: msg.Values,
 		}).Err()
 		if err != nil {
-			slog.Error("failed to move to dead-letter", "error", err, "id", msg.ID)
-			return
+			logger.Error("failed to move to dead-letter", "error", err, "id", msg.ID)
+			return true
 		}
 		rdb.XAck(ctx, sourceStream, sourceGroup, msg.ID)
 		attrs := append([]any{"id", msg.ID, "retries", retryCount}, logAttrs...)
-		slog.Error("moved to dead-letter after max retries", attrs...)
-		return
+		logger.Error("moved to dead-letter after max retries", attrs...)
+		return true
 	}
 
+	// Exponential backoff: 100ms, 200ms, 400ms, 800ms, ... capped by caller's maxRetries.
 	delay := time.Duration(1<<retryCount) * 100 * time.Millisecond
 	timer := time.NewTimer(delay)
 	select {
 	case <-ctx.Done():
 		timer.Stop()
-		return
+		return false
 	case <-timer.C:
 	}
 
@@ -58,8 +65,9 @@ func handleRetry(
 		Values: msg.Values,
 	}).Err()
 	if err != nil {
-		slog.Error("failed to re-enqueue", "error", err, "id", msg.ID, "retries", retryCount)
-		return
+		logger.Error("failed to re-enqueue", "error", err, "id", msg.ID, "retries", retryCount)
+		return false
 	}
 	rdb.XAck(ctx, sourceStream, sourceGroup, msg.ID)
+	return false
 }

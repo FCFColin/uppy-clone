@@ -925,3 +925,32 @@ func TestSaveIdempotencyResponse_MarshalError(t *testing.T) {
 		t.Fatal("expected marshal error")
 	}
 }
+
+// ─── RateLimit (basic) fail-closed/fail-open tests (v2-R-05) ────────
+
+// TestRateLimit_FailClosedOnStoreError 验证基础 RateLimit 在 FailClosed=true
+// 时，Redis 出错拒绝请求（v2-R-05）。
+func TestRateLimit_FailClosedOnStoreError(t *testing.T) {
+	store := &fakeRateLimiterStore{allow: false, err: errors.New("redis down")}
+	mw := RateLimit(store, RateLimitConfig{
+		MaxRequests: 10,
+		Window:      time.Minute,
+		FailClosed:  true,
+	})
+
+	called := false
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+
+	r := newRequest("5.5.5.5:5")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if called {
+		t.Fatal("fail-closed: downstream handler must NOT be called on store error")
+	}
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("fail-closed status = %d; want %d", w.Code, http.StatusTooManyRequests)
+	}
+}
