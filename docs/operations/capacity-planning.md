@@ -8,7 +8,7 @@
 |------|-----|------|
 | PG `MaxConns` | 25 | `PG_POOL_MAX_CONNS` / `store/postgres.go` |
 | Redis `PoolSize` | 20 | `REDIS_POOL_SIZE` / `store/redis.go` |
-| `MAX_WS_CONNECTIONS` | 10000 | `config/constants.go` |
+| `MAX_WS_CONNECTIONS` | 1000 | `config/constants.go`（`const MaxWSConnections = 1000`） |
 | `MAX_PLAYERS_PER_ROOM` | 50 | 默认 |
 | 单用户 WS 消息 | ~15 Hz tap + snapshot | 游戏 tick |
 
@@ -18,10 +18,10 @@
 
 | 维度 | 估算 | 依据 |
 |------|------|------|
-| 并发 WS 连接上限 | 10,000 | `MAX_WS_CONNECTIONS` 舱壁，内存约 ~50MB+ 连接状态 |
+| 并发 WS 连接上限 | 1,000 | `MAX_WS_CONNECTIONS` 舱壁（`config/constants.go`），内存约 ~50MB+ 连接状态 |
 | 活跃房间（CPU bound） | 2,000–5,000 | 15Hz tick，BuildSnapshot 1.3µs + EncodeSnapshot 0.4µs/房间，单核 ~50k snapshot/s |
 | REST RPS | ~1,250 | PG 池 25 连接 × ~50 QPS/连接 |
-| DAU 粗算 | ~200k | 峰值 5% 同时在线 → 10k WS |
+| DAU 粗算 | ~20k | 峰值 5% 同时在线 → 1k WS |
 | 状态持久化延迟 | ~6.4µs/房间 | SerializeState 6.4µs，异步队列不阻塞 tick |
 | 状态恢复延迟 | ~25.8µs/房间 | DeserializeState 25.8µs，仅在房间迁移时发生 |
 
@@ -38,7 +38,7 @@
 | PG 池等待 >50ms P95 | 读副本 + CQRS 读路径（CRDB follower reads，见 P2） |
 | WS 拒绝率 >1% | HPA 扩 Hub 实例（owner 反向代理，区域内寻址 ADR-005） |
 | 单实例 CPU >65% 持续 | HPA on CPU（`infra/k8s/base/hpa.yaml`） |
-| 单实例 WS 连接 >6000 | HPA on `game_active_ws_connections`（`infra/k8s/base/hpa.yaml`） |
+| 单实例 WS 连接 >6000 | HPA on `ws_connections`（`infra/k8s/base/hpa.yaml`，指标名与 `backend/internal/metrics/metrics.go` 一致） |
 
 ## 水平扩展机制（生产级，P1 落地）
 
@@ -86,7 +86,7 @@ k6 run scripts/load/k6-ws-soak.js -e BASE_URL=https://eu.balloon.example   -e WS
 k6 run scripts/load/k6-ws-soak.js -e BASE_URL=https://asia.balloon.example -e WS_URL=wss://asia.balloon.example -e VUS=5000
 ```
 
-观测（Thanos 按 `region` 切分）：各区域 `ws_active_connections`、`ws_first_snapshot_ms` p99、
+观测（Thanos 按 `region` 切分）：各区域 `ws_connections`、`ws_first_snapshot_ms` p99、
 HPA 实例数随 VUS 线性增长；跨区域重定向率应接近 0（就近接入正常）。回填下表：
 
 | 区域 | 峰值并发 WS | 活跃房间 | first-snapshot p99 | HPA 实例数 |

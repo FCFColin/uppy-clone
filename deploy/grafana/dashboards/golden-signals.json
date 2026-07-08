@@ -9,42 +9,42 @@
       "title": "HTTP Request Rate",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "sum(rate(http_requests_total[5m])) by (method, path)", "legendFormat": "{{method}} {{path}}"}]
     },
     {
       "title": "Auth Request Rate by Status",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "sum(rate(auth_requests_total[5m])) by (endpoint, status)", "legendFormat": "{{endpoint}} {{status}}"}]
     },
     {
       "title": "HTTP 5xx Ratio",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))", "legendFormat": "5xx ratio"}]
     },
     {
       "title": "Rooms by Phase",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "rooms_by_phase", "legendFormat": "{{phase}}"}]
     },
     {
       "title": "Nickname Confirm (accepted vs rejected)",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "sum(rate(nickname_confirm_total[5m])) by (result)", "legendFormat": "{{result}}"}]
     },
     {
       "title": "WebSocket Connections",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {"expr": "ws_connections", "legendFormat": "active"},
         {"expr": "sum(rate(ws_connection_total[5m])) by (status)", "legendFormat": "{{status}}/s"}
@@ -54,7 +54,7 @@
       "title": "DB Pool Saturation",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {"expr": "db_pool_in_use_conns", "legendFormat": "in use"},
         {"expr": "db_pool_idle_conns", "legendFormat": "idle"}
@@ -64,14 +64,14 @@
       "title": "Circuit Breakers",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "circuit_breaker_state", "legendFormat": "{{name}} {{state}}"}]
     },
     {
       "title": "SET_NICKNAME Handler Latency p95",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
-      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [{"expr": "histogram_quantile(0.95, sum(rate(ws_message_duration_seconds_bucket{msg_type=\"set_nickname\"}[5m])) by (le))", "legendFormat": "p95"}]
     }
   ]

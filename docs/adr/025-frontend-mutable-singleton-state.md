@@ -1,6 +1,6 @@
 # ADR-025: 前端受控状态管理 (GameStore)
 
-## 状态: 已更新 (2026-07-03)
+## 状态: 已更新 (2026-07-08)
 
 ## 上下文
 
@@ -16,22 +16,23 @@
 
 采用 **dispatch/reducer 受控状态管理** 模式 (`frontend/src/game/store.ts`)：
 
-1. **GameStore**：`dispatch(action)` / `getState()` / `select(selector)`（`frontend/src/game/store.ts`）
-   - 所有状态变更通过纯 reducer (`frontend/src/game/reducer.ts`) 不可变更新
-2. **状态读取**：通过 `store.select()` 或 `store.getState()`，不再直接变异全局对象
+1. **GameStore**：仅暴露 `dispatch(action)` / `getState()`（`frontend/src/game/store.ts`）
+   - 所有状态变更通过纯 reducer (`frontend/src/game/reducer.ts`) 计算 `newState`
+   - 注意：`dispatch` 随后用 `Object.assign(state, newState)` 将新字段**原地合并**到共享单例 `state`，因此 `state` 仍是可变单例（与文件名一致），不是完全不可变。reducer 自身不变异入参，但 store 层为避免上层引用切换做了原地合并
+2. **状态读取**：通过 `getState()` 读取共享单例；无 `select(selector)` 方法
 3. **插值私有状态**：`state_interp.ts` 内部闭包变量，不暴露给外部
-4. **调试暴露**：开发模式将 `state`、`__ws` 挂到 `window`（`lifecycle.ts`）
-5. **跨页面认证**：Cookie-based session（`shared/network/auth.ts`），`localStorage` 仅存储 `uppy-player-id`
+4. **调试暴露**：`vite-env.d.ts` 声明了 `state`、`__ws`、`__gamePhase` 等全局类型，但 `lifecycle.ts` 当前**未**将 `state`/`__ws` 挂到 `window`（仅 `phase_sync.ts` 写入 `window.__gamePhase`）
+5. **跨页面认证**：Cookie-based session（`shared/network/auth.ts`）；`localStorage` 实际存储 `uppy-nickname`（昵称记忆，`lifecycle.ts` / `session.ts`）和 `uppy-game-url`（排行榜页跳回游戏入口，`lifecycle.ts` / `leaderboard.ts`），不存储 `uppy-player-id`
 
 ## 后果
 
 **正面**
 - 零依赖，dispatch/reducer 模式简单可控
-- 不可变更新保证状态可回溯
+- reducer 纯函数保证状态可回溯
 - 与子模块解耦（renderer/input/ws 不直接写 state）
 
 **负面**
-- 需要迁移所有直接状态变异到 dispatch 调用
+- store 层 `Object.assign` 原地合并意味着旧引用仍指向同一对象，需通过 reducer 返回新对象来触发更新判断
 - immutable 拷贝对性能有极小影响（不影响游戏循环）
 
 **放弃的替代方案**

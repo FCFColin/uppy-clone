@@ -45,7 +45,7 @@ done <<< "$from_lines"
 if [ "$errors" -gt 0 ]; then
     echo ""
     echo "ERROR: $errors FROM line(s) not digest-pinned."
-    echo "Run: ./scripts/ci/pin-digests.sh to resolve digests, then update Dockerfile."
+    echo "Run: 'docker pull <image>' then replace tag with @sha256:<digest>."
     exit 1
 fi
 

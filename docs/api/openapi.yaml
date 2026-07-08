@@ -170,6 +170,51 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
 
+  /api/v1/auth/verify:
+    post:
+      operationId: authVerifyMagicLinkPost
+      summary: 验证 Magic Link（POST 变体）
+      description: |
+        POST 变体的 Magic Link 验证端点。语义与 GET /api/v1/auth/verify 一致，
+        主要供浏览器 fetch API（避免 token 出现在 URL/referer/log）使用。
+        token 一次性使用，验证后立即从 Redis 删除。
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: Magic Link 中的验证令牌
+      responses:
+        "200":
+          description: 验证成功
+          headers:
+            Set-Cookie:
+              description: "session HttpOnly Cookie，包含 JWT access token"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MagicLinkVerifyResponse"
+        "400":
+          description: 缺少 token 参数
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: token 无效或已过期
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
   /api/v1/auth/check:
     get:
       operationId: authCheck
@@ -456,10 +501,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  code:
+                  lobbyCode:
                     type: string
-                    description: 6 位房间代码
-                    example: "A1B2C3"
+                    description: 5 位房间代码（与 domain/room_code.go RoomCode 长度一致）
+                    example: "ABC23"
         "401":
           description: 未认证
           content:
@@ -482,12 +527,11 @@ paths:
   /api/v1/registry/match:
     post:
       operationId: registryMatchRoom
-      summary: 匹配房间（未实现，已弃用）
+      summary: 匹配房间
       description: |
-        未实现：此端点尚未实现，仅作为接口预留，不应在生产环境中调用。
-        原计划匹配一个可用房间，当前实现与 create 相同。
-        待实现后移除 deprecated 标记并补全响应定义。
-      deprecated: true
+        匹配一个可用房间并返回房间代码。需要认证。
+        限速 10 次/分钟（registry:match）。
+        实现见 backend/internal/handler/lobby_registry.go MatchRoom，响应字段为 lobbyCode。
       tags: [Registry]
       security:
         - cookieAuth: []
@@ -499,11 +543,18 @@ paths:
               schema:
                 type: object
                 properties:
-                  code:
+                  lobbyCode:
                     type: string
-                    example: "A1B2C3"
+                    description: 5 位房间代码
+                    example: "ABC23"
         "401":
           description: 未认证
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: 暂无可用房间（Hub 不可用或匹配失败，请重试）
           content:
             application/problem+json:
               schema:
@@ -519,11 +570,11 @@ paths:
         - name: code
           in: path
           required: true
-          description: 6 位房间代码
+          description: 5 位房间代码
           schema:
             type: string
-            minLength: 6
-            maxLength: 6
+            minLength: 5
+            maxLength: 5
       responses:
         "200":
           description: 房间存在
@@ -600,7 +651,7 @@ paths:
                   next_cursor:
                     type: string
                     description: 下一页游标（格式 "updated_at|code"），无更多数据时为空字符串
-                    example: "1719123456789|A1B2C3"
+                    example: "1719123456789|ABC23"
         "500":
           description: 内部服务器错误
           content:
@@ -884,6 +935,89 @@ paths:
               schema:
                 $ref: "#/components/schemas/ReadyResponse"
 
+  /health:
+    get:
+      operationId: healthAlias
+      summary: 就绪探针（别名）
+      description: |
+        /health/ready 的别名路由，行为与 /health/ready 完全一致。
+        供不支持自定义路径的负载均衡器/网关使用。
+      tags: [Health]
+      responses:
+        "200":
+          description: 服务就绪
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: 服务未就绪
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+
+  /health/degraded:
+    get:
+      operationId: healthDegraded
+      summary: 降级状态查询
+      description: |
+        查询依赖（PostgreSQL/Redis）的熔断器状态。
+        任一熔断器打开时返回 503 + 降级依赖列表；全部关闭时返回 200。
+        用于运维快速定位降级原因。
+      tags: [Health]
+      responses:
+        "200":
+          description: 无依赖处于降级状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  degraded:
+                    type: boolean
+                    example: false
+                  dependencies:
+                    type: array
+                    items:
+                      type: string
+                    description: 处于降级状态的依赖名（空数组表示无降级）
+        "503":
+          description: 至少一个依赖熔断器打开
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  degraded:
+                    type: boolean
+                    example: true
+                  dependencies:
+                    type: array
+                    items:
+                      type: string
+                    example: ["postgres", "redis-stateful"]
+                    description: 处于降级状态的依赖名
+
+  /metrics:
+    get:
+      operationId: metrics
+      summary: Prometheus 指标端点
+      description: |
+        暴露 Prometheus 格式的应用指标（HTTP/WS/db/worker 等）。
+        受 metricsAuthMiddleware 保护（需配置 METRICS_AUTH_TOKEN 或同类机制）。
+        通常由 Prometheus scrape，不暴露给前端。
+      tags: [Health]
+      responses:
+        "200":
+          description: Prometheus 文本格式指标
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          description: 未认证（缺少 metrics auth token）
+
   # ─── WebSocket ─────────────────────────────────────────────────────
   /api/v1/lobby/{code}/ws:
     get:
@@ -902,7 +1036,7 @@ paths:
         - name: code
           in: path
           required: true
-          description: 6 位房间代码
+          description: 5 位房间代码
           schema:
             type: string
       responses:
@@ -1011,8 +1145,8 @@ components:
       properties:
         code:
           type: string
-          description: "6 位房间代码"
-          example: "A1B2C3"
+          description: "5 位房间代码"
+          example: "ABC23"
         phase:
           type: string
           description: "游戏阶段"
@@ -1036,8 +1170,8 @@ components:
           description: "房间记录 ID"
         code:
           type: string
-          description: "6 位房间代码"
-          example: "A1B2C3"
+          description: "5 位房间代码"
+          example: "ABC23"
         state:
           type: string
           description: "序列化的游戏状态 JSON"

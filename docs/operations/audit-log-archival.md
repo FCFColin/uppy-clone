@@ -5,7 +5,11 @@
 ## 现状
 
 - `audit_logs` 表记录所有管理操作（用户创建/删除、密码变更、角色分配等）
-- 每条记录包含：`id`, `actor_id`, `action`, `target_type`, `target_id`, `metadata`, `hmac`, `created_at`
+- 每条记录包含：`id`(BIGSERIAL), `action`, `actor_id`, `actor_ip`, `resource`,
+  `before`(JSONB), `after`(JSONB), `request_id`, `trace_id`, `prev_hash`, `this_hash`,
+  `created_at`(BIGINT, epoch 毫秒)
+- 表有触发器 `no_delete_audit_logs` / `no_update_audit_logs` / `no_truncate_audit_logs`
+  强制不可变性（migration 000006），DELETE/UPDATE/TRUNCATE 均被阻止
 - 无 TTL、无分区、无归档机制
 - GDPR 要求数据最小化，但审计日志需满足合规保留期
 
@@ -33,6 +37,9 @@
 
 ### 分区策略
 
+> ⚠️ 以下为**规划中的分区表 schema**，与当前 `audit_logs`（migration 000006，`id BIGSERIAL`、
+> `created_at BIGINT`）不同。落地需数据迁移，并将 `created_at` 从 BIGINT 改为 TIMESTAMPTZ。
+
 将 `audit_logs` 按月分区（`PARTITION BY RANGE (created_at)`），使归档删除变为 `DROP PARTITION`（O(1) vs DELETE O(n)）：
 
 ```sql
@@ -55,10 +62,13 @@ CREATE TABLE audit_logs_2026_07 PARTITION OF audit_logs
 
 ## 实现路径
 
+> ⚠️ 以下均为规划中功能，对应代码、Worker、API 与 Prometheus 指标均未实现。
+
 1. **迁移**：将 `audit_logs` 改为分区表（需要数据迁移）
 2. **Worker**：实现 `internal/worker/audit_archive.go`，每月 1 日执行
 3. **API**：admin 端点 `/api/v1/admin/audit/archive` 触发手动归档
 4. **监控**：Prometheus 指标 `audit_logs_total_rows`、`audit_archive_last_run_timestamp`
+   （**指标尚未在 `metrics.go` 中定义**）
 
 ## GDPR 合规
 

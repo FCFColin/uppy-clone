@@ -2,8 +2,20 @@
 
 > 关联 ADR-014（多区域拓扑）、ADR-015（分布式 SQL）、ADR-016（区域本地房间）。
 
-本手册描述从单区域 PostgreSQL 迁移到多区域 CockroachDB 的步骤。应用通过
-`DB_DIALECT` 环境变量切换：`postgres`（默认）或 `cockroach`。
+> ⚠️ **状态：未实现（仅设计文档，无代码实现）**
+>
+> 本手册对应 ADR-015（状态：提议中）。当前实际运行为单区域单库 PostgreSQL。
+> 以下代码引用均为**计划中的接口**，尚未实现：
+> - `DB_DIALECT` 环境变量：后端代码未读取（无 `os.Getenv("DB_DIALECT")`）
+> - `store.CurrentDialect`：不存在
+> - `PostgresStore.ApplyCockroachMultiRegion`：不存在
+> - `backend/migrations/cockroach/001_multiregion.sql`：目录与文件均不存在
+> - `TestCockroachDB_MigrationCompatibility`：集成测试不存在
+>
+> 请勿按本手册执行生产迁移。待 ADR-015 进入"已接受"且代码落地后再使用。
+
+本手册描述**计划中**的从单区域 PostgreSQL 迁移到多区域 CockroachDB 的步骤。应用设计上通过
+`DB_DIALECT` 环境变量切换：`postgres`（默认）或 `cockroach`（尚未实现）。
 
 ## 1. 应用侧配置
 
@@ -54,8 +66,10 @@ GRANT ALL ON DATABASE balloon TO migrator;
 
 ## 5. 验证
 
+> ⚠️ 以下测试尚未实现，`TestCockroachDB_MigrationCompatibility` 不存在。
+
 ```bash
-# 单节点 CRDB 兼容性集成测试（需 Docker）
+# 单节点 CRDB 兼容性集成测试（需 Docker）—— 测试尚未实现
 cd backend && go test ./tests/integration/ -run TestCockroachDB_MigrationCompatibility -count=1
 ```
 
@@ -64,5 +78,5 @@ cd backend && go test ./tests/integration/ -run TestCockroachDB_MigrationCompati
 
 ## 6. 回退
 
-将 `DB_DIALECT` 切回 `postgres` 并指向 PostgreSQL 实例即可；共享 schema 双兼容，
-应用代码无需改动。
+将 `DB_DIALECT` 切回 `postgres` 并指向 PostgreSQL 实例即可（设计上）；共享 schema 双兼容，
+应用代码无需改动。当前 `DB_DIALECT` 未实现，默认即为 PostgreSQL。

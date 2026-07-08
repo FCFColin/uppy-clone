@@ -8,7 +8,7 @@
 
 | 威胁 | 影响 | 缓解措施 |
 |------|------|---------|
-| 攻击者伪造 JWT 访问他人账户 | 未授权访问 | JWT 使用 HMAC-SHA256 签名，密钥仅服务端持有 |
+| 攻击者伪造 JWT 访问他人账户 | 未授权访问 | JWT 使用 ES256（ECDSA P-256）签名，私钥（JWT_PRIVATE_KEY）仅服务端持有，公钥（JWT_PUBLIC_KEY）用于验证。见 backend/internal/auth/jwt.go |
 | 攻击者重放已过期的 Magic Link | 未授权访问 | Magic Link 一次性使用，验证后立即删除 |
 | 攻击者伪造 WebSocket 连接 | 冒充玩家 | WebSocket 握手时验证 JWT cookie |
 | 攻击者伪造 Origin 头进行 CSWSH 攻击 | 跨站 WebSocket 劫持 | 服务端校验 Origin 与 Host 是否匹配，不匹配则拒绝 |
@@ -60,7 +60,7 @@
 | auth:request | POST /api/v1/auth/request | 5 | 1 分钟 | 否 |
 | auth:verify | GET /api/v1/auth/verify | 10 | 1 分钟 | 否 |
 | registry:create | POST /api/v1/registry/create | 5 | 1 分钟 | 否 |
-| registry:match | （配置预留） | 10 | 1 分钟 | 否 |
+| registry:match | POST /api/v1/registry/match | 10 | 1 分钟 | 否 |
 | admin:login | POST /api/v1/admin/login | 5 | 1 分钟 | 是 |
 | default | 其他端点 | 60 | 1 分钟 | 否 |
 
@@ -83,7 +83,7 @@
 | JWT | 认证凭据 | HttpOnly cookie（access） | HTTPS + Secure flag |
 | Resend API Key | 密钥 | AES-256-GCM 加密 | HTTPS |
 | Admin Password | 密钥 | bcrypt 哈希 | HTTPS |
-| Admin JWT | 认证凭据 | 独立 `ADMIN_JWT_SECRET` 签名 | HttpOnly `admin_token` cookie + HTTPS |
+| Admin JWT | 认证凭据 | 共享 ECDSA 私钥（JWT_PRIVATE_KEY）签名，SigningMethodES256，与普通用户 JWT 同一密钥对（role=admin claim 区分） | HttpOnly `admin_token` cookie + HTTPS |
 | Refresh Token | 认证凭据 | Redis（TTL 自动过期） | HttpOnly `refresh` cookie + HTTPS |
 
 ## GDPR/CCPA 合规要点

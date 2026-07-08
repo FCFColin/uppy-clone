@@ -1,26 +1,61 @@
-# Full codebase self-check baseline (2026-06-27, post-Bugbot remediation)
+# Full codebase self-check baseline (2026-07-08, post-v2-findings-fix)
 BASE_SHA=07c34acb6095ba89c6d3b9aa5437d1bfeeb98583
-HEAD_SHA=265ce1a08ae81a1a215c8edc4d43931c7d99a8f4
+HEAD_SHA=7303db324bef457482a985aa40d840762b96614e
 BRANCH=main
-NOTE=Large WIP commit: security hardening, Bugbot fixes, frontend coverage gate script.
+NOTE=v2 自检发现修复（fix-v2-findings spec）阶段性基线。Task 3/4/6 代码修复 + Task 2.1 部分（prometheus-adapter.yaml）+ 前端 6 项预存失败修复已落地。Task 1（P0: CI/openapi/threat-model）、Task 2 剩余、Task 3.3/3.4、Task 4.2、Task 5 仍 DEFERRED。工作区含 123 个未 commit 改动文件（Task 1-6 子代理产出）。
 
-## Phase 1 automation evidence (2026-06-27)
-PASS: verify-release-config.ps1, verify-required-checks.ps1, self-check-layers.ps1,
-      golangci-lint, frontend npm run test:frontend (251 tests, Vitest 100%),
-      bash scripts/ci/check-coverage.sh frontend (Git Bash; BRDA/path fix),
-      npm audit --audit-level=high, check-repo-layout, ExtractClientIP test,
-      backend internal/game + handler + config targeted tests
-PARTIAL: backend unit gate 73.4% < 100% (CI go-ci.yml; backlog)
-SKIP: go test -race on Windows (CGO gcc not in PATH; CI Linux runs -race)
-PARTIAL: make e2e local — Playwright webServer 120s timeout (PG on 5434, Redis 6380);
-         rely on CI e2e job for release gate
+## Phase 1 automation evidence (2026-07-08)
+PASS: go test ./... -short（全绿）
+PASS: go test ./... -cover 聚合覆盖率 84.6%（较 2026-06-27 基线 73.4% 提升 11.2pp，达 spec ≥80% 目标）
+PASS: 前端 property test 全绿（392 tests / 37 files，Vitest 4.1.9 + fast-check 4.8.0）
+PASS: tsc --noEmit 通过
+PASS: ExtractClientIP / handler/auth_test.go TestDeleteUserData 修复
+PARTIAL: 后端 unit gate 84.6% < 100%（CI go-ci.yml；剩余为 cmd/ 与 store 边界路径）
+SKIP: go test -race on Windows（CGO gcc not in PATH；CI Linux runs -race）
+PARTIAL: make e2e local — Playwright webServer 120s timeout（PG on 5434, Redis 6380）；依赖 CI e2e job
+DEFERRED: CI E2E 矩阵仍含 performance.spec.ts（v2-C-41 未修复）+ 缺 5 个 critical spec（v2-R-143 未修复）
 
-## Bugbot (2421addc) remediations
+## v2 findings fix status (fix-v2-findings spec)
+- CRITICAL: 26 项 → FIXED 4 + REMOVED 1 + DEFERRED 21
+- REQUIRED: 126 项 → FIXED ~50 + REMOVED 1 (v2-R-02) + DEFERRED ~75
+- 覆盖率: 73.4% → 84.6%（+11.2pp）
+- 详见: docs/superpowers/reports/2026-07-08-v2-fix-verification-report.md
+
+## 已完成修复（FIXED）
+- v2-C-03 / v2-C-15: HPA ws_connections 指标链路（infra/k8s/base/prometheus-adapter.yaml 已创建）
+- v2-C-08: gen-frontend-constants 输出路径（cmd/gen-frontend-constants/main.go → shared/game/constants.ts）
+- v2-C-25: 5 个 HTML 文件补 CSP meta 标签
+- v2-R-03/04/05/36/37: store slog 上下文 + audit 超时/重试 + fail-closed
+- v2-R-38~43/83/84: config/constants/worker 统一 + nicknames rune 长度 + slogctx
+- v2-R-95~102: cmd/* 修复（seed sslmode/backfill 分页/migrate-passwords/gen 测试）
+- v2-R-39/40: 常量重复消除
+- v2-R-111: DecodeNicknamePayload fuzz 测试
+- v2-R-80/81: docker-compose digest pin 占位 + name 修正
+- 前端预存失败修复: snapshot_decode / ws_handlers_snapshot / ws_connection / phase_sync
+
+## 未完成修复（DEFERRED — P0 阻断项仍存在）
+- v2-C-41: ci-cd.yml E2E 矩阵仍含 performance.spec.ts（line 77）
+- v2-R-143: ci-cd.yml E2E 矩阵缺 auth/admin/security/network_boundary/concurrency
+- v2-C-11/12/13: openapi.yaml 房间码仍 6 位 + match 仍 deprecated + 字段名仍 code
+- v2-C-14/40: threat-model.md JWT 仍 HMAC-SHA256 + Admin 仍独立 ADMIN_JWT_SECRET
+- v2-C-01/02/05/09/10: Terraform GKE IaC + ADR-013/014/015/018/022 修正
+- v2-C-30~34/36/37: CI 门禁 + 告警指标名 + Grafana datasource
+- v2-C-35: .env.example JWT_SECRET → JWT_PRIVATE_KEY/JWT_PUBLIC_KEY
+- v2-C-38/39: CockroachDB 文档 + db-query-analysis 已删除索引引用
+- Task 3.3/3.4: 前端 fetch 超时 + ws_connection 状态收敛 + 死代码清理
+- Task 4.2: idempotency SETNX 测试 + down.sql 回滚测试 + GDPR 断言
+- Task 5: ADR/architecture/runbook/ws-protocol 文档修正
+
+## REMOVED Requirements（spec.md 明确标注，无需修复）
+- v2-R-02: OutboxRepository.InsertOutboxEvent 实际已包装 circuit breaker（r.cb.Execute），描述基于早期版本
+- v2-C-04: v1 基线报告缺失属历史事实，建立新 baseline 即可
+
+## Bugbot (2421addc) remediations（历史保留）
 - hub_restore: shouldLocalMaterializeRoom filter + registerRoomInRedis on restore/lazy load
 - room_tick: cooldown uses len(Players) per cooldown_contract.json
 - room_outbound: critical enqueue 100ms timeout (regression test)
 - store: TryClaimRoomRegistry for atomic miss claim
 
-## Security Review (63ac5b5b) remediations
+## Security Review (63ac5b5b) remediations（历史保留）
 - validateTrustedProxyCIDRs in production Validate()
 - admin lockout Redis read fail-closed → 503

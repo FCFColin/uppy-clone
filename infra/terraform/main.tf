@@ -4,9 +4,12 @@ terraform {
     bucket = "balloon-game-terraform-state"
     prefix = "terraform/state"
   }
+  # v2-R-21：固定 Terraform CLI 最低版本，避免团队成员用旧版本引入不兼容语法。
+  required_version = ">= 1.5"
   required_providers {
     google = {
-      source  = "hashicorp/google"
+      source = "hashicorp/google"
+      # v2-R-26：provider version pinning（major version 锁定，允许 minor 修复）。
       version = "~> 5.0"
     }
   }
@@ -17,8 +20,27 @@ provider "google" {
   region  = var.region
 }
 
+# VPC：引用项目内现有 VPC（默认 default），用于 Cloud SQL/Redis 私网连接。
+# 决策：VPC 由项目默认提供，不自创建，避免误删整张网络波及其他资源。
 data "google_compute_network" "balloon_vpc" {
-  name = var.vpc_name
+  name    = var.vpc_name
+  project = var.project_id
+}
+
+# GKE 集群（v2-C-01 折中方案：data 块引用现有手动创建的集群，不自创建）。
+#
+# 决策：GKE 集群 + node pool 手动管理，Terraform 仅通过 data 引用。
+#   1. 集群控制平面生命周期长、变更低频，误删代价极高（不可重建历史数据）；
+#   2. 多区域集群（us-east1/europe-west1/asia-southeast1，ADR-014）跨 region
+#      apply 复杂度高，与现有 ci-cd.yml 逐区域 kubectl 部署流程并存易冲突；
+#   3. node pool 启用自动扩缩容，与 Terraform 生命周期管理冲突（drift 频繁）。
+# 见 ADR-014（多区域拓扑）。若后续需全 IaC 化，应新建 ADR 评估迁移路径。
+# v2-R-23：var.gke_regions 默认含 3 个区域，与 ci-cd.yml deploy matrix 对齐。
+data "google_container_cluster" "balloon_game" {
+  for_each = toset(var.gke_regions)
+  name     = "${var.gke_cluster_name_prefix}-${each.value}"
+  location = each.value
+  project  = var.project_id
 }
 
 # Reserved IP range for private services (VPC peering with Google services).
@@ -71,15 +93,15 @@ resource "google_sql_user" "uppy_user" {
 
 # Redis instance
 resource "google_redis_instance" "uppy_redis" {
-  name                       = "uppy-redis"
-  tier                       = "STANDARD_HA"
-  memory_size_gb             = 1
-  region                     = var.region
-  redis_version              = "REDIS_7_0"
-  auth_enabled               = true
-  transit_encryption_enabled = true
-  authorized_network         = data.google_compute_network.balloon_vpc.id
-  connect_mode               = "DIRECT_PEERING"
+  name                    = "uppy-redis"
+  tier                    = "STANDARD_HA"
+  memory_size_gb          = 1
+  region                  = var.region
+  redis_version           = "REDIS_7_0"
+  auth_enabled            = true
+  transit_encryption_mode = "SERVER_AUTHENTICATION"
+  authorized_network      = data.google_compute_network.balloon_vpc.id
+  connect_mode            = "DIRECT_PEERING"
 }
 
 # Secret Manager secrets

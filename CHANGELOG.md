@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deploy job uses `environment: production` for approval gating (T21)
 
 ### Changed
-- 全仓整理：删除 `run-backend.ps1`、`scripts/archive/`、一次性 `cmd/`；统一 ADR 中文模板与状态审计
+- 全仓整理：清理 `run-backend.ps1` 内联 env 读取改为复用 `_bootstrap-env.ps1`；删除 `scripts/archive/`、一次性 `cmd/`、构建产物、重复脚本；统一 ADR 中文模板与状态审计
 - ADR 索引覆盖 000–027；移除 phantom `ADR-V2-*` 引用
 - `REDIS_URL` 支持 URL 与 host:port；`make load-*` 与 CI/golangci 版本对齐
 - ADR README index rewritten to include ADR-000 through ADR-027

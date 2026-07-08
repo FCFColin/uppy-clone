@@ -4,13 +4,13 @@
 
 ## Phase 0：发布阻塞项（生产部署前必过）
 
-| 检查 | 命令 / 位置 |
-|------|-------------|
-| GKE `TRUSTED_PROXY_CIDRS` 已注入 | 各 overlay `infra/k8s/overlays/*/kustomization.yaml` → ConfigMap `trusted-proxy-cidrs`；deploy 用 `__TRUSTED_PROXY_CIDRS__` 替换（GitHub secret `TRUSTED_PROXY_CIDRS`） |
-| 生产 env 校验 | `EnableHSTS=true` 时 `TRUSTED_PROXY_CIDRS` 必填且至少含一条可解析 CIDR（`env.Validate()` → `validateTrustedProxyCIDRs`） |
-| Admin lockout 按客户端 IP 隔离 | 部署后从两个公网 IP 各 5 次错误密码，仅各自 lockout；单测 `TestExtractClientIP_IsolatesClientsBehindSharedProxy` |
-| Docker digest 全阶段 pin | `bash scripts/ci/check-docker-digests.sh Dockerfile` |
-| 发布配置静态验收 | `powershell -File scripts/ci/verify-release-config.ps1`（含 `__IMAGE_TAG__`、`__TRUSTED_PROXY_CIDRS__`） |
+| 检查 | 命令 / 位置 | CI 自动化 |
+|------|-------------|-----------|
+| GKE `TRUSTED_PROXY_CIDRS` 已注入 | 各 overlay `infra/k8s/overlays/*/kustomization.yaml` → ConfigMap `trusted-proxy-cidrs`；deploy 用 `__TRUSTED_PROXY_CIDRS__` 替换（GitHub secret `TRUSTED_PROXY_CIDRS`） | - |
+| 生产 env 校验 | `EnableHSTS=true` 时 `TRUSTED_PROXY_CIDRS` 必填且至少含一条可解析 CIDR（`env.Validate()` → `validateTrustedProxyCIDRs`） | - |
+| Admin lockout 按客户端 IP 隔离 | 部署后从两个公网 IP 各 5 次错误密码，仅各自 lockout；单测 `TestExtractClientIP_IsolatesClientsBehindSharedProxy` | `go-ci.yml` → `Test` job |
+| Docker digest 全阶段 pin | `bash scripts/ci/check-docker-digests.sh Dockerfile` | `go-ci.yml` → `Docker Image Pinning` job |
+| 发布配置静态验收 | `powershell -File scripts/ci/verify-release-config.ps1`（含 `__IMAGE_TAG__`、`__TRUSTED_PROXY_CIDRS__`） | `ci-cd.yml` → `Release Config Verification` job + deploy step |
 
 **根因说明：** Ingress 后若未配置 trusted proxy CIDR，所有请求共享 LB `RemoteAddr`，admin lockout 与 `admin:login` 限流会锁死全体管理员（Medium 风险）。
 
@@ -32,24 +32,24 @@
 
 **Makefile 快捷命令：** `make security-check`（第一层本地子集）
 
-**自动化脚本（Windows PowerShell）：**
+**自动化脚本（Windows PowerShell，已接入 CI）：**
 
-| 脚本 | 用途 |
-|------|------|
-| `scripts/ci/verify-required-checks.ps1` | 核对 `.github/settings.yml` 与 CI job 名称一致 |
-| `scripts/ci/self-check-layers.ps1` | 第二至六层可自动化子集（auth、WS、validate、ratelimit、cooldown 契约） |
-| `scripts/ci/verify-release-config.ps1` | 发布前静态验收（SHA tag、cosign、kustomize `__IMAGE_TAG__`、`__TRUSTED_PROXY_CIDRS__`） |
+| 脚本 | 用途 | CI Workflow |
+|------|------|-------------|
+| `scripts/ci/verify-required-checks.ps1` | 核对 `.github/settings.yml` 与 CI job 名称一致 | `repo-governance.yml`（每周一） |
+| `scripts/ci/self-check-layers.ps1` | 第二至六层可自动化子集（auth、WS、validate、ratelimit、cooldown 契约） | `security-layer-checks.yml`（每月1日） |
+| `scripts/ci/verify-release-config.ps1` | 发布前静态验收（SHA tag、cosign、kustomize `__IMAGE_TAG__`、`__TRUSTED_PROXY_CIDRS__`） | `ci-cd.yml` → `Release Config Verification` job |
 
 ## 测试命令速查
 
-| 层级 | 聚合命令 |
-|------|----------|
-| Phase 0 | `powershell -File scripts/ci/verify-release-config.ps1` + `go test ./internal/middleware/... -run ExtractClientIP -count=1` |
-| 第一层 | `make security-check` |
-| 第二至六层 | `powershell -File scripts/ci/self-check-layers.ps1` |
-| 全量后端 | `cd backend && go test ./... -short -count=1` |
-| 全量前端 | `cd frontend && npm test` |
-| E2E | `make e2e` |
+| 层级 | 聚合命令 | CI 自动化 |
+|------|----------|-----------|
+| Phase 0 | `go test ./internal/middleware/... -run ExtractClientIP -count=1` | `ci-cd.yml` → `Release Config Verification` job |
+| 第一层 | `make security-check` | `go-ci.yml` + `ci-cd.yml` 多 job |
+| 第二至六层 | 已在 CI 中自动化 | `security-layer-checks.yml`（每月1日） |
+| 全量后端 | `cd backend && go test ./... -short -count=1` | `go-ci.yml` → `Test` job |
+| 全量前端 | `cd frontend && npm test` | `ci-cd.yml` → `Quality Gate` job |
+| E2E | `make e2e` | `ci-cd.yml` → `E2E Tests` job（3 browser × 10 spec） |
 
 ## 第二层：认证与会话
 

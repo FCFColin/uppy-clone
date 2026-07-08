@@ -1,0 +1,214 @@
+# Prometheus-Adapter: expose custom metrics from Prometheus to the Kubernetes
+# custom.metrics API so HPA can scale on `ws_connections` (ADR-005 / v2-C-03 / v2-C-15).
+#
+# 企业为何需要：HPA（hpa.yaml）按 Pods 类型自定义指标 `ws_connections` 扩缩，
+# 但 HPA 无法直接查询 Prometheus。prometheus-adapter 充当翻译层：
+#   HPA → custom.metrics.k8s.io API → prometheus-adapter → Prometheus 查询
+# 不补此链路，HPA 只剩 CPU 维度生效，WS 连接数维度失效，可能让单实例连接超限
+# （舱壁上限 10000，hpa.yaml averageValue 6000）。
+#
+# 协同：
+#   - Prometheus 由 deploy/prometheus/deployment.yaml 部署，Service `prometheus:9090`
+#   - balloon-game Pod 通过 prometheus.io/scrape 注解被自动抓取，指标含 ws_connections
+#   - adapter 规则把 `ws_connections{namespace="..."}` 解析为按 Pod 的自定义指标
+---
+# 1) ServiceAccount + RBAC：adapter 需列举 Pods/Namespaces 才能把 series 标签
+#    映射到 Pod resource，并需读 Prometheus 配置（service discovery）。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: prometheus-adapter
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: prometheus-adapter
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "pods", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["custom.metrics.k8s.io"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: prometheus-adapter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-adapter
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-adapter
+    namespace: balloon-game
+---
+# 2) ConfigMap：adapter 规则。
+#    将 Prometheus 中 `ws_connections` 指标（来自 balloon-game Pod）映射为
+#    `pods/ws_connections` 自定义指标（Pods 类型），HPA 即可 AverageValue 聚合。
+#    seriesQuery 必须能枚举出 namespace/pod 标签，resources.overrides 把它们映射到
+#    Kubernetes Pod 资源，使 adapter 知道如何按 Pod 切片聚合。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: prometheus-adapter
+data:
+  config.yaml: |
+    rules:
+      - seriesQuery: 'ws_connections{namespace!="",pod!=""}'
+        resources:
+          overrides:
+            namespace: { resource: "namespace" }
+            pod: { resource: "pod" }
+        name:
+          matches: "^(.*)_connections$"
+          as: "ws_connections"
+        metricsQuery: 'sum(ws_connections{namespace="<<.Namespace>>",pod=~"<<.Pod>>"}) by (<<.GroupBy>>)'
+    resourceRules:
+      cpu:
+        containerQuery: |
+          sum by (<<.GroupBy>>) (
+            rate(container_cpu_usage_seconds_total{container!="",container!="POD",<<.LabelMatchers>>}[3m])
+          )
+        resources:
+          overrides:
+            namespace: { resource: "namespace" }
+            pod: { resource: "pod" }
+            container: { resource: "container" }
+        containerLabel: container
+      memory:
+        containerQuery: |
+          sum by (<<.GroupBy>>) (
+            container_memory_working_set_bytes{container!="",container!="POD",<<.LabelMatchers>>}
+          )
+        resources:
+          overrides:
+            namespace: { resource: "namespace" }
+            pod: { resource: "pod" }
+            container: { resource: "container" }
+        containerLabel: container
+---
+# 3) Deployment：adapter 自身。
+#    镜像：与 deploy/prometheus/deployment.yaml 风格一致使用 tag（observability stack
+#    暂未要求 digest pin）；如需 digest pin 可后续由 CI 在 build/deploy 时注入。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: prometheus-adapter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-adapter
+  template:
+    metadata:
+      labels:
+        app: prometheus-adapter
+    spec:
+      serviceAccountName: prometheus-adapter
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: prometheus-adapter
+          image: registry.k8s.io/prometheus-adapter/prometheus-adapter:v0.12.0
+          args:
+            - --cert-dir=/tmp/cert
+            - --secure-port=6443
+            - --metrics-relist-interval=1m
+            - --prometheus-url=http://prometheus:9090
+            - --config=/etc/adapter/config.yaml
+            - --logtostderr=true
+            - --v=2
+          ports:
+            - name: https
+              containerPort: 6443
+          volumeMounts:
+            - name: config
+              mountPath: /etc/adapter
+              readOnly: true
+            - name: cert
+              mountPath: /tmp/cert
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-adapter
+        - name: cert
+          emptyDir: {}
+---
+# 4) Service：APIService 通过此 Service 路由到 adapter (443 → 6443)。
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-adapter
+  labels:
+    app: prometheus-adapter
+spec:
+  type: ClusterIP
+  selector:
+    app: prometheus-adapter
+  ports:
+    - name: https
+      port: 443
+      targetPort: 6443
+---
+# 5) APIService：注册 v1beta1.custom.metrics.k8s.io，由 adapter 实现。
+#    HPA controller 通过此 API 查询 ws_connections 自定义指标。
+#    insecureSkipTLSVerify=true：adapter 启动时自签证书（--cert-dir=/tmp/cert），
+#    简化部署；生产可改用 cert-manager 注入 caBundle（不在本任务范围）。
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.custom.metrics.k8s.io
+  labels:
+    app: prometheus-adapter
+spec:
+  service:
+    name: prometheus-adapter
+    namespace: balloon-game
+  group: custom.metrics.k8s.io
+  version: v1beta1
+  insecureSkipTLSVerify: true
+  priority: 100

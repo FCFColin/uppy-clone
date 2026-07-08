@@ -1,6 +1,6 @@
 # 系统架构文档
 
-> 最后更新: 2026-06-26
+> 最后更新: 2026-07-08
 > 维护者: 项目团队
 
 ## 系统概述
@@ -24,18 +24,20 @@
 **已实现（当前运行）**
 
 - 单区域 Go 服务（REST + WebSocket 同镜像），房间 tick 循环 15Hz
-- 单库 PostgreSQL 16 持久化 + Redis 7（房间状态缓存 + Stream + 读缓存层 ADR-006）
+- 单库 PostgreSQL 16 持久化 + Redis 7（房间状态缓存 + Stream + 读缓存层 ADR-006；stateful/ephemeral 域拆分 ADR-029）
 - 区域内 owner 反向代理 + 租约接管（ADR-005）
 - 弹性栈：熔断 / 隔板 / 幂等 / 限流；可观测：OTel + Prometheus + Pyroscope
 - 合规：审计日志防篡改、GDPR 硬删除 Worker；事务性 Outbox + Redis Stream
 - 部署：GKE StatefulSet + HPA（`infra/k8s/base` + `infra/k8s/overlays/<region>`）
 - Vanilla TS MPA 前端 + dist 嵌入 Go 单镜像（ADR-018/020）；raw SQL + pgx（ADR-019）
 - 字段级 PII 加密部分落地（ADR-022）；混合测试 testcontainers + miniredis（ADR-023）
-- 前端可变单例状态（ADR-025）；Room 出站锁外广播（ADR-027）
+- 前端受控状态管理（ADR-025）；Room 出站锁外广播（ADR-027）；Clean Architecture 接口驱动解耦（ADR-028）
 
 ## 应用分层（当前实际架构）
 
-ADR-024（2026-06-26）裁决删除未接线的 `internal/service` CQRS 脚手架。运行时分层为：
+ADR-024（2026-06-26）裁决删除未接线的 `internal/service` CQRS 脚手架。ADR-028（2026-07-03）
+进一步采用 Clean Architecture 接口驱动解耦：接口定义在消费者（handler/middleware/rbac），
+实现在基础设施（store/auth），`server` 为唯一组合根。运行时分层为：
 
 ```
 HTTP Handler → auth / game (domain logic) → store (PostgreSQL / Redis)
@@ -72,7 +74,7 @@ graph TB
         EW["EmailWorker"]
         OB["Outbox Publisher"]
         GDPR["GDPR Hard-Delete Worker"]
-        GW["cmd/game-worker 独立进程"]
+        GW["cmd/game-worker 独立进程（计划中）"]
     end
 
     subgraph Data["数据层"]
@@ -120,14 +122,14 @@ sequenceDiagram
     P1->>S: POST /api/v1/registry/create
     S->>PG: INSERT game_session
     S->>R: SET lobby_state
-    S-->>P1: {code: "ABC123"}
+    S-->>P1: {code: "ABC23"}
 
     P2->>S: POST /api/v1/registry/match
     S->>R: GET lobby_state
-    S-->>P2: {code: "ABC123"}
+    S-->>P2: {code: "ABC23"}
 
-    P1->>S: WebSocket /lobby/ABC123/ws
-    P2->>S: WebSocket /lobby/ABC123/ws
+    P1->>S: WebSocket /lobby/ABC23/ws
+    P2->>S: WebSocket /lobby/ABC23/ws
     S->>S: Start Room tick loop (15Hz)
 
     loop 每 66.67ms
@@ -142,6 +144,50 @@ sequenceDiagram
     S->>R: DEL lobby_state
 ```
 
+### 游戏结果持久化：三写并行设计
+
+> 实现：`backend/internal/game/room_result_async.go`；关联 ADR-007（消息队列）、ADR-009（Outbox）。
+
+游戏结束时，Room 通过 `enqueueGameResultAsync()` 在独立 goroutine 中并行触发三条写入路径，
+以平衡**一致性保证**与**tick 循环性能**：
+
+```
+Room 结束
+  └─ enqueueGameResultAsync() [goroutine, asyncWg 跟踪]
+       ├─ 1. recordGameResultDirect()
+       │     └─ store.RecordGameResult() → PostgreSQL（同步写，失败仅日志，无重试）
+       │
+       └─ 2. enqueueGameResultRedis()
+             ├─ 2a. cache.EnqueueGameResult() → Redis Stream
+             │      └─ GameResultWorker 消费 → PostgreSQL（at-least-once + 重试 + 死信）
+             │
+             └─ 2b. store.InsertOutboxEvent() → outbox_events 表
+                    └─ Publisher → Redis Stream（at-least-once，circuit breaker 包装）
+```
+
+**三条路径的设计意图**
+
+| 路径 | 目的 | 一致性 | 失败处理 |
+|------|------|--------|---------|
+| Direct write（1） | DB 健康时立即持久化，作为"安全网" | at-most-once（无重试） | 失败仅 `slog.Error`，依赖路径 2 兜底 |
+| Redis Stream（2a） | 异步批量写入，削峰保护 PG（ADR-007） | at-least-once（XACK + 重试 + 死信） | 5 次指数退避后转死信队列 |
+| Outbox（2b） | 跨消费者 at-least-once 传递（ADR-009） | at-least-once（Publisher + circuit breaker） | Publisher 持续轮询重试 |
+
+**去重机制**：三条路径可能重复写入 `game_results`。`GameResultWorker.processMessage` 用
+`uuid.NewSHA1(gameID + userID)` 生成确定性 result ID，配合 `INSERT ... ON CONFLICT DO NOTHING`
+保证幂等。Direct write 已写入时，Worker 重处理不会产生重复行。
+
+**一致性 vs 性能权衡**：
+- **性能优先**：三写并行避免任一路径阻塞 Room 释放；direct write 在 goroutine 内同步执行，
+  但不阻塞 tick 循环（已通过 `asyncWg` 异步化）。
+- **一致性兜底**：Redis Stream + Outbox 双路 at-least-once 保证最终一致；direct write 失败时
+  Worker 仍会写入。但 direct write 路径**无重试**，若 DB 短暂不可用且 Worker 同时失败，
+  存在理论数据丢失窗口（依赖 outbox Publisher 恢复后补偿）。
+
+> ⚠️ **已知风险（v2 自检 v2-R-146 跨层发现）**：direct write 失败仅日志无重试，与
+> Worker/Outbox 的 at-least-once 语义不一致。当前靠 Worker 路径兜底，但 direct write 的
+> "安全网"作用在 DB 抖动场景下实际失效。at-least-once 语义未在 ADR-009 中显式文档化。
+
 ## 技术选型 ADR
 
 参见 [`../adr/`](../adr/README.md) 目录下的各 ADR 文档。
@@ -154,7 +200,8 @@ sequenceDiagram
    （ADR-013 终态）。跨区域由全局目录路由、就近重定向，绝不转发游戏帧（ADR-016）。
 2. **单点 tick 循环**: 单个房间的物理模拟仍在单个 goroutine（单 owner 实例）中执行，
    受限于单核——这是实时权威模拟的固有限制；扩展靠"房间分散到多实例"而非"单房间并行"。
-3. **消息队列已引入**: 游戏结果通过 Redis Stream 异步写入（ADR-007），但批量消费仍可优化
+3. **消息队列已引入**: 游戏结果通过三写并行持久化（direct write + Redis Stream + Outbox，
+   见上方"游戏结果持久化"小节），批量消费仍可优化
 4. **无 CDN**: 静态资源直接由 Go 服务，未利用边缘缓存
 
 ## 流量增长瓶颈分析
@@ -182,12 +229,13 @@ ListLobbies、CheckRoom 当前直接查 PG，高 QPS 下成为瓶颈。
 
 #### 队列解耦方案
 
-游戏结果当前同步写 PG，高并发时成为瓶颈。
+游戏结果通过三写并行持久化（详见上方"游戏结果持久化：三写并行设计"小节），Redis Stream
+为异步批量写入主路径。
 
-- **策略**: 游戏结果写入 Redis Stream → Worker 消费批量写入 PG
-- **实现**: Room 结束时 XADD 到 `game:results` Stream；Worker XREADGROUP 消费，每 100 条或 1s 批量 INSERT
-- **容错**: Worker 消费失败时消息留在 Pending 列表，其他 Worker 可 XCLAIM 接管
-- **详见**: [`../adr/007-message-queue.md`](../adr/007-message-queue.md)
+- **策略**: 游戏结果写入 Redis Stream → Worker 消费批量写入 PG（同时有 direct write + outbox 兜底）
+- **实现**: Room 结束时 `enqueueGameResultAsync` 触发三写并行；Worker XREADGROUP 消费，`ON CONFLICT DO NOTHING` 去重
+- **容错**: Worker 消费失败时消息留在 Pending 列表，其他 Worker 可 XCLAIM 接管；5 次重试后转死信
+- **详见**: [`../adr/007-message-queue.md`](../adr/007-message-queue.md)、[`../adr/009-transactional-outbox.md`](../adr/009-transactional-outbox.md)
 
 #### 容量规划
 

@@ -199,7 +199,7 @@ curl -s localhost:8080/metrics | grep ws_connection_total
 
 **根治方案**
 - 部署 WAF（Cloudflare / AWS WAF）拦截恶意流量，配置 Bot 防护规则
-- GKE HPA 按 CPU 与 `game_active_ws_connections` 自动扩缩（见 `infra/k8s/base/hpa.yaml`）
+- GKE HPA 按 CPU 与 `ws_connections` 自动扩缩（见 `infra/k8s/base/hpa.yaml`，指标名与 `backend/internal/metrics/metrics.go` 一致）
 - 客户端实现指数退避重连（exponential backoff + jitter）
 - 按 IP 限流 + 按用户限流双层防护
 - 监控 `ws_connections` 增长速率，异常突增触发告警
@@ -223,6 +223,9 @@ curl -s localhost:8080/metrics | grep ws_connection_total
 **排查命令**
 ```bash
 # 1. CPU profile（需启用 pprof，端口 6060）
+# ⚠️ 注意：当前后端未 import net/http/pprof，以下 pprof 端点不可用。
+#    排障时可临时在 server 注册 _ "net/http/pprof" 并监听 6060 端口，或用
+#    runtime/pprof 在代码中手动采集 profile 写文件。
 go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
 
 # 2. 检查 CPU 使用率
@@ -298,7 +301,15 @@ psql $DATABASE_URL -c "SELECT count(*) FROM audit_logs"
 
 **缓解步骤**
 1. 清理旧日志：`journalctl --vacuum-time=2d` 或 `truncate -s 0 /var/log/app.log`
-2. 清理审计日志：`DELETE FROM audit_logs WHERE created_at < extract(epoch from now() - interval '30 days') * 1000`
+2. 清理审计日志（⚠️ `audit_logs` 表有触发器 `no_delete_audit_logs` 阻止 DELETE，
+   需临时禁用触发器或使用分区表 DROP PARTITION，见
+   [audit-log-archival.md](audit-log-archival.md)）：
+   ```sql
+   -- 临时禁用触发器清理（created_at 为 BIGINT epoch 毫秒）
+   ALTER TABLE audit_logs DISABLE TRIGGER no_delete_audit_logs;
+   DELETE FROM audit_logs WHERE created_at < extract(epoch from now() - interval '30 days') * 1000;
+   ALTER TABLE audit_logs ENABLE TRIGGER no_delete_audit_logs;
+   ```
 3. 重启 Pod 释放泄漏内存：`kubectl rollout restart deployment/<name>`
 4. 清理 Redis 无 TTL Key：`redis-cli --scan --pattern "*" | head -1000` 检查后清理
 5. 临时扩容磁盘/内存
@@ -326,10 +337,11 @@ psql $DATABASE_URL -c "SELECT count(*) FROM audit_logs"
 - 可能伴随 Redis 熔断器 `circuit_breaker_state{name="redis"}=1`
 
 **排查**
-1. 检查 `JWT_SECRET` 是否被轮换：refresh token 用旧密钥签发，新密钥无法验证 → 全部 401
+1. 检查 `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` 是否被轮换：JWT 使用 ES256（ECDSA P-256），
+   refresh token 用旧私钥签发，新私钥无法验证 → 全部 401
    ```bash
-   # 对比部署环境与上次部署的 JWT_SECRET 哈希
-   echo -n "$JWT_SECRET" | sha256sum
+   # 对比部署环境与上次部署的 JWT_PRIVATE_KEY 哈希
+   echo -n "$JWT_PRIVATE_KEY" | sha256sum
    ```
 2. 检查 Redis 是否可用：refresh token 存储在 Redis（jti 撤销列表 + refresh token 存储）
    ```bash
@@ -339,7 +351,7 @@ psql $DATABASE_URL -c "SELECT count(*) FROM audit_logs"
 3. 检查 token TTL 配置是否被误改（access token TTL / refresh token TTL）
 
 **处置**
-1. 回滚 `JWT_SECRET` 变更：恢复至上次部署的密钥值，使存量 refresh token 可重新验证
+1. 回滚 `JWT_PRIVATE_KEY` 变更：恢复至上次部署的 ECDSA 私钥，使存量 refresh token 可重新验证
 2. 恢复 Redis：见故障 2
 3. 临时延长 token TTL：降低刷新频率，争取修复时间（需评估安全权衡）
 4. 若密钥必须轮换：发布公告 + 引导用户重新登录，接受短期 401 峰值
@@ -433,10 +445,13 @@ curl -s localhost:8080/metrics | grep -E 'room_lock_hold|room_outbound|room_pers
 
 ## 7. 多区域事件（ADR-014/016）
 
+> ⚠️ **本节对应多区域目标态（ADR-014/015/016 均为提议中），当前实际运行为单区域。
+> 以下排查步骤涉及 CRDB、`/resolve` 端点、跨区域路由等尚未实现的功能。**
+
 ### 7.1 区域级故障（某区域整体不可用）
 
 **症状**
-- Thanos 聚合视图中 `up{region="<region>"}` 归零；该区域 `ws_active_connections` 断崖
+- Thanos 聚合视图中 `up{region="<region>"}` 归零；该区域 `ws_connections` 断崖
 - 全局 LB 后端健康数下降；该区域玩家集中报告掉线
 - 可能伴随 CRDB 该区域 range 不可用告警
 
@@ -480,11 +495,11 @@ curl -s localhost:8080/metrics | grep -E 'room_lock_hold|room_outbound|room_pers
 
 ### Current Process (Manual)
 ```bash
-# Rollback to previous version
-kubectl rollout undo deployment/balloon-game -n balloongame
+# Rollback to previous version（balloon-game 为 StatefulSet，namespace 为 balloon-game）
+kubectl rollout undo statefulset/balloon-game -n balloon-game
 
 # Verify rollout status
-kubectl rollout status deployment/balloon-game -n balloongame
+kubectl rollout status statefulset/balloon-game -n balloon-game
 ```
 
 ### Future Automation (P2)

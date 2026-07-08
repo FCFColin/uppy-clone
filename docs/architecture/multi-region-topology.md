@@ -1,6 +1,6 @@
 # 多区域拓扑与全局路由
 
-> 关联 ADR-014（多区域拓扑）、ADR-015（CockroachDB）、ADR-016（区域本地房间）。
+> 关联 ADR-014（多区域拓扑）、ADR-015（CockroachDB）、ADR-016（区域本地房间）、ADR-029（Redis 域拆分 Phase 3 多区域）。
 
 ## 数据流总览
 

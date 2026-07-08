@@ -14,16 +14,18 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  // projects: [
-  //   { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-  //   // TODO: Add Firefox and Safari for cross-browser coverage
-  //   // { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-  //   // { name: 'webkit', use: { ...devices['Desktop Safari'] } },
-  // ],
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
     },
   ],
   webServer: process.env.PROD_E2E

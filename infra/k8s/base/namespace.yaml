@@ -1,0 +1,29 @@
+# Namespace for the balloon-game stack (v2-R-79).
+#
+# 企业为何需要：在 namespace 上声明 Pod Security Standards (PSS) restricted，
+# 通过 admission webhook 强制拒绝不合规 Pod（privileged root、可写 rootfs、未 drop ALL
+# capabilities 等）。仅靠各 manifest 自带 securityContext 是"声明性"合规，缺乏强制；
+# PSS 把它升级为"enforced"，避免未来有人引入不安全 Pod 配置（与 Dockerfile 注释中
+# "K8s restricted profile" 一致）。
+#
+# 三档注解：
+#   enforce: 违反直接拒绝（Pod 创建失败）
+#   audit:   违反写入审计事件（不阻断，便于灰度）
+#   warn:    违反在 kubectl 返回 warning（开发期提示）
+# 同时设三档可让既有不合规配置在 enforce 前先暴露出来，避免突然阻断。
+#
+# 注：base 不设 namespace 字段，因此此资源 metadata.name 与最终 namespace 一致；
+# overlays 通过 `namespace: balloon-game` 把其余资源归入此 namespace。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: balloon-game
+  labels:
+    app.kubernetes.io/part-of: balloon-game
+    # Pod Security Standards (Kubernetes ≥1.25 built-in admission) — restricted profile.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

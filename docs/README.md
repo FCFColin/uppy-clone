@@ -78,7 +78,7 @@
 | `docs/benchmarks-v2.md` | `development/benchmarks-k6-room-slo.md` |
 | `docs/benchmarks.md`（flat） | `development/benchmarks-go-microbench.md` |
 | `infra/base/`、`infra/main.tf` | `infra/k8s/`、`infra/terraform/` |
-| `scripts/check-*.sh`、`scripts/pin-digests.sh` | `scripts/ci/` |
+| `scripts/check-*.sh` | `scripts/ci/` |
 | `scripts/k6/` | `scripts/load/` |
 | `docker/init-scripts/` | `docker/postgres/init/` |
 | `docs/environments.md` | `operations/environments.md` |

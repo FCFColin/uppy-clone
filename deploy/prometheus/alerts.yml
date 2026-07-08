@@ -19,12 +19,17 @@ groups:
           summary: "p99 latency > 500ms over 5 minutes"
 
       - alert: ConnectionPoolExhaustion
-        expr: pgxpool_acquire_count - pgxpool_release_count > 20
+        # v2-C-32: 原指标 pgxpool_acquire_count / pgxpool_release_count 不存在。
+        # backend/internal/metrics/metrics.go 实际暴露：
+        #   db_pool_in_use_conns (gauge) / db_pool_idle_conns (gauge) / db_pool_acquire_total (counter)
+        # 用 in_use / (in_use + idle) 比率表达"连接池接近耗尽"语义（>80% 持续 2m 告警）。
+        # 分母为 0 时（pool 未初始化）表达式返回 NaN，不会误触发。
+        expr: db_pool_in_use_conns / (db_pool_in_use_conns + db_pool_idle_conns) > 0.8
         for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Database connection pool near exhaustion"
+          summary: "Database connection pool near exhaustion (>80% in use)"
 
       # NOTE: DiskUsageHigh removed — no node_exporter deployed to collect node_filesystem_* metrics.
       # Re-add this rule with node_exporter scrape config when infrastructure monitoring is set up.

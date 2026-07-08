@@ -191,17 +191,3 @@ Link: </api/v1/admin/config>; rel="successor-version"
 ```
 
 ## Postmortems
-
-P0/P1 事故须在 7 日内完成复盘，模板见 [`docs/templates/postmortem.md`](docs/templates/postmortem.md)。
-
-## CI 工作流
-
-| Workflow | 职责 |
-|----------|------|
-| [`go-ci.yml`](../.github/workflows/go-ci.yml) | 后端 test/lint/bench/security/integration；main 推送时 build-push |
-| [`ci-cd.yml`](../.github/workflows/ci-cd.yml) | 前端质量门禁、E2E、部署 |
-| [`docs-governance.yml`](../.github/workflows/docs-governance.yml) | ADR 索引、布局、OpenAPI |
-
-本地：`make check`、`make ci`。
-
-## API Deprecation Policy

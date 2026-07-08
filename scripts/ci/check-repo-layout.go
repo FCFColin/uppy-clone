@@ -83,7 +83,7 @@ func main() {
 
 	// Legacy scripts at repo scripts/ root
 	legacyScripts := []string{
-		"scripts/check-coverage.sh", "scripts/check-docker-digests.sh", "scripts/pin-digests.sh",
+		"scripts/check-coverage.sh", "scripts/check-docker-digests.sh",
 		"scripts/k6", "scripts/merge_go_tests.py", "scripts/merge-package-tests.py",
 	}
 	for _, f := range legacyScripts {

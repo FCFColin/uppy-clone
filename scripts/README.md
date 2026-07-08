@@ -13,7 +13,6 @@
 
 - `ci/check-coverage.sh` — 分层覆盖率门禁（`make test-cover`）
 - `ci/check-docker-digests.sh` — Dockerfile digest 与 lockfile 一致性
-- `ci/pin-digests.sh` — 解析并更新 digest lockfile
 - `ci/sync-alert-rules.sh` — 从 `deploy/alertmanager/rules.yml` 生成 K8s ConfigMap
 - `ci/check-repo-layout.sh` — ADR-021 目录布局白名单校验（Windows：`check-repo-layout.ps1` 或 `make check-repo-layout`）
 

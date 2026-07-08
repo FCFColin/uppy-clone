@@ -1,6 +1,10 @@
 apiVersion: 1
 datasources:
   - name: Prometheus
+    # v2-C-34: 显式设置 uid（小写，与 K8s Service 名 `prometheus` 一致）。
+    # dashboard JSON 通过 `datasource.uid` 引用，未设 uid 时 Grafana 自动生成
+    # 随机字符串，导致 dashboard 加载报 "Datasource not found"。
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090

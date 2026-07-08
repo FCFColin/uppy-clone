@@ -1,7 +1,7 @@
 # ADR-013: 部署平台 — 从 Cloud Run 收敛到 GKE（多区域）
 
 > **⚠️ 已废弃**: 本项目已从 Cloud Run 迁移到 GKE，此 ADR 仅作历史记录保留。
-> 详见 ADR-028 (GKE multi-region)。
+> 详见 ADR-014 (多区域拓扑) 与 ADR-016 (区域本地房间)。
 
 ## 状态
 

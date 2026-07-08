@@ -26,7 +26,9 @@
 采用 **CockroachDB（CRDB）** 作为多区域生产持久化层：
 
 1. **PostgreSQL 线协议兼容**：继续使用 `jackc/pgx`，应用代码与连接池基本不变；
-   通过 `DB_DIALECT=cockroach` 切换 dialect-gated 行为（`store.CurrentDialect`）。
+   设计上通过 `DB_DIALECT=cockroach` 切换 dialect-gated 行为（`store.CurrentDialect`）。
+   > ⚠️ 以上接口均为计划中，当前代码未实现 `DB_DIALECT` 读取、`store.CurrentDialect`、
+   > `PostgresStore.ApplyCockroachMultiRegion`。
 2. **REGIONAL BY ROW**：`users / game_sessions / game_results / lobby_states`
    行级数据驻留 `home_region`，本区域读写低延迟、满足数据驻留。
 3. **GLOBAL 表**：`room_directory`（code→region 路由目录）与 `app_config`
@@ -36,13 +38,16 @@
 
 ## 兼容与迁移
 
+> ⚠️ 以下迁移路径均为设计规划，对应代码与迁移文件尚未实现。
+
 - 共享 golang-migrate 集（`000001..000011`）保持纯 DDL、PG/CRDB 双兼容，本地/CI
   仍跑 PostgreSQL。
-- CRDB 专属 locality 语句隔离在 `backend/migrations/cockroach/001_multiregion.sql`，
-  仅当 `DB_DIALECT=cockroach` 时由 `PostgresStore.ApplyCockroachMultiRegion` 施加，
-  不污染 PG/CI。
-- 集成测试 `tests/integration/cockroach_test.go` 用单节点 CRDB 容器验证共享 schema
-  在 CRDB 线协议上的兼容性（Docker 不可用自动跳过）。
+- CRDB 专属 locality 语句规划隔离在 `backend/migrations/cockroach/001_multiregion.sql`
+  （**文件尚未创建**），设计上仅当 `DB_DIALECT=cockroach` 时由
+  `PostgresStore.ApplyCockroachMultiRegion`（**方法尚未实现**）施加，不污染 PG/CI。
+- 集成测试 `tests/integration/cockroach_test.go`（`TestCockroachDB_MigrationCompatibility`）
+  规划用单节点 CRDB 容器验证共享 schema 在 CRDB 线协议上的兼容性（**测试尚未实现**，
+  Docker 不可用自动跳过）。
 - 多区域 locality（REGIONAL BY ROW / GLOBAL）需多区域集群，于 staging 验证。
 
 ## 后果
@@ -50,4 +55,5 @@
 - **优点**：水平可扩展的强一致 SQL、行级数据驻留、区域故障隔离、应用层改动小。
 - **代价**：CRDB 运维复杂度、部分 PG 特性（某些触发器/扩展）不可用、跨区域写仍有
   一致性延迟（通过 REGIONAL BY ROW 与 follower reads 缓解）。
-- **回退**：`DB_DIALECT=postgres` 即可退回单区域 PostgreSQL（schema 双兼容）。
+- **回退**：设计上 `DB_DIALECT=postgres` 即可退回单区域 PostgreSQL（schema 双兼容）。
+  当前 `DB_DIALECT` 未实现，默认即为 PostgreSQL。

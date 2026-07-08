@@ -2,6 +2,29 @@ import { test, expect, Page } from '@playwright/test';
 import { createRoom, quickplayAuth, matchRoom, connectToRoom, waitForPhase, submitNickname } from './helpers.js';
 
 test.describe('Multiplayer', () => {
+  test('index page quickplay navigates to play page', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('body', { timeout: 10000 });
+
+    const quickplayButton = page.locator('#quickplay-btn');
+    await expect(quickplayButton).toBeVisible({ timeout: 5000 });
+    await quickplayButton.click();
+    await page.waitForURL(/\/play\.html/, { timeout: 10000 });
+    expect(page.url()).toContain('play');
+  });
+
+  test('leaderboard page loads and displays data', async ({ page }) => {
+    await page.goto('/leaderboard.html');
+    await expect(page.locator('body')).toBeVisible({ timeout: 10000 });
+
+    const leaderboardContainer = page.locator('#leaderboard-container');
+    await expect(leaderboardContainer).toBeVisible({ timeout: 5000 });
+
+    const rows = page.locator('li');
+    const count = await rows.count();
+    expect(count).toBeGreaterThanOrEqual(0);
+  });
+
   test('two players join same room and see each other', async ({ browser }) => {
     // 创建玩家1的上下文
     const ctx1 = await browser.newContext();

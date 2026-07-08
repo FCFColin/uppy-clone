@@ -143,5 +143,13 @@ simplify:
 clean:
 	rm -rf backend/bin frontend/dist bin
 	rm -f backend/*.out backend/*cov* backend/*cover*
-	rm -f backend/migrate backend/seed backend/backfill backend/server backend/store backend/unit backend/handler backend/unit_focus 'backend/$$out'
+	rm -f backend/migrate backend/seed backend/server backend/store backend/unit backend/handler backend/unit_focus 'backend/$$out'
 	docker compose down -v
+
+# sync-alert-rules: 生成 deploy/alertmanager/rules-configmap.yaml（v2-C-30/C-31/C-33）。
+# 单一真相源 deploy/alertmanager/rules.yml → ConfigMap YAML，供 Prometheus StatefulSet
+# 通过 configMap `alertmanager-rules` 挂载到 /etc/prometheus/rules/。
+# 见 deploy/prometheus/deployment.yaml volume `rules` 与 deploy/kustomization.yaml configMapGenerator。
+sync-alert-rules:
+	@bash scripts/ci/sync-alert-rules.sh
+	@echo "==> alertmanager rules ConfigMap synced to deploy/alertmanager/rules-configmap.yaml"
