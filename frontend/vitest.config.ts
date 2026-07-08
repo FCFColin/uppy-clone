@@ -20,8 +20,8 @@ export default defineConfig({
         'src/game/ui*.ts',
         'src/game/main.ts',
         'src/admin.ts',
-        'src/admin_config.ts',
-        'src/admin_login.ts',
+        'src/admin/config.ts',
+        'src/admin/login.ts',
         'src/leaderboard.ts',
         'src/index_leaderboard.ts',
         'src/game/connection_ui.ts',
@@ -34,8 +34,6 @@ export default defineConfig({
         '**/game/window_events.ts',
         '**/game/lifecycle.ts',
       ],
-      // TODO: Gradually improve these thresholds.
-      // Current (approximate): lines ~87%, functions ~86%, branches ~82%, statements ~87%
       thresholds: {
         lines: 85,
         functions: 85,

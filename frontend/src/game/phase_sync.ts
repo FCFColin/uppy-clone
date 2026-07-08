@@ -8,7 +8,7 @@ import {
   startCooldownUpdater, stopCooldownUpdater,
 } from './ui.js';
 import { tryEntryHandoff } from './entry_flow.js';
-import { END_REASON } from './local_constants.js';
+import { END_REASON } from '../shared/game/constants.js';
 
 export { END_REASON };
 
@@ -52,6 +52,10 @@ function clearRestartCountdownTimer(): void {
   if (interval !== null) {
     clearInterval(interval);
     dispatch({ type: 'SET_STATE', partial: { countdownTimerInterval: null } });
+  }
+  if (window._restartCountdownTimer !== null) {
+    clearInterval(window._restartCountdownTimer);
+    window._restartCountdownTimer = null;
   }
 }
 

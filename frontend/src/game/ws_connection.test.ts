@@ -166,14 +166,14 @@ describe('ws_connection', () => {
   it('waitForWebSocket resolves when socket open', async () => {
     const socket = new MockWebSocket() as unknown as WebSocket;
     setWs(socket);
-    await expect(waitForWebSocket(1000)).resolves.toBeUndefined();
+    await expect(waitForWebSocket(1000)).resolves.toBe(true);
   });
 
   it('waitForWebSocket resolves after timeout when socket stays closed', async () => {
     setWs(null);
     const pending = waitForWebSocket(150);
     await vi.advanceTimersByTimeAsync(200);
-    await expect(pending).resolves.toBeUndefined();
+    await expect(pending).resolves.toBe(false);
   });
 
   it('clearReconnectTimer and room pre-check helpers work', () => {

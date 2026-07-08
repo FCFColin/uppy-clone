@@ -20,14 +20,34 @@ export function getOutboundQueueLength(): number {
   return outboundMessageQueue.length;
 }
 
-let ws: WebSocket | null = null;
-let reconnectAttempts = 0;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let wsEverOpened = false;
-let roomPreChecked = false;
-let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
-let lastPingTime = 0;
+/**
+ * 单一连接状态对象（v2-R-47）
+ *
+ * 收敛原先 8 个模块级 `let` 变量（ws/reconnectAttempts/reconnectTimer/
+ * wsEverOpened/roomPreChecked/heartbeatInterval/heartbeatTimeout/lastPingTime），
+ * 状态集中管理便于追踪与测试。外部 setter/getter API 保持不变。
+ */
+interface ConnectionState {
+  ws: WebSocket | null;
+  reconnectAttempts: number;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  wsEverOpened: boolean;
+  roomPreChecked: boolean;
+  heartbeatInterval: ReturnType<typeof setInterval> | null;
+  heartbeatTimeout: ReturnType<typeof setTimeout> | null;
+  lastPingTime: number;
+}
+
+const connectionState: ConnectionState = {
+  ws: null,
+  reconnectAttempts: 0,
+  reconnectTimer: null,
+  wsEverOpened: false,
+  roomPreChecked: false,
+  heartbeatInterval: null,
+  heartbeatTimeout: null,
+  lastPingTime: 0,
+};
 
 export function showConnectionError(message: string, options?: ConnectionErrorOptions): void {
   clearReconnectTimer();
@@ -36,45 +56,45 @@ export function showConnectionError(message: string, options?: ConnectionErrorOp
 
 export function startHeartbeat(): void {
   stopHeartbeat();
-  heartbeatInterval = setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      lastPingTime = Date.now();
-      ws.send(new Uint8Array([CLIENT_MSG.PING]).buffer);
-      if (heartbeatTimeout) {
-        clearTimeout(heartbeatTimeout);
-        heartbeatTimeout = null;
+  connectionState.heartbeatInterval = setInterval(() => {
+    if (connectionState.ws && connectionState.ws.readyState === WebSocket.OPEN) {
+      connectionState.lastPingTime = Date.now();
+      connectionState.ws.send(new Uint8Array([CLIENT_MSG.PING]).buffer);
+      if (connectionState.heartbeatTimeout) {
+        clearTimeout(connectionState.heartbeatTimeout);
+        connectionState.heartbeatTimeout = null;
       }
-      heartbeatTimeout = setTimeout(() => {
-        if (ws) ws.close();
+      connectionState.heartbeatTimeout = setTimeout(() => {
+        if (connectionState.ws) connectionState.ws.close();
       }, HEARTBEAT_TIMEOUT_MS);
     }
   }, HEARTBEAT_INTERVAL_MS);
 }
 
 export function stopHeartbeat(): void {
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
+  if (connectionState.heartbeatInterval) {
+    clearInterval(connectionState.heartbeatInterval);
+    connectionState.heartbeatInterval = null;
   }
-  if (heartbeatTimeout) {
-    clearTimeout(heartbeatTimeout);
-    heartbeatTimeout = null;
+  if (connectionState.heartbeatTimeout) {
+    clearTimeout(connectionState.heartbeatTimeout);
+    connectionState.heartbeatTimeout = null;
   }
 }
 
 export function handlePong(): void {
-  if (heartbeatTimeout) {
-    clearTimeout(heartbeatTimeout);
-    heartbeatTimeout = null;
+  if (connectionState.heartbeatTimeout) {
+    clearTimeout(connectionState.heartbeatTimeout);
+    connectionState.heartbeatTimeout = null;
   }
-  if (lastPingTime > 0) {
-    updatePingDisplay(Date.now() - lastPingTime);
+  if (connectionState.lastPingTime > 0) {
+    updatePingDisplay(Date.now() - connectionState.lastPingTime);
   }
 }
 
 export function sendOrQueue(buffer: ArrayBuffer): void {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(buffer);
+  if (connectionState.ws && connectionState.ws.readyState === WebSocket.OPEN) {
+    connectionState.ws.send(buffer);
     return;
   }
   outboundMessageQueue.push(buffer);
@@ -84,55 +104,55 @@ export function sendOrQueue(buffer: ArrayBuffer): void {
 }
 
 export function flushPendingQueue(): void {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!connectionState.ws || connectionState.ws.readyState !== WebSocket.OPEN) return;
   while (outboundMessageQueue.length > 0) {
     const msg: ArrayBuffer | undefined = outboundMessageQueue.shift();
-    if (msg) ws.send(msg); /* v8 ignore else -- shift only returns undefined on empty queue */
+    if (msg) connectionState.ws.send(msg); /* v8 ignore else -- shift only returns undefined on empty queue */
   }
 }
 
 export function getWs(): WebSocket | null {
-  return ws;
+  return connectionState.ws;
 }
 
 export function setWs(socket: WebSocket | null): void {
-  ws = socket;
+  connectionState.ws = socket;
 }
 
 export function getWsEverOpened(): boolean {
-  return wsEverOpened;
+  return connectionState.wsEverOpened;
 }
 
 export function setWsEverOpened(value: boolean): void {
-  wsEverOpened = value;
+  connectionState.wsEverOpened = value;
 }
 
 export function resetReconnectAttempts(): void {
-  reconnectAttempts = 0;
+  connectionState.reconnectAttempts = 0;
 }
 
 export function clearReconnectTimer(): void {
-  if (reconnectTimer !== null) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+  if (connectionState.reconnectTimer !== null) {
+    clearTimeout(connectionState.reconnectTimer);
+    connectionState.reconnectTimer = null;
   }
 }
 
 export function setRoomPreChecked(value: boolean): void {
-  roomPreChecked = value;
+  connectionState.roomPreChecked = value;
 }
 
 export function wasRoomPreChecked(): boolean {
-  return roomPreChecked;
+  return connectionState.roomPreChecked;
 }
 
 export function setReconnectTimer(timer: ReturnType<typeof setTimeout> | null): void {
-  reconnectTimer = timer;
+  connectionState.reconnectTimer = timer;
 }
 
 export function scheduleReconnect(): void {
   clearReconnectTimer();
-  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+  if (connectionState.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     void import('./state_types.js').then(({ state: s }) => {
       showConnectionError(
         s.wasEverConnected ? '对局连接已中断，请检查网络后重试' : '连接失败，请检查网络后重试',
@@ -141,11 +161,11 @@ export function scheduleReconnect(): void {
     });
     return;
   }
-  const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts), 30000);
-  reconnectAttempts++;
-  showReconnectBanner(reconnectAttempts);
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
+  const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, connectionState.reconnectAttempts), 30000);
+  connectionState.reconnectAttempts++;
+  showReconnectBanner(connectionState.reconnectAttempts);
+  connectionState.reconnectTimer = setTimeout(() => {
+    connectionState.reconnectTimer = null;
     void import('./ws_connect.js').then((m) => m.connectWebSocket());
   }, delay);
 }
@@ -153,11 +173,11 @@ export function scheduleReconnect(): void {
 export function waitForWebSocket(maxWaitMs = 5000): Promise<boolean> {
   let cancelled = false;
   return new Promise<boolean>((resolve: (ok: boolean) => void) => {
-    if (ws && ws.readyState === WebSocket.OPEN) return resolve(true);
+    if (connectionState.ws && connectionState.ws.readyState === WebSocket.OPEN) return resolve(true);
     const start = Date.now();
     const check: ReturnType<typeof setInterval> = setInterval(() => {
       if (cancelled) { clearInterval(check); return; }
-      if (ws && ws.readyState === WebSocket.OPEN) {
+      if (connectionState.ws && connectionState.ws.readyState === WebSocket.OPEN) {
         clearInterval(check);
         resolve(true);
       } else if (Date.now() - start > maxWaitMs) {

@@ -10,7 +10,6 @@ import { syncRestartVoteUI } from './restart_vote_ui.js';
 export function handleGameStateChange(view: DataView): void {
   const phaseCode: number = view.getUint8(1);
   const nextPhase = codeToPhase(phaseCode);
-  console.log(`[game-state-change] newPhase=${nextPhase} prevPhase=${getState().phase}`);
 
   if (nextPhase === 'ended' && view.byteLength >= 3) {
     dispatch({ type: 'SET_END_REASON', reason: view.getUint8(2) });

@@ -8,8 +8,8 @@
 
 export {};
 
-import { bindLoginEvents } from './admin_login.js';
-import { loadConfig, saveConfig, type AdminConfig } from './admin_config.js';
+import { bindLoginEvents } from './admin/login.js';
+import { loadConfig, saveConfig, type AdminConfig } from './admin/config.js';
 
 const loginSection = document.getElementById('login-section')!;
 const configSection = document.getElementById('config-section')!;

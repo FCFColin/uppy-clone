@@ -1,7 +1,7 @@
 import { PHYSICS } from '../shared/game/constants.js';
 import { $canvas, getCtx } from './renderer_canvas.js';
 import { getState } from './store.js';
-import { getInterpolatedBalloon, getInterpolatedBird, getInterpolatedGhost } from './state_interp.js';
+import { getInterpolatedBalloon, getInterpolatedBird } from './state_interp.js';
 import { isRangeCircleVisible } from './tutorial.js';
 
 interface FloatingText {
@@ -18,11 +18,7 @@ export function pushFloatingText(x: number, y: number, text: string): void {
   const now = Date.now();
   if (now - lastFloatingAt < 3000) return;
   lastFloatingAt = now;
-  mutateFloatingTexts(ft => { ft.push({ x, y, text, start: now }); });
-}
-
-function mutateFloatingTexts(mutate: (arr: FloatingText[]) => void): void {
-  mutate(floatingTexts);
+  floatingTexts.push({ x, y, text, start: now });
 }
 
 export function drawTutorialRangeCircle(now: number = Date.now()): void {
@@ -70,18 +66,6 @@ export function drawDangerVignettes(now: number): void {
     getCtx().fillStyle = edge === 'left' ? _vignetteGradLeft! : _vignetteGradRight!;
     getCtx().fillRect(edge === 'left' ? 0 : $canvas.width - 8, 0, 8, $canvas.height);
   }
-
-  const ghost = getInterpolatedGhost(now);
-  if (ghost && ghost.active) {
-    const balloon = getInterpolatedBalloon(now);
-    const dx = ghost.x - balloon.x;
-    const dy = ghost.y - balloon.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 0.12) {
-      getCtx().globalAlpha = 0.85 + 0.15 * Math.sin(now * 0.008);
-    }
-  }
-  getCtx().globalAlpha = 1;
 }
 
 export function drawFloatingTexts(now: number): void {
@@ -99,13 +83,11 @@ export function drawFloatingTexts(now: number): void {
 }
 
 function pruneFloatingTexts(now: number): void {
-  mutateFloatingTexts(arr => {
-    for (let i = arr.length - 1; i >= 0; i--) {
-      if (now - arr[i]!.start > 1500) {
-        arr.splice(i, 1);
-      }
+  for (let i = floatingTexts.length - 1; i >= 0; i--) {
+    if (now - floatingTexts[i]!.start > 1500) {
+      floatingTexts.splice(i, 1);
     }
-  });
+  }
 }
 
 export function isLowHeightDanger(): boolean {

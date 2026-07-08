@@ -17,10 +17,9 @@ function writeBaseSnapshot(dv: DataView, phaseCode: number, timestamp = 100, sco
   dv.setFloat32(o, 0.2, true); o += 4;
   dv.setUint8(o, 0); o += 1;
   dv.setUint8(o, 0); o += 1;
-  dv.setFloat32(o, 0.5, true); o += 4;
-  dv.setFloat32(o, 0.5, true); o += 4;
-  dv.setUint16(o, 0, true); o += 2;
   dv.setUint8(o, 0); o += 1;
+  dv.setUint8(o, 0); o += 1;
+  dv.setFloat32(o, 0, true); o += 4;
   return o;
 }
 
@@ -31,15 +30,15 @@ describe('decodeSnapshot', () => {
 
   it('decodes core fields from a minimal snapshot', () => {
     const buf = buildSnapshotBuffer();
-    const end = writeBaseSnapshot(new DataView(buf), PHASE_CODE.PLAYING);
-    const decoded = decodeSnapshot(new DataView(buf, 0, end));
+    writeBaseSnapshot(new DataView(buf), PHASE_CODE.PLAYING);
+    const decoded = decodeSnapshot(new DataView(buf));
     expect(decoded).not.toBeNull();
     expect(decoded!.phase).toBe('playing');
     expect(decoded!.timestamp).toBe(100);
     expect(decoded!.score).toBe(42);
     expect(decoded!.balloon.y).toBeCloseTo(0.6);
     expect(decoded!.ripples).toEqual([]);
-    expect(decoded!.wind).toBeUndefined();
+    expect(decoded!.wind).toBe(0);
   });
 
   it('applySnapshot copies decoded entities into client state', () => {
@@ -92,7 +91,7 @@ describe('decodeSnapshot', () => {
     const buf = new ArrayBuffer(40 + playerBytes + tailBytes);
     const dv = new DataView(buf);
     const baseEnd = writeBaseSnapshot(dv, PHASE_CODE.PLAYING);
-    let o = baseEnd - 1;
+    let o = baseEnd - 6;
     dv.setUint8(o, 1); o += 1;
     dv.setUint16(o, 3, true); o += 2;
     dv.setUint32(o, 500, true); o += 4;

@@ -1,4 +1,5 @@
-import { PALETTE_COLORS, endReasonLabel } from './local_constants.js';
+import { PALETTE_COLORS } from '../shared/game/constants.js';
+import { endReasonLabel } from './local_constants.js';
 import type { GamePhase } from '../shared/game/types.js';
 import { dispatch, getState } from './store.js';
 import { state } from './state_types.js';
@@ -31,17 +32,9 @@ function endListKey(): string {
     .join('|');
 }
 
-let _savedNickname: string | null = null;
-
 function isCurrentPlayer(p: { nickname: string }): boolean {
-  if (_savedNickname === null) {
-    _savedNickname = localStorage.getItem('uppy-nickname') || getState().pendingNickname || '';
-  }
-  return _savedNickname !== '' && p.nickname === _savedNickname;
-}
-
-export function invalidateNicknameCache(): void {
-  _savedNickname = null;
+  const self = localStorage.getItem('uppy-nickname') || getState().pendingNickname || '';
+  return self !== '' && p.nickname === self;
 }
 
 function isOverlayVisible(el: HTMLElement | null): boolean {

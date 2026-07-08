@@ -8,7 +8,6 @@ import {
   $setupNicknameInput,
 } from './ui.js';
 import { connectWebSocket, showConnectionError } from './ws_connect.js';
-import { invalidateNicknameCache } from './ui_update.js';
 import { sendOrQueue } from './ws_connection.js';
 import { initWaitingTips } from './waiting_tips.js';
 import { bindReconnectRetry } from './connection_ui.js';
@@ -24,7 +23,6 @@ function submitSetupNickname(): void {
   }
   localStorage.setItem('uppy-nickname', nickname);
   dispatch({ type: 'SET_STATE', partial: { pendingNickname: nickname } });
-  invalidateNicknameCache();
   onNicknameSubmit();
 
   const msg: ArrayBuffer = encodeSetNickname(nickname);

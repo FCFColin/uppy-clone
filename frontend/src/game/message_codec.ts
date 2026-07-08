@@ -110,7 +110,7 @@ function readPlayers(view: DataView, offset: number) {
   const players: DecodedPlayer[] = [];
   const now = Date.now();
   for (let i = 0; i < playerCount; i++) {
-    if (view.byteLength < o + 11) break;
+    if (view.byteLength < o + 15) break;
     const playerIndex = view.getUint16(o, true); o += 2;
     const cooldownRemainingMs = view.getUint32(o, true); o += 4;
     const palette = view.getUint32(o, true); o += 4;
@@ -155,6 +155,7 @@ export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
   if (o < view.byteLength) {
     const rippleCount = view.getUint8(o); o += 1;
     for (let i = 0; i < rippleCount; i++) {
+      if (o + 10 > view.byteLength) break;
       const pIdx = view.getUint16(o, true); o += 2;
       const rx = view.getFloat32(o, true); o += 4;
       const ry = view.getFloat32(o, true); o += 4;
