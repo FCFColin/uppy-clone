@@ -1,5 +1,8 @@
 name: CI/CD Pipeline
 
+# v2-R-75: 所有 third-party Actions 通过 commit SHA digest pin（防 tag 被移动攻击）。
+# 版本号以注释 `# vX.Y.Z` 标注，便于审阅与 Dependabot 升级追踪。
+# Dependabot 已配置 github-actions 生态（.github/dependabot.yml），自动维护 SHA 升级 PR。
 on:
   push:
     branches: [main, develop]
@@ -15,8 +18,8 @@ jobs:
     name: Quality Gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -42,17 +45,37 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@595b5aeba73380359d98a5e087f648dbb0edce1b # v4.7.3
+
+  terraform-validate:
+    # v2-R-22：IaC 变更门禁。fmt + init(无 backend) + validate。
+    # 不访问 GCS state bucket（用 -backend=false），无需 GCP 凭据，PR 阶段即可运行。
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - name: terraform fmt -check
+        run: terraform -chdir=infra/terraform fmt -check -recursive
+      - name: terraform init -backend=false
+        run: terraform -chdir=infra/terraform init -backend=false
+      - name: terraform validate
+        run: terraform -chdir=infra/terraform validate
 
   e2e:
-    name: E2E Tests (${{ matrix.spec }})
+    name: E2E Tests (${{ matrix.browser }} / ${{ matrix.spec }})
     needs: [quality-gate]
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        spec: [gameplay, multiplayer, reconnect, error_handling, cross_page, performance]
+        spec: [gameplay, multiplayer, reconnect, error_handling, cross_page, auth, admin, security, network_boundary, concurrency]
+        browser: [chromium, firefox, webkit]
     services:
       postgres:
         image: postgres:16.4-alpine3.20
@@ -87,7 +110,7 @@ jobs:
       MIGRATIONS_DIR: backend/migrations
       FRONTEND_DIR: frontend/dist
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: ./.github/actions/e2e-setup
       - name: Start backend
         run: |
@@ -107,10 +130,10 @@ jobs:
             exit 1
           fi
       - name: Install Playwright
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
       - name: Run E2E Tests
-        run: PROD_E2E=1 E2E_BASE_URL=http://localhost:8080 npx playwright test tests/e2e/${{ matrix.spec }}.spec.ts --reporter=html
-      - uses: actions/upload-artifact@v4
+        run: PROD_E2E=1 E2E_BASE_URL=http://localhost:8080 npx playwright test tests/e2e/${{ matrix.spec }}.spec.ts --project=${{ matrix.browser }} --reporter=html
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: playwright-${{ matrix.spec }}-report-${{ github.sha }}
@@ -123,8 +146,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: '1.26'
           cache-dependency-path: backend/go.sum
@@ -135,9 +158,18 @@ jobs:
       - name: Run store integration tests
         run: cd backend && go test -tags=integration ./internal/store/... -timeout 300s -v -count=1
 
+  release-config-check:
+    name: Release Config Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Verify release configuration
+        shell: pwsh
+        run: powershell -File scripts/ci/verify-release-config.ps1
+
   deploy:
     name: Deploy to GKE (multi-region)
-    needs: [quality-gate, e2e, integration]
+    needs: [quality-gate, e2e, integration, terraform-validate, release-config-check]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
@@ -148,19 +180,23 @@ jobs:
       matrix:
         region: [us-east1, europe-west1, asia-southeast1]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       # Workload Identity Federation：免长期 JSON 密钥（与运行时 ADR-014 一致）。
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@b7593ed2efd1c1617e1b0254da33b86225adb2a5 # v2.1.12
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SA }}
 
       - name: Set up Cloud SDK + GKE auth plugin
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@6a7c903a70c8625ed6700fa299f5ddb4ca6022e9 # v2.1.5
         with:
           install_components: gke-gcloud-auth-plugin
+
+      - name: Verify release config
+        shell: pwsh
+        run: powershell -File scripts/ci/verify-release-config.ps1
 
       - name: Wait for container image (build-push from Go CI)
         run: |
@@ -177,7 +213,7 @@ jobs:
           exit 1
 
       - name: Verify container signature (cosign)
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@3454372f43399081ed03b604cb2d021dabca52bb # v3.8.2
       - name: Cosign verify image
         env:
           IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/balloon-game:${{ github.sha }}

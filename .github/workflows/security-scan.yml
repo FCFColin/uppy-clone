@@ -1,21 +1,29 @@
 name: Security Scan
 
+# v2-R-75: 所有 third-party Actions 通过 commit SHA digest pin（防 tag 被移动攻击）。
+# 版本号以注释 `# vX.Y.Z` 标注，便于审阅与 Dependabot 升级追踪。
+# v2-R-76: 最小权限原则 — 显式声明 permissions。
+# v2-R-17: 失败通知 — 通过 if: failure() 自动创建 Issue 通知安全团队。
 on:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   scan:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: "1.26"
           cache-dependency-path: backend/go.sum
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: "npm"
@@ -25,5 +33,37 @@ jobs:
         run: cd frontend && npm audit --audit-level=high
 
       - name: govulncheck
-        uses: golang/govulncheck-action@v1
+        uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1.0.4
         continue-on-error: false
+
+      # v2-R-17: 失败通知 — 任一步骤失败时自动创建 Issue，确保安全团队被通知。
+      # Slack webhook（如配置）可作为补充通知渠道，但 Issue 方式不依赖外部服务。
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const date = new Date().toISOString().slice(0, 10);
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Security Scan] 每日安全审计失败 — ${date}`,
+              body: [
+                '## 安全审计失败',
+                '',
+                `**Workflow:** ${context.workflow}`,
+                `**Run:** ${runUrl}`,
+                `**Trigger:** ${context.eventName}`,
+                `**Branch/Ref:** ${context.ref}`,
+                '',
+                '### 排查步骤',
+                '1. 检查上方 workflow run 日志，定位失败步骤',
+                '2. 若为 npm audit 失败：运行 `cd frontend && npm audit` 查看漏洞详情',
+                '3. 若为 govulncheck 失败：运行 `cd backend && go install golang.org/x/vuln/cmd/govulncheck@v1.1.4 && govulncheck ./...`',
+                '4. 修复后重新运行 `gh workflow run security-scan.yml` 验证',
+                '',
+                '> 此 Issue 由 GitHub Actions 自动创建（v2-R-17 失败通知）。',
+              ].join('\n'),
+              labels: ['security', 'ci-failure', 'auto-generated'],
+            });

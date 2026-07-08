@@ -1,5 +1,7 @@
 name: Release Please
 
+# v2-R-75: 所有 third-party Actions 通过 commit SHA digest pin（防 tag 被移动攻击）。
+# 版本号以注释 `# vX.Y.Z` 标注，便于审阅与 Dependabot 升级追踪。
 on:
   push:
     branches:
@@ -13,7 +15,7 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@c2a5a2bd6a758a0937f1ddb1e8950609867ed15c # v4.3.0
         with:
           release-type: go
           # Uses .github/release-please-config.json and .github/release-please-manifest.json

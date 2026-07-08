@@ -1,15 +1,17 @@
 name: E2E Setup
 description: Build backend/frontend and start server for Playwright E2E
+# v2-R-75: 所有 third-party Actions 通过 commit SHA digest pin（防 tag 被移动攻击）。
+# 版本号以注释 `# vX.Y.Z` 标注，便于审阅与 Dependabot 升级追踪。
 runs:
   using: composite
   steps:
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
       with:
         go-version: '1.26'
         cache-dependency-path: backend/go.sum
     - name: Setup Node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: '22'
         cache: npm

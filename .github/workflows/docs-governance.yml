@@ -2,13 +2,15 @@ name: Docs Governance
 
 # 文档-代码合一治理门禁（贯穿）：ADR 索引一致性、Markdown 链接、AsyncAPI/ws-protocol
 # 契约校验。任一失败均阻塞合并，强制文档与代码同步演进。
+# v2-R-75: 所有 third-party Actions 通过 commit SHA digest pin（防 tag 被移动攻击）。
+# 版本号以注释 `# vX.Y.Z` 标注，便于审阅与 Dependabot 升级追踪。
 on:
   push:
     branches: [main, develop]
-    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', 'scripts/ci/check-repo-layout.sh', '.github/workflows/docs-governance.yml']
+    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', 'frontend/src/shared/game/**', 'scripts/ci/check-repo-layout.sh', '.github/workflows/docs-governance.yml']
   pull_request:
     branches: [main]
-    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', 'scripts/ci/check-repo-layout.sh', '.github/workflows/docs-governance.yml']
+    paths: ['docs/**', 'infra/**', 'backend/internal/protocol/**', 'frontend/src/shared/game/**', 'scripts/ci/check-repo-layout.sh', '.github/workflows/docs-governance.yml']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,7 +21,7 @@ jobs:
     name: Repo layout (ADR-021)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Verify canonical directory layout
         run: bash scripts/ci/check-repo-layout.sh
 
@@ -27,7 +29,7 @@ jobs:
     name: ADR index consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Check README index matches ADR files
         run: |
           adr_count=$(find docs/adr -name '0*.md' | wc -l | tr -d ' ')
@@ -42,7 +44,7 @@ jobs:
     name: ws-protocol matches constants.go
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Ensure every Msg* constant is documented
         run: |
           set -euo pipefail
@@ -87,12 +89,63 @@ jobs:
           check RESTART_VOTE 0x12 "$ts"
           check PING 0x20 "$ts"
 
+      - name: Ensure PHASE_CODE and END_REASON constants match backend
+        run: |
+          set -euo pipefail
+          # check_dec verifies a decimal constant in a TS object literal.
+          # Usage: check_dec NAME GO_VALUE TS_FILE
+          check_dec() {
+            local name="$1" go_val="$2" ts_file="$3"
+            local ts_val
+            ts_val=$(grep -E "^\s*${name}:" "$ts_file" | head -1 | sed -E 's/.*:\s*([0-9]+).*/\1/')
+            if [ "$go_val" != "$ts_val" ]; then
+              echo "::error::$name mismatch: backend=$go_val $ts_file=$ts_val"
+              exit 1
+            fi
+          }
+          # PHASE_CODE: backend protocol/constants.go vs frontend protocol.ts
+          phase_ts="frontend/src/shared/game/protocol.ts"
+          check_dec WAITING 0 "$phase_ts"
+          check_dec PLAYING 1 "$phase_ts"
+          check_dec ENDED 2 "$phase_ts"
+          check_dec COUNTDOWN 3 "$phase_ts"
+          # END_REASON: backend protocol/constants.go vs frontend constants.ts (generated)
+          end_ts="frontend/src/shared/game/constants.ts"
+          check_dec NONE 0 "$end_ts"
+          check_dec GROUND 1 "$end_ts"
+          check_dec BIRD 2 "$end_ts"
+          check_dec GHOST 3 "$end_ts"
+
+      - name: Ensure generated constants.ts is in sync with backend
+        run: |
+          set -euo pipefail
+          # Verify PALETTE_COLORS hex values match backend RGB triples.
+          # Backend defines PaletteColors as [10][3]uint8; frontend uses '#rrggbb'.
+          end_ts="frontend/src/shared/game/constants.ts"
+          palette_line=$(grep -E "^export const PALETTE_COLORS" "$end_ts" || true)
+          if [ -z "$palette_line" ]; then
+            echo "::error::PALETTE_COLORS missing from $end_ts"
+            exit 1
+          fi
+          # Extract RGB triples from backend, convert to hex, sort for comparison
+          backend_hex=$(grep -oE '\{[0-9]+, *[0-9]+, *[0-9]+\}' backend/internal/protocol/constants.go | \
+            sed -E 's/\{([0-9]+), *([0-9]+), *([0-9]+)\}/\1 \2 \3/' | \
+            while read -r r g b; do printf "#%02x%02x%02x\n" "$r" "$g" "$b"; done | sort)
+          # Extract hex values from frontend, sort for comparison
+          frontend_hex=$(echo "$palette_line" | grep -oE "#[0-9a-fA-F]{6}" | sort)
+          if [ "$backend_hex" != "$frontend_hex" ]; then
+            echo "::error::PALETTE_COLORS mismatch:"
+            echo "  backend (RGB→hex): $(echo "$backend_hex" | tr '\n' ' ')"
+            echo "  frontend (hex):    $(echo "$frontend_hex" | tr '\n' ' ')"
+            exit 1
+          fi
+
   asyncapi-validate:
     name: AsyncAPI validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
       - name: Validate AsyncAPI spec
@@ -102,9 +155,9 @@ jobs:
     name: Markdown link check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: lychee link check
-        uses: lycheeverse/lychee-action@v2
+        uses: lycheeverse/lychee-action@885c65f3dc543b57c898c8099f4e08c8afd178a2 # v2.6.1
         with:
           args: --no-progress --offline docs/ README.md CONTRIBUTING.md CHANGELOG.md scripts/README.md
           fail: true

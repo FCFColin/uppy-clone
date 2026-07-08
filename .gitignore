@@ -17,6 +17,9 @@ bin/
 !.trae/specs/
 .superpowers/
 
+# Terraform provider cache
+infra/terraform/.terraform/
+
 # Coverage & test output
 coverage/
 test-results/
@@ -24,7 +27,8 @@ playwright-report/
 backend/*.out
 backend/**/*.out
 backend/*cov*
-backend/**/*coverage*
+backend/coverage*
+backend/unit_verify
 **/*.fail
 
 # Build artifacts
