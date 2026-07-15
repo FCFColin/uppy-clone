@@ -10,7 +10,7 @@ terraform {
     google = {
       source = "hashicorp/google"
       # v2-R-26：provider version pinning（major version 锁定，允许 minor 修复）。
-      version = "~> 5.0"
+      version = "~> 7.40"
     }
     random = {
       source = "hashicorp/random"
