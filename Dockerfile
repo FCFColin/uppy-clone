@@ -2,7 +2,7 @@
 # SLSA L2: all base images pinned by digest (see scripts/ci/check-docker-digests.sh).
 # infra-035: 修正注释引用——原指向不存在的 scripts/ci/pin-digests.sh，实际脚本为
 # scripts/ci/check-docker-digests.sh（验证 Dockerfile 所有 FROM 行均带 @sha256: 摘要）。
-FROM node:20.18.0-alpine3.20@sha256:b1e0880c3af955867bc2f1944b49d20187beb7afa3f30173e15a97149ab7f5f1 AS frontend-builder
+FROM node:24.1.0-alpine3.20@sha256:8fe019e0d57dbdce5f5c27c0b63d2775cf34b00e3755a7dea969802d7e0c2b25 AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
