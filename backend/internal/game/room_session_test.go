@@ -14,18 +14,19 @@ import (
 
 func TestRoom_MaybeStartReadSpan(t *testing.T) {
 	room := NewRoom("SPAN1", nil, nil, config.DefaultTimeoutConfig(), 4)
+	sess := &WSSession{room: room}
 	var counter uint64
-	if span := room.maybeStartReadSpan(context.Background(), "p1", protocol.MsgPing, &counter); span != nil {
+	if span := sess.maybeStartReadSpan(context.Background(), "p1", protocol.MsgPing, &counter); span != nil {
 		t.Fatal("ping should not create span")
 	}
-	if span := room.maybeStartReadSpan(context.Background(), "p1", protocol.MsgTap, &counter); span != nil {
+	if span := sess.maybeStartReadSpan(context.Background(), "p1", protocol.MsgTap, &counter); span != nil {
 		t.Fatal("first tap should not create span")
 	}
 	counter = 99
-	if span := room.maybeStartReadSpan(context.Background(), "p1", protocol.MsgTap, &counter); span == nil {
+	if span := sess.maybeStartReadSpan(context.Background(), "p1", protocol.MsgTap, &counter); span == nil {
 		t.Fatal("100th tap should create span")
 	}
-	span := room.maybeStartReadSpan(context.Background(), "p1", protocol.MsgSetNickname, &counter)
+	span := sess.maybeStartReadSpan(context.Background(), "p1", protocol.MsgSetNickname, &counter)
 	if span == nil {
 		t.Fatal("set_nickname should create span")
 	}
@@ -34,13 +35,14 @@ func TestRoom_MaybeStartReadSpan(t *testing.T) {
 
 func TestRoom_MaybeStartReadSpan_RestartVoteAndUnknown(t *testing.T) {
 	room := NewRoom("SPAN2", nil, nil, config.DefaultTimeoutConfig(), 4)
+	sess := &WSSession{room: room}
 
-	if span := room.maybeStartReadSpan(context.Background(), "p1", protocol.MsgRestartVote, new(uint64)); span == nil {
+	if span := sess.maybeStartReadSpan(context.Background(), "p1", protocol.MsgRestartVote, new(uint64)); span == nil {
 		t.Fatal("restart_vote should create span")
 	} else {
 		span.End()
 	}
-	if span := room.maybeStartReadSpan(context.Background(), "p1", 0xFF, new(uint64)); span == nil {
+	if span := sess.maybeStartReadSpan(context.Background(), "p1", 0xFF, new(uint64)); span == nil {
 		t.Fatal("unknown message should create span")
 	} else {
 		span.End()
@@ -49,8 +51,9 @@ func TestRoom_MaybeStartReadSpan_RestartVoteAndUnknown(t *testing.T) {
 
 func TestRoom_MaybeStartReadSpan_PingCaseLabel(t *testing.T) {
 	room := NewRoom("SPAN3", nil, nil, config.DefaultTimeoutConfig(), 4)
+	sess := &WSSession{room: room}
 	counter := uint64(0)
-	span := room.maybeStartReadSpan(context.Background(), "p1", protocol.MsgPing, &counter)
+	span := sess.maybeStartReadSpan(context.Background(), "p1", protocol.MsgPing, &counter)
 	if span != nil {
 		t.Fatal("ping should not create span")
 	}
@@ -61,6 +64,7 @@ func TestRoom_WritePump_ClosedSendChannel(t *testing.T) {
 	timeouts.WSPingInterval = time.Hour
 	hub := NewHub(nil, nil, timeouts, 10, 8)
 	room := NewRoom("PUMP1", hub, nil, timeouts, 4)
+	sess := &WSSession{room: room}
 	send := make(chan []byte)
 	close(send)
 	if err := room.HandleJoin("p1", nil); err != nil {
@@ -80,7 +84,7 @@ func TestRoom_WritePump_ClosedSendChannel(t *testing.T) {
 		defer func() { _ = c.Close() }()
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
-		room.writePump("p1", c, ctx)
+		sess.writePump("p1", c, ctx)
 	}))
 	defer server.Close()
 
@@ -99,6 +103,7 @@ func TestRoom_WritePump_NilPlayerConnection(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	hub := NewHub(nil, nil, timeouts, 10, 8)
 	room := NewRoom("PUMP2", hub, nil, timeouts, 4)
+	sess := &WSSession{room: room}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{}
@@ -108,7 +113,7 @@ func TestRoom_WritePump_NilPlayerConnection(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
-		room.writePump("missing-player", c, ctx)
+		sess.writePump("missing-player", c, ctx)
 	}))
 	defer server.Close()
 
@@ -127,6 +132,7 @@ func TestRoom_WritePump_WriteMessageError(t *testing.T) {
 	timeouts.WSPingInterval = time.Hour
 	hub := NewHub(nil, nil, timeouts, 10, 8)
 	room := NewRoom("PUMP3", hub, nil, timeouts, 4)
+	sess := &WSSession{room: room}
 	if err := room.HandleJoin("p1", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +149,7 @@ func TestRoom_WritePump_WriteMessageError(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
-		go room.writePump("p1", c, ctx)
+		go sess.writePump("p1", c, ctx)
 		time.Sleep(20 * time.Millisecond)
 		select {
 		case pc.Send <- []byte{protocol.MsgSnapshot, 0x01}:
@@ -172,6 +178,7 @@ func TestRoom_WritePump_PingWriteError(t *testing.T) {
 	timeouts.WSPingInterval = 10 * time.Millisecond
 	hub := NewHub(nil, nil, timeouts, 10, 8)
 	room := NewRoom("PING1", hub, nil, timeouts, 4)
+	sess := &WSSession{room: room}
 	if err := room.HandleJoin("p1", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +191,7 @@ func TestRoom_WritePump_PingWriteError(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
-		room.writePump("p1", c, ctx)
+		sess.writePump("p1", c, ctx)
 	}))
 	defer server.Close()
 
@@ -233,6 +240,7 @@ func TestRoom_RunSession_HandleJoinFailure(t *testing.T) {
 
 func TestRoom_ReadPump_HandleMessageErrorWithSpan(t *testing.T) {
 	room := NewRoom("RSPN", NewHub(nil, nil, config.DefaultTimeoutConfig(), 10, 8), nil, config.DefaultTimeoutConfig(), 4)
+	sess := &WSSession{room: room}
 
 	if err := room.HandleJoin("p1", nil); err != nil {
 		t.Fatal(err)
@@ -247,7 +255,7 @@ func TestRoom_ReadPump_HandleMessageErrorWithSpan(t *testing.T) {
 		defer func() { _ = c.Close() }()
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
-		room.readPump("p1", c, ctx, cancel)
+		sess.readPump("p1", c, ctx, cancel)
 	}))
 	defer server.Close()
 

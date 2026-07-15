@@ -205,7 +205,7 @@ func (m *OutboundManager) Stop() {
 // OutboundCh returns the outbound message channel.
 func (m *OutboundManager) OutboundCh() chan outboundMsg { return m.ch }
 
-// ─── RoomHandle & WebSocket Session ──────────────────────────────────
+// ─── RoomHandle Interface ────────────────────────────────────────────
 
 // RoomHandle is the narrow interface exposed to packages that only need to run
 // a WebSocket session on a room (e.g. the handler package). Returning this
@@ -215,21 +215,25 @@ type RoomHandle interface {
 	RunSession(reqCtx context.Context, playerID string, conn *websocket.Conn) error
 }
 
+// ─── WSSession (extracted from Room to reduce God-object surface) ────
+
 // wsStaticSpanAttr is the pre-allocated static attribute shared by all WebSocket
 // read/write pump spans.
 var wsStaticSpanAttr = attribute.String("messaging.system", "websocket")
+
+// WSSession encapsulates the WebSocket read/write pump logic for a single player
+// session. Extracted from Room to keep Room focused on game state management.
+type WSSession struct {
+	room *Room
+}
 
 // RunSession drives a single player's WebSocket session: it joins the player to
 // the room, then runs the read/write pumps until the connection closes. It
 // blocks until the session ends. The caller is responsible for reserving and
 // releasing the WebSocket connection slot (TryReserveWSConnection /
 // DecrementWSConnection) on the Hub.
-//
-// handler-028: a handler-level timeout caps the maximum WebSocket session
-// duration so that zombie connections cannot hang indefinitely. When the
-// timeout fires, wsCtx is cancelled, writePump returns and closes the
-// connection, which in turn unblocks readPump's ReadMessage call.
-func (r *Room) RunSession(reqCtx context.Context, playerID string, conn *websocket.Conn) error {
+func (s *WSSession) RunSession(reqCtx context.Context, playerID string, conn *websocket.Conn) error {
+	r := s.room
 	if err := r.HandleJoin(playerID, conn); err != nil {
 		r.logger.Error("handle join failed", "error", err)
 		_ = conn.Close()
@@ -237,12 +241,13 @@ func (r *Room) RunSession(reqCtx context.Context, playerID string, conn *websock
 	}
 
 	wsCtx, cancel := context.WithTimeout(reqCtx, r.timeouts.WSHandlerTimeout)
-	go r.writePump(playerID, conn, wsCtx)
-	r.readPump(playerID, conn, wsCtx, cancel)
+	go s.writePump(playerID, conn, wsCtx)
+	s.readPump(playerID, conn, wsCtx, cancel)
 	return nil
 }
 
-func (r *Room) writePump(playerID string, conn *websocket.Conn, wsCtx context.Context) {
+func (s *WSSession) writePump(playerID string, conn *websocket.Conn, wsCtx context.Context) {
+	r := s.room
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("writePump panic recovered", "playerID", playerID, "room", r.Code(), "panic", rec)
@@ -296,7 +301,8 @@ func (r *Room) writePump(playerID string, conn *websocket.Conn, wsCtx context.Co
 	}
 }
 
-func (r *Room) readPump(playerID string, conn *websocket.Conn, wsCtx context.Context, cancel context.CancelFunc) {
+func (s *WSSession) readPump(playerID string, conn *websocket.Conn, wsCtx context.Context, cancel context.CancelFunc) {
+	r := s.room
 	defer func() {
 		if rec := recover(); rec != nil {
 			slog.Error("readPump panic recovered", "playerID", playerID, "room", r.Code(), "panic", rec)
@@ -329,7 +335,7 @@ func (r *Room) readPump(playerID string, conn *websocket.Conn, wsCtx context.Con
 		msgType, payload := protocol.DecodeMessage(message)
 		msgName := protocol.WSMessageTypeName(msgType)
 		handleStart := time.Now()
-		span := r.maybeStartReadSpan(wsCtx, playerID, msgType, &tapSpanCounter)
+		span := s.maybeStartReadSpan(wsCtx, playerID, msgType, &tapSpanCounter)
 		if err := r.HandleMessage(playerID, msgType, payload); err != nil {
 			if span != nil {
 				span.RecordError(err)
@@ -343,7 +349,8 @@ func (r *Room) readPump(playerID string, conn *websocket.Conn, wsCtx context.Con
 	}
 }
 
-func (r *Room) maybeStartReadSpan(wsCtx context.Context, playerID string, msgType byte, tapSpanCounter *uint64) trace.Span {
+func (s *WSSession) maybeStartReadSpan(wsCtx context.Context, playerID string, msgType byte, tapSpanCounter *uint64) trace.Span {
+	r := s.room
 	createSpan := true
 	switch msgType {
 	case protocol.MsgPing:
