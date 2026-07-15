@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受 — Phase 2（物理隔离）+ Phase 3（多区域）已实现
+✅ 仍合理且已落地 — Phase 2（物理隔离）已实现；Phase 3（多区域）代码已就绪，待多区域 GKE/CRDB 部署激活；RO-051 消费者侧窄接口收敛已完成（auth/middleware/worker/health/outbox 均通过窄接口注入，不再直接依赖 `*redis.Client`）
 
 ## 背景
 

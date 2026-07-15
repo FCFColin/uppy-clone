@@ -8,12 +8,10 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "audit": "npm audit --audit-level=high",
     "test": "vitest run",
-    "test:frontend": "vitest run --coverage",
-    "test:coverage": "npm run test:frontend",
-    "test:frontend:gate": "npm run test:frontend"
+    "test:frontend": "vitest run --coverage"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

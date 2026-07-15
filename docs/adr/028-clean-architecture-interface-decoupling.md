@@ -1,6 +1,6 @@
 # ADR-028: Clean Architecture Interface-Driven Decoupling
 
-## 状态: 已接受
+## 状态: ✅ 仍合理且已落地
 
 ## 日期: 2026-07-03
 

@@ -6,23 +6,62 @@ import (
 	"sync"
 	"time"
 
+	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/auth"
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
+	"github.com/uppy-clone/backend/internal/metrics"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/outbox"
 	"github.com/uppy-clone/backend/internal/rbac"
+	"github.com/uppy-clone/backend/internal/resilience"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/telemetry"
 	"github.com/uppy-clone/backend/internal/worker"
 )
 
-// newPostgresStoreFn is replaceable in unit tests to inject pgxmock-backed stores.
-var newPostgresStoreFn = store.NewPostgresStore
+// newStoreDeps builds production Deps with real resilience, tracing, metrics,
+// and audit logging. Passed to store constructors via variadic parameter.
+func newStoreDeps() store.Deps {
+	return store.Deps{
+		RedisBreakerFactory:    resilience.NewRedisBreaker,
+		PostgresBreakerFactory: resilience.NewPostgresBreaker,
+		DBRetryPolicy:          resilience.DefaultDBRetry(),
+		RedisRetryPolicy:       resilience.DefaultRedisRetry(),
+		MaybeRetryableFn:       resilience.MaybeRetryable,
+		Tracer:                 telemetry.Tracer(),
+		PoolMetrics:            poolMetricsAdapter{},
+		AuditLogFn: func(ctx context.Context, e store.AuditEntry) {
+			audit.Log(ctx, audit.AuditEntry{
+				Action:    e.Action,
+				ActorType: e.ActorType,
+				ActorID:   e.ActorID,
+				ActorIP:   e.ActorIP,
+				Resource:  e.Resource,
+				Before:    e.Before,
+				After:     e.After,
+				RequestID: e.RequestID,
+				TraceID:   e.TraceID,
+			})
+		},
+	}
+}
+
+// poolMetricsAdapter adapts the metrics package's Prometheus collectors to
+// the store.PoolMetricsRecorder interface (RO-052).
+type poolMetricsAdapter struct{}
+
+func (poolMetricsAdapter) IncAcquireCount()        { metrics.DBPoolAcquireCount.Inc() }
+func (poolMetricsAdapter) SetIdleConns(v float64)  { metrics.DBPoolIdleConns.Set(v) }
+func (poolMetricsAdapter) SetInUseConns(v float64) { metrics.DBPoolInUseConns.Set(v) }
+func (poolMetricsAdapter) ObserveAcquireDuration(v float64) {
+	metrics.DBPoolAcquireDuration.Observe(v)
+}
 
 // initDB connects to PostgreSQL and runs migrations.
-func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.PostgresStore, error) {
-	db, err := newPostgresStoreFn(cfg.DatabaseURL, timeouts)
+func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig, deps store.Deps) (*store.PostgresStore, error) {
+	db, err := newPostgresStoreFn(cfg.DatabaseURL, timeouts, deps)
 	if err != nil {
 		slog.Error("failed to connect to PostgreSQL", "error", err)
 		return nil, err
@@ -41,16 +80,10 @@ func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.Postg
 	return db, nil
 }
 
-// newRedisStoreFn is replaceable in unit tests.
-var newRedisStoreFn = store.NewRedisStore
-
-// newRedisClusterFn is replaceable in unit tests.
-var newRedisClusterFn = store.NewRedisCluster
-
 // initRedisCluster connects to stateful and ephemeral Redis instances (ADR-029).
 // When REDIS_EPHEMERAL_URL is unset, both domains share the stateful instance.
-func initRedisCluster(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.RedisCluster, error) {
-	cluster, err := newRedisClusterFn(cfg.RedisURL, cfg.RedisEphemeralURL, timeouts)
+func initRedisCluster(cfg *handler.Config, timeouts appConfig.TimeoutConfig, deps store.Deps) (*store.RedisCluster, error) {
+	cluster, err := store.NewRedisCluster(cfg.RedisURL, cfg.RedisEphemeralURL, timeouts, deps)
 	if err != nil {
 		slog.Error("failed to connect to Redis cluster", "error", err)
 		return nil, err
@@ -65,27 +98,12 @@ func initRedisCluster(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*s
 	return cluster, nil
 }
 
-// initRedisPubSub connects to Redis for Pub/Sub, using a dedicated URL when configured.
-func initRedisPubSub(cfg *handler.Config, timeouts appConfig.TimeoutConfig) (*store.RedisStore, error) {
-	url := cfg.RedisPubSubURL
-	if url == "" {
-		url = cfg.RedisURL
-	}
-	if url == cfg.RedisURL {
-		slog.Info("pubsub redis: using main Redis (set REDIS_PUBSUB_URL to isolate)")
-	} else {
-		slog.Info("pubsub redis: dedicated instance", "url", url)
-	}
-	return newRedisStoreFn(url, timeouts)
-}
-
 // initHub creates the Hub and restores rooms from the database.
-// 企业为何需要：舱壁隔离（Bulkhead）防止单类资源耗尽拖垮整体。
-func initHub(db *store.PostgresStore, redis *store.RedisStore, timeouts appConfig.TimeoutConfig, broadcaster *game.PubSubBroadcaster) *game.Hub {
+func initHub(db *store.PostgresStore, redis *store.RedisStore, timeouts appConfig.TimeoutConfig) *game.Hub {
 	maxWSConnections := getEnvInt("MAX_WS_CONNECTIONS", appConfig.MaxWSConnections)
 	maxPlayersPerRoom := getEnvInt("MAX_PLAYERS_PER_ROOM", appConfig.MaxPlayersPerRoom)
 	gameStore := db.NewGameStore()
-	hub := game.NewHub(gameStore, redis, timeouts, maxWSConnections, maxPlayersPerRoom, broadcaster)
+	hub := game.NewHub(gameStore, redis, timeouts, maxWSConnections, maxPlayersPerRoom)
 	if err := hub.RestoreRooms(); err != nil {
 		slog.Warn("failed to restore rooms", "error", err)
 	}
@@ -103,14 +121,19 @@ func startWorker(ctx context.Context, wg *sync.WaitGroup, name string, fn func(c
 }
 
 // startWorkers starts async workers (EmailWorker, GameResultWorker, Outbox Publisher).
-// 企业为何需要：异步架构将慢操作（邮件发送、DB批量写入、事件发布）从请求热路径移出，提升响应延迟。
+// All workers receive the Stateful Redis client (ADR-029): email queue, game results,
+// and outbox are stateful data that must survive Redis restarts. Using the ephemeral
+// instance here would cause data loss on Redis restart.
 func startWorkers(ctx context.Context, wg *sync.WaitGroup, cfg *handler.Config, redis *store.RedisStore, db *store.PostgresStore, timeouts appConfig.TimeoutConfig) {
+	// ADR-029: redis is cluster.Stateful — workers must NOT use ephemeral Redis.
+	// If you need to pass the cluster instead, use cluster.Stateful.Client() explicitly.
+	statefulClient := redis.Client()
 	if cfg.ResendAPIKey != "" {
-		startWorker(ctx, wg, "email worker", worker.NewEmailWorker(redis.Client(), cfg.ResendAPIKey, cfg.EmailFrom, timeouts).Start)
+		startWorker(ctx, wg, "email worker", worker.NewEmailWorker(statefulClient, cfg.ResendAPIKey, cfg.EmailFrom, timeouts).Start)
 	}
 
-	startWorker(ctx, wg, "game result worker", worker.NewGameResultWorker(redis.Client(), db.Pool()).Start)
-	startWorker(ctx, wg, "outbox publisher", outbox.NewPublisher(db.Pool(), redis.Client()).Start)
+	startWorker(ctx, wg, "game result worker", worker.NewGameResultWorker(statefulClient, db.Pool()).Start)
+	startWorker(ctx, wg, "outbox publisher", outbox.NewPublisher(db.Pool(), statefulClient).Start)
 
 	retentionDays := getEnvInt("GDPR_RETENTION_DAYS", 30)
 	cleanupInterval := time.Duration(getEnvInt("GDPR_CLEANUP_INTERVAL_HOURS", 24)) * time.Hour
@@ -119,19 +142,18 @@ func startWorkers(ctx context.Context, wg *sync.WaitGroup, cfg *handler.Config, 
 }
 
 // initHandlers creates the auth, lobby, and admin handlers.
-func initHandlers(jwtMgr *auth.JWTManager, adminJwtMgr *auth.JWTManager, pg *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, timeouts appConfig.TimeoutConfig, hub *game.Hub) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler, *handler.StatsHandler) {
+func initHandlers(jwtMgr *auth.JWTManager, adminJwtMgr *auth.JWTManager, pg *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, _ appConfig.TimeoutConfig, hub *game.Hub, deps store.Deps) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler, *handler.StatsHandler) {
 	var users handler.UserStore
 	var configs handler.ConfigStore
 	var results handler.LeaderboardStore
 	if pg != nil {
-		users = store.NewUserRepository(pg.Pool())
-		configs = store.NewConfigRepository(pg.Pool())
-		results = store.NewResultRepository(pg.Pool())
+		users = store.NewUserRepository(pg.Pool(), deps)
+		configs = store.NewConfigRepository(pg.Pool(), deps)
+		results = store.NewResultRepository(pg.Pool(), deps)
 	}
 
 	refreshMgr := auth.NewRefreshTokenManager(redis.Client())
-	authSvc := handler.NewDefaultAuthService(jwtMgr, refreshMgr, redis, users, cfg.ResendAPIKey, cfg.EmailFrom, timeouts)
-	authHandler := handler.NewAuthHandler(users, redis, authSvc, cfg)
+	authHandler := handler.NewAuthHandler(users, redis, jwtMgr, refreshMgr, cfg)
 	allowedOrigins := appMiddleware.AllowedOriginsFromEnv(serverEnv.AllowedOrigins)
 	lobbyHandler := handler.NewLobbyHandler(hub, allowedOrigins)
 	adminHandler := handler.NewAdminHandler(configs, adminJwtMgr, redis)

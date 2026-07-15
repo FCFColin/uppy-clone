@@ -1,13 +1,11 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
@@ -15,7 +13,7 @@ import (
 )
 
 func newTestLobbyHandler() *LobbyHandler {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 	return NewLobbyHandler(hub, nil)
 }
 
@@ -27,14 +25,14 @@ func testAuthMiddleware(userID, nickname string, next http.HandlerFunc) http.Han
 }
 
 func newWSTestServer(h *LobbyHandler, userID, nickname string) *httptest.Server {
-	r := chi.NewRouter()
-	r.Get("/lobby/{code}/ws", testAuthMiddleware(userID, nickname, h.WebSocket))
-	return httptest.NewServer(r)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /lobby/{code}/ws", testAuthMiddleware(userID, nickname, h.WebSocket))
+	return httptest.NewServer(mux)
 }
 
 func newWSTestServerMultiUser(h *LobbyHandler) *httptest.Server {
-	r := chi.NewRouter()
-	r.Get("/lobby/{code}/ws", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /lobby/{code}/ws", func(w http.ResponseWriter, r *http.Request) {
 		userID := r.Header.Get("X-Test-User-ID")
 		if userID == "" {
 			userID = "default-user"
@@ -42,10 +40,10 @@ func newWSTestServerMultiUser(h *LobbyHandler) *httptest.Server {
 		ctx := auth.WithAuthenticatedUser(r.Context(), userID, "nick")
 		h.WebSocket(w, r.WithContext(ctx))
 	})
-	return httptest.NewServer(r)
+	return httptest.NewServer(mux)
 }
 
-func wsDial(t *testing.T, server *httptest.Server, code, origin string) (*websocket.Conn, *http.Response) {
+func wsDial(t *testing.T, server *httptest.Server, code, origin string) (*websocket.Conn, int) {
 	t.Helper()
 	url := "ws" + server.URL[4:] + "/lobby/" + code + "/ws"
 	dialer := &websocket.Dialer{HandshakeTimeout: 5 * time.Second}
@@ -57,11 +55,16 @@ func wsDial(t *testing.T, server *httptest.Server, code, origin string) (*websoc
 	if err != nil && resp == nil {
 		t.Fatalf("websocket dial failed (no response): %v", err)
 	}
-	return conn, resp
+	statusCode := 0
+	if resp != nil {
+		statusCode = resp.StatusCode
+		_ = resp.Body.Close()
+	}
+	return conn, statusCode
 }
 
 func newTestLobbyHandlerWithOrigins(origins []string) *LobbyHandler {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 	return NewLobbyHandler(hub, origins)
 }
 
@@ -76,8 +79,10 @@ func waitForConnCount(h *LobbyHandler, target int64, timeout time.Duration) bool
 	return h.hub.WSConnCount() == target
 }
 
-func withChiParam(r *http.Request, key, val string) *http.Request {
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add(key, val)
-	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+// withPathParam sets a URL path parameter on the request using the Go 1.22+
+// standard library mechanism (r.SetPathValue), avoiding chi-specific context
+// plumbing in tests. The handler-side URLParam wrapper reads this value.
+func withPathParam(r *http.Request, key, val string) *http.Request {
+	r.SetPathValue(key, val)
+	return r
 }

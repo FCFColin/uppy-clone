@@ -9,14 +9,20 @@ import (
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/middleware"
+	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
 // GetConfig handles GET /api/admin/config (requires admin JWT)
 func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	// handler-027: DB errors return 500 (InternalError); nil config returns
+	// 404 (NotFound). Do NOT conflate DB failures with "not found".
 	ctx := r.Context()
 	cfg, err := h.db.GetConfig(ctx, "global")
-	if err != nil || cfg == nil {
+	if err != nil {
+		apierror.InternalError("Failed to load config").Write(w)
+		return
+	}
+	if cfg == nil {
 		apierror.NotFound("Config not found").Write(w)
 		return
 	}
@@ -32,18 +38,8 @@ func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resendApiKey := storedConfig.ResendApiKey
-	if resendApiKey != "" {
-		decrypted, err := crypto.Decrypt(resendApiKey)
-		if err != nil {
-			resendApiKey = storedConfig.ResendApiKey
-		} else {
-			resendApiKey = decrypted
-		}
-	}
-
 	maskedApiKey := ""
-	if resendApiKey != "" {
+	if storedConfig.ResendApiKey != "" {
 		maskedApiKey = maskedKey
 	}
 
@@ -63,9 +59,14 @@ func (h *AdminHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// handler-027: DB errors return 500; nil config returns 404 (same as GetConfig).
 	ctx := r.Context()
 	cfg, err := h.db.GetConfig(ctx, "global")
-	if err != nil || cfg == nil {
+	if err != nil {
+		apierror.InternalError("Failed to load config").Write(w)
+		return
+	}
+	if cfg == nil {
 		apierror.NotFound("Config not found").Write(w)
 		return
 	}
@@ -124,7 +125,7 @@ func (h *AdminHandler) applyConfigUpdates(ctx context.Context, w http.ResponseWr
 			return false
 		}
 		storedConfig["admin_password"] = hashed
-		AuditPasswordChange(ctx, middleware.ExtractClientIP(r))
+		AuditPasswordChange(ctx, requestctx.ExtractClientIP(r))
 
 		// Revoke ALL admin sessions, not just the current one (H5).
 		if h.redis != nil {

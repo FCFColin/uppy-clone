@@ -17,7 +17,7 @@ import (
 
 func setupPostgresPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	return testutil.SetupPostgresPoolMigrated(t)
+	return testutil.SetupPostgres(t, testutil.WithPool(), testutil.WithMigrations()).Pool
 }
 
 func setupRedisForWorker(t *testing.T) *redis.Client {
@@ -52,7 +52,9 @@ func setupGameTestData(t *testing.T, pool *pgxpool.Pool) (userID, sessionID stri
 	return userID, sessionID
 }
 
-// makeGameResultPayload creates a JSON-encoded GameResultPayload string.
+// makeGameResultPayload creates a JSON-encoded outbox envelope wrapping a GameResultPayload.
+// RO-043: The Worker now consumes from game.events (published by the outbox Publisher),
+// so test payloads must be wrapped in {"event":"game.ended","data":{...}} format.
 func makeGameResultPayload(gameID string, finalScore int, results []PlayerGameResult, endedAt int64) string {
 	p := GameResultPayload{
 		GameID:     gameID,
@@ -61,7 +63,8 @@ func makeGameResultPayload(gameID string, finalScore int, results []PlayerGameRe
 		Results:    results,
 		EndedAt:    endedAt,
 	}
-	b, _ := json.Marshal(p)
+	env := outboxEventEnvelope{Event: "game.ended", Data: p}
+	b, _ := json.Marshal(env)
 	return string(b)
 }
 
@@ -69,10 +72,10 @@ func makeGameResultPayload(gameID string, finalScore int, results []PlayerGameRe
 func ensureResultWorkerGroup(t *testing.T, rdb *redis.Client) {
 	t.Helper()
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "$").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "$").Err()
 }
 
-// addAndReadMessages adds messages to the game:results stream, reads them via
+// addAndReadMessages adds messages to the game.events stream, reads them via
 // XReadGroup (so they enter the PEL), and returns the messages.
 func addAndReadMessages(t *testing.T, rdb *redis.Client, payloads []string) []redis.XMessage {
 	t.Helper()
@@ -82,7 +85,7 @@ func addAndReadMessages(t *testing.T, rdb *redis.Client, payloads []string) []re
 
 	for _, p := range payloads {
 		if err := rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream: "game:results",
+			Stream: "game.events",
 			Values: map[string]interface{}{"payload": p},
 		}).Err(); err != nil {
 			t.Fatalf("XAdd: %v", err)
@@ -92,7 +95,7 @@ func addAndReadMessages(t *testing.T, rdb *redis.Client, payloads []string) []re
 	streams, err := rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    "result-workers",
 		Consumer: "result-worker-1",
-		Streams:  []string{"game:results", ">"},
+		Streams:  []string{"game.events", ">"},
 		Count:    int64(len(payloads)),
 		Block:    2 * time.Second,
 	}).Result()
@@ -112,7 +115,7 @@ func getPendingCount(t *testing.T, rdb *redis.Client) int64 {
 	t.Helper()
 	ctx := context.Background()
 	ensureResultWorkerGroup(t, rdb)
-	result, err := rdb.XPending(ctx, "game:results", "result-workers").Result()
+	result, err := rdb.XPending(ctx, "game.events", "result-workers").Result()
 	if err != nil {
 		t.Fatalf("XPending: %v", err)
 	}
@@ -488,14 +491,14 @@ func TestStart_ContextCancellation(t *testing.T) {
 
 	// Create consumer group and enqueue a message before starting the worker
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "$").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "$").Err()
 
 	payload := makeGameResultPayload(sessionID, 100, []PlayerGameResult{
 		{UserID: userID, ScoreContribution: 50, TapsCount: 10},
 	}, time.Now().UnixMilli())
 
 	if err := rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: "game:results",
+		Stream: "game.events",
 		Values: map[string]interface{}{"payload": payload},
 	}).Err(); err != nil {
 		t.Fatalf("XAdd: %v", err)

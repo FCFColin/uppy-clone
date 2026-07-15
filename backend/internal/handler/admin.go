@@ -11,6 +11,7 @@ import (
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/middleware"
+	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
 const adminRole = "admin"
@@ -69,8 +70,9 @@ func (h *AdminHandler) auditConfigChange(ctx context.Context, r *http.Request, b
 	afterConfig := maskSensitiveFields(storedConfig)
 	audit.Log(ctx, audit.AuditEntry{
 		Action:    "admin.config.update",
+		ActorType: audit.ActorTypeAdmin,
 		ActorID:   adminRole,
-		ActorIP:   middleware.ExtractClientIP(r),
+		ActorIP:   requestctx.ExtractClientIP(r),
 		Resource:  "admin/config/global",
 		Before:    beforeConfig,
 		After:     afterConfig,
@@ -102,17 +104,14 @@ func (h *AdminHandler) signAdminToken() (string, string, error) {
 func (h *AdminHandler) signAdminTokenDefault() (string, string, error) {
 	now := time.Now()
 	jti := uuid.NewString()
-	claims := adminClaims{
-		Role: adminRole,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        jti,
-			Subject:   adminRole,
-			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(config.AdminTokenTTL)),
-		},
+	claims := map[string]any{
+		"role": adminRole,
+		"jti":  jti,
+		"sub":  adminRole,
+		"iat":  now.Unix(),
+		"exp":  now.Add(config.AdminTokenTTL).Unix(),
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	signed, err := token.SignedString(h.adminJwtMgr.PrivateKey())
+	signed, err := h.adminJwtMgr.SignWithClaims(claims)
 	if err != nil {
 		return "", "", err
 	}

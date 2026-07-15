@@ -127,8 +127,10 @@ func isDuplicateError(err error) bool {
 }
 
 // seedUsers inserts 3 test users and returns them for use by other seed helpers.
-// Duplicate-key errors are treated as non-fatal (idempotent re-runs); other
-// errors are returned. The stats counter is incremented only on success.
+// Duplicate-key errors are treated as non-fatal (idempotent re-runs): the
+// existing user's real DB ID is looked up so that seedResults references the
+// actual record (misc-033). Other errors are returned. The stats counter is
+// incremented only on successful inserts.
 func seedUsers(ctx context.Context, userRepo *store.UserRepository, now int64, stats *seedStats) ([]*domain.User, error) {
 	users := []*domain.User{
 		{ID: idgen.UUID(), Email: "alice@test.com", Nickname: "Alice", Palette: 0, CreatedAt: now},
@@ -139,6 +141,14 @@ func seedUsers(ctx context.Context, userRepo *store.UserRepository, now int64, s
 		if err := userRepo.CreateUser(ctx, u); err != nil {
 			if isDuplicateError(err) {
 				log.Printf("create user %s: %v (may already exist)", u.Nickname, err)
+				// misc-033: Replace the discarded UUID with the existing DB
+				// record's ID so that seedResults doesn't reference a
+				// non-existent user (foreign key violation).
+				if existing, lookupErr := userRepo.GetUserByEmail(ctx, u.Email); lookupErr != nil {
+					log.Printf("lookup existing user %s: %v", u.Email, lookupErr)
+				} else if existing != nil {
+					u.ID = existing.ID
+				}
 				continue
 			}
 			return users, fmt.Errorf("create user %s: %w", u.Nickname, err)

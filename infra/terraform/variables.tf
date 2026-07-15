@@ -18,12 +18,33 @@ variable "region" {
 }
 
 variable "db_password" {
-  description = "PostgreSQL password"
+  description = "DEPRECATED(infra-009): No longer used directly. Password is now managed by random_password resource. Kept for backward compatibility with existing Terraform state."
+  type        = string
+  sensitive   = true
+  default     = null
+  validation {
+    condition     = var.db_password == null || length(var.db_password) >= 16
+    error_message = "db_password must be at least 16 characters."
+  }
+}
+
+variable "app_user_password" {
+  description = "PostgreSQL password for app_user (least-privilege application user)"
   type        = string
   sensitive   = true
   validation {
-    condition     = length(var.db_password) >= 16
-    error_message = "db_password must be at least 16 characters."
+    condition     = length(var.app_user_password) >= 16
+    error_message = "app_user_password must be at least 16 characters."
+  }
+}
+
+variable "migrator_password" {
+  description = "PostgreSQL password for migrator role (DDL-only migration user)"
+  type        = string
+  sensitive   = true
+  validation {
+    condition     = length(var.migrator_password) >= 16
+    error_message = "migrator_password must be at least 16 characters."
   }
 }
 

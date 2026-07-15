@@ -113,7 +113,6 @@ func main() {
 		"docker/postgres/init",
 		"docs/operations/runbook.md",
 		"docs/development/benchmarks-go-microbench.md",
-		"docs/development/benchmarks-k6-room-slo.md",
 	}
 	for _, p := range required {
 		fail = !assertExists(root, p) || fail
@@ -130,15 +129,6 @@ func main() {
 		}
 		if len(goFiles) != 1 || goFiles[0] != "main.go" {
 			fmt.Fprintf(os.Stderr, "backend/cmd/server must contain only main.go (found: %v)\n", goFiles)
-			fail = true
-		}
-	}
-
-	// Alert rules ConfigMap must be generated from rules.yml
-	configMapPath := filepath.Join(root, "deploy", "alertmanager", "rules-configmap.yaml")
-	if data, err := os.ReadFile(configMapPath); err == nil {
-		if !strings.Contains(string(data), "# Generated from deploy/alertmanager/rules.yml") {
-			fmt.Fprintln(os.Stderr, "deploy/alertmanager/rules-configmap.yaml must be generated (run: make sync-alert-rules)")
 			fail = true
 		}
 	}

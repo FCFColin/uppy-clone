@@ -20,7 +20,7 @@ func TestQuickPlayResponseMatchesOpenAPISchema(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	_, rdb := testutil.SetupRedisStore(t)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)

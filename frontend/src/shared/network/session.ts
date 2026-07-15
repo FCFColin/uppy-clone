@@ -1,5 +1,5 @@
 import { refreshAccessToken } from './auth.js';
-import { fetchWithRetry } from './fetch.js';
+import { apiFetch } from './api_fetch.js';
 
 export type SessionResult =
   | { ok: true }
@@ -9,7 +9,10 @@ export function normalizeAuthHost(): void {
   // Redirect 127.0.0.1 to localhost to match cookie domain expectations.
   // Skip redirect when the hostname is already localhost or a non-loopback address,
   // to support headless browsers and CI environments that connect via 127.0.0.1 directly.
-  if (window.location.hostname === '127.0.0.1' && !navigator.webdriver && !window.__CI) {
+  // shared-021: Removed navigator.webdriver check — it's fragile (not supported in all
+  // browsers, can be spoofed) and redundant with window.__CI which is the explicit
+  // CI suppression mechanism.
+  if (window.location.hostname === '127.0.0.1' && !window.__CI) {
     const port = window.location.port ? `:${window.location.port}` : '';
     window.location.replace(
       `http://localhost${port}${window.location.pathname}${window.location.search}${window.location.hash}`,
@@ -24,29 +27,35 @@ declare global {
 
 export async function establishGameSession(): Promise<SessionResult> {
   try {
+    // autoRefresh=false: session.ts orchestrates refresh manually below to
+    // distinguish "needs quickplay" from "needs refresh" paths.
     if (sessionStorage.getItem('uppy-auth-ready') === '1') {
       sessionStorage.removeItem('uppy-auth-ready');
-      const quickCheck: Response = await fetch('/api/v1/auth/check', { credentials: 'include' });
+      const quickCheck: Response = await apiFetch('/api/v1/auth/check', { retries: 0, autoRefresh: false });
       if (quickCheck.ok) return { ok: true };
     }
 
-    const checkRes: Response = await fetch('/api/v1/auth/check', { credentials: 'include' });
+    const checkRes: Response = await apiFetch('/api/v1/auth/check', { retries: 0, autoRefresh: false });
     if (checkRes.ok) return { ok: true };
 
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      const recheck: Response = await fetch('/api/v1/auth/check', { credentials: 'include' });
+      const recheck: Response = await apiFetch('/api/v1/auth/check', { retries: 0, autoRefresh: false });
       if (recheck.ok) return { ok: true };
     }
 
     const savedNick = localStorage.getItem('uppy-nickname') || '';
     const body = savedNick ? { nickname: savedNick } : {};
-    const res = await fetchWithRetry('/api/v1/auth/quickplay', {
+    // shared-002: POST is non-idempotent — never retry. A retry could create
+    // duplicate sessions if the server received the request but the response
+    // was lost. retries=0 ensures the POST is sent exactly once.
+    const res = await apiFetch('/api/v1/auth/quickplay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(body),
-    }, 2);
+      retries: 0,
+      autoRefresh: false,
+    });
 
     if (!res.ok) {
       if (res.status === 429) return { ok: false, status: 429, reason: 'rate_limit' };

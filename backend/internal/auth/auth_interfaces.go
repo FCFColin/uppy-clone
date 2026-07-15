@@ -15,6 +15,7 @@ type UserDB interface {
 	UpdateUserLastLogin(ctx context.Context, id string) error
 	AnonymizeUser(ctx context.Context, id string) error
 	GetGameResultsByUserID(ctx context.Context, userID string) ([]domain.GameResult, error)
+	GetGameSessionsByUserID(ctx context.Context, userID string) ([]domain.GameSession, error)
 }
 
 // TokenStore abstracts Redis token operations used by auth.
@@ -26,4 +27,10 @@ type TokenStore interface {
 	IsJWTRevoked(ctx context.Context, jti string) (bool, error)
 	RevokeJWT(ctx context.Context, jti string, ttl time.Duration) error
 	EnqueueEmail(ctx context.Context, payload []byte) error
+}
+
+// JWTRevocationChecker checks if a JWT has been revoked by its jti.
+// Used by middleware for read-only revocation checks.
+type JWTRevocationChecker interface {
+	IsJWTRevoked(ctx context.Context, jti string) (bool, error)
 }

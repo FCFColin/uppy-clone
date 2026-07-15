@@ -6,6 +6,7 @@ const mockNormalizeAuthHost = vi.hoisted(() => vi.fn());
 const mockShowToast = vi.hoisted(() => vi.fn());
 const mockResizeCanvas = vi.hoisted(() => vi.fn());
 const mockGameLoop = vi.hoisted(() => vi.fn());
+const mockStartGameLoop = vi.hoisted(() => vi.fn());
 const mockRenderOnce = vi.hoisted(() => vi.fn());
 const mockUpdateUI = vi.hoisted(() => vi.fn());
 const mockGenerateRandomNickname = vi.hoisted(() => vi.fn(() => 'RandomNick'));
@@ -25,12 +26,7 @@ vi.mock('./message_codec.js', () => ({ encodeSetNickname: mockEncodeSetNickname 
 vi.mock('./store.js', () => ({ dispatch: mockDispatch }));
 vi.mock('../shared/network/session.js', () => ({ normalizeAuthHost: mockNormalizeAuthHost }));
 vi.mock('../shared/ui/toast.js', () => ({ showToast: mockShowToast }));
-vi.mock('./renderer.js', () => ({ resizeCanvas: mockResizeCanvas, gameLoop: mockGameLoop, renderOnce: mockRenderOnce }));
-vi.mock('./ui.js', () => ({
-  updateUI: mockUpdateUI,
-  generateRandomNickname: mockGenerateRandomNickname,
-  $setupNicknameInput: mockSetupNicknameInput,
-}));
+vi.mock('./renderer.js', () => ({ resizeCanvas: mockResizeCanvas, gameLoop: mockGameLoop, startGameLoop: mockStartGameLoop, renderOnce: mockRenderOnce }));
 vi.mock('./ws_connect.js', () => ({ connectWebSocket: mockConnectWebSocket, showConnectionError: mockShowConnectionError }));
 vi.mock('./ws_connection.js', () => ({ sendOrQueue: mockSendOrQueue }));
 vi.mock('./waiting_tips.js', () => ({ initWaitingTips: mockInitWaitingTips }));
@@ -43,12 +39,13 @@ vi.mock('./entry_flow.js', () => ({
   getEntryStep: mockGetEntryStep,
 }));
 
-import { boot } from './lifecycle.js';
+import { boot, resetBootBound } from './lifecycle.js';
 
 describe('lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    resetBootBound();
   });
 
   it('boot does not throw', () => {

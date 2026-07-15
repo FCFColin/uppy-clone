@@ -1,23 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const inputMockState = vi.hoisted(() => ({
+  phase: 'playing',
+  myCooldownEnd: 0,
+  ripples: [] as Array<Record<string, unknown>>,
+  lastTapX: 0,
+  lastTapY: 0,
+  players: [{ nickname: 'p1' }],
+  restartVotes: { yes: 0, total: 1, countdownMs: 0 },
+  restartClicked: false,
+  balloon: { x: 0.5, y: 0.5 },
+}));
 vi.mock('./state_types.js', () => ({
-  state: {
-    phase: 'playing',
-    myCooldownEnd: 0,
-    ripples: [] as Array<Record<string, unknown>>,
-    lastTapX: 0,
-    lastTapY: 0,
-    players: [{ nickname: 'p1' }],
-    restartVotes: { yes: 0, total: 1, countdownMs: 0 },
-    restartClicked: false,
-    balloon: { x: 0.5, y: 0.5 },
-  },
+  state: inputMockState,
+  getState: () => inputMockState,
 }));
 vi.mock('./ws_connection.js', () => ({
   sendOrQueue: vi.fn(),
   getWs: vi.fn(() => ({ readyState: 1 })),
 }));
 vi.mock('./renderer_canvas.js', () => ({
+  $canvas: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 300 }) },
   clientToNormalized: (x: number, y: number) => ({ x: x / 100, y: y / 100 }),
 }));
 vi.mock('./visual_helpers.js', () => ({
@@ -27,7 +30,7 @@ vi.mock('../shared/ui/audio.js', () => ({
   playTapSound: vi.fn(),
   vibrate: vi.fn(),
 }));
-vi.mock('./ui.js', () => ({ updateUI: vi.fn() }));
+vi.mock('./ui_update.js', () => ({ updateUI: vi.fn() }));
 
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
 import { state } from './state_types.js';
@@ -114,12 +117,6 @@ describe('input', () => {
     });
     tapAtBalloonCenter();
     expect(sendOrQueue).toHaveBeenCalledOnce();
-  });
-
-  it('tapAtBalloonCenter no-ops when canvas is missing', () => {
-    document.body.innerHTML = '';
-    tapAtBalloonCenter();
-    expect(sendOrQueue).not.toHaveBeenCalled();
   });
 
   it('tapAtBalloonCenter no-ops outside playing phase', () => {

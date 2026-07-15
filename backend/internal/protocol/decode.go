@@ -12,6 +12,24 @@ func DecodeMessage(data []byte) (msgType byte, payload []byte) {
 	return data[0], data[1:]
 }
 
+// WSMessageTypeName maps a protocol message type byte to a human-readable
+// label (e.g. for metrics or tracing). It returns "unknown" for
+// unrecognized types.
+func WSMessageTypeName(msgType byte) string {
+	switch msgType {
+	case MsgTap:
+		return "tap"
+	case MsgSetNickname:
+		return "set_nickname"
+	case MsgRestartVote:
+		return "restart_vote"
+	case MsgPing:
+		return "ping"
+	default:
+		return "unknown"
+	}
+}
+
 // DecodeTap decodes a tap payload (without msgType prefix) from the client.
 //
 // Expected layout: tapX(float32) + tapY(float32) = 8 bytes minimum.
@@ -32,7 +50,7 @@ func DecodeNicknamePayload(data []byte) (nickname string, ok bool) {
 		return "", false
 	}
 	nickLen := int(data[0])
-	if nickLen <= 0 || nickLen > 255 {
+	if nickLen <= 0 {
 		return "", false
 	}
 	if len(data) < 1+nickLen {

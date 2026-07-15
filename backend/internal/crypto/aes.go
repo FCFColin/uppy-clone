@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 )
 
 // Enterprise rationale: Database breaches expose all data at rest. Encrypting
@@ -23,7 +24,8 @@ import (
 // 生产环境必须显式提供密钥，缺失时 fail-fast 而非静默降级到不安全状态。
 var (
 	// Encryption key must be 32 bytes (AES-256). Set via Init() or InitFromEnv().
-	encKey []byte
+	encKey   []byte
+	encKeyMu sync.RWMutex
 )
 
 // Init 使用给定的 hex 编码密钥初始化 AES-256 加密器。
@@ -36,8 +38,9 @@ func Init(encryptionKey string) error {
 	if len(key) != 32 {
 		return fmt.Errorf("ENCRYPTION_KEY must be 32 bytes (64 hex chars) for AES-256, got %d bytes", len(key))
 	}
+	encKeyMu.Lock()
 	encKey = key
-	initEmailHMACKey()
+	encKeyMu.Unlock()
 	return nil
 }
 
@@ -61,12 +64,16 @@ func MustInitFromEnv() {
 
 // ResetKeyForTest clears the module encryption key. For tests only.
 func ResetKeyForTest() {
+	encKeyMu.Lock()
 	encKey = nil
+	encKeyMu.Unlock()
 }
 
 // SetEncKeyForTest sets a raw encryption key. For tests only.
 func SetEncKeyForTest(key []byte) {
+	encKeyMu.Lock()
 	encKey = key
+	encKeyMu.Unlock()
 }
 
 // aesRandRead is injectable for unit tests (e.g. simulate crypto/rand failures).
@@ -76,10 +83,13 @@ var aesRandRead = rand.Read
 var aesNewGCM = cipher.NewGCM
 
 func newGCM() (cipher.AEAD, error) {
-	if encKey == nil {
+	encKeyMu.RLock()
+	key := encKey
+	encKeyMu.RUnlock()
+	if key == nil {
 		return nil, errors.New("encryption key not initialized: call Init() or InitFromEnv() first")
 	}
-	block, err := aes.NewCipher(encKey)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("create cipher: %w", err)
 	}
@@ -207,7 +217,8 @@ func RotateKey(oldKey, newKey []byte) error {
 	if len(newKey) != 32 {
 		return fmt.Errorf("new key must be 32 bytes for AES-256, got %d", len(newKey))
 	}
+	encKeyMu.Lock()
 	encKey = newKey
-	initEmailHMACKey()
+	encKeyMu.Unlock()
 	return nil
 }

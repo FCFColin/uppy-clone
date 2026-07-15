@@ -8,6 +8,7 @@ import {
   drawTutorialRangeCircle, drawDangerVignettes, drawFloatingTexts,
 } from './visual_helpers.js';
 import { drainPendingMessages } from './ws_message_queue.js';
+import { registerResetFn } from './reset_registry.js';
 
 export { $canvas } from './renderer_canvas.js';
 
@@ -17,6 +18,7 @@ export function resizeCanvas(): void {
 }
 
 let renderActive = true;
+let loopRunning = false;
 let cachedPlayerMap: Map<number, ClientPlayer> | null = null;
 let cachedPlayerMapKey: string | null = null;
 
@@ -24,9 +26,15 @@ export function setRenderActive(active: boolean): void {
   renderActive = active;
 }
 
+export function isLoopRunning(): boolean {
+  return loopRunning;
+}
+
 function getPlayerMap(): Map<number, ClientPlayer> {
   const players = getState().players;
-  const key = players.map(p => p.playerIndex + ':' + p.scoreContribution).join(',');
+  const key = players.map(p =>
+    `${p.playerIndex}:${p.scoreContribution}:${p.nickname}:${p.palette}`
+  ).join('|');
   if (key === cachedPlayerMapKey && cachedPlayerMap !== null) {
     return cachedPlayerMap;
   }
@@ -35,16 +43,17 @@ function getPlayerMap(): Map<number, ClientPlayer> {
   return cachedPlayerMap;
 }
 
-export function invalidatePlayerMapCache(): void {
-  cachedPlayerMap = null;
-  cachedPlayerMapKey = null;
-}
-
 export function renderOnce(): void {
   render();
 }
 
 let _previousTimestamp: number | undefined;
+
+export function startGameLoop(): void {
+  if (loopRunning) return;
+  loopRunning = true;
+  requestAnimationFrame(gameLoop);
+}
 
 export function gameLoop(timestamp: number): void {
   if (!renderActive) {
@@ -58,7 +67,11 @@ export function gameLoop(timestamp: number): void {
     }
   }
   _previousTimestamp = timestamp;
-  drainPendingMessages(8);
+  try {
+    drainPendingMessages(8);
+  } catch (err: unknown) {
+    console.error('drainPendingMessages error:', err);
+  }
   render();
   requestAnimationFrame(gameLoop);
 }
@@ -94,3 +107,12 @@ function render(): void {
     console.error('Render error:', err);
   }
 }
+
+/** Reset renderer cache for a new game session. */
+export function resetRendererState(): void {
+  cachedPlayerMap = null;
+  cachedPlayerMapKey = null;
+  invalidateBackgroundStaticCache();
+}
+
+registerResetFn(resetRendererState);

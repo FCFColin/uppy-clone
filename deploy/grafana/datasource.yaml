@@ -4,6 +4,7 @@
 apiVersion: 1
 datasources:
   - name: Thanos (global)
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://thanos-query.observability.svc:9090
@@ -13,6 +14,7 @@ datasources:
       timeInterval: 15s
   # Optional direct per-region Prometheus for debugging a single region.
   - name: Prometheus us-east1
+    uid: prometheus-us-east1
     type: prometheus
     access: proxy
     url: http://prometheus.balloon-game.us-east1.svc:9090

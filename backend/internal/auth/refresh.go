@@ -19,12 +19,50 @@ import (
 // This limits the damage window of a leaked access token to 15 minutes.
 // Trade-off: Extra Redis round-trip for refresh, but security benefit outweighs cost.
 
+// RefreshTokenStore is the narrow subset of *redis.Client methods used by
+// RefreshTokenManager. Abstracting behind an interface (RO-051) prevents raw
+// *redis.Client penetration into the auth package — consumers receive a
+// contract, not the full client. *redis.Client satisfies this interface
+// automatically, so no adapter is needed. redis.Scripter is embedded so that
+// redis.Script.Run can accept a RefreshTokenStore value directly.
+type RefreshTokenStore interface {
+	redis.Scripter
+	TxPipeline() redis.Pipeliner
+	SRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+}
+
 const (
-	refreshTokenExpiry     = 7 * 24 * time.Hour // 7 days
-	refreshTokenPrefix     = "refresh_token:"
+	refreshTokenExpiry      = 7 * 24 * time.Hour // 7 days
+	refreshTokenPrefix      = "refresh_token:"
 	refreshTokenReusePrefix = "refresh_token:reuse:" // reuse detection marker
-	userTokensSetPrefix    = "refresh_tokens:user:"  // reverse index for efficient revocation
+	userTokensSetPrefix     = "refresh_tokens:user:" // reverse index for efficient revocation
+	// auth-020: Naturally-expired tokens remain as dead members in the user's reverse-index
+	// set until the set itself expires (TTL = refreshTokenExpiry, refreshed on each Generate).
+	// In the worst case (continuous token generation), dead members accumulate for up to 7 days.
+	// This is an acceptable trade-off: RevokeAllForUser handles cleanup via Lua script, and
+	// ConsumeRefreshToken calls RemoveFromUserSet. A periodic SCAN+SREM cleanup would add
+	// Redis load for marginal benefit.
 )
+
+// revokeAllForUserScript atomically deletes all refresh tokens for a user.
+// KEYS[1] = refresh_tokens:user:<userID>
+// ARGV[1] = refresh_token: (prefix for token keys)
+// Returns the number of tokens deleted.
+// project-08-004/auth-004: Previously SMembers+DEL loop was non-atomic —
+// a concurrent Generate could add a token between SMembers and DEL, surviving
+// revocation. This Lua script executes as a single atomic Redis operation.
+var revokeAllForUserScript = redis.NewScript(`
+	local tokens = redis.call('SMEMBERS', KEYS[1])
+	local count = 0
+	for _, token in ipairs(tokens) do
+		redis.call('DEL', ARGV[1] .. token)
+		count = count + 1
+	end
+	redis.call('DEL', KEYS[1])
+	return count
+`)
 
 // consumeRefreshTokenScript atomically validates, consumes, and detects reuse
 // of a refresh token.
@@ -32,9 +70,10 @@ const (
 // KEYS[2] = refresh_token:reuse:<token>
 // ARGV[1] = reuse marker TTL (seconds, same as refresh token TTL)
 // Returns:
-//   {1, userID}  = token valid and consumed
-//   {0, userID}  = reuse detected (token already consumed)
-//   {-1}         = token not found (never existed or expired)
+//
+//	{1, userID}  = token valid and consumed
+//	{0, userID}  = reuse detected (token already consumed)
+//	{-1}         = token not found (never existed or expired)
 var consumeRefreshTokenScript = redis.NewScript(`
 	local userID = redis.call('GET', KEYS[1])
 	if userID then
@@ -51,11 +90,11 @@ var consumeRefreshTokenScript = redis.NewScript(`
 
 // RefreshTokenManager handles refresh token lifecycle.
 type RefreshTokenManager struct {
-	rdb *redis.Client
+	rdb RefreshTokenStore
 }
 
 // NewRefreshTokenManager creates a new manager backed by Redis.
-func NewRefreshTokenManager(rdb *redis.Client) *RefreshTokenManager {
+func NewRefreshTokenManager(rdb RefreshTokenStore) *RefreshTokenManager {
 	return &RefreshTokenManager{rdb: rdb}
 }
 
@@ -67,21 +106,23 @@ func (m *RefreshTokenManager) Generate(ctx context.Context, userID string) (stri
 	}
 
 	key := refreshTokenPrefix + token
-	if err := m.rdb.Set(ctx, key, userID, refreshTokenExpiry).Err(); err != nil {
-		return "", fmt.Errorf("store refresh token: %w", err)
-	}
-
-	// Track token in user's token set for efficient revocation (N+1 fix).
-	// 企业为何需要：RevokeAllForUser 原 SCAN 全键空间 O(N) 复杂度，反向索引 Set 降为 O(K)。
 	userTokensKey := userTokensSetPrefix + userID
-	m.rdb.SAdd(ctx, userTokensKey, token)
-	m.rdb.Expire(ctx, userTokensKey, refreshTokenExpiry)
+
+	// auth-007: Use TxPipeline (MULTI/EXEC) so Set+SAdd+Expire succeed or
+	// fail together. Previously SAdd/Expire errors were only slog.Warn'd,
+	// leaving the reverse index inconsistent — RevokeAllForUser could miss
+	// tokens whose SAdd failed, creating a security gap.
+	pipe := m.rdb.TxPipeline()
+	pipe.Set(ctx, key, userID, refreshTokenExpiry)
+	pipe.SAdd(ctx, userTokensKey, token)
+	pipe.Expire(ctx, userTokensKey, refreshTokenExpiry)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return "", fmt.Errorf("store refresh token (transaction): %w", err)
+	}
 
 	slog.Info("refresh token generated", "user_id", userID)
 	return token, nil
 }
-
-var errRefreshTokenReused = fmt.Errorf("refresh token reuse detected")
 
 // ConsumeRefreshTokenResult describes the outcome of an atomic consume.
 type ConsumeRefreshTokenResult struct {
@@ -143,6 +184,7 @@ func (m *RefreshTokenManager) RemoveFromUserSet(ctx context.Context, userID, tok
 }
 
 // Validate checks if a refresh token is valid and returns the associated userID.
+//
 // Deprecated: Use ConsumeRefreshToken for atomic validate+consume.
 func (m *RefreshTokenManager) Validate(ctx context.Context, token string) (string, error) {
 	key := refreshTokenPrefix + token
@@ -167,19 +209,18 @@ func (m *RefreshTokenManager) Revoke(ctx context.Context, token string) error {
 // 企业为何需要：原实现 SCAN 全键空间 O(N)，反向索引 Set 降为 O(K)（K=用户 token 数）。
 func (m *RefreshTokenManager) RevokeAllForUser(ctx context.Context, userID string) error {
 	userTokensKey := userTokensSetPrefix + userID
-	// Get all tokens for this user from the reverse-index set (N+1 fix).
-	tokens, err := m.rdb.SMembers(ctx, userTokensKey).Result()
-	if err != nil {
-		return fmt.Errorf("get user tokens: %w", err)
+	// Atomic SMembers+DEL+DEL via Lua script (auth-004).
+	result, err := revokeAllForUserScript.Run(ctx, m.rdb,
+		[]string{userTokensKey},
+		refreshTokenPrefix).Result()
+	if err != nil && err != redis.Nil {
+		return fmt.Errorf("revoke all tokens: %w", err)
 	}
-
-	// Delete each token key and the set key.
-	for _, token := range tokens {
-		m.rdb.Del(ctx, refreshTokenPrefix+token)
+	count := int64(0)
+	if n, ok := result.(int64); ok {
+		count = n
 	}
-	m.rdb.Del(ctx, userTokensKey)
-
-	slog.Info("all refresh tokens revoked for user", "user_id", userID, "count", len(tokens))
+	slog.Info("all refresh tokens revoked for user", "user_id", userID, "count", count)
 	return nil
 }
 

@@ -441,7 +441,7 @@ curl -s localhost:8080/metrics | grep -E 'room_lock_hold|room_outbound|room_pers
 
 - 水平扩展 Hub 实例分散房间（ADR-005）
 - 调优 `PG_POOL_MAX_CONNS` / `REDIS_POOL_SIZE`（见 `.env.example`）
-- 参考 [benchmarks-k6-room-slo.md](../development/benchmarks-k6-room-slo.md) 与 [capacity-planning.md](capacity-planning.md)
+- 参考 [capacity-planning.md](capacity-planning.md)（benchmarks-k6-room-slo.md 已移除）
 
 ## 7. 多区域事件（ADR-014/016）
 

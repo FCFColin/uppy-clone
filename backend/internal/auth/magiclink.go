@@ -36,7 +36,9 @@ func getOrigin(r *http.Request) string {
 		scheme = "http"
 	}
 	if isTrusted {
-		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		if proto := r.Header.Get("X-Forwarded-Proto"); strings.EqualFold(proto, "https") {
+			scheme = "https"
+		} else if proto != "" {
 			scheme = proto
 		}
 	}
@@ -76,7 +78,7 @@ func NewMagicLinkService() *MagicLinkService {
 
 // RequestMagicLink sends a magic link email to the user.
 // Flow: validate email → rate limit → generate token → hash → store in Redis → send email.
-func (s *MagicLinkService) RequestMagicLink(tokens TokenStore, _ UserDB, _, _, email string, r *http.Request, _ config.TimeoutConfig) error {
+func (s *MagicLinkService) RequestMagicLink(tokens TokenStore, email string, r *http.Request) error {
 	if !isValidEmail(email) {
 		return ErrInvalidEmail
 	}
@@ -149,7 +151,7 @@ func enqueueMagicLinkEmail(ctx context.Context, tokens TokenStore, r *http.Reque
 	emailPayload := map[string]interface{}{
 		"to":      email,
 		"subject": "Your Login Link",
-		"body":    fmt.Sprintf(`<p>Click <a href='%s'>here</a> to log in. Expires in 10 minutes.</p>`, magicLinkURL),
+		"body":    fmt.Sprintf(`<p>Click <a href='%s'>here</a> to log in. Expires in %d minutes.</p>`, magicLinkURL, int(config.MagicLinkTTL.Minutes())),
 	}
 	payloadJSON, err := magiclinkJSONMarshal(emailPayload)
 	if err != nil {
@@ -168,7 +170,7 @@ func enqueueMagicLinkEmail(ctx context.Context, tokens TokenStore, r *http.Reque
 // VerifyMagicLink verifies a magic link token and creates/updates user.
 // Flow: hash token → lookup Redis → parse data → delete token → find/create user → sign JWT → set cookie.
 func VerifyMagicLink(tokens TokenStore, db UserDB, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, token string, r *http.Request) (*http.Cookie, *VerifyResponse, error) {
-	ctx := context.Background()
+	ctx := r.Context()
 
 	email, err := validateMagicToken(ctx, tokens, token)
 	if err != nil {
@@ -239,7 +241,7 @@ func validateMagicToken(ctx context.Context, tokens TokenStore, token string) (s
 		}
 	}
 
-	// Verify not expired (10 minutes)
+	// Verify not expired (configured by MagicLinkTTL)
 	if data.CreatedAt+int64(config.MagicLinkTTL/time.Millisecond) < time.Now().UnixMilli() {
 		return "", fmt.Errorf("invalid or expired token")
 	}

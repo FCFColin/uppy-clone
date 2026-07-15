@@ -17,7 +17,7 @@ func testRNG() RNGSource {
 }
 
 func createTestState() *domain.GameState {
-	return NewGameState("TEST1", testRNG())
+	return NewGameState("TEST1", 42, testRNG())
 }
 
 func getAllNicknameCombinations() []string {
@@ -30,47 +30,6 @@ func getAllNicknameCombinations() []string {
 		}
 	}
 	return out
-}
-
-type mockBroadcaster struct {
-	mu        sync.Mutex
-	handlers  map[string]func(BroadcastMessage)
-	published []BroadcastMessage
-	closed    bool
-}
-
-func newMockBroadcaster() *mockBroadcaster {
-	return &mockBroadcaster{handlers: make(map[string]func(BroadcastMessage))}
-}
-
-func (m *mockBroadcaster) Publish(_ context.Context, roomCode string, msg BroadcastMessage) error {
-	m.mu.Lock()
-	m.published = append(m.published, msg)
-	handler := m.handlers[roomCode]
-	m.mu.Unlock()
-	if handler != nil {
-		handler(msg)
-	}
-	return nil
-}
-
-func (m *mockBroadcaster) Subscribe(roomCode string, handler func(BroadcastMessage)) (func(), error) {
-	m.mu.Lock()
-	m.handlers[roomCode] = handler
-	m.mu.Unlock()
-	return func() {
-		m.mu.Lock()
-		delete(m.handlers, roomCode)
-		m.mu.Unlock()
-	}, nil
-}
-
-func (m *mockBroadcaster) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.closed = true
-	m.handlers = make(map[string]func(BroadcastMessage))
-	return nil
 }
 
 type mockRoomRepository struct {
@@ -155,24 +114,6 @@ func (m *mockRoomRepository) InsertOutboxEvent(_ context.Context, _, _ string, _
 
 func (m *mockRoomRepository) RecordGameResult(_ context.Context, _, _ string, _ int64, _ int, _ []domain.GameResultPlayer) error {
 	return nil
-}
-
-type mockSnapshotEncoder struct {
-	encodeErr   error
-	encodeCount int
-	lastState   *domain.GameState
-}
-
-func (m *mockSnapshotEncoder) Encode(state *domain.GameState) ([]byte, error) {
-	m.encodeCount++
-	m.lastState = state
-	if m.encodeErr != nil {
-		return nil, m.encodeErr
-	}
-	if state == nil {
-		return []byte("null"), nil
-	}
-	return []byte(fmt.Sprintf(`{"phase":"%s","lobbyCode":"%s"}`, state.Phase, string(state.LobbyCode))), nil
 }
 
 func addConnectedPlayer(r *Room, playerID string) {

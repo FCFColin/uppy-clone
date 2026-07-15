@@ -17,6 +17,14 @@ import (
 
 const testGameID = "11111111-1111-4111-8111-111111111111"
 
+// wrapGameResultEnvelope wraps a GameResultPayload in the outbox event envelope
+// format {"event":"game.ended","data":{...}} expected by processMessage after RO-043.
+func wrapGameResultEnvelope(p GameResultPayload) string {
+	env := outboxEventEnvelope{Event: "game.ended", Data: p}
+	b, _ := json.Marshal(env)
+	return string(b)
+}
+
 // TestGameResultPayload_Unmarshal verifies JSON unmarshaling of valid payloads.
 func TestGameResultPayload_Unmarshal(t *testing.T) {
 	payload := GameResultPayload{
@@ -124,6 +132,15 @@ func TestNewGameResultWorker(t *testing.T) {
 }
 
 func TestProcessBatch_BeginFailure(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
+
 	config, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
 	if err != nil {
 		t.Fatalf("parse config: %v", err)
@@ -135,13 +152,10 @@ func TestProcessBatch_BeginFailure(t *testing.T) {
 	}
 	defer pool.Close()
 
-	w := &GameResultWorker{rdb: nil, db: pool}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	w := &GameResultWorker{rdb: rdb, db: pool}
 
 	w.processBatch(ctx, []redis.XMessage{
-		{ID: "1-0", Values: map[string]interface{}{"payload": "{}"}},
+		{ID: "1-0", Values: map[string]interface{}{"payload": wrapGameResultEnvelope(GameResultPayload{GameID: testGameID, RoomCode: "R1"})}},
 	})
 }
 
@@ -176,13 +190,13 @@ func TestGameResultWorker_processMessage_InvalidPayload(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	w := NewGameResultWorker(rdb, nil)
 	w.processMessage(ctx, redis.XMessage{ID: "1-0", Values: map[string]interface{}{"payload": 123}})
 
 	pending, _ := rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
-		Stream: "game:results", Group: "result-workers", Start: "-", End: "+", Count: 10,
+		Stream: "game.events", Group: "result-workers", Start: "-", End: "+", Count: 10,
 	}).Result()
 	if len(pending) != 0 {
 		t.Fatalf("expected acked invalid payload, pending=%d", len(pending))
@@ -197,7 +211,7 @@ func TestGameResultWorker_processMessage_UnmarshalError(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	w := NewGameResultWorker(rdb, nil)
 	w.processMessage(ctx, redis.XMessage{ID: "2-0", Values: map[string]interface{}{"payload": "not-json"}})
@@ -211,7 +225,7 @@ func TestGameResultWorker_processMessage_BeginFailure(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	config, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
 	if err != nil {
@@ -225,10 +239,10 @@ func TestGameResultWorker_processMessage_BeginFailure(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	w := NewGameResultWorker(rdb, pool)
-	payload, _ := json.Marshal(GameResultPayload{GameID: testGameID, RoomCode: "ROOM1"})
+	payload := wrapGameResultEnvelope(GameResultPayload{GameID: testGameID, RoomCode: "ROOM1"})
 	w.processMessage(ctx, redis.XMessage{
 		ID:     "4-0",
-		Values: map[string]interface{}{"payload": string(payload)},
+		Values: map[string]interface{}{"payload": payload},
 	})
 }
 
@@ -250,7 +264,7 @@ func TestGameResultWorker_processMessage_Success(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	w, mock := newGameResultWorkerWithMockDB(t, rdb)
 	mock.ExpectBegin()
@@ -262,13 +276,13 @@ func TestGameResultWorker_processMessage_Success(t *testing.T) {
 		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 	mock.ExpectCommit()
 
-	payload, _ := json.Marshal(GameResultPayload{
+	payload := wrapGameResultEnvelope(GameResultPayload{
 		GameID: testGameID, RoomCode: "ROOM1", FinalScore: 50, EndedAt: 100,
 		Results: []PlayerGameResult{{UserID: "user-1", ScoreContribution: 25, TapsCount: 5}},
 	})
 	w.processMessage(ctx, redis.XMessage{
 		ID:     "7-0",
-		Values: map[string]interface{}{"payload": string(payload)},
+		Values: map[string]interface{}{"payload": payload},
 	})
 }
 
@@ -280,7 +294,7 @@ func TestGameResultWorker_processMessage_SuccessNoResults(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	w, mock := newGameResultWorkerWithMockDB(t, rdb)
 	mock.ExpectBegin()
@@ -289,12 +303,12 @@ func TestGameResultWorker_processMessage_SuccessNoResults(t *testing.T) {
 		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 	mock.ExpectCommit()
 
-	payload, _ := json.Marshal(GameResultPayload{
+	payload := wrapGameResultEnvelope(GameResultPayload{
 		GameID: testGameID, RoomCode: "ROOM1", FinalScore: 50, EndedAt: 100,
 	})
 	w.processMessage(ctx, redis.XMessage{
 		ID:     "12-0",
-		Values: map[string]interface{}{"payload": string(payload)},
+		Values: map[string]interface{}{"payload": payload},
 	})
 }
 
@@ -306,13 +320,13 @@ func TestGameResultWorker_processMessage_InvalidGameID(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	w := NewGameResultWorker(rdb, nil)
-	payload, _ := json.Marshal(GameResultPayload{GameID: "not-a-valid-uuid", RoomCode: "ROOM1"})
+	payload := wrapGameResultEnvelope(GameResultPayload{GameID: "not-a-valid-uuid", RoomCode: "ROOM1"})
 	w.processMessage(ctx, redis.XMessage{
 		ID:     "11-0",
-		Values: map[string]interface{}{"payload": string(payload)},
+		Values: map[string]interface{}{"payload": payload},
 	})
 }
 
@@ -329,9 +343,9 @@ func TestGameResultWorker_processMessage_UpsertError(t *testing.T) {
 		WillReturnError(errors.New("upsert failed"))
 	mock.ExpectRollback()
 
-	payload, _ := json.Marshal(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
+	payload := wrapGameResultEnvelope(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
 	w.processMessage(ctx, redis.XMessage{
-		ID: "8-0", Values: map[string]interface{}{"payload": string(payload)},
+		ID: "8-0", Values: map[string]interface{}{"payload": payload},
 	})
 }
 
@@ -373,9 +387,9 @@ func TestGameResultWorker_processMessage_CommitError(t *testing.T) {
 	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
 	mock.ExpectRollback()
 
-	payload, _ := json.Marshal(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
+	payload := wrapGameResultEnvelope(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
 	w.processMessage(ctx, redis.XMessage{
-		ID: "10-0", Values: map[string]interface{}{"payload": string(payload)},
+		ID: "10-0", Values: map[string]interface{}{"payload": payload},
 	})
 }
 
@@ -465,13 +479,13 @@ func TestGameResultWorker_Start_BatchFlushAt100(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream: "game:results",
+			Stream: "game.events",
 			Values: map[string]interface{}{"payload": "not-json"},
 		}).Result(); err != nil {
 			t.Fatalf("XAdd: %v", err)
 		}
 	}
-	if err := rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err(); err != nil {
+	if err := rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err(); err != nil {
 		t.Fatalf("XGroupCreateMkStream: %v", err)
 	}
 
@@ -503,12 +517,12 @@ func TestGameResultWorker_Start_UsesHostnameConsumer(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: "game:results",
+		Stream: "game.events",
 		Values: map[string]interface{}{"payload": "not-json"},
 	}).Result(); err != nil {
 		t.Fatalf("XAdd: %v", err)
 	}
-	if err := rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err(); err != nil {
+	if err := rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err(); err != nil {
 		t.Fatalf("XGroupCreateMkStream: %v", err)
 	}
 
@@ -540,12 +554,12 @@ func TestGameResultWorker_Start_DefaultConsumerName(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: "game:results",
+		Stream: "game.events",
 		Values: map[string]interface{}{"payload": "not-json"},
 	}).Result(); err != nil {
 		t.Fatalf("XAdd: %v", err)
 	}
-	if err := rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err(); err != nil {
+	if err := rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err(); err != nil {
 		t.Fatalf("XGroupCreateMkStream: %v", err)
 	}
 
@@ -573,13 +587,13 @@ func TestGameResultWorker_processMessage_MissingPayload(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	w := NewGameResultWorker(rdb, nil)
 	w.processMessage(ctx, redis.XMessage{ID: "3-0", Values: map[string]interface{}{"other": "value"}})
 
 	pending, _ := rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
-		Stream: "game:results", Group: "result-workers", Start: "-", End: "+", Count: 10,
+		Stream: "game.events", Group: "result-workers", Start: "-", End: "+", Count: 10,
 	}).Result()
 	if len(pending) != 0 {
 		t.Fatalf("expected acked missing payload, pending=%d", len(pending))
@@ -594,7 +608,7 @@ func TestGameResultWorker_processBatch_MultipleMessages(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	w := NewGameResultWorker(rdb, nil)
 	w.processBatch(ctx, []redis.XMessage{
@@ -613,12 +627,12 @@ func TestGameResultWorker_Start_ReadsAndFlushes(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: "game:results",
+		Stream: "game.events",
 		Values: map[string]interface{}{"payload": "not-json"},
 	}).Result(); err != nil {
 		t.Fatalf("XAdd: %v", err)
 	}
-	if err := rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err(); err != nil {
+	if err := rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err(); err != nil {
 		t.Fatalf("XGroupCreateMkStream: %v", err)
 	}
 
@@ -639,7 +653,7 @@ func TestGameResultWorker_Start_ReadsAndFlushes(t *testing.T) {
 	}
 
 	pending, _ := rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
-		Stream: "game:results", Group: "result-workers", Start: "-", End: "+", Count: 10,
+		Stream: "game.events", Group: "result-workers", Start: "-", End: "+", Count: 10,
 	}).Result()
 	if len(pending) != 0 {
 		t.Fatalf("expected invalid payload to be acked, pending=%d", len(pending))
@@ -660,7 +674,7 @@ func TestGameResultWorker_processMessage_NilRedisAck(t *testing.T) {
 		FinalScore: 10,
 		Results:    []PlayerGameResult{{UserID: "u1", ScoreContribution: 10, TapsCount: 1}},
 	}
-	body, _ := json.Marshal(payload)
+	body := wrapGameResultEnvelope(payload)
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO game_sessions").
 		WithArgs(payload.GameID, payload.RoomCode, payload.EndedAt, payload.FinalScore).
@@ -673,6 +687,6 @@ func TestGameResultWorker_processMessage_NilRedisAck(t *testing.T) {
 	w := &GameResultWorker{rdb: nil, db: mock}
 	w.processMessage(context.Background(), redis.XMessage{
 		ID:     "1-0",
-		Values: map[string]interface{}{"payload": string(body)},
+		Values: map[string]interface{}{"payload": body},
 	})
 }

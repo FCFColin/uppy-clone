@@ -10,7 +10,7 @@ import (
 )
 
 func TestUpdateUserLastLogin_Success(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("UPDATE users SET last_login").
@@ -23,7 +23,7 @@ func TestUpdateUserLastLogin_Success(t *testing.T) {
 }
 
 func TestUpdateUserLastLogin_Error(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("UPDATE users SET last_login").
@@ -35,12 +35,15 @@ func TestUpdateUserLastLogin_Error(t *testing.T) {
 }
 
 func TestAnonymizeUser_Success(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-gdpr").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
+	mock.ExpectExec("UPDATE outbox_events").
+		WithArgs("user-gdpr").
+		WillReturnResult(pgconn.NewCommandTag("UPDATE 0"))
 
 	if err := repo.AnonymizeUser(ctx, "user-gdpr"); err != nil {
 		t.Fatalf("AnonymizeUser: %v", err)
@@ -48,7 +51,7 @@ func TestAnonymizeUser_Success(t *testing.T) {
 }
 
 func TestAnonymizeUser_Error(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("UPDATE users SET email").
@@ -60,7 +63,7 @@ func TestAnonymizeUser_Error(t *testing.T) {
 }
 
 func TestHardDeleteExpiredUsers_Success(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("DELETE FROM users").
@@ -77,7 +80,7 @@ func TestHardDeleteExpiredUsers_Success(t *testing.T) {
 }
 
 func TestHardDeleteExpiredUsers_Error(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("DELETE FROM users").
@@ -91,7 +94,7 @@ func TestHardDeleteExpiredUsers_Error(t *testing.T) {
 }
 
 func TestHardDeleteExpiredUsers_DefaultRetention(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("DELETE FROM users").

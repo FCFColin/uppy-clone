@@ -109,10 +109,11 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 }
 
 // isOTLPInsecure checks whether OTLP should use an insecure gRPC connection.
-// Defaults to true (dev-friendly). Set OTLP_INSECURE=false or OTLP_INSECURE=0 to require TLS.
+// audit-011: Default to secure (false). Dev environments must explicitly
+// set OTLP_INSECURE=true to use plaintext gRPC.
 func isOTLPInsecure() bool {
 	v := os.Getenv("OTLP_INSECURE")
-	return v != "false" && v != "0"
+	return v == "true" || v == "1"
 }
 
 // getSampleRatio reads OTEL_SAMPLE_RATIO from env (0.0-1.0), default 0.1.

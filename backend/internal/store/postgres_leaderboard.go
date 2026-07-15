@@ -25,7 +25,6 @@ func leaderboardQuery(scope string, limit int) (string, []interface{}) {
 }
 
 func scanLeaderboardRows(rows pgx.Rows) ([]domain.LeaderboardEntry, error) {
-	defer rows.Close()
 	var entries []domain.LeaderboardEntry
 	rank := 1
 	for rows.Next() {

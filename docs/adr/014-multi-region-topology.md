@@ -2,7 +2,11 @@
 
 ## 状态
 
-已接受
+目标态（非当前部署形态）
+
+> **实现说明**：当前 k8s 多区域 overlay 仅为 stub，并非真正的按区域隔离部署。
+> overlay 自身注释亦承认"True per-region isolation is a future goal"。
+> 本 ADR 描述的是目标架构，当前单区域部署即可满足学习工程需求。
 
 ## 日期
 

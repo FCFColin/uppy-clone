@@ -8,14 +8,16 @@ func TestParseRedisURL(t *testing.T) {
 		raw      string
 		wantAddr string
 		wantPass string
+		wantDB   int
 		wantErr  bool
 	}{
-		{"", "", "", true},
-		{"localhost:6379", "localhost:6379", "", false},
-		{"redis:6379", "redis:6379", "", false},
-		{"redis://:secret@redis:6379", "redis:6379", "secret", false},
-		{"redis://redis:6379/0", "redis:6379", "", false},
-		{"rediss://:pass@secure:6380/1", "secure:6380", "pass", false},
+		{"", "", "", 0, true},
+		{"localhost:6379", "localhost:6379", "", 0, false},
+		{"redis:6379", "redis:6379", "", 0, false},
+		{"redis://:secret@redis:6379", "redis:6379", "secret", 0, false},
+		{"redis://redis:6379/0", "redis:6379", "", 0, false},
+		{"redis://redis:6379/2", "redis:6379", "", 2, false},
+		{"rediss://:pass@secure:6380/1", "secure:6380", "pass", 1, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.raw, func(t *testing.T) {
@@ -30,8 +32,8 @@ func TestParseRedisURL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseRedisURL: %v", err)
 			}
-			if got.Addr != tt.wantAddr || got.Password != tt.wantPass {
-				t.Fatalf("got %+v want addr=%q pass=%q", got, tt.wantAddr, tt.wantPass)
+			if got.Addr != tt.wantAddr || got.Password != tt.wantPass || got.DB != tt.wantDB {
+				t.Fatalf("got %+v want addr=%q pass=%q db=%d", got, tt.wantAddr, tt.wantPass, tt.wantDB)
 			}
 		})
 	}
@@ -48,5 +50,12 @@ func TestParseRedisURL_InvalidURL(t *testing.T) {
 	_, err := ParseRedisURL("redis://%zz")
 	if err == nil {
 		t.Fatal("expected parse error")
+	}
+}
+
+func TestParseRedisURL_InvalidDB(t *testing.T) {
+	_, err := ParseRedisURL("redis://localhost:6379/abc")
+	if err == nil {
+		t.Fatal("expected error for invalid DB number")
 	}
 }

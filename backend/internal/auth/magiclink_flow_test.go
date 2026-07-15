@@ -48,7 +48,7 @@ func setupMagicLinkRedis(t *testing.T) (*store.RedisStore, *miniredis.Miniredis)
 func TestMagicLinkService_RequestMagicLink_InvalidEmail(t *testing.T) {
 	svc := NewMagicLinkService()
 	redisStore, _ := setupMagicLinkRedis(t)
-	err := svc.RequestMagicLink(redisStore, nil, "", "", "not-an-email", httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	err := svc.RequestMagicLink(redisStore, "not-an-email", httptest.NewRequest(http.MethodPost, "/", nil))
 	if err != ErrInvalidEmail {
 		t.Fatalf("err = %v, want ErrInvalidEmail", err)
 	}
@@ -61,7 +61,7 @@ func TestMagicLinkService_RequestMagicLink_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/auth/request", nil)
 	req.Host = "example.com"
-	err := svc.RequestMagicLink(redisStore, nil, "", "", "user@example.com", req, config.DefaultTimeoutConfig())
+	err := svc.RequestMagicLink(redisStore, "user@example.com", req)
 	if err != nil {
 		t.Fatalf("RequestMagicLink: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestRequestMagicLink_RateLimitRedisError(t *testing.T) {
 	redisStore, mr := setupMagicLinkRedis(t)
 	mr.SetError("redis unavailable")
 
-	err := svc.RequestMagicLink(redisStore, nil, "", "", "user@example.com", httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	err := svc.RequestMagicLink(redisStore, "user@example.com", httptest.NewRequest(http.MethodPost, "/", nil))
 	if err == nil {
 		t.Fatal("expected error when rate limit redis fails")
 	}
@@ -149,7 +149,7 @@ func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 		_, _ = redisStore.CheckRateLimit(ctx, "ml:"+email, 5, config.MagicLinkTTL)
 	}
 
-	err := svc.RequestMagicLink(redisStore, nil, "", "", email, httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	err := svc.RequestMagicLink(redisStore, email, httptest.NewRequest(http.MethodPost, "/", nil))
 	if err != ErrTooManyRequests {
 		t.Fatalf("err = %v, want ErrTooManyRequests", err)
 	}
@@ -250,7 +250,7 @@ func TestRequestMagicLink_GenerateTokenError(t *testing.T) {
 
 	svc := NewMagicLinkService()
 	redisStore, _ := setupMagicLinkRedis(t)
-	err := svc.RequestMagicLink(redisStore, nil, "", "", "user@example.com", httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	err := svc.RequestMagicLink(redisStore, "user@example.com", httptest.NewRequest(http.MethodPost, "/", nil))
 	if err == nil {
 		t.Fatal("expected generate token error")
 	}
@@ -343,7 +343,7 @@ func TestRequestMagicLink_StoreTokenError(t *testing.T) {
 	redisStore, _ := setupMagicLinkRedis(t)
 	redisStore.Client().AddHook(failRedisCmdHook{failMagicSet: true})
 
-	err := svc.RequestMagicLink(redisStore, nil, "", "", "store-fail@example.com", httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	err := svc.RequestMagicLink(redisStore, "store-fail@example.com", httptest.NewRequest(http.MethodPost, "/", nil))
 	if err == nil {
 		t.Fatal("expected store token error")
 	}
@@ -355,7 +355,7 @@ func TestRequestMagicLink_EnqueueEmailError(t *testing.T) {
 	redisStore, _ := setupMagicLinkRedis(t)
 	redisStore.Client().AddHook(failRedisCmdHook{failEmailPush: true})
 
-	err := svc.RequestMagicLink(redisStore, nil, "", "", "enqueue-fail@example.com", httptest.NewRequest(http.MethodPost, "/", nil), config.DefaultTimeoutConfig())
+	err := svc.RequestMagicLink(redisStore, "enqueue-fail@example.com", httptest.NewRequest(http.MethodPost, "/", nil))
 	if err == nil {
 		t.Fatal("expected enqueue email error")
 	}

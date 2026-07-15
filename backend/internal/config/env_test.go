@@ -76,6 +76,7 @@ func validProdEnv() *Env {
 		JWTPublicKey:      "strong-production-jwt-public-key-32bytes!",
 		DatabaseURL:       "postgres://localhost/test",
 		EncryptionKey:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		AuditSecret:       "audit-secret-independent-from-jwt-32bytes!",
 		EnableHSTS:        true,
 		Environment:       "production",
 		TrustedProxyCIDRs: "127.0.0.1/32",
@@ -102,7 +103,9 @@ func TestGetEnvInt(t *testing.T) {
 	if got := GetEnvInt("TEST_GET_ENV_INT", 7); got != 7 {
 		t.Errorf("invalid got %d", got)
 	}
-	os.Unsetenv("TEST_GET_ENV_INT")
+	if err := os.Unsetenv("TEST_GET_ENV_INT"); err != nil {
+		t.Fatal(err)
+	}
 	if got := GetEnvInt("TEST_GET_ENV_INT", 9); got != 9 {
 		t.Errorf("default got %d", got)
 	}
@@ -113,7 +116,9 @@ func TestGetEnv(t *testing.T) {
 	if got := GetEnv("TEST_GET_ENV", "default"); got != "from-env" {
 		t.Errorf("got %q", got)
 	}
-	os.Unsetenv("TEST_GET_ENV")
+	if err := os.Unsetenv("TEST_GET_ENV"); err != nil {
+		t.Fatal(err)
+	}
 	if got := GetEnv("TEST_GET_ENV", "default"); got != "default" {
 		t.Errorf("default got %q", got)
 	}
@@ -136,7 +141,9 @@ func TestGetEnvIntPositive(t *testing.T) {
 	if got := GetEnvIntPositive("TEST_POS_INT", 5); got != 5 {
 		t.Errorf("invalid got %d", got)
 	}
-	os.Unsetenv("TEST_POS_INT")
+	if err := os.Unsetenv("TEST_POS_INT"); err != nil {
+		t.Fatal(err)
+	}
 	if got := GetEnvIntPositive("TEST_POS_INT", 9); got != 9 {
 		t.Errorf("unset got %d", got)
 	}

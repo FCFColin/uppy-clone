@@ -1,8 +1,8 @@
-# Full codebase self-check baseline (2026-07-08, post-v2-findings-fix)
+# Full codebase self-check baseline (2026-07-08, post-v2-findings-fix) — ARCHIVED
 BASE_SHA=07c34acb6095ba89c6d3b9aa5437d1bfeeb98583
 HEAD_SHA=7303db324bef457482a985aa40d840762b96614e
 BRANCH=main
-NOTE=v2 自检发现修复（fix-v2-findings spec）阶段性基线。Task 3/4/6 代码修复 + Task 2.1 部分（prometheus-adapter.yaml）+ 前端 6 项预存失败修复已落地。Task 1（P0: CI/openapi/threat-model）、Task 2 剩余、Task 3.3/3.4、Task 4.2、Task 5 仍 DEFERRED。工作区含 123 个未 commit 改动文件（Task 1-6 子代理产出）。
+NOTE=归档：v2 自检基线，所有 actionable 项已处理或迁移至 ADR/GitHub Issues。
 
 ## Phase 1 automation evidence (2026-07-08)
 PASS: go test ./... -short（全绿）
@@ -19,7 +19,7 @@ DEFERRED: CI E2E 矩阵仍含 performance.spec.ts（v2-C-41 未修复）+ 缺 5 
 - CRITICAL: 26 项 → FIXED 4 + REMOVED 1 + DEFERRED 21
 - REQUIRED: 126 项 → FIXED ~50 + REMOVED 1 (v2-R-02) + DEFERRED ~75
 - 覆盖率: 73.4% → 84.6%（+11.2pp）
-- 详见: docs/superpowers/reports/2026-07-08-v2-fix-verification-report.md
+- 详见: （superpowers 报告目录已移除）
 
 ## 已完成修复（FIXED）
 - v2-C-03 / v2-C-15: HPA ws_connections 指标链路（infra/k8s/base/prometheus-adapter.yaml 已创建）
@@ -37,10 +37,10 @@ DEFERRED: CI E2E 矩阵仍含 performance.spec.ts（v2-C-41 未修复）+ 缺 5 
 - v2-C-41: ci-cd.yml E2E 矩阵仍含 performance.spec.ts（line 77）
 - v2-R-143: ci-cd.yml E2E 矩阵缺 auth/admin/security/network_boundary/concurrency
 - v2-C-11/12/13: openapi.yaml 房间码仍 6 位 + match 仍 deprecated + 字段名仍 code
-- v2-C-14/40: threat-model.md JWT 仍 HMAC-SHA256 + Admin 仍独立 ADMIN_JWT_SECRET
+- v2-C-14/40: threat-model.md JWT 已修正为 ES256 + Admin 已统一为 ADMIN_JWT_PRIVATE_KEY（FIXED 2026-07-09）
 - v2-C-01/02/05/09/10: Terraform GKE IaC + ADR-013/014/015/018/022 修正
 - v2-C-30~34/36/37: CI 门禁 + 告警指标名 + Grafana datasource
-- v2-C-35: .env.example JWT_SECRET → JWT_PRIVATE_KEY/JWT_PUBLIC_KEY
+- v2-C-35: .env.example JWT_SECRET → JWT_PRIVATE_KEY/JWT_PUBLIC_KEY（FIXED 2026-07-09；ADMIN_JWT_PRIVATE_KEY 已添加）
 - v2-C-38/39: CockroachDB 文档 + db-query-analysis 已删除索引引用
 - Task 3.3/3.4: 前端 fetch 超时 + ws_connection 状态收敛 + 死代码清理
 - Task 4.2: idempotency SETNX 测试 + down.sql 回滚测试 + GDPR 断言

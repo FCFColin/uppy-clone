@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func authWSMiddleware(userID, nickname string, next http.HandlerFunc) http.Handl
 }
 
 func wsDial(server *httptest.Server, code, origin string) (*websocket.Conn, *http.Response, error) {
-	url := "ws" + server.URL[4:] + "/lobby/" + code + "/ws"
+	url := strings.Replace(server.URL, "http://", "ws://", 1) + "/lobby/" + code + "/ws"
 	dialer := &websocket.Dialer{HandshakeTimeout: 5 * time.Second}
 	hdr := http.Header{}
 	if origin != "" {
@@ -36,7 +37,7 @@ func wsDial(server *httptest.Server, code, origin string) (*websocket.Conn, *htt
 }
 
 func TestWSHandler_ConnectAndDisconnect(t *testing.T) {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 100, 50, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 100, 50)
 	lobbyHandler := handler.NewLobbyHandler(hub, []string{"http://localhost"})
 
 	r := chi.NewRouter()
@@ -75,7 +76,7 @@ func TestWSHandler_ConnectAndDisconnect(t *testing.T) {
 }
 
 func TestWSHandler_InvalidRoomRejected(t *testing.T) {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 100, 50, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 100, 50)
 	lobbyHandler := handler.NewLobbyHandler(hub, []string{"http://localhost"})
 
 	r := chi.NewRouter()
@@ -97,7 +98,7 @@ func TestWSHandler_InvalidRoomRejected(t *testing.T) {
 }
 
 func TestWSHandler_UnauthenticatedRejected(t *testing.T) {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 100, 50, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 100, 50)
 	lobbyHandler := handler.NewLobbyHandler(hub, []string{"http://localhost"})
 
 	r := chi.NewRouter()
@@ -124,7 +125,7 @@ func TestWSHandler_UnauthenticatedRejected(t *testing.T) {
 }
 
 func TestWSHandler_ForbiddenOriginRejected(t *testing.T) {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 100, 50, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 100, 50)
 	lobbyHandler := handler.NewLobbyHandler(hub, []string{"http://localhost"})
 
 	r := chi.NewRouter()
@@ -151,7 +152,7 @@ func TestWSHandler_ForbiddenOriginRejected(t *testing.T) {
 }
 
 func TestWSHandler_ConnectionLimit(t *testing.T) {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 2, 50, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 2, 50)
 	lobbyHandler := handler.NewLobbyHandler(hub, []string{"http://localhost"})
 
 	r := chi.NewRouter()
@@ -176,7 +177,7 @@ func TestWSHandler_ConnectionLimit(t *testing.T) {
 	hdr1 := http.Header{}
 	hdr1.Set("Origin", "http://localhost")
 	hdr1.Set("X-Test-User-ID", "user0")
-	conn1, _, err := dialer.Dial("ws"+server.URL[4:]+"/lobby/"+code+"/ws", hdr1)
+	conn1, _, err := dialer.Dial(strings.Replace(server.URL, "http://", "ws://", 1)+"/lobby/"+code+"/ws", hdr1)
 	if err != nil {
 		t.Fatalf("dial 1 failed: %v", err)
 	}
@@ -185,7 +186,7 @@ func TestWSHandler_ConnectionLimit(t *testing.T) {
 	hdr2 := http.Header{}
 	hdr2.Set("Origin", "http://localhost")
 	hdr2.Set("X-Test-User-ID", "user1")
-	conn2, _, err := dialer.Dial("ws"+server.URL[4:]+"/lobby/"+code+"/ws", hdr2)
+	conn2, _, err := dialer.Dial(strings.Replace(server.URL, "http://", "ws://", 1)+"/lobby/"+code+"/ws", hdr2)
 	if err != nil {
 		t.Fatalf("dial 2 failed: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestWSHandler_ConnectionLimit(t *testing.T) {
 	hdr3 := http.Header{}
 	hdr3.Set("Origin", "http://localhost")
 	hdr3.Set("X-Test-User-ID", "user2")
-	_, resp3, err := dialer.Dial("ws"+server.URL[4:]+"/lobby/"+code+"/ws", hdr3)
+	_, resp3, err := dialer.Dial(strings.Replace(server.URL, "http://", "ws://", 1)+"/lobby/"+code+"/ws", hdr3)
 	if err == nil {
 		t.Fatal("expected dial 3 to fail (connection limit)")
 	}

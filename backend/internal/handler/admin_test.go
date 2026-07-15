@@ -152,16 +152,13 @@ func TestAdminHandler_VerifyAdminToken_NonAdminClaims(t *testing.T) {
 
 	// Create a token without admin role
 	now := time.Now()
-	claims := adminClaims{
-		Role: "user", // not admin
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   "admin",
-			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
-		},
+	claims := map[string]any{
+		"role": "user",
+		"sub":  "admin",
+		"iat":  now.Unix(),
+		"exp":  now.Add(24 * time.Hour).Unix(),
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	tokenString, _ := token.SignedString(h.adminJwtMgr.PrivateKey())
+	tokenString, _ := h.adminJwtMgr.SignWithClaims(claims)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
 	req.AddCookie(&http.Cookie{
@@ -179,16 +176,13 @@ func TestAdminHandler_VerifyAdminToken_ExpiredToken(t *testing.T) {
 
 	// Create an expired token
 	now := time.Now()
-	claims := adminClaims{
-		Role: "admin",
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   "admin",
-			IssuedAt:  jwt.NewNumericDate(now.Add(-48 * time.Hour)),
-			ExpiresAt: jwt.NewNumericDate(now.Add(-24 * time.Hour)), // expired
-		},
+	claims := map[string]any{
+		"role": "admin",
+		"sub":  "admin",
+		"iat":  now.Add(-48 * time.Hour).Unix(),
+		"exp":  now.Add(-24 * time.Hour).Unix(),
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	tokenString, _ := token.SignedString(h.adminJwtMgr.PrivateKey())
+	tokenString, _ := h.adminJwtMgr.SignWithClaims(claims)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
 	req.AddCookie(&http.Cookie{

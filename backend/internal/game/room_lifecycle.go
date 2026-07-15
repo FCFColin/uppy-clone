@@ -11,6 +11,8 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
+// ─── Join / Disconnect ───────────────────────────────────────────────
+
 // HandleJoin 处理玩家加入/重连
 func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 	start := time.Now()
@@ -29,7 +31,9 @@ func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 		Conn:     conn,
 		Send:     make(chan []byte, config.WSChannelBuffer),
 	}
+	r.connMu.Lock()
 	r.connections[playerID] = pc
+	r.connMu.Unlock()
 
 	if player != nil && player.Disconnected {
 		r.reconnectPlayer(playerID, player)
@@ -51,7 +55,6 @@ func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 	return nil
 }
 
-// closeExistingConnection 关闭玩家已有连接（重连时替换旧连接）。
 func (r *Room) closeExistingConnection(playerID string, player *domain.PlayerState) {
 	if player == nil || player.Disconnected {
 		return
@@ -62,7 +65,6 @@ func (r *Room) closeExistingConnection(playerID string, player *domain.PlayerSta
 	}
 }
 
-// reconnectPlayer 处理断连重连：恢复状态、发送快照、重置定时器。
 func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 	player.Disconnected = false
 	player.DisconnectedAt = nil
@@ -86,14 +88,15 @@ func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 
 func (r *Room) resumeCountdownForReconnect(playerID string) {
 	remaining := remainingCountdownMs(r.countdownStart)
-	r.sendToPlayer(playerID, protocol.EncodeGameStateChange(protocol.PhaseCountdown, uint32(remaining))) //nolint:gosec:G115 // bounded countdown
+	r.sendToPlayer(playerID, protocol.EncodeGameStateChange(protocol.PhaseCountdown, uint32(remaining))) //nolint:gosec // G115: bounded countdown
 	r.setEndGameAlarm(time.Now().Add(time.Duration(remaining) * time.Millisecond))
 }
 
-// addNewPlayer 添加新玩家，房间满时返回 ErrRoomFull。
 func (r *Room) addNewPlayer(playerID string, conn *websocket.Conn) (*domain.PlayerState, error) {
 	if len(r.state.Players) >= r.maxPlayers {
+		r.connMu.Lock()
 		delete(r.connections, playerID)
+		r.connMu.Unlock()
 		if conn != nil {
 			_ = conn.Close()
 		}
@@ -122,7 +125,6 @@ func (r *Room) addNewPlayer(playerID string, conn *websocket.Conn) (*domain.Play
 	return player, nil
 }
 
-// notifyJoin 发送完整状态给玩家并广播 player_join 给其他玩家。
 func (r *Room) notifyJoin(playerID string, player *domain.PlayerState, isReconnect bool) {
 	if isReconnect {
 		r.logger.Info("player reconnect", "playerID", playerID, "index", player.PlayerIndex)
@@ -132,13 +134,35 @@ func (r *Room) notifyJoin(playerID string, player *domain.PlayerState, isReconne
 
 	r.sendToPlayer(playerID, r.buildSnapshot())
 
-	joinMsg := protocol.EncodePlayerJoin(uint16(player.PlayerIndex), player.Nickname, uint32(player.Palette)) //nolint:gosec:G115 // PlayerIndex < MaxPlayersPerRoom, Palette < 8
+	joinMsg := protocol.EncodePlayerJoin(uint16(player.PlayerIndex), player.Nickname, uint32(player.Palette)) //nolint:gosec // G115: PlayerIndex < MaxPlayersPerRoom, Palette < 10
 	r.broadcast(joinMsg, playerID)
 
 	r.requestPersist()
 }
 
-// normalizePhaseForNicknameGate 若有玩家未确认昵称，不应处于 countdown/playing。
+// HandleDisconnect 处理玩家断开连接
+func (r *Room) HandleDisconnect(playerID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	player, ok := r.state.Players[playerID]
+	if !ok {
+		return nil
+	}
+
+	r.connMu.Lock()
+	delete(r.connections, playerID)
+	r.connMu.Unlock()
+
+	now := time.Now().UnixMilli()
+	player.MarkDisconnected(now)
+	r.logger.Info("player disconnected, grace period 30s", "playerID", playerID)
+
+	return nil
+}
+
+// ─── Phase Transition / Start Game ───────────────────────────────────
+
 func (r *Room) normalizePhaseForNicknameGate() {
 	if r.state.Phase != domain.PhaseCountdown && r.state.Phase != domain.PhasePlaying {
 		return
@@ -161,19 +185,23 @@ func (r *Room) normalizePhaseForNicknameGate() {
 	r.logger.Info("phase reset to waiting: not all players confirmed nickname")
 }
 
-// transitionPhaseIfNeeded 检查并执行阶段转换（恢复 tick）。
 func (r *Room) transitionPhaseIfNeeded() {
 	if r.state.Phase == domain.PhasePlaying && r.tickCancel == nil {
 		r.startTick()
 	}
 }
 
-// allConnectedPlayersReady 检查所有已连接玩家是否均已确认昵称。
 func (r *Room) allConnectedPlayersReady() bool {
-	if len(r.connections) == 0 {
+	r.connMu.RLock()
+	conns := make([]string, 0, len(r.connections))
+	for pid := range r.connections {
+		conns = append(conns, pid)
+	}
+	r.connMu.RUnlock()
+	if len(conns) == 0 {
 		return false
 	}
-	for pid := range r.connections {
+	for _, pid := range conns {
 		player, ok := r.state.Players[pid]
 		if !ok || player.Disconnected || !player.NicknameConfirmed {
 			return false
@@ -182,8 +210,6 @@ func (r *Room) allConnectedPlayersReady() bool {
 	return true
 }
 
-// tryStartWhenAllReady 当所有已连接玩家确认昵称后，从 waiting 进入 countdown。
-// 延迟 1.5 秒启动，给玩家时间看到欢迎信息。
 func (r *Room) tryStartWhenAllReady() {
 	if r.state.Phase != domain.PhaseWaiting {
 		return
@@ -192,35 +218,22 @@ func (r *Room) tryStartWhenAllReady() {
 		return
 	}
 	if r.startDelayTimer != nil {
-		return // 已在等待启动
+		return
 	}
 	r.startDelayTimer = time.AfterFunc(r.startDelay, func() {
+		if r.closed.Load() {
+			return
+		}
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		if r.closed.Load() {
+			return
+		}
 		r.startDelayTimer = nil
 		if r.state.Phase == domain.PhaseWaiting && r.allConnectedPlayersReady() {
 			_ = r.StartGame()
 		}
 	})
-}
-
-// HandleDisconnect 处理玩家断开连接
-func (r *Room) HandleDisconnect(playerID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	player, ok := r.state.Players[playerID]
-	if !ok {
-		return nil
-	}
-
-	delete(r.connections, playerID)
-
-	now := time.Now().UnixMilli()
-	player.MarkDisconnected(now)
-	r.logger.Info("player disconnected, grace period 30s", "playerID", playerID)
-
-	return nil
 }
 
 // StartGame 开始游戏（waiting → countdown → playing）
@@ -246,72 +259,6 @@ func (r *Room) StartGame() error {
 	return nil
 }
 
-// EndGame 结束游戏（playing → ended）
-func (r *Room) EndGame() error {
-	return r.EndGameWithReason(protocol.EndReasonNone)
-}
-
-// EndGameWithReason ends the game and broadcasts the death reason to clients.
-func (r *Room) EndGameWithReason(endReason uint8) error {
-	r.state.Phase = domain.PhaseEnded
-	r.stopTick()
-
-	if r.state.Balloon.Y < 0 {
-		r.state.Balloon.Y = 0
-	}
-
-	r.enqueueGameResultAsync()
-	r.broadcastGameEnded(endReason)
-
-	if len(r.connections) > 0 {
-		r.setEndGameAlarm(time.Now().Add(time.Duration(domain.AutoRestartMs) * time.Millisecond))
-	} else {
-		r.state.Phase = domain.PhaseWaiting
-		r.logger.Info("no players, phase reset to waiting")
-	}
-
-	return nil
-}
-
-func (r *Room) broadcastGameEnded(endReason uint8) {
-	r.broadcast(r.buildSnapshot(), "")
-	r.broadcastCritical(protocol.EncodeGameStateChangeEnded(endReason))
-	r.requestPersist()
-}
-
-// setEndGameAlarm 设置 ended/countdown 阶段的闹钟定时器。
-func (r *Room) setEndGameAlarm(when time.Time) {
-	if r.endGameTimer != nil {
-		r.endGameTimer.Stop()
-	}
-	duration := time.Until(when)
-	if duration < 0 {
-		duration = 0
-	}
-	r.endGameAlarmVersion++
-	capturedVersion := r.endGameAlarmVersion
-	r.endGameTimer = time.AfterFunc(duration, func() {
-		r.mu.Lock()
-		phase := r.state.Phase
-		version := r.endGameAlarmVersion
-		r.mu.Unlock()
-
-		if capturedVersion != version {
-			return
-		}
-
-		switch phase {
-		case domain.PhaseCountdown:
-			r.handleCountdownEnd()
-		case domain.PhaseEnded:
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			r.handleAutoRestart()
-		}
-	})
-}
-
-// handleCountdownEnd 处理倒计时结束：转为 playing 阶段并启动 tick。
 func (r *Room) handleCountdownEnd() {
 	r.mu.Lock()
 	if r.state.Phase != domain.PhaseCountdown {
@@ -329,7 +276,7 @@ func (r *Room) handleCountdownEnd() {
 		r.createGameSessionAsync(&domain.GameSession{
 			ID:        r.state.SessionID,
 			LobbyCode: string(r.state.LobbyCode),
-			Status:    "active", // DB CHECK 约束只允许 'active' 或 'ended'
+			Status:    "active",
 			StartedAt: &r.state.StartedAt,
 		})
 	}
@@ -339,16 +286,133 @@ func (r *Room) handleCountdownEnd() {
 	r.restartTick()
 }
 
-// handleAutoRestart ended 阶段自动重启。
+// ─── Countdown Helpers ───────────────────────────────────────────────
+
+func countdownDurationMs() int64 {
+	if protocol.TickRate == 0 {
+		return 3000
+	}
+	return int64(protocol.CountdownTicks) * 1000 / int64(protocol.TickRate)
+}
+
+func countdownDurationMsU32() uint32 {
+	if protocol.TickRate == 0 {
+		return 3000
+	}
+	return uint32(protocol.CountdownTicks) * 1000 / uint32(protocol.TickRate)
+}
+
+func (r *Room) scheduleCountdownFromNow() {
+	ms := countdownDurationMs()
+	r.setEndGameAlarm(time.Now().Add(time.Duration(ms) * time.Millisecond))
+}
+
+func (r *Room) broadcastCountdownPhase() {
+	msU32 := countdownDurationMsU32()
+	r.broadcastCritical(protocol.EncodeGameStateChange(protocol.PhaseCountdown, msU32))
+	r.broadcast(r.buildSnapshot(), "")
+}
+
+func remainingCountdownMs(countdownStart int64) int64 {
+	elapsed := time.Now().UnixMilli() - countdownStart
+	remaining := countdownDurationMs() - elapsed
+	if remaining < 100 {
+		return 100
+	}
+	return remaining
+}
+
+// ─── End Game ────────────────────────────────────────────────────────
+
+// EndGame 结束游戏（playing → ended）
+func (r *Room) EndGame() error {
+	return r.EndGameWithReason(protocol.EndReasonNone)
+}
+
+// EndGameWithReason ends the game and broadcasts the death reason to clients.
+func (r *Room) EndGameWithReason(endReason uint8) error {
+	r.state.Phase = domain.PhaseEnded
+	r.stopTick()
+
+	if r.state.Balloon.Y < 0 {
+		r.state.Balloon.Y = 0
+	}
+
+	r.enqueueGameResultAsync()
+	r.broadcastGameEnded(endReason)
+
+	r.connMu.RLock()
+	hasConns := len(r.connections) > 0
+	r.connMu.RUnlock()
+	if hasConns {
+		r.setEndGameAlarm(time.Now().Add(time.Duration(domain.AutoRestartMs) * time.Millisecond))
+	} else {
+		r.state.Phase = domain.PhaseWaiting
+		r.logger.Info("no players, phase reset to waiting")
+	}
+
+	return nil
+}
+
+func (r *Room) broadcastGameEnded(endReason uint8) {
+	r.broadcast(r.buildSnapshot(), "")
+	r.broadcastCritical(protocol.EncodeGameStateChangeEnded(endReason))
+	r.requestPersist()
+}
+
+// setEndGameAlarm sets a timer for ended/countdown phase transitions.
+func (r *Room) setEndGameAlarm(when time.Time) {
+	if r.endGameTimer != nil {
+		r.endGameTimer.Stop()
+	}
+	duration := time.Until(when)
+	if duration < 0 {
+		duration = 0
+	}
+	r.endGameAlarmVersion++
+	capturedVersion := r.endGameAlarmVersion
+	r.endGameTimer = time.AfterFunc(duration, func() {
+		if r.closed.Load() {
+			return
+		}
+		r.mu.Lock()
+		phase := r.state.Phase
+		version := r.endGameAlarmVersion
+		r.mu.Unlock()
+
+		if capturedVersion != version || r.closed.Load() {
+			return
+		}
+
+		switch phase {
+		case domain.PhaseCountdown:
+			r.handleCountdownEnd()
+		case domain.PhaseEnded:
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			r.handleAutoRestart()
+		}
+	})
+}
+
+// ─── Auto-Restart ────────────────────────────────────────────────────
+
 func (r *Room) handleAutoRestart() {
+	toDelete := make([]string, 0, len(r.state.RestartVotes))
 	for pid := range r.state.RestartVotes {
 		p, ok := r.state.Players[pid]
 		if !ok || p.Disconnected {
-			delete(r.state.RestartVotes, pid)
+			toDelete = append(toDelete, pid)
 		}
 	}
+	for _, pid := range toDelete {
+		delete(r.state.RestartVotes, pid)
+	}
 
-	if len(r.connections) == 0 {
+	r.connMu.RLock()
+	noConns := len(r.connections) == 0
+	r.connMu.RUnlock()
+	if noConns {
 		r.state.Phase = domain.PhaseWaiting
 		r.logger.Info("phase=ended but no players, phase reset to waiting")
 		return

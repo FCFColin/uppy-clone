@@ -89,7 +89,7 @@ func TestListLobbies_SuccessWithETag(t *testing.T) {
 			Total:   1,
 		},
 	}
-	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
 	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
@@ -115,7 +115,7 @@ func TestListLobbies_RespectsLimitQuery(t *testing.T) {
 	t.Parallel()
 
 	repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
-	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
 	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
@@ -140,7 +140,7 @@ func TestCreateRoom_Success(t *testing.T) {
 	t.Parallel()
 
 	repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
-	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
 	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
@@ -169,12 +169,14 @@ func TestCreateRoom_HubUnavailable(t *testing.T) {
 }
 
 func TestCreateRoom_CodeConflict(t *testing.T) {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 	h := NewLobbyHandler(hub, nil)
 
-	orig := game.SetGenerateRoomCodeHook(func() string { return "CONFL" })
+	orig := hub.SetGenerateRoomCodeHook(func() string { return "CONFL" })
 	t.Cleanup(orig)
-	hub.CreateRoom(context.Background()) // occupies CONFL
+	if _, err := hub.CreateRoom(context.Background()); err != nil {
+		t.Fatal(err)
+	} // occupies CONFL
 
 	w := httptest.NewRecorder()
 	h.CreateRoom(w, httptest.NewRequest(http.MethodPost, "/api/v1/registry/create", nil))
@@ -188,7 +190,7 @@ func TestCheckRoom_InvalidCode(t *testing.T) {
 
 	h := newTestLobbyHandler()
 	w := httptest.NewRecorder()
-	r := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/BAD", nil), "code", "BAD")
+	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/BAD", nil), "code", "BAD")
 	h.CheckRoom(w, r)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
@@ -205,7 +207,7 @@ func TestCheckRoom_Success(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	r := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/"+code, nil), "code", code)
+	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/"+code, nil), "code", code)
 	h.CheckRoom(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
@@ -217,7 +219,7 @@ func TestRegistryCheckRoom_NotFound(t *testing.T) {
 
 	h := newTestLobbyHandler()
 	w := httptest.NewRecorder()
-	r := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
+	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
 	h.CheckRoom(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", w.Code)
@@ -247,10 +249,10 @@ func TestCheckRoom_HubUnavailable(t *testing.T) {
 
 	h := &LobbyHandler{hub: nil}
 	w := httptest.NewRecorder()
-	r := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
+	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
 	h.CheckRoom(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 degraded", w.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 degraded", w.Code)
 	}
 	var body map[string]interface{}
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
@@ -275,15 +277,15 @@ func TestCheckRoom_CacheReadError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = redisStore.Close() })
 
-	hub := game.NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0)
 	h := NewLobbyHandler(hub, nil)
 
 	mr.SetError("redis down")
 	w := httptest.NewRecorder()
-	r := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
+	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
 	h.CheckRoom(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 degraded", w.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 degraded", w.Code)
 	}
 	var body map[string]interface{}
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
@@ -307,7 +309,7 @@ func TestListLobbies_MarshalError(t *testing.T) {
 			Total:   1,
 		},
 	}
-	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
 	h := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
@@ -357,7 +359,7 @@ func TestListLobbies_WriteError(t *testing.T) {
 			Total:   1,
 		},
 	}
-	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
 	h := NewLobbyHandler(hub, nil)
 
 	w := &errResponseWriter{failWrite: true}

@@ -13,11 +13,10 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/resilience"
 )
 
 func TestConfigRepository_GetConfig_Found(t *testing.T) {
-	repo, mock := newMockConfigRepository(t)
+	repo, mock := newMockRepo(t, NewConfigRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "config", "updated_at"}).
@@ -36,7 +35,7 @@ func TestConfigRepository_GetConfig_Found(t *testing.T) {
 }
 
 func TestConfigRepository_GetConfig_NotFound(t *testing.T) {
-	repo, mock := newMockConfigRepository(t)
+	repo, mock := newMockRepo(t, NewConfigRepository)
 	ctx := context.Background()
 
 	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
@@ -53,7 +52,7 @@ func TestConfigRepository_GetConfig_NotFound(t *testing.T) {
 }
 
 func TestConfigRepository_GetConfig_Error(t *testing.T) {
-	repo, mock := newMockConfigRepository(t)
+	repo, mock := newMockRepo(t, NewConfigRepository)
 	ctx := context.Background()
 
 	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
@@ -67,7 +66,7 @@ func TestConfigRepository_GetConfig_Error(t *testing.T) {
 }
 
 func TestConfigRepository_SaveConfig_Success(t *testing.T) {
-	repo, mock := newMockConfigRepository(t)
+	repo, mock := newMockRepo(t, NewConfigRepository)
 	ctx := context.Background()
 
 	cfg := &domain.AppConfig{ID: "global", Config: `{"x":1}`, UpdatedAt: 100}
@@ -82,7 +81,7 @@ func TestConfigRepository_SaveConfig_Success(t *testing.T) {
 }
 
 func TestConfigRepository_SaveConfig_Error(t *testing.T) {
-	repo, mock := newMockConfigRepository(t)
+	repo, mock := newMockRepo(t, NewConfigRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("INSERT INTO admin_config").
@@ -94,8 +93,8 @@ func TestConfigRepository_SaveConfig_Error(t *testing.T) {
 	}
 }
 
-func TestPostgresStore_ObservePoolStats_NilPool(t *testing.T) {
-	db := &PostgresStore{cb: resilience.NewPostgresBreaker()}
+func TestPostgresStore_ObservePoolStats_NilPool(_ *testing.T) {
+	db := &PostgresStore{cb: DefaultDeps().PostgresBreakerFactory(), deps: DefaultDeps()}
 	db.ObservePoolStats() // no-op when pool is not *pgxpool.Pool
 }
 
@@ -122,7 +121,7 @@ func TestPostgresStore_ObservePoolStats_RealPool(t *testing.T) {
 
 func TestPostgresStore_ObservePoolStats_AcquireDelta(t *testing.T) {
 	var db PostgresStore
-	db.cb = resilience.NewPostgresBreaker()
+	db.cb = DefaultDeps().PostgresBreakerFactory()
 
 	// Use a real connection if available.
 	connStr := os.Getenv("TEST_DATABASE_URL")

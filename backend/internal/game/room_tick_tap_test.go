@@ -120,7 +120,7 @@ func TestRoom_HandleTap_RejectsInvalidPayload(t *testing.T) {
 }
 
 func TestRoom_ApplyTapPhysics(t *testing.T) {
-	r := &Room{state: NewGameState("TEST", testRNG())}
+	r := &Room{state: NewGameState("TEST", 42, testRNG())}
 	r.state.Balloon.X = 0.5
 	r.state.Balloon.Y = 0.5
 	if !r.applyTapPhysics(0.5, 0.5) {
@@ -150,5 +150,13 @@ func TestRoom_BroadcastTapResult(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected broadcast message")
+	}
+}
+
+func TestRoom_decodeTapPayload_DecodeFailure(t *testing.T) {
+	r := &Room{state: NewGameState("T", 42, testRNG()), rng: testRNG()}
+	_, _, ok := r.decodeTapPayload([]byte{1, 2, 3})
+	if ok {
+		t.Fatal("short payload should fail decode")
 	}
 }

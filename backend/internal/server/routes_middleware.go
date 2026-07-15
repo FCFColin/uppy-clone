@@ -9,9 +9,9 @@ import (
 
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/handler"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
-	"github.com/uppy-clone/backend/internal/rbac"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
@@ -22,15 +22,16 @@ import (
 // were redundant and added noise without RequestID correlation.
 func setupMiddleware(r *chi.Mux) {
 	r.Use(chiMiddleware.RequestID)
+
+	allowedOrigins := appMiddleware.AllowedOriginsFromEnv(serverEnv.AllowedOrigins)
+	r.Use(appMiddleware.CORS(allowedOrigins))
+
 	r.Use(appMiddleware.Recovery)
 	r.Use(appMiddleware.RequestIDLogger)
 	r.Use(appMiddleware.TracingMiddleware)
 	r.Use(appMiddleware.PrometheusMiddleware)
 	r.Use(appMiddleware.TrustedProxy(serverEnv.TrustedProxyCIDRs))
 	r.Use(appMiddleware.SecurityHeaders)
-
-	allowedOrigins := appMiddleware.AllowedOriginsFromEnv(serverEnv.AllowedOrigins)
-	r.Use(appMiddleware.CORS(allowedOrigins))
 }
 
 // metricsAuthMiddleware wraps a handler with Basic Auth for /metrics endpoint.
@@ -57,11 +58,11 @@ func metricsAuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// authMiddlewareWrapper wraps auth.AuthMiddleware to work as chi middleware.
+// authMiddlewareWrapper wraps appMiddleware.AuthMiddleware to work as chi middleware.
 func authMiddlewareWrapper(jwtMgr *auth.JWTManager, redis *store.RedisStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			auth.AuthMiddleware(jwtMgr, func(w http.ResponseWriter, r *http.Request) {
+			appMiddleware.AuthMiddleware(jwtMgr, func(w http.ResponseWriter, r *http.Request) {
 				next.ServeHTTP(w, r)
 			}, redis)(w, r)
 		})
@@ -69,8 +70,8 @@ func authMiddlewareWrapper(jwtMgr *auth.JWTManager, redis *store.RedisStore) fun
 }
 
 // adminAuthMiddleware checks for a valid admin JWT cookie.
-// 企业为何需要：角色必须来自已验证的凭据（JWT claims），而非客户端可控输入。
-// 同时将 token 的 jti 注入 context，供 Logout 和改密撤销流程使用。
+// Roles come from verified credentials (JWT claims), not client-controlled input.
+// The token jti is injected into context for logout/password-change revocation.
 func adminAuthMiddleware(adminHandler *handler.AdminHandler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +80,7 @@ func adminAuthMiddleware(adminHandler *handler.AdminHandler) func(http.Handler) 
 				apierror.Unauthorized("Unauthorized").Write(w)
 				return
 			}
-			ctx := auth.WithRole(r.Context(), rbac.RoleAdmin)
+			ctx := domain.WithRole(r.Context(), domain.RoleAdmin)
 			ctx = auth.WithJTI(ctx, claims.ID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

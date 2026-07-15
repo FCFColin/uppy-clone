@@ -65,4 +65,28 @@ describe('bestScoreCookie', () => {
     const score = await fetchUserBestScore();
     expect(score).toBe(0);
   });
+
+  // shared-004: API score should be written back to cookie for caching.
+  it('fetchUserBestScore writes API score back to cookie when higher than cookie', async () => {
+    document.cookie = 'uppy-best-score=50';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ bestScore: 200 }),
+    } as Response);
+    const score = await fetchUserBestScore();
+    expect(score).toBe(200);
+    expect(document.cookie).toContain('uppy-best-score=200');
+  });
+
+  // shared-004: do not overwrite cookie if API score is not higher (stale cache).
+  it('fetchUserBestScore does not overwrite cookie when API score is lower', async () => {
+    document.cookie = 'uppy-best-score=300';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ bestScore: 100 }),
+    } as Response);
+    const score = await fetchUserBestScore();
+    expect(score).toBe(100);
+    expect(document.cookie).toContain('uppy-best-score=300');
+  });
 });

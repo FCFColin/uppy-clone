@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 // statusWriter captures the HTTP status code written by handlers.
@@ -63,7 +61,7 @@ func (r *AuthRecorder) End() {
 // RecordRoomCreation records room creation outcomes.
 func RecordRoomCreation(status string, start time.Time) {
 	RoomCreationTotal.WithLabelValues(status).Inc()
-	RoomCreationDuration.WithLabelValues().Observe(time.Since(start).Seconds())
+	RoomCreationDuration.Observe(time.Since(start).Seconds())
 }
 
 // RecordWSConnection records WebSocket upgrade/join outcomes.
@@ -76,9 +74,10 @@ func RecordWSMessage(msgType string, d time.Duration) {
 	WSMessageDuration.WithLabelValues(msgType).Observe(d.Seconds())
 }
 
-// RecordGameTickDuration records a single game tick duration in milliseconds.
+// RecordGameTickDuration records a single game tick duration in seconds.
+// audit-014: Uses seconds instead of milliseconds for Prometheus naming convention.
 func RecordGameTickDuration(d time.Duration) {
-	GameTickDuration.Observe(float64(d.Milliseconds()))
+	GameTickDuration.Observe(d.Seconds())
 }
 
 // RecordRoomLockHold records how long Room.mu was held for an operation.
@@ -94,20 +93,4 @@ func SetRoomOutboundQueueDepth(roomCode string, depth int) {
 // SetRoomPersistLag updates persist lag for a room.
 func SetRoomPersistLag(roomCode string, lag time.Duration) {
 	RoomPersistLagSeconds.WithLabelValues(roomCode).Set(lag.Seconds())
-}
-
-// WSMessageTypeName maps protocol message type bytes to metric labels.
-func WSMessageTypeName(msgType byte) string {
-	switch msgType {
-	case protocol.MsgTap:
-		return "tap"
-	case protocol.MsgSetNickname:
-		return "set_nickname"
-	case protocol.MsgRestartVote:
-		return "restart_vote"
-	case protocol.MsgPing:
-		return "ping"
-	default:
-		return "unknown"
-	}
 }

@@ -37,6 +37,16 @@ test.describe('concurrency', () => {
       );
 
       const joined = joinResults.filter((r) => r.status === 'fulfilled').length;
+      const rejectedStatuses = joinResults
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .map((r) => r.reason);
+      if (joined < 7) {
+        expect(rejectedStatuses.length).toBeGreaterThan(0);
+        const statusCodes = rejectedStatuses.filter((s) => typeof s === 'number');
+        if (statusCodes.length > 0) {
+          expect(statusCodes).toEqual(expect.arrayContaining([429]));
+        }
+      }
       expect(joined).toBeLessThanOrEqual(7);
 
       if (joined > 0) {

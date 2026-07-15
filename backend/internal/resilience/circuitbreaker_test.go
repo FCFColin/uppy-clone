@@ -16,6 +16,7 @@ func TestNewPostgresBreaker(t *testing.T) {
 }
 
 func TestNewPostgresBreaker_InitialState(t *testing.T) {
+	ResetBreakersForTesting()
 	cb := NewPostgresBreaker()
 	if cb.State() != gobreaker.StateClosed {
 		t.Fatalf("breaker should start in closed state, got %v", cb.State())
@@ -66,6 +67,7 @@ func TestNewRedisBreaker(t *testing.T) {
 }
 
 func TestNewRedisBreaker_InitialState(t *testing.T) {
+	ResetBreakersForTesting()
 	cb := NewRedisBreaker()
 	if cb.State() != gobreaker.StateClosed {
 		t.Fatalf("breaker should start in closed state, got %v", cb.State())
@@ -95,6 +97,7 @@ func TestNewResendBreaker(t *testing.T) {
 }
 
 func TestNewResendBreaker_InitialState(t *testing.T) {
+	ResetBreakersForTesting()
 	cb := NewResendBreaker()
 	if cb.State() != gobreaker.StateClosed {
 		t.Fatalf("breaker should start in closed state, got %v", cb.State())
@@ -117,6 +120,7 @@ func TestNewResendBreaker_SuccessfulExecution(t *testing.T) {
 // ─── Breaker opens after consecutive failures ────────────────────────
 
 func TestPostgresBreaker_OpensAfterFailures(t *testing.T) {
+	ResetBreakersForTesting()
 	cb := NewPostgresBreaker()
 
 	// Trip the breaker with 6 consecutive failures (threshold is 5)
@@ -132,6 +136,7 @@ func TestPostgresBreaker_OpensAfterFailures(t *testing.T) {
 }
 
 func TestRedisBreaker_OpensAfterFailures(t *testing.T) {
+	ResetBreakersForTesting()
 	cb := NewRedisBreaker()
 
 	for i := 0; i < 6; i++ {
@@ -146,6 +151,7 @@ func TestRedisBreaker_OpensAfterFailures(t *testing.T) {
 }
 
 func TestResendBreaker_OpensAfterFailures(t *testing.T) {
+	ResetBreakersForTesting()
 	cb := NewResendBreaker()
 
 	// ResendBreaker trips after 3 consecutive failures
@@ -160,7 +166,7 @@ func TestResendBreaker_OpensAfterFailures(t *testing.T) {
 	}
 }
 
-func TestOnStateChange_AllStates(t *testing.T) {
+func TestOnStateChange_AllStates(_ *testing.T) {
 	onStateChange("test-breaker", gobreaker.StateClosed, gobreaker.StateHalfOpen)
 	onStateChange("test-breaker", gobreaker.StateHalfOpen, gobreaker.StateOpen)
 	onStateChange("test-breaker", gobreaker.StateOpen, gobreaker.StateClosed)

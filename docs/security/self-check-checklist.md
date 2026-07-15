@@ -56,7 +56,7 @@
 - [x] Magic Link 一次性验证（`backend/internal/auth/magiclink_test.go`）
 - [x] Refresh token 在 HttpOnly `refresh` cookie，不在 localStorage
 - [x] JWT 撤销 / refresh 轮换（`refresh_test.go`、`revoke_test.go`）
-- [x] Admin 使用独立 `ADMIN_JWT_SECRET`（生产 `ENABLE_HSTS=true` 时必填）
+- [x] Admin 使用独立 `ADMIN_JWT_PRIVATE_KEY`（ES256 PEM；生产 `ENABLE_HSTS=true` 时必填）
 - [x] Admin 登录 lockout（`handler/admin_test.go`）
 - [x] Magic Link session cookie 使用 `IsSecure(r)`
 - [x] POST `/api/v1/auth/verify` 可用于避免 URL token 泄露
@@ -86,7 +86,7 @@
 
 ## 第六层：密钥、PII 与合规
 
-- [x] 启动必填：`JWT_SECRET` ≥32、`ENCRYPTION_KEY`、`DATABASE_URL`；生产另需 `ADMIN_JWT_SECRET`、`TRUSTED_PROXY_CIDRS`
+- [x] 启动必填：`JWT_PRIVATE_KEY`（ES256 PEM）、`ENCRYPTION_KEY`、`DATABASE_URL`；生产另需 `ADMIN_JWT_PRIVATE_KEY`（ES256 PEM）、`TRUSTED_PROXY_CIDRS`
 - [x] 邮箱 AES 存储、GDPR 删除流、审计链 HMAC
 - [x] Metrics basic auth（生产）
 - [x] `.env` 不入库

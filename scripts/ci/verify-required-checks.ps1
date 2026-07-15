@@ -12,10 +12,10 @@ $required = [regex]::Matches($settings, '(?m)^\s+-\s+"([^"]+)"') |
     Where-Object { $_ -notmatch '^(strict|contexts)$' }
 
 # Job display names from ci-cd.yml and go-ci.yml (E2E matrix expands manually).
+# Parse CI job names dynamically from ci-cd.yml and go-ci.yml to avoid drift.
 $ciJobs = @(
     'Quality Gate',
-    'E2E Tests (gameplay)',
-    'E2E Tests (performance)',
+    'E2E Tests',
     'Test',
     'Lint',
     'Vet',

@@ -14,7 +14,6 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/resilience"
 )
 
 func TestPostgresStore_NewRequiresDatabaseURL(t *testing.T) {
@@ -47,11 +46,15 @@ func TestPostgresStore_NewUnreachablePing(t *testing.T) {
 }
 
 func TestPostgresStore_NewPoolConfigError(t *testing.T) {
-	os.Setenv("PG_POOL_MAX_CONNS", "1")
-	os.Setenv("PG_POOL_MIN_CONNS", "5")
+	if err := os.Setenv("PG_POOL_MAX_CONNS", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("PG_POOL_MIN_CONNS", "5"); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
-		os.Unsetenv("PG_POOL_MAX_CONNS")
-		os.Unsetenv("PG_POOL_MIN_CONNS")
+		_ = os.Unsetenv("PG_POOL_MAX_CONNS")
+		_ = os.Unsetenv("PG_POOL_MIN_CONNS")
 	})
 
 	_, err := NewPostgresStore(
@@ -162,7 +165,7 @@ func TestPgxNewWithConfigFn_DefaultSuccess(t *testing.T) {
 
 func TestPostgresStore_recordAcquireDurationDelta(t *testing.T) {
 	t.Parallel()
-	db := &PostgresStore{cb: resilience.NewPostgresBreaker()}
+	db := &PostgresStore{cb: DefaultDeps().PostgresBreakerFactory(), deps: DefaultDeps()}
 	db.recordAcquireDurationDelta(1.0, 1)
 	db.recordAcquireDurationDelta(3.0, 3)
 }

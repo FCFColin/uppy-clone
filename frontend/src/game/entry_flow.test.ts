@@ -41,7 +41,6 @@ import { state } from './state_types.js';
 import {
   applyEntryStep,
   getEntryStep,
-  getWaitingTitleText,
   isEntryHandoff,
   onLobbyCodeReady,
   onNicknameSubmit,
@@ -55,7 +54,7 @@ import {
   routeConnectionError,
   clearStartCountdown,
 } from './entry_flow.js';
-import { clearWaitingInlineError } from './entry_flow.js';
+import { clearWaitingInlineError, getWaitingTitleText } from './entry_flow_ui.js';
 
 describe('entry_flow', () => {
   beforeEach(() => {

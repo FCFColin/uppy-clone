@@ -1,6 +1,6 @@
 # ADR-025: 前端受控状态管理 (GameStore)
 
-## 状态: 已更新 (2026-07-08)
+## 状态: ✅ 仍合理且已落地 (2026-07-11)
 
 ## 上下文
 
@@ -34,6 +34,7 @@
 **负面**
 - store 层 `Object.assign` 原地合并意味着旧引用仍指向同一对象，需通过 reducer 返回新对象来触发更新判断
 - immutable 拷贝对性能有极小影响（不影响游戏循环）
+- 模块级 `let` 变量散布在 10+ 文件中（tutorial/ui_wind/ui_update/renderer 等），`resetClientState()` 必须显式调用每个模块的 reset 函数以防止跨局状态残留（2026-07-09 审计修复：补齐 resetTutorial/resetWindHint/resetReconnectAttempts/resetUIUpdateCache 调用）
 
 **放弃的替代方案**
 - Redux Toolkit：~10KB + boilerplate，对当前状态复杂度过度

@@ -14,11 +14,15 @@ import (
 )
 
 func TestNewPublisher_EnvConfig(t *testing.T) {
-	os.Setenv("OUTBOX_BATCH_SIZE", "25")
-	os.Setenv("OUTBOX_POLL_INTERVAL_MS", "500")
+	if err := os.Setenv("OUTBOX_BATCH_SIZE", "25"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("OUTBOX_POLL_INTERVAL_MS", "500"); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
-		os.Unsetenv("OUTBOX_BATCH_SIZE")
-		os.Unsetenv("OUTBOX_POLL_INTERVAL_MS")
+		_ = os.Unsetenv("OUTBOX_BATCH_SIZE")
+		_ = os.Unsetenv("OUTBOX_POLL_INTERVAL_MS")
 	})
 
 	pub := NewPublisher(nil, nil)
@@ -31,8 +35,8 @@ func TestNewPublisher_EnvConfig(t *testing.T) {
 }
 
 func TestNewPublisher_Defaults(t *testing.T) {
-	os.Unsetenv("OUTBOX_BATCH_SIZE")
-	os.Unsetenv("OUTBOX_POLL_INTERVAL_MS")
+	_ = os.Unsetenv("OUTBOX_BATCH_SIZE")
+	_ = os.Unsetenv("OUTBOX_POLL_INTERVAL_MS")
 
 	pub := NewPublisher(nil, nil)
 	if pub.batchSize != 100 {
@@ -44,11 +48,15 @@ func TestNewPublisher_Defaults(t *testing.T) {
 }
 
 func TestNewPublisher_InvalidEnvIgnored(t *testing.T) {
-	os.Setenv("OUTBOX_BATCH_SIZE", "bad")
-	os.Setenv("OUTBOX_POLL_INTERVAL_MS", "-1")
+	if err := os.Setenv("OUTBOX_BATCH_SIZE", "bad"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("OUTBOX_POLL_INTERVAL_MS", "-1"); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
-		os.Unsetenv("OUTBOX_BATCH_SIZE")
-		os.Unsetenv("OUTBOX_POLL_INTERVAL_MS")
+		_ = os.Unsetenv("OUTBOX_BATCH_SIZE")
+		_ = os.Unsetenv("OUTBOX_POLL_INTERVAL_MS")
 	})
 
 	pub := NewPublisher(nil, nil)

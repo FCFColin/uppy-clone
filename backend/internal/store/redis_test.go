@@ -69,51 +69,6 @@ func newTestRedisStore(t *testing.T) (*RedisStore, *miniredis.Miniredis) {
 	return NewRedisStoreFromClient(rdb), mr
 }
 
-type redisCmdHook struct {
-	mr     *miniredis.Miniredis
-	failOn map[string]error
-	before map[string]func(*miniredis.Miniredis, redis.Cmder) error
-}
-
-func (h redisCmdHook) DialHook(next redis.DialHook) redis.DialHook { return next }
-
-func (h redisCmdHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
-	return func(ctx context.Context, cmd redis.Cmder) error {
-		if fn, ok := h.before[cmd.Name()]; ok {
-			if err := fn(h.mr, cmd); err != nil {
-				return err
-			}
-		}
-		if err, ok := h.failOn[cmd.Name()]; ok {
-			return err
-		}
-		return next(ctx, cmd)
-	}
-}
-
-func (h redisCmdHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
-	return func(ctx context.Context, cmds []redis.Cmder) error {
-		for _, cmd := range cmds {
-			if err, ok := h.failOn[cmd.Name()]; ok {
-				return err
-			}
-		}
-		return next(ctx, cmds)
-	}
-}
-
-func newTestRedisStoreWithHook(t *testing.T, failOn map[string]error) (*RedisStore, *miniredis.Miniredis) {
-	t.Helper()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	rdb.AddHook(redisCmdHook{mr: mr, failOn: failOn})
-	return NewRedisStoreFromClient(rdb), mr
-}
-
 func newTestSessionStore(t *testing.T) (*SessionStore, *miniredis.Miniredis) {
 	t.Helper()
 	mr, err := miniredis.Run()
@@ -275,16 +230,30 @@ func TestSessionStore_AdminLoginLockout(t *testing.T) {
 
 func TestParseLobbyCursor(t *testing.T) {
 	tests := []struct {
-		cursor string
-		at     int64
-		code   string
+		cursor  string
+		at      int64
+		code    string
+		wantErr bool
 	}{
-		{"", 0, ""},
-		{"1700000000|ABCD2", 1700000000, "ABCD2"},
-		{"bad|CODE", 0, "CODE"},
+		{"", 0, "", false},
+		{"1700000000|ABCD2", 1700000000, "ABCD2", false},
+		{"bad|CODE", 0, "", true},    // non-numeric timestamp
+		{"noseparator", 0, "", true}, // missing separator
+		{"0|CODE", 0, "", true},      // zero timestamp
+		{"1700000000|", 0, "", true}, // empty code
 	}
 	for _, tt := range tests {
-		at, code := parseLobbyCursor(tt.cursor)
+		at, code, err := parseLobbyCursor(tt.cursor)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("parseLobbyCursor(%q) expected error, got nil", tt.cursor)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseLobbyCursor(%q) unexpected error: %v", tt.cursor, err)
+			continue
+		}
 		if at != tt.at || code != tt.code {
 			t.Errorf("parseLobbyCursor(%q) = (%d,%q), want (%d,%q)", tt.cursor, at, code, tt.at, tt.code)
 		}
@@ -404,32 +373,33 @@ func TestEmailQueueStore_EnqueueStreams(t *testing.T) {
 	if err := s.EnqueueEmail(ctx, payload); err != nil {
 		t.Fatalf("EnqueueEmail: %v", err)
 	}
-	if err := s.EnqueueGameResult(ctx, payload); err != nil {
-		t.Fatalf("EnqueueGameResult: %v", err)
-	}
-	if !mr.Exists("email:queue") || !mr.Exists("game:results") {
-		t.Fatal("expected redis streams to exist")
+	if !mr.Exists("email:queue") {
+		t.Fatal("expected email:queue redis stream to exist")
 	}
 }
 
 func TestGetEnvInt(t *testing.T) {
 	t.Run("returns default when env not set", func(t *testing.T) {
-		os.Unsetenv("TEST_STORE_INT")
+		_ = os.Unsetenv("TEST_STORE_INT")
 		got := config.GetEnvIntPositive("TEST_STORE_INT", 42)
 		if got != 42 {
 			t.Errorf("GetEnvIntPositive = %d, want %d", got, 42)
 		}
 	})
 	t.Run("parses valid int", func(t *testing.T) {
-		os.Setenv("TEST_STORE_INT", "50")
-		defer os.Unsetenv("TEST_STORE_INT")
+		if err := os.Setenv("TEST_STORE_INT", "50"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Unsetenv("TEST_STORE_INT") }()
 		if got := config.GetEnvIntPositive("TEST_STORE_INT", 10); got != 50 {
 			t.Errorf("GetEnvIntPositive = %d, want 50", got)
 		}
 	})
 	t.Run("returns default for invalid int", func(t *testing.T) {
-		os.Setenv("TEST_STORE_INT", "not-a-number")
-		defer os.Unsetenv("TEST_STORE_INT")
+		if err := os.Setenv("TEST_STORE_INT", "not-a-number"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Unsetenv("TEST_STORE_INT") }()
 		if got := config.GetEnvIntPositive("TEST_STORE_INT", 10); got != 10 {
 			t.Errorf("GetEnvIntPositive = %d, want 10", got)
 		}
@@ -437,31 +407,37 @@ func TestGetEnvInt(t *testing.T) {
 }
 func TestGetEnvDuration(t *testing.T) {
 	t.Run("returns default when env not set", func(t *testing.T) {
-		os.Unsetenv("TEST_STORE_DUR")
+		_ = os.Unsetenv("TEST_STORE_DUR")
 		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
 		if got != 5*time.Second {
 			t.Errorf("GetEnvDuration = %v, want 5s", got)
 		}
 	})
 	t.Run("returns default for invalid env", func(t *testing.T) {
-		os.Setenv("TEST_STORE_DUR", "not-a-duration")
-		defer os.Unsetenv("TEST_STORE_DUR")
+		if err := os.Setenv("TEST_STORE_DUR", "not-a-duration"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Unsetenv("TEST_STORE_DUR") }()
 		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
 		if got != 5*time.Second {
 			t.Errorf("GetEnvDuration = %v, want 5s", got)
 		}
 	})
 	t.Run("returns default for zero duration", func(t *testing.T) {
-		os.Setenv("TEST_STORE_DUR", "0s")
-		defer os.Unsetenv("TEST_STORE_DUR")
+		if err := os.Setenv("TEST_STORE_DUR", "0s"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Unsetenv("TEST_STORE_DUR") }()
 		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
 		if got != 5*time.Second {
 			t.Errorf("GetEnvDuration = %v, want 5s", got)
 		}
 	})
 	t.Run("parses valid duration", func(t *testing.T) {
-		os.Setenv("TEST_STORE_DUR", "10s")
-		defer os.Unsetenv("TEST_STORE_DUR")
+		if err := os.Setenv("TEST_STORE_DUR", "10s"); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = os.Unsetenv("TEST_STORE_DUR") }()
 		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
 
 		if got != 10*time.Second {

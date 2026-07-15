@@ -23,6 +23,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7.4.0-alpine3.20
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
@@ -38,4 +47,6 @@ jobs:
         run: cd frontend && npm ci
       - name: Run self-check layers (2-6)
         shell: pwsh
+        env:
+          REDIS_URL: localhost:6379
         run: powershell -File scripts/ci/self-check-layers.ps1

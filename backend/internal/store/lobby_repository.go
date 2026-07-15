@@ -8,9 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/resilience"
 	"github.com/uppy-clone/backend/internal/slogctx"
-	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -21,12 +19,14 @@ type LobbyRepository struct {
 }
 
 // NewLobbyRepository creates a LobbyRepository.
-func NewLobbyRepository(pool pgPool) *LobbyRepository {
-	return &LobbyRepository{baseRepository: newBaseRepository(pool)}
+func NewLobbyRepository(pool pgPool, deps ...Deps) *LobbyRepository {
+	d := depsOrZero(deps...)
+	return &LobbyRepository{baseRepository: newBaseRepository(pool, d)}
 }
 
+// SaveLobbyState inserts or updates a lobby state by code (upsert).
 func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbyState) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "lobby_repo.SaveLobbyState",
+	ctx, span := r.deps.Tracer.Start(ctx, "lobby_repo.SaveLobbyState",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("lobby.code", ls.Code),
@@ -34,7 +34,7 @@ func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbySt
 	)
 	defer span.End()
 
-	err := retry.Do(ctx, resilience.DefaultDBRetry(), func(ctx context.Context) error {
+	err := retry.Do(ctx, r.deps.DBRetryPolicy, func(ctx context.Context) error {
 		_, cbErr := r.cb.Execute(func() (any, error) {
 			_, execErr := r.pool.Exec(ctx,
 				`INSERT INTO lobby_states (id, code, state, updated_at, created_at) VALUES ($1, $2, $3, $4, $5)
@@ -45,7 +45,7 @@ func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbySt
 			}
 			return nil, nil
 		})
-		return resilience.MaybeRetryable(cbErr)
+		return r.deps.MaybeRetryableFn(cbErr)
 	})
 	if err != nil {
 		slogctx.LoggerFromContext(ctx).Error("save lobby state failed",
@@ -55,8 +55,9 @@ func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbySt
 	return nil
 }
 
+// LoadLobbyState retrieves a lobby state by its code.
 func (r *LobbyRepository) LoadLobbyState(ctx context.Context, code string) (*domain.LobbyState, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "lobby_repo.LoadLobbyState",
+	ctx, span := r.deps.Tracer.Start(ctx, "lobby_repo.LoadLobbyState",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("lobby.code", code),
@@ -87,8 +88,9 @@ func (r *LobbyRepository) LoadLobbyState(ctx context.Context, code string) (*dom
 	return ls, nil
 }
 
+// DeleteLobbyState removes a lobby state by its code.
 func (r *LobbyRepository) DeleteLobbyState(ctx context.Context, code string) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "lobby_repo.DeleteLobbyState",
+	ctx, span := r.deps.Tracer.Start(ctx, "lobby_repo.DeleteLobbyState",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.operation", "DELETE"),
@@ -105,6 +107,7 @@ func (r *LobbyRepository) DeleteLobbyState(ctx context.Context, code string) err
 	})
 }
 
+// LoadAllActiveLobbies returns a paginated list of active lobby states.
 func (r *LobbyRepository) LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*domain.LobbyListResult, error) {
 	if limit <= 0 {
 		limit = 50
@@ -121,12 +124,15 @@ func (r *LobbyRepository) LoadAllActiveLobbies(ctx context.Context, limit int, c
 		spanAttrs = append(spanAttrs, attribute.String("db.cursor", cursor))
 	}
 
-	ctx, span := telemetry.Tracer().Start(ctx, "lobby_repo.LoadAllActiveLobbies",
+	ctx, span := r.deps.Tracer.Start(ctx, "lobby_repo.LoadAllActiveLobbies",
 		trace.WithAttributes(spanAttrs...),
 	)
 	defer span.End()
 
-	cursorUpdatedAt, cursorCode := parseLobbyCursor(cursor)
+	cursorUpdatedAt, cursorCode, err := parseLobbyCursor(cursor)
+	if err != nil {
+		return nil, fmt.Errorf("parse lobby cursor: %w", err)
+	}
 
 	total, err := r.countAllLobbies(ctx)
 	if err != nil {
@@ -141,11 +147,15 @@ func (r *LobbyRepository) LoadAllActiveLobbies(ctx context.Context, limit int, c
 	return buildLobbyListResult(lobbies, total, limit), nil
 }
 
+// countAllLobbies returns an estimated row count from pg_class.reltuples to avoid
+// a full-table COUNT(*) scan (store-014). The estimate is refreshed by ANALYZE;
+// for tables with < ~1000 rows the estimate is typically exact.
 func (r *LobbyRepository) countAllLobbies(ctx context.Context) (int, error) {
 	var total int
 	err := r.withRetryRead(ctx, func(ctx context.Context) error {
-		if countErr := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM lobby_states`).Scan(&total); countErr != nil {
-			return fmt.Errorf("count lobbies: %w", countErr)
+		if countErr := r.pool.QueryRow(ctx,
+			`SELECT COALESCE(reltuples, 0)::int FROM pg_class WHERE relname = 'lobby_states'`).Scan(&total); countErr != nil {
+			return fmt.Errorf("estimate lobby count: %w", countErr)
 		}
 		return nil
 	})

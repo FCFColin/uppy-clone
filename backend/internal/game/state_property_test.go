@@ -12,7 +12,7 @@ func TestState_NewGameStateValidInit(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		seed := rapid.Int64().Draw(t, "seed")
 		rng := newSeededRNG(seed)
-		state := NewGameState("PROP", rng)
+		state := NewGameState("PROP", 0, rng)
 		if state == nil ||
 			state.Phase != domain.PhaseWaiting ||
 			state.Balloon.X != 0.5 ||
@@ -29,7 +29,7 @@ func TestState_SerializeStateRoundtrip(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		seed := rapid.Int64().Draw(t, "seed")
 		rng := newSeededRNG(seed)
-		state := NewGameState("PROP", rng)
+		state := NewGameState("PROP", 0, rng)
 		state.Phase = domain.PhasePlaying
 		state.Balloon.Score = int(rng.IntN(100))
 
@@ -56,7 +56,7 @@ func TestState_ResetGameEntitiesKeepsPlayerCount(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		seed := rapid.Int64().Draw(t, "seed")
 		rng := newSeededRNG(seed)
-		state := NewGameState("PROP", rng)
+		state := NewGameState("PROP", 0, rng)
 		state.Players["p1"] = &domain.PlayerState{ID: "p1"}
 		state.Players["p2"] = &domain.PlayerState{ID: "p2"}
 		countBefore := len(state.Players)
@@ -71,7 +71,7 @@ func TestState_InitWindNoPanic(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		seed := rapid.Int64().Draw(t, "seed")
 		rng := newSeededRNG(seed)
-		state := NewGameState("PROP", rng)
+		state := NewGameState("PROP", 0, rng)
 		initWind(state, rng)
 		if state.Wind < -protocol.WindClamp || state.Wind > protocol.WindClamp {
 			t.Fatal("wind out of bounds")
@@ -83,7 +83,7 @@ func TestState_DomainAddRemovePlayer(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		seed := rapid.Int64().Draw(t, "seed")
 		rng := newSeededRNG(seed)
-		state := NewGameState("PROP", rng)
+		state := NewGameState("PROP", 0, rng)
 		initialCount := len(state.Players)
 
 		if err := state.AddPlayer(&domain.PlayerState{ID: "p1"}); err != nil {
@@ -109,7 +109,7 @@ func TestState_DomainGameStateIsGameOver(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		seed := rapid.Int64().Draw(t, "seed")
 		rng := newSeededRNG(seed)
-		state := NewGameState("PROP", rng)
+		state := NewGameState("PROP", 0, rng)
 		if state.IsGameOver() {
 			t.Fatal("new game should not be game over")
 		}

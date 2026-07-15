@@ -15,7 +15,7 @@ func TestEmailHMAC_WithoutKey(t *testing.T) {
 		t.Errorf("EmailHMAC length = %d, want 64", len(h))
 	}
 	for _, c := range h {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Errorf("non-hex character %c in hash", c)
 		}
 	}

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: ws:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
   <title>Uppy - 合作气球游戏</title>
   <meta name="description" content="Uppy 是一款多人合作气球生存游戏。在气球附近点击保持它不掉落，躲避鸟和幽灵，与队友配合挑战更高分数。">
   <meta property="og:title" content="Uppy - 合作气球游戏">
@@ -64,8 +64,8 @@
       </button>
       <div id="lb-collapse-body" class="lb-collapse-body hidden">
         <div class="leaderboard-tabs leaderboard-tabs-compact">
-          <button id="lb-preview-global" class="btn-secondary active" type="button">总榜</button>
-          <button id="lb-preview-weekly" class="btn-secondary" type="button">周榜</button>
+          <button id="lb-preview-global" class="btn-secondary--landing active" type="button">总榜</button>
+          <button id="lb-preview-weekly" class="btn-secondary--landing" type="button">周榜</button>
         </div>
         <p id="leaderboard-preview-loading" class="hint hidden">加载排行榜…</p>
         <ol id="leaderboard-preview" class="leaderboard-list"></ol>

@@ -1,4 +1,4 @@
-package game
+﻿package game
 
 import (
 	"math"
@@ -731,4 +731,111 @@ func BenchmarkGenerateRoomCode(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		GenerateRoomCode(testRNG())
 	}
+}
+
+// ─── coverage gap 补充用例 ──────────────────────────────────────────
+
+func TestUpdateGhostAI_RepelZeroDistance(_ *testing.T) {
+	state := createTestState()
+	state.Ghost.Active = true
+	state.Ghost.X = state.Balloon.X
+	state.Ghost.Y = state.Balloon.Y
+	state.Ghost.RepelTimer = 5
+	state.Ghost.VX = 0
+	state.Ghost.VY = 0
+	UpdateGhostAI(state, testRNG())
+}
+
+func TestApplyTapForce_InRangeForce(t *testing.T) {
+	balloon := domain.BalloonState{X: 0.5, Y: 0.5, VX: 0, VY: 0}
+	if !ApplyTapForce(&balloon, 0.52, 0.48) {
+		t.Fatal("expected in-range tap to apply force")
+	}
+	if balloon.VX == 0 && balloon.VY == 0 {
+		t.Fatal("expected velocity change")
+	}
+}
+
+func TestUpdateWind_WindClampAfterLerp(t *testing.T) {
+	state := createTestState()
+	state.Wind = 5
+	state.WindTarget = 5
+	state.WindMidOffset = 0
+	state.WindMicroCountdown = 100
+	state.WindMidCountdown = 100
+	state.WindChangeCountdown = 100
+	state.Balloon.X = 0.5
+	UpdateWind(state, testRNG())
+	if state.Wind != protocol.WindClamp {
+		t.Fatalf("Wind = %v, want clamp %v", state.Wind, protocol.WindClamp)
+	}
+}
+
+func TestUpdateWind_NegativeWindClampAfterLerp(t *testing.T) {
+	state := createTestState()
+	state.Wind = -5
+	state.WindTarget = -5
+	state.WindMidOffset = 0
+	state.WindMicroCountdown = 100
+	state.WindMidCountdown = 100
+	state.WindChangeCountdown = 100
+	state.Balloon.X = 0.5
+	UpdateWind(state, testRNG())
+	if state.Wind != -protocol.WindClamp {
+		t.Fatalf("Wind = %v, want clamp %v", state.Wind, -protocol.WindClamp)
+	}
+}
+
+func TestUpdateWind_AllCountdownResets(t *testing.T) {
+	state := createTestState()
+	state.WindMicroCountdown = 1
+	state.WindMidCountdown = 1
+	state.WindChangeCountdown = 1
+	state.Wind = 0
+	state.WindTarget = 0
+	state.WindMidOffset = 0
+	state.Balloon.X = 0.5
+	UpdateWind(state, testRNG())
+	if state.WindMicroCountdown != protocol.WindMicroInterval {
+		t.Fatalf("WindMicroCountdown = %d", state.WindMicroCountdown)
+	}
+}
+
+func TestUpdateWind_RightEdgeSoftZone(t *testing.T) {
+	center := createTestState()
+	center.Balloon.X = 0.5
+	center.Wind = 2
+	center.WindTarget = 2
+	center.WindMidOffset = 0
+	center.WindMicroCountdown = 100
+	center.WindMidCountdown = 100
+	center.WindChangeCountdown = 100
+	centerVX := center.Balloon.VX
+	UpdateWind(center, testRNG())
+	centerDelta := center.Balloon.VX - centerVX
+
+	right := createTestState()
+	right.Balloon.X = 1 - protocol.WindEdgeSoftZone/2
+	right.Wind = 2
+	right.WindTarget = 2
+	right.WindMidOffset = 0
+	right.WindMicroCountdown = 100
+	right.WindMidCountdown = 100
+	right.WindChangeCountdown = 100
+	rightVX := right.Balloon.VX
+	UpdateWind(right, testRNG())
+	rightDelta := right.Balloon.VX - rightVX
+
+	if rightDelta >= centerDelta {
+		t.Fatalf("right edge delta=%v should be less than center delta=%v", rightDelta, centerDelta)
+	}
+}
+
+func TestUpdateBirdAI_RecalibrateZeroDistance(_ *testing.T) {
+	state := createTestState()
+	state.Bird.Active = true
+	state.Bird.X = state.Balloon.X
+	state.Bird.Y = state.Balloon.Y
+	state.Bird.VX = 0.01
+	UpdateBirdAI(&state.Bird, &state.Balloon, 30, testRNG())
 }

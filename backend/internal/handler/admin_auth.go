@@ -7,10 +7,11 @@ import (
 	"net/http"
 
 	"github.com/uppy-clone/backend/internal/apierror"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/audit"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/middleware"
+	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
 // getStoredAdminPassword retrieves the admin password from the app_config DB row.
@@ -54,8 +55,9 @@ func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	audit.Log(ctx, audit.AuditEntry{
 		Action:    "admin.logout",
+		ActorType: audit.ActorTypeAdmin,
 		ActorID:   adminRole,
-		ActorIP:   middleware.ExtractClientIP(r),
+		ActorIP:   requestctx.ExtractClientIP(r),
 		Resource:  "admin/session",
 		RequestID: middleware.GetRequestID(ctx),
 	})

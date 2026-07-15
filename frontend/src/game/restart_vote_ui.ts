@@ -8,7 +8,12 @@ export function syncRestartVoteProgress(): void {
   if (!$restartProgress) return;
 
   const { yes, total } = s.restartVotes;
-  if (yes >= total && total > 0) {
+  // game-021: Guard against total=0 to avoid showing "0/0" to users.
+  if (total === 0) {
+    $restartProgress.textContent = '';
+    return;
+  }
+  if (yes >= total) {
     $restartProgress.textContent = '正在重启游戏...';
   } else {
     const need = total - yes;
@@ -17,6 +22,13 @@ export function syncRestartVoteProgress(): void {
 }
 
 let restartCountdownTimer: ReturnType<typeof setInterval> | null = null;
+
+export function clearRestartCountdownTimer(): void {
+  if (restartCountdownTimer !== null) {
+    clearInterval(restartCountdownTimer);
+    restartCountdownTimer = null;
+  }
+}
 
 function noActiveCountdown(): boolean {
   return !getState().restartVotes || getState().restartVotes.countdownMs <= 0;

@@ -18,5 +18,40 @@
 # Database migrations require DB review
 /backend/migrations/ @db-reviewers
 
+# Core game logic
+/backend/internal/game/ @project-owners
+
+# Data persistence (database + storage)
+/backend/internal/store/ @db-reviewers @security-reviewers
+/backend/internal/audit/ @security-reviewers
+
+# Async worker & outbox
+/backend/internal/worker/ @project-owners
+/backend/internal/outbox/ @project-owners
+
+# Protocol & server entry
+/backend/internal/protocol/ @project-owners
+/backend/cmd/ @project-owners
+
+# Frontend
+/frontend/ @project-owners
+
+# Deployment & scripts & docker
+/deploy/ @devops-reviewers
+/scripts/ @devops-reviewers
+/docker/ @devops-reviewers
+
+# Infrastructure as Code
+/infra/terraform/ @devops-reviewers
+
+# Root config files
+/.golangci.yml @devops-reviewers
+/.pre-commit-config.yaml @devops-reviewers
+/.gitleaks.toml @devops-reviewers
+/.editorconfig @devops-reviewers
+/.gitattributes @devops-reviewers
+/.env.example @devops-reviewers
+/package.json @devops-reviewers
+
 # Documentation
 /docs/ @project-owners

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -10,6 +11,7 @@ import (
 type RedisConn struct {
 	Addr     string
 	Password string
+	DB       int // misc-022: Redis database number from URL path (e.g., redis://host:6379/2)
 }
 
 // ParseRedisURL accepts host:port or redis://[:password@]host:port[/db].
@@ -31,6 +33,16 @@ func ParseRedisURL(raw string) (RedisConn, error) {
 	conn := RedisConn{Addr: u.Host}
 	if u.User != nil {
 		conn.Password, _ = u.User.Password()
+	}
+	// misc-022: Parse the DB number from the URL path (e.g., "/2" → DB=2).
+	// Previously silently ignored, causing unexpected default-DB usage.
+	if u.Path != "" && u.Path != "/" {
+		dbStr := strings.TrimPrefix(u.Path, "/")
+		db, err := strconv.Atoi(dbStr)
+		if err != nil || db < 0 {
+			return RedisConn{}, fmt.Errorf("parse REDIS_URL: invalid DB number %q", dbStr)
+		}
+		conn.DB = db
 	}
 	return conn, nil
 }

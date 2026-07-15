@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,22 @@ func truncateRespBody(resp *http.Response) string {
 		truncated = truncated[:1000]
 	}
 	return truncated
+}
+
+// errPermanentEmail is a sentinel for non-retryable email failures (4xx except 429).
+// audit-008: The email worker previously retried all failures equally, wasting
+// resources on permanent errors like invalid recipient (400) or unauthorized (401).
+// Callers should check IsPermanentEmailError() and dead-letter immediately.
+type errPermanentEmail struct{ inner error }
+
+func (e *errPermanentEmail) Error() string { return e.inner.Error() }
+func (e *errPermanentEmail) Unwrap() error { return e.inner }
+
+// IsPermanentEmailError returns true for 4xx (except 429) HTTP errors that
+// should not be retried.
+func IsPermanentEmailError(err error) bool {
+	var pe *errPermanentEmail
+	return errors.As(err, &pe)
 }
 
 // sendEmail sends a single email via the Resend HTTP API.
@@ -54,8 +71,12 @@ func (w *EmailWorker) sendEmail(ctx context.Context, payload EmailPayload) error
 		if resp.StatusCode >= 500 {
 			return nil, fmt.Errorf("resend API server error (%d): %s", resp.StatusCode, truncateRespBody(resp))
 		}
-		if resp.StatusCode != http.StatusOK {
-			clientErr = fmt.Errorf("resend API client error (%d): %s", resp.StatusCode, truncateRespBody(resp))
+		if resp.StatusCode == 429 {
+			return nil, fmt.Errorf("resend API rate limited (429): %s", truncateRespBody(resp))
+		}
+		if resp.StatusCode >= 400 {
+			// audit-008: 4xx (except 429) are permanent errors — retrying wastes resources.
+			clientErr = &errPermanentEmail{inner: fmt.Errorf("resend API permanent error (%d): %s", resp.StatusCode, truncateRespBody(resp))}
 			return nil, nil
 		}
 

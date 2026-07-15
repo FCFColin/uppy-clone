@@ -3,14 +3,10 @@
 package game
 
 import (
-	"encoding/json"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
@@ -23,7 +19,7 @@ func TestHubCreateRoomRedisRegistry(t *testing.T) {
 
 	ctx, rdb := testutil.SetupRedisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
-	hub := NewHub(nil, rdb, timeouts, 0, 0, nil)
+	hub := NewHub(nil, rdb, timeouts, 0, 0)
 
 	code, err := hub.CreateRoom(ctx)
 	if err != nil {
@@ -65,73 +61,8 @@ func TestHubCreateRoomRedisRegistry(t *testing.T) {
 	}
 
 	// Verify the room exists in the Hub.
-	if hRoom := hub.GetRoom(code); hRoom == nil {
+	if hRoom := hub.getRoom(code); hRoom == nil {
 		t.Fatal("room not found in Hub after CreateRoom")
-	}
-}
-
-func TestHubRedisRestore(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ctx, rdb := testutil.SetupRedisStore(t)
-	timeouts := config.DefaultTimeoutConfig()
-
-	// Create a room in the hub.
-	hub := NewHub(nil, rdb, timeouts, 0, 0, nil)
-	code, err := hub.CreateRoom(ctx)
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	// Verify it was registered in Redis.
-	info, err := rdb.GetRoomRegistry(ctx, code)
-	if err != nil {
-		t.Fatalf("GetRoomRegistry: %v", err)
-	}
-	if info == nil {
-		t.Fatal("expected room in Redis registry")
-	}
-
-	// Create a NEW hub that will load the room from Redis.
-	hub2 := NewHub(nil, rdb, timeouts, 0, 0, nil)
-
-	// The new hub can look up the room via ResolveRoom.
-	decision, err := hub2.ResolveRoom(ctx, code)
-	if err != nil {
-		t.Fatalf("ResolveRoom: %v", err)
-	}
-	if decision.Route != RouteLocal {
-		t.Fatalf("expected RouteLocal for same instance, got %v", decision.Route)
-	}
-	if decision.Owner != hub2.instanceID {
-		t.Fatalf("owner = %q, want %q", decision.Owner, hub2.instanceID)
-	}
-
-	// Register a room from a different instance.
-	code2 := "RMT01"
-	altRegistry := domain.RoomRegistryInfo{
-		Code:      code2,
-		Instance:  "remote-instance",
-		Address:   "10.0.0.2:8080",
-		CreatedAt: time.Now().UnixMilli(),
-	}
-	regData, _ := json.Marshal(altRegistry)
-	if err := rdb.RegisterRoom(ctx, code2, regData, 24*time.Hour); err != nil {
-		t.Fatalf("RegisterRoom: %v", err)
-	}
-
-	// Resolve room owned by remote instance.
-	decision2, err := hub2.ResolveRoom(ctx, code2)
-	if err != nil {
-		t.Fatalf("ResolveRoom remote: %v", err)
-	}
-	if decision2.Route != RouteProxy {
-		t.Fatalf("expected RouteProxy for remote instance, got %v", decision2.Route)
-	}
-	if decision2.Address != "10.0.0.2:8080" {
-		t.Fatalf("address = %q, want 10.0.0.2:8080", decision2.Address)
 	}
 }
 
@@ -143,7 +74,7 @@ func TestHubCacheInvalidation(t *testing.T) {
 	ctx, rdb := testutil.SetupRedisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 	repo := newMockRoomRepository()
-	hub := NewHub(repo, rdb, timeouts, 0, 0, nil)
+	hub := NewHub(repo, rdb, timeouts, 0, 0)
 
 	// Create a room — this should populate caches.
 	code, err := hub.CreateRoom(ctx)
@@ -219,7 +150,7 @@ func TestHubConcurrentRoomCreation(t *testing.T) {
 
 	ctx, rdb := testutil.SetupRedisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
-	hub := NewHub(nil, rdb, timeouts, 0, 0, nil)
+	hub := NewHub(nil, rdb, timeouts, 0, 0)
 
 	const concurrency = 10
 	var wg sync.WaitGroup
@@ -269,7 +200,7 @@ func TestHubConcurrentRoomCreation(t *testing.T) {
 		if !activeSet[code] {
 			t.Fatalf("room %q not found in Redis active rooms", code)
 		}
-		if hub.GetRoom(code) == nil {
+		if hub.getRoom(code) == nil {
 			t.Fatalf("room %q not found in Hub", code)
 		}
 	}

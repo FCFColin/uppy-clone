@@ -10,7 +10,7 @@ const maxNicknameLen = 12
 
 var (
 	controlCharsRegex   = regexp.MustCompile(`[\x00-\x1F\x7F-\x9F]`)
-	zeroWidthCharsRegex = regexp.MustCompile(`[\x{200B}-\x{200F}\x{FEFF}\x{2028}-\x{202F}\x{2060}-\x{206F}]`)
+	invisibleCharsRegex = regexp.MustCompile(`[\x{200B}-\x{200F}\x{FEFF}\x{2028}-\x{202F}\x{2060}-\x{206F}]`)
 	htmlCharsRegex      = regexp.MustCompile(`[<>"'\x60&]`)
 	whitespaceRegex     = regexp.MustCompile(`\s+`)
 )
@@ -22,7 +22,7 @@ func NicknameInputRejected(raw string) bool {
 	return nicknameInputRejectedRegex.MatchString(raw)
 }
 
-var nicknameInputRejectedRegex = regexp.MustCompile(`[\x00-\x1f<>"'&]`)
+var nicknameInputRejectedRegex = regexp.MustCompile(`[\x00-\x1f\x7f-\x9f<>"'&]`)
 
 // Nickname sanitizes a player nickname.
 // Removes control characters, zero-width chars, HTML special chars,
@@ -32,9 +32,10 @@ func Nickname(raw string) string {
 		return ""
 	}
 	raw = controlCharsRegex.ReplaceAllString(raw, "")
-	raw = zeroWidthCharsRegex.ReplaceAllString(raw, "")
+	raw = invisibleCharsRegex.ReplaceAllString(raw, "")
 	raw = strings.TrimSpace(raw)
 	raw = htmlCharsRegex.ReplaceAllString(raw, "")
+	raw = strings.TrimSpace(raw)
 	raw = whitespaceRegex.ReplaceAllString(raw, " ")
 	runeSlice := []rune(raw)
 	if len(runeSlice) > maxNicknameLen {

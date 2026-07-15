@@ -160,3 +160,40 @@ func TestIdempotency_DuplicateKeyReturns409(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(rec1, req)
 }
+
+func TestIdempotency_MalformedCachedResponseReturns409(t *testing.T) {
+	rdb, mr := setupIdempotencyTest(t)
+	mw := IdempotencyMiddleware(rdb)
+
+	// Manually set a malformed cached response
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("Idempotency-Key", "test-key-malformed")
+
+	// Simulate a cached key with malformed JSON
+	// For testing, we need to find the actual key that would be generated
+	// Since the middleware hashes the key, we'll set it directly in Redis
+	// First, let the middleware create the key with a valid response
+	rec1 := httptest.NewRecorder()
+	mw(http.HandlerFunc(okHandler)).ServeHTTP(rec1, req)
+
+	// Now find and corrupt the cached value
+	keys := mr.Keys()
+	for _, k := range keys {
+		if strings.HasPrefix(k, "idem:") {
+			// Set malformed JSON
+			if err := mr.Set(k, "invalid-json{"); err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+	}
+
+	// Try to replay with the same key
+	rec2 := httptest.NewRecorder()
+	mw(http.HandlerFunc(conflictHandler)).ServeHTTP(rec2, req)
+
+	// Should return 409 when cached response is malformed
+	if rec2.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for malformed cached response, got %d", rec2.Code)
+	}
+}

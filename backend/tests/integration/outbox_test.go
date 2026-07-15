@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/uppy-clone/backend/internal/store"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestOutbox_InsertEvent(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	outboxRepo := store.NewOutboxRepository(db.Pool())
 
@@ -23,7 +24,7 @@ func TestOutbox_InsertEvent(t *testing.T) {
 }
 
 func TestOutbox_InsertMultipleEvents(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	outboxRepo := store.NewOutboxRepository(db.Pool())
 
@@ -46,7 +47,7 @@ func TestOutbox_InsertMultipleEvents(t *testing.T) {
 }
 
 func TestOutbox_InsertEmptyPayload(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	outboxRepo := store.NewOutboxRepository(db.Pool())
 
@@ -56,7 +57,7 @@ func TestOutbox_InsertEmptyPayload(t *testing.T) {
 }
 
 func TestOutbox_InsertLargePayload(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	outboxRepo := store.NewOutboxRepository(db.Pool())
 
@@ -72,7 +73,7 @@ func TestOutbox_InsertLargePayload(t *testing.T) {
 }
 
 func TestOutbox_InsertSpecialChars(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	outboxRepo := store.NewOutboxRepository(db.Pool())
 
@@ -83,14 +84,11 @@ func TestOutbox_InsertSpecialChars(t *testing.T) {
 }
 
 func TestOutbox_InsertLongAggregateID(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	outboxRepo := store.NewOutboxRepository(db.Pool())
 
-	longID := ""
-	for i := 0; i < 255; i++ {
-		longID += "a"
-	}
+	longID := strings.Repeat("a", 255)
 
 	if err := outboxRepo.InsertOutboxEvent(ctx, "room", longID, []byte(`{"event":"test"}`)); err != nil {
 		t.Fatalf("InsertOutboxEvent with long aggregateID: %v", err)
@@ -98,7 +96,7 @@ func TestOutbox_InsertLongAggregateID(t *testing.T) {
 }
 
 func TestOutbox_ConcurrentInserts(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	outboxRepo := store.NewOutboxRepository(db.Pool())
 

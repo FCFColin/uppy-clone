@@ -26,7 +26,7 @@ func TestResponseWriter_Flush(t *testing.T) {
 	}
 }
 
-func TestResponseWriter_Flush_NoFlusher(t *testing.T) {
+func TestResponseWriter_Flush_NoFlusher(_ *testing.T) {
 	rw := &responseWriter{ResponseWriter: httptest.NewRecorder(), statusCode: 200}
 	rw.Flush() // must not panic when underlying writer is not a Flusher
 }

@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"sync"
 )
@@ -19,7 +20,7 @@ var snapshotBufPool = sync.Pool{
 // Binary layout (little-endian):
 //
 // msgType(1) + tickCount(uint32) + score(uint32) + phaseCode(uint8)
-// balloon: x(float32) + y(float32) + vy(float32) + vx(float32)
+// balloon: x(float32) + y(float32) + vx(float32) + vy(float32)
 // bird: active(uint8) + [x(float32)+y(float32) if active]
 // ghost: active(uint8) + [x(float32) + y(float32) + repelTimer(uint16) if active]
 // playerCount(uint8) + per-player: playerIndex(uint16) + cooldownMs(uint32) + palette(uint32) + scoreContribution(uint32) + nickLen(uint8) + nickname(bytes)
@@ -45,17 +46,27 @@ func EncodeSnapshot(phase GamePhase, tickCount uint32, score uint32, balloon Bal
 	encodeBird(buf, b4[:], bird)
 	encodeGhost(buf, b4[:], b2[:], ghost)
 
-	buf.WriteByte(uint8(len(players))) //nolint:gosec:G115 // players count bounded by MaxPlayersPerRoom(50) < 256
+	if len(players) > math.MaxUint8 {
+		panic(fmt.Sprintf("EncodeSnapshot: players count %d exceeds uint8 limit", len(players)))
+	}
+	buf.WriteByte(uint8(len(players))) //nolint:gosec // G115: bounded by MaxUint8 check above
 	encodePlayers(buf, b2[:], b4[:], players)
 
-	buf.WriteByte(uint8(len(ripples)))
+	if len(ripples) > math.MaxUint8 {
+		panic(fmt.Sprintf("EncodeSnapshot: ripples count %d exceeds uint8 limit", len(ripples)))
+	}
+	buf.WriteByte(uint8(len(ripples))) //nolint:gosec // G115: bounded by MaxUint8 check above
 	encodeRipples(buf, b2[:], b4[:], ripples)
 
 	writeUint32(buf, b4[:], math.Float32bits(float32(wind)))
 
-	// Copy out the result because the pool buffer will be reused by subsequent
+	// misc-006: Copy out the result because the pool buffer will be reused by subsequent
 	// EncodeSnapshot calls. The returned slice outlives this function (it is
 	// queued on player Send channels and written later by writePump).
+	// The make+copy here is the unavoidable final copy — the sync.Pool already
+	// eliminates the buffer allocation. A future optimization could use a
+	// reference-counted buffer, but the current approach is sufficient for
+	// the expected message volume (~60 snapshots/sec/room).
 	result := make([]byte, buf.Len())
 	copy(result, buf.Bytes())
 	return result
@@ -93,11 +104,12 @@ func writeUint16(buf *bytes.Buffer, b2 []byte, v uint16) {
 }
 
 // encodeBalloon writes the balloon state to the buffer.
+// Layout: x(float32) + y(float32) + vx(float32) + vy(float32)
 func encodeBalloon(buf *bytes.Buffer, b4 []byte, balloon BalloonState) {
 	writeUint32(buf, b4, math.Float32bits(balloon.X))
 	writeUint32(buf, b4, math.Float32bits(balloon.Y))
-	writeUint32(buf, b4, math.Float32bits(balloon.Vy))
 	writeUint32(buf, b4, math.Float32bits(balloon.Vx))
+	writeUint32(buf, b4, math.Float32bits(balloon.Vy))
 }
 
 // encodeBird writes the bird state to the buffer.
@@ -131,7 +143,10 @@ func encodePlayers(buf *bytes.Buffer, b2 []byte, b4 []byte, players []PlayerStat
 		writeUint32(buf, b4, p.Palette)
 		writeUint32(buf, b4, p.ScoreContribution)
 		nickBytes := []byte(p.Nickname)
-		buf.WriteByte(uint8(len(nickBytes)))
+		if len(nickBytes) > math.MaxUint8 {
+			panic(fmt.Sprintf("encodePlayers: nickname byte length %d exceeds uint8 limit", len(nickBytes)))
+		}
+		buf.WriteByte(uint8(len(nickBytes))) //nolint:gosec // G115: bounded by MaxUint8 check above
 		buf.Write(nickBytes)
 	}
 }
@@ -181,7 +196,10 @@ func EncodeTapRejected() []byte {
 // For PhaseEnded, use EncodeGameStateChangeEnded to include endReason.
 // Variadic countdownRemainingMs is only used when phase=PhaseCountdown.
 func EncodeGameStateChange(phase GamePhase, countdownRemainingMs ...uint32) []byte {
-	if phase == PhaseCountdown && len(countdownRemainingMs) > 0 {
+	if phase == PhaseCountdown {
+		if len(countdownRemainingMs) == 0 {
+			panic("EncodeGameStateChange: PhaseCountdown requires countdownRemainingMs argument")
+		}
 		buf := new(bytes.Buffer)
 		buf.Grow(1 + 1 + 4)
 		buf.WriteByte(MsgGameStateChange)
@@ -225,7 +243,10 @@ func EncodePlayerJoin(playerIndex uint16, nickname string, palette uint32) []byt
 	var b2 [2]byte
 	le.PutUint16(b2[:], playerIndex)
 	buf.Write(b2[:])
-	buf.WriteByte(uint8(len(nickBytes))) //nolint:gosec:G115 // nickname length bounded by domain.MaxNicknameLen
+	if len(nickBytes) > math.MaxUint8 {
+		panic(fmt.Sprintf("EncodePlayerJoin: nickname byte length %d exceeds uint8 limit", len(nickBytes)))
+	}
+	buf.WriteByte(uint8(len(nickBytes))) //nolint:gosec // G115: bounded by MaxUint8 check above
 	buf.Write(nickBytes)
 	var b4 [4]byte
 	le.PutUint32(b4[:], palette)

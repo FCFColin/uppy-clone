@@ -8,7 +8,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 func TestRecordRoomCreation(t *testing.T) {
@@ -20,37 +19,22 @@ func TestRecordRoomCreation(t *testing.T) {
 	}
 }
 
-func TestRecordWSMessage(t *testing.T) {
+func TestRecordWSMessage(_ *testing.T) {
 	metrics.WSMessageDuration.Reset()
 	metrics.RecordWSMessage("tap", 100*time.Millisecond)
 	// Observe increments histogram; just verify no panic and metric exists.
 }
 
-func TestRecordRoomLockHold(t *testing.T) {
+func TestRecordRoomLockHold(_ *testing.T) {
 	metrics.RecordRoomLockHold("tick", 5*time.Millisecond)
 }
 
-func TestSetRoomOutboundQueueDepth(t *testing.T) {
+func TestSetRoomOutboundQueueDepth(_ *testing.T) {
 	metrics.SetRoomOutboundQueueDepth("ROOM1", 3)
 }
 
-func TestSetRoomPersistLag(t *testing.T) {
+func TestSetRoomPersistLag(_ *testing.T) {
 	metrics.SetRoomPersistLag("ROOM1", 250*time.Millisecond)
-}
-
-func TestWSMessageTypeName_AllCases(t *testing.T) {
-	cases := map[byte]string{
-		protocol.MsgTap:         "tap",
-		protocol.MsgSetNickname: "set_nickname",
-		protocol.MsgRestartVote: "restart_vote",
-		protocol.MsgPing:        "ping",
-		0xFF:                    "unknown",
-	}
-	for msgType, want := range cases {
-		if got := metrics.WSMessageTypeName(msgType); got != want {
-			t.Fatalf("WSMessageTypeName(0x%02x) = %q, want %q", msgType, got, want)
-		}
-	}
 }
 
 func TestStatusWriter_DefaultStatusOK(t *testing.T) {

@@ -60,9 +60,9 @@ func TestMetricsAuthMiddleware_ForbiddenInProduction(t *testing.T) {
 	t.Setenv("METRICS_USER", "")
 	t.Setenv("METRICS_PASSWORD", "")
 	t.Cleanup(func() {
-		os.Unsetenv("ENV")
-		os.Unsetenv("METRICS_USER")
-		os.Unsetenv("METRICS_PASSWORD")
+		_ = os.Unsetenv("ENV")
+		_ = os.Unsetenv("METRICS_USER")
+		_ = os.Unsetenv("METRICS_PASSWORD")
 	})
 
 	handler := metricsAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -79,8 +79,8 @@ func TestMetricsAuthMiddleware_WrongPassword(t *testing.T) {
 	t.Setenv("METRICS_USER", "metrics")
 	t.Setenv("METRICS_PASSWORD", "secret")
 	t.Cleanup(func() {
-		os.Unsetenv("METRICS_USER")
-		os.Unsetenv("METRICS_PASSWORD")
+		_ = os.Unsetenv("METRICS_USER")
+		_ = os.Unsetenv("METRICS_PASSWORD")
 	})
 
 	handler := metricsAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -106,11 +106,11 @@ func TestMetricsAuthMiddleware_RequiresBasicAuth(t *testing.T) {
 	t.Setenv("METRICS_USER", "metrics")
 	t.Setenv("METRICS_PASSWORD", "secret")
 	t.Cleanup(func() {
-		os.Unsetenv("METRICS_USER")
-		os.Unsetenv("METRICS_PASSWORD")
+		_ = os.Unsetenv("METRICS_USER")
+		_ = os.Unsetenv("METRICS_PASSWORD")
 	})
 
-	handler := metricsAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := metricsAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

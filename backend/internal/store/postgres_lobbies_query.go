@@ -8,18 +8,23 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func parseLobbyCursor(cursor string) (cursorUpdatedAt int64, cursorCode string) {
+// parseLobbyCursor parses a pagination cursor of the form "<unix_millis>|<code>".
+// Returns an error if the cursor is non-empty but malformed (store-013).
+func parseLobbyCursor(cursor string) (cursorUpdatedAt int64, cursorCode string, err error) {
 	if cursor == "" {
-		return 0, ""
+		return 0, "", nil
 	}
 	parts := strings.SplitN(cursor, "|", 2)
-	if len(parts) == 2 {
-		if v, err := fmt.Sscanf(parts[0], "%d", &cursorUpdatedAt); err != nil || v != 1 {
-			cursorUpdatedAt = 0
-		}
-		cursorCode = parts[1]
+	if len(parts) != 2 {
+		return 0, "", fmt.Errorf("malformed cursor: missing separator")
 	}
-	return cursorUpdatedAt, cursorCode
+	if _, scanErr := fmt.Sscanf(parts[0], "%d", &cursorUpdatedAt); scanErr != nil {
+		return 0, "", fmt.Errorf("malformed cursor timestamp: %w", scanErr)
+	}
+	if cursorUpdatedAt <= 0 || parts[1] == "" {
+		return 0, "", fmt.Errorf("malformed cursor: invalid timestamp or empty code")
+	}
+	return cursorUpdatedAt, parts[1], nil
 }
 
 func scanLobbyRows(rows pgx.Rows) ([]domain.LobbyState, error) {

@@ -2,6 +2,8 @@
 package metrics
 
 import (
+	"log/slog"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -18,11 +20,14 @@ func init() {
 	// Enterprise rationale: Go runtime metrics (goroutine count, GC pauses, heap alloc)
 	// and process metrics (RSS, FD count, CPU) are essential for capacity planning
 	// and detecting memory leaks / goroutine leaks before they cause outages.
+	// audit-025: Log registration errors instead of silently swallowing them.
+	// In tests, multiple packages may import metrics causing duplicate registration;
+	// this is expected and only logged at Debug level.
 	if err := prometheus.Register(collectors.NewGoCollector()); err != nil {
-		_ = err // already registered in tests with multiple packages
+		slog.Debug("metrics: Go collector already registered (expected in multi-package tests)", "error", err)
 	}
 	if err := prometheus.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
-		_ = err // already registered
+		slog.Debug("metrics: process collector already registered (expected in multi-package tests)", "error", err)
 	}
 }
 
@@ -168,18 +173,21 @@ var (
 	}, []string{"status"})
 
 	// RoomCreationDuration records room creation latency in seconds.
-	RoomCreationDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	// audit-022: Changed from NewHistogramVec with empty labels to NewHistogram
+	// to avoid unnecessary label overhead.
+	RoomCreationDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name:    "room_creation_duration_seconds",
 		Help:    "Room creation duration in seconds",
 		Buckets: []float64{0.1, 0.25, 0.5, 1.0, 2.0, 5.0},
-	}, []string{})
+	})
 
-	// GameTickDuration records game tick processing time in milliseconds.
+	// GameTickDuration records game tick processing time in seconds.
+	// audit-014: Renamed from milliseconds to seconds for Prometheus naming convention consistency.
 	GameTickDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "game_tick_duration_milliseconds",
-			Help:    "Game tick processing time in milliseconds",
-			Buckets: []float64{0.1, 0.5, 1, 2.5, 5, 10, 25, 50, 100},
+			Name:    "game_tick_duration_seconds",
+			Help:    "Game tick processing time in seconds",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1},
 		},
 	)
 
@@ -196,10 +204,10 @@ var (
 		Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1.0},
 	}, []string{"msg_type"})
 
-	// GameResultsStreamLen tracks pending messages in the game:results Redis Stream.
+	// GameResultsStreamLen tracks pending messages in the game.events Redis Stream.
 	GameResultsStreamLen = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "game_results_stream_length",
-		Help: "Number of pending messages in game:results Redis Stream",
+		Help: "Number of pending messages in game.events Redis Stream",
 	})
 	// EmailQueueStreamLen tracks pending messages in the email queue Redis Stream.
 	EmailQueueStreamLen = promauto.NewGauge(prometheus.GaugeOpts{
@@ -237,6 +245,34 @@ var (
 		Name: "room_persist_lag_seconds",
 		Help: "Seconds since last successful lobby state persist",
 	}, []string{"room_code"})
+
+	// RoomPersistDropped counts persist jobs dropped due to queue full.
+	RoomPersistDropped = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "room_persist_dropped_total",
+		Help: "Total number of persist jobs dropped because the persist queue was full",
+	})
+
+	// AuditWriteFailures counts audit log DB write failures after all retries (audit-001).
+	// These represent audit entries that were dead-lettered — compliance-critical data loss.
+	AuditWriteFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "audit_write_failures_total",
+		Help: "Total audit log write failures after retries (dead-lettered entries)",
+	})
+
+	// OutboxPublishFailures counts outbox publish failures (audit-009).
+	// Redis XAdd pipeline errors mean events were not published to streams.
+	OutboxPublishFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "outbox_publish_failures_total",
+		Help: "Total outbox publish failures (Redis XAdd pipeline errors)",
+	})
+
+	// GameResultMarshalFailures counts game result/outbox payload marshal failures (game-019).
+	// When marshalling fails, the outbox event is skipped — the Redis Stream path still
+	// provides reliable delivery, but the failure should be observable.
+	GameResultMarshalFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "game_result_marshal_failures_total",
+		Help: "Total game result/outbox payload marshal failures (outbox event skipped)",
+	})
 
 	// OutboxLagSeconds is the age of the oldest unprocessed outbox event.
 	OutboxLagSeconds = promauto.NewGauge(prometheus.GaugeOpts{
@@ -277,6 +313,16 @@ var (
 		prometheus.CounterOpts{
 			Name: "worker_read_errors_total",
 			Help: "Total worker XReadGroup errors by worker",
+		},
+		[]string{"worker"},
+	)
+
+	// WorkerAckErrors counts XAck failures per worker.
+	// XAck failures leave messages in PEL, causing at-least-once duplicates.
+	WorkerAckErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "worker_ack_errors_total",
+			Help: "Total worker XAck errors by worker",
 		},
 		[]string{"worker"},
 	)

@@ -1,3 +1,5 @@
+import { apiFetch } from '../network/api_fetch.js';
+
 const TUTORIAL_COOKIE = 'uppy-tutorial';
 const TUTORIAL_MAX_AGE_SEC = 31536000;
 
@@ -13,7 +15,7 @@ export function markTutorialDone(): void {
 export async function shouldShowTutorial(): Promise<boolean> {
   if (isTutorialDone()) return false;
   try {
-    const res = await fetch('/api/v1/user/stats', { credentials: 'include' });
+    const res = await apiFetch('/api/v1/user/stats');
     if (res.ok) {
       const data: { hasHistory?: boolean } = await res.json();
       if (data.hasHistory) return false;

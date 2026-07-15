@@ -9,7 +9,7 @@ import (
 )
 
 func TestInsertOutboxEvent_Success(t *testing.T) {
-	_, mock := newMockPostgresStore(t)
+	_, mock := newMockRepo(t, NewPostgresStoreWithPool)
 	ctx := context.Background()
 	payload := []byte(`{"event":"test"}`)
 
@@ -24,7 +24,7 @@ func TestInsertOutboxEvent_Success(t *testing.T) {
 }
 
 func TestInsertOutboxEvent_Error(t *testing.T) {
-	_, mock := newMockPostgresStore(t)
+	_, mock := newMockRepo(t, NewPostgresStoreWithPool)
 	ctx := context.Background()
 
 	mock.ExpectExec("INSERT INTO outbox_events").

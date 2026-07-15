@@ -7,13 +7,11 @@ import {
   getInterpolatedBalloon,
   getInterpolatedGhost,
   getInterpolatedBird,
-  isDuplicateSeq,
-  clearSeenSeqs,
-  getSeenSeqsSize,
   getInterpState,
   commitRenderedState,
 } from './state_interp.js';
-import { resetClientState } from './state_reset.js';
+import { isDuplicateSeq, clearSeenSeqs, getSeenSeqsSize } from './seen_seqs.js';
+import { resetClientState } from './state_interp.js';
 import { MAX_SEEN_SEQS } from './local_constants.js';
 import { PHYSICS } from '../shared/game/constants.js';
 

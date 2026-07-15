@@ -5,6 +5,10 @@ import { playCountdownTick } from '../shared/ui/audio.js';
 import { resizeCanvas } from './renderer.js';
 
 export function startCountdownTimer(seconds: number): void {
+  if (seconds <= 0) {
+    hideCountdownOverlay();
+    return;
+  }
   const existing = getState().countdownTimerInterval;
   if (existing !== null) {
     clearInterval(existing);

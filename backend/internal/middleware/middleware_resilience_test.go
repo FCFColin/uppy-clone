@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/testsecrets"
@@ -29,7 +30,7 @@ type fakeRateLimiterStore struct {
 	called int
 }
 
-func (f *fakeRateLimiterStore) CheckRateLimit(_ context.Context, key string, maxCount int64, window time.Duration) (bool, error) {
+func (f *fakeRateLimiterStore) CheckRateLimit(_ context.Context, key string, _ int64, _ time.Duration) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.keys = append(f.keys, key)
@@ -270,7 +271,7 @@ func TestEndpointRateLimit_AuthenticatedKeyedByUser(t *testing.T) {
 	mw := EndpointRateLimit(store, "registry:create", nil)
 
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -293,7 +294,7 @@ func TestEndpointRateLimit_UnauthenticatedKeyedByIP(t *testing.T) {
 	store := &fakeRateLimiterStore{allow: true}
 	mw := EndpointRateLimit(store, "auth:quickplay", nil)
 
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -312,7 +313,7 @@ func TestEndpointRateLimit_DeniedReturns429(t *testing.T) {
 	mw := EndpointRateLimit(store, "auth:quickplay", nil)
 
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	}))
 
@@ -335,7 +336,7 @@ func TestEndpointRateLimit_FailOpenOnStoreError(t *testing.T) {
 	mw := EndpointRateLimit(store, "registry:create", nil) // not FailClosed
 
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -359,7 +360,7 @@ func TestEndpointRateLimit_FailClosedOnStoreError(t *testing.T) {
 	mw := EndpointRateLimit(store, "auth:quickplay", nil) // FailClosed=true in config
 
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	}))
 
@@ -382,7 +383,7 @@ func TestEndpointRateLimit_AdminLoginFailClosed(t *testing.T) {
 	mw := EndpointRateLimit(store, "admin:login", nil) // FailClosed=true in config
 
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	}))
 
@@ -398,6 +399,30 @@ func TestEndpointRateLimit_AdminLoginFailClosed(t *testing.T) {
 	}
 }
 
+// TestEndpointRateLimit_DefaultFailClosed handler-014: the "default" endpoint
+// config must be fail-closed so that unlisted endpoints reject requests when
+// Redis is unavailable.
+func TestEndpointRateLimit_DefaultFailClosed(t *testing.T) {
+	store := &fakeRateLimiterStore{allow: false, err: errors.New("redis down")}
+	mw := EndpointRateLimit(store, "unknown:endpoint", nil) // falls back to default
+
+	called := false
+	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		called = true
+	}))
+
+	r := newRequest("5.5.5.5:5")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if called {
+		t.Fatal("default fail-closed: handler must NOT be called on store error")
+	}
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("default fail-closed status = %d; want %d", w.Code, http.StatusTooManyRequests)
+	}
+}
+
 // ─── RateLimit (IP-only) tests ──────────────────────────────────────
 
 // TestRateLimit_IPBasedStillWorks 验证 IP 维度限流（RateLimit）仍正常工作，
@@ -407,7 +432,7 @@ func TestRateLimit_IPBasedStillWorks(t *testing.T) {
 	mw := RateLimit(store, RateLimitConfig{MaxRequests: 5, Window: time.Minute})
 
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	}))
 
@@ -428,7 +453,7 @@ func TestRateLimit_DeniedReturns429(t *testing.T) {
 	store := &fakeRateLimiterStore{allow: false}
 	mw := RateLimit(store, RateLimitConfig{MaxRequests: 5, Window: time.Minute})
 
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("handler should not run when rate limited")
 	}))
 
@@ -449,7 +474,7 @@ func TestRateLimit_FailOpenOnStoreError(t *testing.T) {
 	mw := RateLimit(store, RateLimitConfig{MaxRequests: 5, Window: time.Minute})
 
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -531,7 +556,7 @@ func TestBulkhead_RejectsWhenFull(t *testing.T) {
 	b := NewBulkhead(1)
 	acquired := make(chan struct{})
 	release := make(chan struct{})
-	handler := b.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := b.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(acquired) // signal that the semaphore has been acquired
 		<-release       // hold the slot until released
 		w.WriteHeader(http.StatusOK)
@@ -566,7 +591,7 @@ func TestBulkhead_RejectsWhenFull(t *testing.T) {
 // TestBulkhead_ReleasesAfterCompletion 验证请求完成后释放配额，后续请求可继续通过。
 func TestBulkhead_ReleasesAfterCompletion(t *testing.T) {
 	b := NewBulkhead(1)
-	handler := b.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := b.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -588,24 +613,15 @@ func TestBulkhead_ReleasesAfterCompletion(t *testing.T) {
 }
 
 // setupTestRedis starts a miniredis server for testing.
-// If miniredis is not available, tests are skipped.
+// RO-037: converted from localhost:6379 to miniredis (no external dependency).
 func setupTestRedis(t *testing.T) *redis.Client {
 	t.Helper()
-
-	// Try connecting to a local Redis for integration tests.
-	// In CI, use a real Redis instance.
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 15})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping integration test")
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
 	}
-
-	// Flush test DB
-	rdb.FlushDB(ctx)
-
-	return rdb
+	t.Cleanup(mr.Close)
+	return redis.NewClient(&redis.Options{Addr: mr.Addr()})
 }
 
 // TestIdempotencyMiddleware_CachesSuccessfulResponse verifies that the middleware
@@ -616,7 +632,7 @@ func TestIdempotencyMiddleware_CachesSuccessfulResponse(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 
 	var handlerCalls int32
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&handlerCalls, 1)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -669,7 +685,7 @@ func TestIdempotencyMiddleware_DifferentKeysBothExecute(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 
 	var handlerCalls int32
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		count := atomic.AddInt32(&handlerCalls, 1)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -736,7 +752,7 @@ func TestIdempotencyMiddleware_Non2xxNotCached(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&handlerCalls, 1)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"internal"}`))
+		_, _ = w.Write([]byte(`{"error":"internal"}`))
 	})
 
 	mw := IdempotencyMiddleware(rdb)
@@ -816,7 +832,7 @@ func TestIdempotencyMiddleware_KeyTooLong(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 
 	mw := IdempotencyMiddleware(rdb)
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("handler should not run when key too long")
 	}))
 
@@ -867,7 +883,7 @@ func TestEndpointRateLimit_UnknownEndpointUsesDefault(t *testing.T) {
 	store := &fakeRateLimiterStore{allow: true}
 	mw := EndpointRateLimit(store, "unknown:endpoint", nil)
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -883,6 +899,9 @@ func TestIdempotencyMiddleware_SaveErrorStillReturnsResponse(t *testing.T) {
 	rdb := setupTestRedis(t)
 	_ = rdb.Close()
 
+	// handler-003: Idempotency middleware is fail-closed — when Redis SetNX claim
+	// fails (Redis unavailable), the middleware returns 503 and the handler does NOT
+	// run. This prevents duplicate processing when Redis is down.
 	var called int32
 	handler := IdempotencyMiddleware(rdb)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&called, 1)
@@ -895,11 +914,11 @@ func TestIdempotencyMiddleware_SaveErrorStillReturnsResponse(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if atomic.LoadInt32(&called) != 1 {
-		t.Fatal("handler should run even when save fails")
+	if atomic.LoadInt32(&called) != 0 {
+		t.Fatal("handler should NOT run when Redis claim fails (fail-closed)")
 	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d (Service Unavailable)", rec.Code, http.StatusServiceUnavailable)
 	}
 }
 
@@ -939,7 +958,7 @@ func TestRateLimit_FailClosedOnStoreError(t *testing.T) {
 	})
 
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	}))
 

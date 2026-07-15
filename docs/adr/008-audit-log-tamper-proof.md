@@ -31,7 +31,7 @@
 每条记录的 `this_hash = HMAC-SHA256(secret, prev_hash || payload)`：
 - `prev_hash`：上一条记录的 `this_hash`（首条为空字符串）
 - `payload`：审计条目的 JSON 序列化
-- `secret`：从 `AUDIT_SECRET` 环境变量读取，未设置时回退到 `JWT_SECRET`
+- `secret`：从 `AUDIT_SECRET` 环境变量读取，未设置时回退到 `JWT_PRIVATE_KEY`
 
 篡改任何一条记录的 `payload` 或 `prev_hash`，会使后续所有记录的哈希验证失败，从而实现篡改可检测。
 

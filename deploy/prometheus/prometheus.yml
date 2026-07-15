@@ -11,8 +11,11 @@ data:
       evaluation_interval: 15s
       external_labels:
         cluster: balloon-game
-        # Per-region value is set via pod label `region` on scrape targets; keep a
-        # stable cluster-wide external label here for Thanos dedup.
+        # Thanos dedup key: this MUST be per-region. Overlays patch this value.
+        # The `region` external_label is what Thanos querier uses with
+        # --query.replica-label=region to deduplicate cross-region metrics.
+        # See infra-018 audit finding.
+        region: __REGION__
     rule_files:
       - /etc/prometheus/rules/*.yml
     scrape_configs:

@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewGameState_InitialValues(t *testing.T) {
-	state := NewGameState("TEST", testRNG())
+	state := NewGameState("TEST", 42, testRNG())
 
 	if state.Phase != domain.PhaseWaiting {
 		t.Fatalf("初始 phase 应为 waiting，got=%v", state.Phase)
@@ -54,7 +54,7 @@ func TestNewGameState_InitialValues(t *testing.T) {
 
 func TestNewGameState_GhostInBounds(t *testing.T) {
 	for i := 0; i < 50; i++ {
-		state := NewGameState("TEST", newSeededRNG(int64(i)))
+		state := NewGameState("TEST", int64(i), newSeededRNG(int64(i)))
 
 		if state.Ghost.X < 0.15 || state.Ghost.X > 0.85 {
 			t.Fatalf("幽灵 X 应在 0.15-0.85，got=%v", state.Ghost.X)
@@ -66,7 +66,7 @@ func TestNewGameState_GhostInBounds(t *testing.T) {
 }
 
 func TestNewGameState_GhostHasSpeed(t *testing.T) {
-	state := NewGameState("TEST", testRNG())
+	state := NewGameState("TEST", 42, testRNG())
 	speed := math.Sqrt(state.Ghost.VX*state.Ghost.VX + state.Ghost.VY*state.Ghost.VY)
 	if speed == 0 {
 		t.Fatal("初始幽灵应有非零速度")
@@ -238,7 +238,7 @@ func BenchmarkSerializeState(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		SerializeState(state)
+		_, _ = SerializeState(state)
 	}
 }
 
@@ -274,14 +274,14 @@ func BenchmarkDeserializeState(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		DeserializeState(data)
+		_, _ = DeserializeState(data)
 	}
 }
 
 func BenchmarkNewGameState(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		NewGameState("BENCH", testRNG())
+		NewGameState("BENCH", 42, testRNG())
 	}
 }
 

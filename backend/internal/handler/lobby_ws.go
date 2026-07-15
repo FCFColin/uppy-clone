@@ -3,7 +3,6 @@ package handler
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
@@ -20,7 +19,7 @@ func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	code := chi.URLParam(r, "code")
+	code := URLParam(r, "code")
 	if code == "" {
 		apierror.BadRequest("Room code is required").Write(w)
 		return
@@ -53,7 +52,8 @@ func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 
 	established = true
 	metrics.RecordWSConnection("established")
-	h.startWSPumps(room, userId, conn, r.Context())
+	_ = room.RunSession(r.Context(), userId, conn)
+	h.hub.DecrementWSConnection()
 }
 
 func (h *LobbyHandler) upgradeWSConnection(w http.ResponseWriter, r *http.Request) (*websocket.Conn, bool) {

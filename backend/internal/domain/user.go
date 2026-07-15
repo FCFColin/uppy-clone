@@ -11,6 +11,9 @@ type User struct {
 }
 
 // GameSession represents a game session record.
+// store-024: LobbyCode is a plain string for historical compatibility. A typed
+// LobbyCode alias would improve safety but requires changes across store/handler/
+// protocol layers — deferred as low-priority refactoring.
 type GameSession struct {
 	ID         string  `json:"id"`
 	LobbyCode  string  `json:"lobby_code"`

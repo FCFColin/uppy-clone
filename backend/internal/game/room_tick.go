@@ -3,14 +3,18 @@ package game
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/protocol"
+	"github.com/uppy-clone/backend/internal/validate"
 	"go.opentelemetry.io/otel/attribute"
 )
+
+const persistIntervalTicks = 30
 
 // ErrRateLimited 玩家因消息频率过高被断开
 var ErrRateLimited = errors.New("player rate limited")
@@ -35,6 +39,18 @@ func (r *Room) HandleMessage(playerID string, msgType byte, payload []byte) erro
 		return nil
 	}
 
+	if err := r.enforceRateLimit(player, playerID); err != nil {
+		return err
+	}
+
+	r.dispatchMessage(player, playerID, msgType, payload)
+	return nil
+}
+
+// enforceRateLimit tracks per-player message frequency and disconnects players
+// exceeding MessageRateLimit within the rolling MessageWindowMs window.
+// Caller must hold r.mu.
+func (r *Room) enforceRateLimit(player *domain.PlayerState, playerID string) error {
 	now := time.Now().UnixMilli()
 	if now-player.MessageWindowStart > int64(config.MessageWindowMs) {
 		player.MessageCount = 0
@@ -46,21 +62,25 @@ func (r *Room) HandleMessage(playerID string, msgType byte, payload []byte) erro
 		r.removeConnectionLocked(playerID)
 		return ErrRateLimited
 	}
+	return nil
+}
 
+// dispatchMessage routes a decoded message to the appropriate type-specific
+// handler. Caller must hold r.mu.
+func (r *Room) dispatchMessage(player *domain.PlayerState, playerID string, msgType byte, payload []byte) {
 	switch msgType {
 	case protocol.MsgTap:
 		r.handleTap(player, playerID, payload)
 	case protocol.MsgSetNickname:
 		r.handleSetNicknameMsg(player, payload)
 	case protocol.MsgRestartVote:
-		_ = HandleRestartVote(r, player)
+		r.handleRestartVoteMsg(player, playerID)
 	case protocol.MsgPing:
-		r.sendToPlayer(playerID, protocol.EncodePong())
+		r.handlePingMsg(playerID)
 	}
-	return nil
 }
 
-// tick 是 15Hz 的 tick 循环
+// tick is the 15Hz game tick loop.
 func (r *Room) tick(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(int64(1000/protocol.TickRate)) * time.Millisecond)
 	defer ticker.Stop()
@@ -75,21 +95,22 @@ func (r *Room) tick(ctx context.Context) {
 
 			r.mu.Lock()
 			shouldBroadcast := r.tickOnceLocked(now)
-			var snapshot []byte
+			var sd snapshotData
 			if shouldBroadcast {
-				snapshot = r.buildSnapshot()
+				sd = r.extractSnapshotDataLocked()
 			}
 			tickCount := r.state.TickCount
 			r.mu.Unlock()
 
 			if shouldBroadcast {
+				snapshot := encodeSnapshot(sd)
 				r.broadcast(snapshot, "")
 			}
 
 			metrics.RecordGameTickDuration(time.Since(now))
 			span.End()
 
-			if tickCount > 0 && tickCount%30 == 0 {
+			if tickCount > 0 && tickCount%persistIntervalTicks == 0 {
 				r.asyncSaveState()
 			}
 		}
@@ -108,7 +129,10 @@ func (r *Room) tickOnceLocked(now time.Time) bool {
 		return false
 	}
 
-	if len(r.state.Players) == 0 || !anyPlayerConnected(r.state.Players) {
+	r.connMu.RLock()
+	noConns := len(r.connections) == 0
+	r.connMu.RUnlock()
+	if len(r.state.Players) == 0 || noConns {
 		r.stopTick()
 		return false
 	}
@@ -195,11 +219,16 @@ func (r *Room) restartTick() {
 	r.wg.Wait()
 
 	r.mu.Lock()
+	if r.tickCancel != nil {
+		// 另一个 goroutine 已经启动了新 tick
+		r.mu.Unlock()
+		return
+	}
 	r.startTickGoroutine()
 	r.mu.Unlock()
 }
 
-// cleanupDisconnected 清理超过 30 秒优雅期的断连玩家
+// cleanupDisconnected removes players whose reconnect grace period has expired (30s)
 func (r *Room) cleanupDisconnected(now int64) {
 	for pid, player := range r.state.Players {
 		if player.Disconnected && player.DisconnectedAt != nil && now-*player.DisconnectedAt > domain.ReconnectGraceMs {
@@ -207,7 +236,117 @@ func (r *Room) cleanupDisconnected(now int64) {
 			delete(r.usedNames, player.Nickname)
 			delete(r.state.RestartVotes, pid)
 			r.logger.Info("removed disconnected player after grace", "playerID", pid)
-			r.broadcast(protocol.EncodePlayerLeave(uint16(player.PlayerIndex)), "")
+			r.broadcast(protocol.EncodePlayerLeave(uint16(player.PlayerIndex)), "") //nolint:gosec // G115: PlayerIndex < MaxPlayersPerRoom(50)
 		}
 	}
+}
+
+// ─── Message Handlers ────────────────────────────────────────────────
+
+func (r *Room) handleTap(player *domain.PlayerState, playerID string, payload []byte) {
+	now := time.Now().UnixMilli()
+
+	if !r.validateTapRequest(player, now) {
+		r.sendToPlayer(playerID, protocol.EncodeTapRejected())
+		return
+	}
+	tapX, tapY, ok := r.decodeTapPayload(payload)
+	if !ok || !r.applyTapPhysics(float64(tapX), float64(tapY)) {
+		r.sendToPlayer(playerID, protocol.EncodeTapRejected())
+		return
+	}
+
+	cooldown := r.updatePlayerStats(player, now)
+	r.broadcastTapResult(player, cooldown)
+}
+
+func (r *Room) validateTapRequest(player *domain.PlayerState, now int64) bool {
+	if r.state.Phase != domain.PhasePlaying {
+		return false
+	}
+	if !player.CanTap(now) {
+		return false
+	}
+	return true
+}
+
+func (r *Room) decodeTapPayload(payload []byte) (float32, float32, bool) {
+	if len(payload) < 8 {
+		return 0, 0, false
+	}
+	tapX, tapY, _ := protocol.DecodeTap(payload)
+	if math.IsNaN(float64(tapX)) || math.IsNaN(float64(tapY)) ||
+		math.IsInf(float64(tapX), 0) || math.IsInf(float64(tapY), 0) ||
+		float64(tapX) < 0 || float64(tapX) > 1 || float64(tapY) < 0 || float64(tapY) > 1 {
+		return 0, 0, false
+	}
+	return tapX, tapY, true
+}
+
+func (r *Room) applyTapPhysics(tapX, tapY float64) bool {
+	if !ApplyTapForce(&r.state.Balloon, tapX, tapY) {
+		return false
+	}
+	ApplyGhostRepel(r.state, tapX, tapY)
+	return true
+}
+
+func (r *Room) updatePlayerStats(player *domain.PlayerState, now int64) int64 {
+	cooldown := CalculateCooldown(len(r.state.Players))
+	player.RecordTap(now, cooldown)
+	r.state.Balloon.Score++
+	return cooldown
+}
+
+func (r *Room) broadcastTapResult(player *domain.PlayerState, cooldown int64) {
+	tapMsg := protocol.EncodeTapAccepted(
+		uint16(player.PlayerIndex), //nolint:gosec // G115: PlayerIndex < MaxPlayersPerRoom(50)
+		uint32(cooldown),           //nolint:gosec // G115: cooldown bounded by CalculateCooldown
+		float32(r.state.Balloon.X),
+		float32(r.state.Balloon.Y),
+	)
+	r.broadcast(tapMsg, "")
+}
+
+func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) {
+	nickname, ok := protocol.DecodeNicknamePayload(payload)
+	sanitized := ""
+	if ok {
+		sanitized = validate.Nickname(nickname)
+	}
+	if sanitized == "" {
+		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
+		return
+	}
+
+	if sanitized == player.Nickname {
+		player.NicknameConfirmed = true
+		metrics.NicknameConfirmTotal.WithLabelValues("accepted").Inc()
+		r.requestPersist()
+		r.broadcast(r.buildSnapshot(), "")
+		r.tryStartWhenAllReady()
+		return
+	}
+
+	if !HandleSetNickname(r.state, player, sanitized, r.usedNames) {
+		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
+		return
+	}
+
+	player.NicknameConfirmed = true
+	metrics.NicknameConfirmTotal.WithLabelValues("accepted").Inc()
+
+	r.requestPersist()
+	r.broadcast(r.buildSnapshot(), "")
+	r.tryStartWhenAllReady()
+}
+
+func (r *Room) handleRestartVoteMsg(player *domain.PlayerState, playerID string) {
+	if err := HandleRestartVote(r, player); err != nil {
+		r.logger.Warn("restart vote failed", "error", err, "player_id", playerID)
+	}
+}
+
+func (r *Room) handlePingMsg(playerID string) {
+	r.sendToPlayer(playerID, protocol.EncodePong())
 }

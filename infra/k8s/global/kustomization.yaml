@@ -1,0 +1,8 @@
+# Global multi-region resources (ADR-014/016).
+# Applied once across all regions, not per-region.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - network-policy.yaml
+  - multicluster-ingress.yaml

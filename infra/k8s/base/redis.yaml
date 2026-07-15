@@ -39,12 +39,35 @@ spec:
         app: redis
     spec:
       terminationGracePeriodSeconds: 30
+      # infra-022: Pod 级 securityContext——Redis 镜像默认 UID 为 999（redis 用户），
+      # 显式声明 runAsNonRoot/runAsUser/fsGroup 锁定非 root，符合 PSG/PSS-restricted。
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
       containers:
         - name: redis
           image: redis:7.4.0-alpine3.20@sha256:c35af3bbcef51a62c8bae5a9a563c6f1b60d7ebaea4cb5a3ccbcc157580ae098
-          args: ["--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "no"]
+          command:
+            - sh
+            - -c
+            - |
+              exec redis-server \
+                --maxmemory 50% \
+                --maxmemory-policy allkeys-lru \
+                --appendonly no \
+                --requirepass "${REDIS_PASSWORD}"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: redis-password
           ports:
             - containerPort: 6379
+          # infra-023: maxmemory 用百分比（50%）而非绝对值，自动适配节点内存大小；
+          # allkeys-lru 保证内存压力下淘汰最久未访问的 key。
+          # 注意：Redis 7+ 的百分比语义为"系统内存的 N%"，与 container limit 解耦。
           resources:
             requests:
               cpu: "100m"
@@ -54,11 +77,11 @@ spec:
               memory: "320Mi"
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["sh", "-c", "redis-cli -a $REDIS_PASSWORD ping"]
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["sh", "-c", "redis-cli -a $REDIS_PASSWORD ping"]
             initialDelaySeconds: 10
             periodSeconds: 30

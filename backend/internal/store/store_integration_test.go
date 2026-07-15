@@ -22,7 +22,7 @@ func TestConcurrentUserCreation(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	userRepo := store.NewUserRepository(db.Pool())
 	ctx := context.Background()
 
@@ -92,7 +92,7 @@ func TestLeaderboardPagination(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	resultRepo := store.NewResultRepository(db.Pool())
 	ctx := context.Background()
 
@@ -104,10 +104,10 @@ func TestLeaderboardPagination(t *testing.T) {
 		sessionID := uuid.NewString()
 		endedAt := now - int64(i)*1000
 		if err := resultRepo.CreateGameSession(ctx, &domain.GameSession{
-			ID:        sessionID,
-			LobbyCode: fmt.Sprintf("LBRD%d", i),
-			Status:    "ended",
-			EndedAt:   &endedAt,
+			ID:         sessionID,
+			LobbyCode:  fmt.Sprintf("LBRD%d", i),
+			Status:     "ended",
+			EndedAt:    &endedAt,
 			FinalScore: (numSessions - i) * 10,
 		}); err != nil {
 			t.Fatalf("CreateGameSession %d: %v", i, err)
@@ -161,7 +161,7 @@ func TestGameSessionLifecycle(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	resultRepo := store.NewResultRepository(db.Pool())
 	ctx := context.Background()
 

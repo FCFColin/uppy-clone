@@ -12,15 +12,16 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func TestLogUserCreateAudit_DoesNotPanic(t *testing.T) {
-	logUserCreateAudit(context.Background(), &domain.User{
+func TestLogUserCreateAudit_DoesNotPanic(_ *testing.T) {
+	repo := NewUserRepository(nil)
+	repo.logUserCreateAudit(context.Background(), &domain.User{
 		ID:       "user-1",
 		Nickname: "TestPlayer",
 	})
 }
 
 func TestCreateUser_Success(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 	lastLogin := int64(100)
 	user := &domain.User{
@@ -50,7 +51,7 @@ func TestCreateUser_Success(t *testing.T) {
 }
 
 func TestCreateUser_DuplicateUser(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 	user := &domain.User{
 		ID:        "user-dup",
@@ -72,7 +73,7 @@ func TestCreateUser_DuplicateUser(t *testing.T) {
 }
 
 func TestCreateUser_BeginError(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectBegin().WillReturnError(errors.New("begin failed"))
@@ -84,7 +85,7 @@ func TestCreateUser_BeginError(t *testing.T) {
 }
 
 func TestCreateUser_OutboxInsertError(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 	user := &domain.User{ID: "u2", Email: "b@c.com", Nickname: "n", CreatedAt: 1}
 
@@ -110,7 +111,7 @@ func TestCreateUser_PrepareEmailError(t *testing.T) {
 		return "", fmt.Errorf("encrypt failed")
 	}
 
-	repo, _ := newMockUserRepository(t)
+	repo, _ := newMockRepo(t, NewUserRepository)
 	err := repo.CreateUser(context.Background(), &domain.User{ID: "u5", Email: "e@f.com", Nickname: "n"})
 	if err == nil || !strings.Contains(err.Error(), "encrypt email") {
 		t.Fatalf("CreateUser = %v, want encrypt email error", err)
@@ -118,7 +119,7 @@ func TestCreateUser_PrepareEmailError(t *testing.T) {
 }
 
 func TestCreateUser_InsertError(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 	user := &domain.User{ID: "u3", Email: "c@d.com", Nickname: "n", CreatedAt: 1}
 
@@ -135,7 +136,7 @@ func TestCreateUser_InsertError(t *testing.T) {
 }
 
 func TestCreateUser_CommitError(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 	user := &domain.User{ID: "u4", Email: "d@e.com", Nickname: "n", CreatedAt: 1}
 

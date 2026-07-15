@@ -1,39 +1,15 @@
 package game
 
 import (
-	"context"
-	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/uppy-clone/backend/internal/config"
 )
-
-type publishErrBroadcaster struct{}
-
-func (e *publishErrBroadcaster) Publish(_ context.Context, _ string, _ BroadcastMessage) error {
-	return errors.New("publish failed")
-}
-
-func (e *publishErrBroadcaster) Subscribe(_ string, _ func(BroadcastMessage)) (func(), error) {
-	return func() {}, nil
-}
-
-func (e *publishErrBroadcaster) Close() error { return nil }
-
-type subscribeErrBroadcaster struct {
-	mockBroadcaster
-}
-
-func (s *subscribeErrBroadcaster) Subscribe(_ string, _ func(BroadcastMessage)) (func(), error) {
-	return nil, errors.New("subscribe failed")
-}
-
-func (s *subscribeErrBroadcaster) Publish(ctx context.Context, roomCode string, msg BroadcastMessage) error {
-	return s.mockBroadcaster.Publish(ctx, roomCode, msg)
-}
-
-func (s *subscribeErrBroadcaster) Close() error { return s.mockBroadcaster.Close() }
 
 func TestRoom_enqueueOutbound_CriticalDoesNotBlockIndefinitely(t *testing.T) {
 	r := NewRoom("OUT1", nil, nil, config.DefaultTimeoutConfig(), 0)
@@ -61,7 +37,7 @@ func blockOutboundConsumerAndFillQueue(t *testing.T, r *Room) {
 	t.Helper()
 	r.mu.Lock()
 	r.outbound.startLoop()
-	r.outbound.ch <- outboundMsg{payload: []byte("hold"), skipRedis: true}
+	r.outbound.ch <- outboundMsg{payload: []byte("hold")}
 	time.Sleep(20 * time.Millisecond)
 	for i := 0; i < outboundQueueSize; i++ {
 		select {
@@ -126,7 +102,7 @@ func TestRoom_deliverToTargets_SlowClientDisconnect(t *testing.T) {
 	r.mu.Lock()
 	pc := r.connections["p1"]
 	r.mu.Unlock()
-	if pc == nil || !pc.pendingDisconnect {
+	if pc == nil || !pc.pendingDisconnect.Load() {
 		t.Fatal("expected pending disconnect after 10 consecutive drops")
 	}
 }
@@ -134,11 +110,13 @@ func TestRoom_deliverToTargets_SlowClientDisconnect(t *testing.T) {
 func TestRoom_deliverOutbound_RemovesPendingDisconnect(t *testing.T) {
 	r := NewRoom("OUT4", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = true
+	pc := &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1)}
+	pc.pendingDisconnect.Store(true)
 	r.mu.Lock()
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1), pendingDisconnect: true}
+	r.connections["p1"] = pc
 	r.mu.Unlock()
 
-	r.outbound.deliver(outboundMsg{payload: []byte("ok"), skipRedis: true})
+	r.outbound.deliver(outboundMsg{payload: []byte("ok")})
 
 	r.mu.Lock()
 	_, exists := r.connections["p1"]
@@ -148,23 +126,12 @@ func TestRoom_deliverOutbound_RemovesPendingDisconnect(t *testing.T) {
 	}
 }
 
-func TestRoom_publishBroadcastAsync_PublishError(t *testing.T) {
-	r := NewRoom("OUT5", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.broadcaster = &publishErrBroadcaster{}
-	r.syncOutbound = true
-	addConnectedPlayer(r, "p1")
-
-	r.mu.Lock()
-	r.broadcast([]byte{0x01}, "")
-	r.mu.Unlock()
-}
-
-func TestRoom_enqueueOutbound_SyncPath(t *testing.T) {
+func TestRoom_enqueueOutbound_SyncPath(_ *testing.T) {
 	r := NewRoom("SYNC", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = true
 	addConnectedPlayer(r, "p1")
 	r.mu.Lock()
-	r.enqueueOutbound([]byte("sync-msg"), broadcastOpts{skipRedis: true})
+	r.enqueueOutbound([]byte("sync-msg"), broadcastOpts{})
 	r.mu.Unlock()
 }
 
@@ -189,7 +156,7 @@ func TestRoom_enqueueOutbound_CriticalTimeout(t *testing.T) {
 	}
 }
 
-func TestRoom_stopOutbound(t *testing.T) {
+func TestRoom_stopOutbound(_ *testing.T) {
 	r := NewRoom("STOP", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = false
 	r.outbound.startLoop()
@@ -202,7 +169,7 @@ func TestRoom_enqueueOutbound_AsyncSuccess(t *testing.T) {
 	r.mu.Lock()
 	r.outbound.startLoop()
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-	r.enqueueOutbound([]byte("hello"), broadcastOpts{skipRedis: true})
+	r.enqueueOutbound([]byte("hello"), broadcastOpts{})
 	r.mu.Unlock()
 
 	select {
@@ -221,7 +188,7 @@ func TestRoom_enqueueOutbound_NonCriticalNotFull(t *testing.T) {
 	r.syncOutbound = false
 	addConnectedPlayer(r, "p1")
 	r.mu.Lock()
-	r.enqueueOutbound([]byte("msg"), broadcastOpts{skipRedis: true})
+	r.enqueueOutbound([]byte("msg"), broadcastOpts{})
 	r.mu.Unlock()
 	select {
 	case msg := <-r.connections["p1"].Send:
@@ -239,7 +206,7 @@ func TestRoom_enqueueOutbound_CriticalNotFull(t *testing.T) {
 	r.syncOutbound = false
 	addConnectedPlayer(r, "p1")
 	r.mu.Lock()
-	r.enqueueOutbound([]byte("crit"), broadcastOpts{critical: true, skipRedis: true})
+	r.enqueueOutbound([]byte("crit"), broadcastOpts{critical: true})
 	r.mu.Unlock()
 	select {
 	case <-r.connections["p1"].Send:
@@ -262,7 +229,46 @@ func TestRoom_snapshotConnTargetsLocked_SkipsNilAndExcluded(t *testing.T) {
 	}
 }
 
-func TestRoom_stopOutbound_NoLoopStarted(t *testing.T) {
+func TestRoom_stopOutbound_NoLoopStarted(_ *testing.T) {
 	r := NewRoom("NS", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.stopOutbound()
+}
+
+// --- coverage gap 补充用例 ---
+
+func TestRoom_snapshotConnTargetsLocked_IncludesValidTarget(t *testing.T) {
+	r := NewRoom("TG", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.mu.Lock()
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1)}
+	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 1)}
+	targets := r.SnapshotTargets("p1")
+	r.mu.Unlock()
+	if len(targets) != 1 || targets[0].playerID != "p2" {
+		t.Fatalf("targets = %+v", targets)
+	}
+}
+
+func TestRoom_snapshotConnTargetsLocked_ConnCloseCallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		up := websocket.Upgrader{}
+		_, _ = up.Upgrade(w, req, nil)
+	}))
+	defer server.Close()
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	r := NewRoom("CC", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.mu.Lock()
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1), Conn: conn}
+	targets := r.SnapshotTargets("")
+	r.mu.Unlock()
+	if len(targets) != 1 {
+		t.Fatalf("targets = %d", len(targets))
+	}
+	targets[0].connClose()
 }

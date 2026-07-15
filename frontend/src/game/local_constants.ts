@@ -6,7 +6,6 @@ export const HEARTBEAT_INTERVAL_MS = 25000;
 export const HEARTBEAT_TIMEOUT_MS = 60000;
 export const MAX_SEEN_SEQS = 200;
 export const MAX_PENDING_QUEUE = 50;
-export const FIXED_STEP = 1000 / 60;
 
 const END_REASON_LABELS: Record<number, string> = {
   [END_REASON.GROUND]: '气球落地',

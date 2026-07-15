@@ -253,8 +253,7 @@ func TestRoomCreationMetrics(t *testing.T) {
 		t.Fatalf("room creation failed = %v, want 1", got)
 	}
 
-	RoomCreationDuration.Reset()
-	RoomCreationDuration.WithLabelValues().Observe(0.1)
+	RoomCreationDuration.Observe(0.1)
 	if testutil.CollectAndCount(RoomCreationDuration) < 1 {
 		t.Fatal("RoomCreationDuration not collected")
 	}

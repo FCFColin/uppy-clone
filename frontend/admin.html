@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: ws:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
   <title>Uppy - 管理后台</title>
   <link rel="stylesheet" href="/src/style.css">
   <link rel="stylesheet" href="/src/admin.css">
@@ -38,7 +38,7 @@
       </div>
       <div class="form-group">
         <label>Resend API Key</label>
-        <input type="text" id="resend-key" placeholder="re_xxxxxxxx">
+        <input type="password" id="resend-key" placeholder="re_xxxxxxxx" autocomplete="off">
       </div>
       <div class="form-group">
         <label>发件人地址</label>
@@ -50,7 +50,7 @@
       <h2>管理员设置</h2>
       <div class="form-group">
         <label>修改管理员密码</label>
-        <input type="password" id="new-admin-password" placeholder="留空则不修改">
+        <input type="password" id="new-admin-password" placeholder="留空则不修改" autocomplete="new-password">
       </div>
     </div>
 

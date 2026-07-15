@@ -35,7 +35,6 @@ backend/unit_verify
 backend/*.exe
 backend/*.test
 backend/bin/
-backend/$out
 
 # Security/audit scan reports
 *-report.txt
@@ -47,16 +46,6 @@ staged_list.txt
 lint-*.txt
 
 # Build artifacts (Go binaries)
-backend/$out/
-backend/auth
-backend/crypto
-backend/game
-backend/handler
-backend/mw
-backend/server
-backend/sign
-backend/spawn
-backend/unit
 scripts/ci/*.exe
 
 # IDE working data
@@ -71,9 +60,8 @@ scripts/ci/*.exe
 *.tmp
 *.bak
 
-# Python cache
-__pycache__/
-*.py[cod]
+# Dev scripts (moved from root)
+scripts/dev/
 
 # Logs
 *.log

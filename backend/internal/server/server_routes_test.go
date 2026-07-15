@@ -14,16 +14,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/pashagolub/pgxmock/v4"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/uppy-clone/backend/internal/auth"
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/rbac"
+	"github.com/uppy-clone/backend/internal/resilience"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func newTestRouter(t *testing.T) *chi.Mux {
@@ -39,11 +40,10 @@ func newTestRouter(t *testing.T) *chi.Mux {
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 	adminJwtMgr := auth.NewJWTManager(jwtSecret)
 	timeouts := appConfig.DefaultTimeoutConfig()
-	hub := game.NewHub(nil, nil, timeouts, 10, 50, nil)
+	hub := game.NewHub(nil, nil, timeouts, 10, 50)
 
 	cfg := &handler.Config{FrontendDir: ""}
-	authSvc := handler.NewDefaultAuthService(jwtMgr, nil, nil, nil, "", "", timeouts)
-	authHandler := handler.NewAuthHandler(nil, nil, authSvc, cfg)
+	authHandler := handler.NewAuthHandler(nil, nil, jwtMgr, nil, cfg)
 	lobbyHandler := handler.NewLobbyHandler(hub, nil)
 	adminHandler := handler.NewAdminHandler(nil, adminJwtMgr, nil)
 	statsHandler := handler.NewStatsHandler(nil)
@@ -150,6 +150,10 @@ func TestSetupRoutes_AdminPutConfigUnauthorized(t *testing.T) {
 }
 
 func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
+	// Reset singleton circuit breakers so earlier tests that tripped them
+	// don't cause GetConfig to fail with "circuit breaker is open".
+	resilience.ResetBreakersForTesting()
+
 	jwtSecret := testsecrets.TestJWTPrivateKeyPEM
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 
@@ -243,7 +247,7 @@ func TestSetupRoutes_MagicLinkRequestBadRequest(t *testing.T) {
 func TestAuthMiddlewareWrapper_RejectsMissingAuth(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	mw := authMiddlewareWrapper(jwtMgr, nil)
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -258,7 +262,7 @@ func TestAdminAuthMiddleware_RejectsMissingToken(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	adminHandler := handler.NewAdminHandler(nil, jwtMgr, nil)
 	mw := adminAuthMiddleware(adminHandler)
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -296,10 +300,10 @@ func TestInitHandlers(t *testing.T) {
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	cfg := &handler.Config{}
-	hub := game.NewHub(nil, nil, appConfig.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(nil, nil, appConfig.DefaultTimeoutConfig(), 0, 0)
 	redisStore := testutil.SetupMiniredisStore(t)
 
-	authH, lobbyH, adminH, statsH := initHandlers(jwtMgr, jwtMgr, nil, redisStore, cfg, appConfig.DefaultTimeoutConfig(), hub)
+	authH, lobbyH, adminH, statsH := initHandlers(jwtMgr, jwtMgr, nil, redisStore, cfg, appConfig.DefaultTimeoutConfig(), hub, store.DefaultDeps())
 	if authH == nil || lobbyH == nil || adminH == nil || statsH == nil {
 		t.Fatal("initHandlers returned nil handler")
 	}
@@ -327,11 +331,11 @@ func TestValidateConfig_ValidEnv(t *testing.T) {
 
 func TestStartServer_StartsAndShutsDown(t *testing.T) {
 	r := chi.NewRouter()
-	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/ping", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	srv := startServer(r, &handler.Config{Port: "0"})
+	srv, _ := startServer(r, &handler.Config{Port: "0"})
 	if srv == nil {
 		t.Fatal("startServer returned nil")
 	}
@@ -402,7 +406,7 @@ func TestAuthMiddlewareWrapper_AcceptsValidToken(t *testing.T) {
 	}
 	mw := authMiddlewareWrapper(jwtMgr, redisStore)
 	called := false
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))

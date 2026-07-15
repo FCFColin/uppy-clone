@@ -1,15 +1,12 @@
 import { resumeAudioContext } from '../shared/ui/audio.js';
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
 import { getState, dispatch } from './store.js';
-import { resizeCanvas, gameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
-import {
-  generateRandomNickname, copyCode, refreshLayout,
-  showFallbackErrorScreen,
-  $copyCodeBtn, $hudCopyBtn,
-  $setupNicknameInput,
-} from './ui.js';
+import { resizeCanvas, startGameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
+import { generateRandomNickname, copyCode, refreshLayout, showFallbackErrorScreen } from './ui_utils.js';
+import { $copyCodeBtn, $hudCopyBtn, $setupNicknameInput } from './ui_elements.js';
 import { connectWebSocket } from './ws_connect.js';
 import { stopHeartbeat, getWs } from './ws_connection.js';
+import { registerResetFn } from './reset_registry.js';
 
 let lastTapTime = 0;
 function handleTapWithDedup(clientX: number, clientY: number): void {
@@ -57,7 +54,7 @@ export function bindWindowEvents(): void {
 
   document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === ' ' || e.key === 'Enter') {
-      if (getState().phase === 'playing' && document.activeElement?.tagName !== 'INPUT') {
+      if (getState().phase === 'playing' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         e.preventDefault();
         tapAtBalloonCenter();
       }
@@ -66,7 +63,7 @@ export function bindWindowEvents(): void {
 
   document.addEventListener('visibilitychange', () => {
     setRenderActive(!document.hidden);
-    if (!document.hidden) requestAnimationFrame(gameLoop);
+    if (!document.hidden) startGameLoop();
   });
 
   window.addEventListener('error', (e: ErrorEvent) => {
@@ -95,3 +92,14 @@ export function bindWindowEvents(): void {
     }
   });
 }
+
+/** Reset window_events module-level state for a new game session. */
+export function resetWindowEventState(): void {
+  if (resizeTimer !== null) {
+    clearTimeout(resizeTimer);
+    resizeTimer = null;
+  }
+  lastTapTime = 0;
+}
+
+registerResetFn(resetWindowEventState);

@@ -22,7 +22,7 @@ import (
 // real integration issues.
 
 func TestPostgresStore_Integration(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	userRepo := store.NewUserRepository(db.Pool())
 	gameStore := store.NewGameStore(db.Pool())

@@ -10,13 +10,6 @@ import (
 	"github.com/uppy-clone/backend/internal/slogctx"
 )
 
-// SlogCtxKey is kept for backward compatibility; the actual key lives in slogctx.
-type SlogCtxKey struct{}
-
-// slogCtxKey is the context key for the request-scoped slog.Logger.
-// Exported so other packages (e.g., auth) can inject fields into the logger.
-var slogCtxKey = slogctx.CtxKey{}
-
 // LoggerFromContext retrieves the request-scoped logger from context.
 // Falls back to slog.Default() if no logger is found.
 func LoggerFromContext(ctx context.Context) *slog.Logger {

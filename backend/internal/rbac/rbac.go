@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/slogctx"
@@ -11,9 +12,7 @@ import (
 
 // Roles
 const (
-	RoleAdmin     = "admin"
 	RoleModerator = "moderator"
-	RoleUser      = "user"
 	RoleGuest     = "guest"
 )
 
@@ -59,13 +58,20 @@ func (e *Enforcer) Middleware(resource, action string) func(http.Handler) http.H
 			}
 			if !e.CheckPermission(role, resource, action) {
 				slog.Warn("RBAC denied", "role", role, "resource", resource, "action", action)
+				actorID := role
+				actorType := audit.ActorTypeAnonymous
+				if uid, ok := domain.ContextKeyUserID.Value(r.Context()); ok && uid != "" {
+					actorID = uid
+					actorType = audit.ActorTypeUser
+				}
 				audit.Log(r.Context(), audit.AuditEntry{
-					Action:   "rbac.deny",
-					ActorID:  role,
-					Resource: resource,
-					Before:   map[string]interface{}{"action": action},
+					Action:    "rbac.deny",
+					ActorType: actorType,
+					ActorID:   actorID,
+					Resource:  resource,
+					Before:    map[string]interface{}{"role": role, "action": action},
 				})
-				http.Error(w, `{"type":"https://httpstatuses.com/403","title":"Forbidden","status":403,"detail":"insufficient permissions"}`, http.StatusForbidden)
+				apierror.Forbidden("insufficient permissions").Write(w)
 				return
 			}
 			next.ServeHTTP(w, r)

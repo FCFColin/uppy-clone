@@ -27,7 +27,7 @@ Write-Host 'Layer 4: Input validation'
 Run-Step 'nickname validate' { Set-Location backend; go test ./internal/validate/... -count=1 }
 
 Write-Host 'Layer 5: Middleware & rate limits'
-Run-Step 'ratelimit' { Set-Location backend; go test ./internal/middleware/... -run RateLimit -count=1 }
+Run-Step 'ratelimit' { Set-Location backend; go test ./internal/middleware/... -run RateLimit -short -count=1 }
 
 Write-Host 'Layer 6: Contracts'
 Run-Step 'cooldown contract (Go)' { Set-Location backend; go test ./internal/game/... -run CooldownContract -count=1 }

@@ -10,14 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
-	"github.com/uppy-clone/backend/internal/store"
-	"github.com/uppy-clone/backend/internal/testutil"
 	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 // Integration tests for HTTP handler round-trips with real PostgreSQL and Redis.
@@ -28,7 +26,7 @@ func TestQuickPlayRoundTrip(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx, rdb := testutil.SetupRedisStore(t)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
@@ -81,7 +79,7 @@ func TestMagicLinkRequestVerify(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	_, rdb := testutil.SetupRedisStore(t)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
@@ -115,11 +113,11 @@ func TestLobbyCreateJoinFlow(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx, rdb := testutil.SetupRedisStore(t)
 
 	timeouts := config.DefaultTimeoutConfig()
-	hub := game.NewHub(db, rdb, timeouts, 100, 10, nil)
+	hub := game.NewHub(db, rdb, timeouts, 100, 10)
 	lobbyHandler := NewLobbyHandler(hub, nil)
 
 	w := httptest.NewRecorder()
@@ -160,8 +158,7 @@ func TestLobbyCreateJoinFlow(t *testing.T) {
 	// Check room via HTTP.
 	w2 := httptest.NewRecorder()
 	r2 := httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/"+code, nil)
-	ctx2 := context.WithValue(r2.Context(), chi.RouteCtxKey, &chi.Context{URLParams: chi.RouteParams{Keys: []string{"code"}, Values: []string{code}}})
-	r2 = r2.WithContext(ctx2)
+	r2.SetPathValue("code", code)
 	lobbyHandler.CheckRoom(w2, r2)
 
 	if w2.Code != http.StatusOK {
@@ -185,7 +182,7 @@ func TestLeaderboardAfterGameEnd(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 
 	// Insert a game session and results directly.
 	ctx := context.Background()
@@ -194,10 +191,10 @@ func TestLeaderboardAfterGameEnd(t *testing.T) {
 	endedAt := int64(100)
 
 	if err := db.CreateGameSession(ctx, &domain.GameSession{
-		ID:        sessionID,
-		LobbyCode: lobbyCode,
-		Status:    "ended",
-		EndedAt:   &endedAt,
+		ID:         sessionID,
+		LobbyCode:  lobbyCode,
+		Status:     "ended",
+		EndedAt:    &endedAt,
 		FinalScore: 500,
 	}); err != nil {
 		t.Fatalf("CreateGameSession: %v", err)
@@ -214,7 +211,7 @@ func TestLeaderboardAfterGameEnd(t *testing.T) {
 	}
 
 	var resp struct {
-		Scope   string                 `json:"scope"`
+		Scope   string                    `json:"scope"`
 		Entries []domain.LeaderboardEntry `json:"entries"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {

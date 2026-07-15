@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
+	"strconv"
 	"sync"
-	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -17,25 +17,9 @@ import (
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
+	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/store"
-	"github.com/uppy-clone/backend/internal/telemetry"
 )
-
-// shutdownSignals returns the OS signal channel used for graceful shutdown.
-// Tests may replace this to inject signals without sending real SIGTERM.
-var shutdownSignals = func() <-chan os.Signal {
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
-	return done
-}
-
-// initTracerFn is replaceable in unit tests.
-var initTracerFn = telemetry.InitTracer
-
-// serverShutdownFn is replaceable in unit tests (http.Server.Shutdown).
-var serverShutdownFn = func(srv *http.Server, ctx context.Context) error {
-	return srv.Shutdown(ctx)
-}
 
 func runServer(logger *slog.Logger) error {
 	ctx := context.Background()
@@ -57,11 +41,14 @@ func runServer(logger *slog.Logger) error {
 	timeouts := appConfig.DefaultTimeoutConfig()
 	cfg := loadConfig()
 	validateConfig(cfg, logger)
+	initRateLimits()
 	if err := initCrypto(cfg); err != nil {
 		return fmt.Errorf("init crypto: %w", err)
 	}
 
-	db, err := initDB(cfg, timeouts)
+	deps := newStoreDeps()
+
+	db, err := initDB(cfg, timeouts, deps)
 	if err != nil {
 		return err
 	}
@@ -69,25 +56,20 @@ func runServer(logger *slog.Logger) error {
 	audit.InitDBLogger(db.Pool(), serverEnv.AuditSecretOrJWT())
 	defer audit.CloseDBLogger()
 
-	redis, err := initRedisCluster(cfg, timeouts)
+	redis, err := initRedisCluster(cfg, timeouts, deps)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = redis.Close() }()
 
-	return serve(ctx, cfg, timeouts, db, redis)
+	return serve(ctx, cfg, timeouts, db, redis, deps)
 }
 
-func serve(ctx context.Context, cfg *handler.Config, timeouts appConfig.TimeoutConfig, db *store.PostgresStore, cluster *store.RedisCluster) error {
+func serve(ctx context.Context, cfg *handler.Config, timeouts appConfig.TimeoutConfig, db *store.PostgresStore, cluster *store.RedisCluster, deps store.Deps) error {
 	jwtMgr := auth.NewJWTManager(cfg.JWTPrivateKey)
-	adminJwtMgr := auth.NewJWTManager(cfg.JWTPrivateKey)
+	adminJwtMgr := auth.NewJWTManager(cfg.AdminJWTPrivateKey)
 
-	pubsubRedis, err := initRedisPubSub(cfg, timeouts)
-	if err != nil {
-		return err
-	}
-	broadcaster := game.NewPubSubBroadcaster(pubsubRedis.Client())
-	hub := initHub(db, cluster.Stateful, timeouts, broadcaster)
+	hub := initHub(db, cluster.Stateful, timeouts)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -96,19 +78,23 @@ func serve(ctx context.Context, cfg *handler.Config, timeouts appConfig.TimeoutC
 	startWorkers(ctx, &wg, cfg, cluster.Stateful, db, timeouts)
 	startMetricsCollector(ctx, hub, db, cluster)
 
-	authHandler, lobbyHandler, adminHandler, statsHandler := initHandlers(jwtMgr, adminJwtMgr, db, cluster.Stateful, cfg, timeouts, hub)
+	authHandler, lobbyHandler, adminHandler, statsHandler := initHandlers(jwtMgr, adminJwtMgr, db, cluster.Stateful, cfg, timeouts, hub, deps)
 	rbacEnforcer := initRBAC()
 	r := chi.NewRouter()
 	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, db, cluster, rbacEnforcer, cfg, hub)
 
-	srv := startServer(r, cfg)
-	waitForShutdown(srv, cancel, hub, broadcaster, pubsubRedis)
+	srv, serverErr := startServer(r, cfg)
+	if err := waitForShutdown(srv, cancel, hub, serverErr); err != nil {
+		slog.Error("server error during shutdown", "error", err)
+		return err
+	}
 	wg.Wait()
 	return nil
 }
 
 // startServer creates and starts the HTTP server in a goroutine.
-func startServer(r *chi.Mux, cfg *handler.Config) *http.Server {
+// Returns the server and a channel that receives an error if ListenAndServe fails.
+func startServer(r *chi.Mux, cfg *handler.Config) (*http.Server, <-chan error) {
 	addr := ":" + cfg.Port
 	srv := &http.Server{
 		Addr:         addr,
@@ -118,33 +104,30 @@ func startServer(r *chi.Mux, cfg *handler.Config) *http.Server {
 		IdleTimeout:  appConfig.ServerIdleTimeout,
 	}
 
+	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("server starting", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server failed", "error", err)
-			os.Exit(1)
+			errCh <- err
+			return
 		}
+		close(errCh)
 	}()
 
-	return srv
+	return srv, errCh
 }
 
 // waitForShutdown handles graceful shutdown on SIGINT/SIGTERM.
 // Closes all rooms (persisting state) before shutting down the HTTP server (P2-24).
-func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub, broadcaster *game.PubSubBroadcaster, pubsubRedis *store.RedisStore) {
-	<-shutdownSignals()
-	slog.Info("shutting down server...")
-
-	hub.CloseAllRooms()
-
-	if broadcaster != nil {
-		if err := broadcaster.Close(); err != nil {
-			slog.Error("broadcaster close error", "error", err)
-		}
-	}
-	if pubsubRedis != nil {
-		if err := pubsubRedis.Close(); err != nil {
-			slog.Error("pubsub redis close error", "error", err)
+// Returns the server error if ListenAndServe fails, or nil on clean shutdown.
+func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub, serverErr <-chan error) error {
+	select {
+	case <-shutdownSignals():
+		slog.Info("shutting down server...")
+	case err := <-serverErr:
+		if err != nil {
+			return err
 		}
 	}
 
@@ -155,12 +138,29 @@ func waitForShutdown(srv *http.Server, cancel context.CancelFunc, hub *game.Hub,
 		slog.Error("server shutdown error", "error", err)
 	}
 
+	hub.CloseAllRooms()
+
 	cancel()
 	slog.Info("server stopped")
+	return nil
 }
 
-// exitFunc is replaceable in unit tests (Run calls os.Exit on failure).
-var exitFunc = os.Exit
+// initRateLimits reads rate limit env overrides and applies them.
+func initRateLimits() {
+	requests := 0
+	if v := os.Getenv("RATE_LIMIT_DEFAULT_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			requests = n
+		}
+	}
+	window := time.Duration(0)
+	if v := os.Getenv("RATE_LIMIT_DEFAULT_WINDOW_SECS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			window = time.Duration(n) * time.Second
+		}
+	}
+	appMiddleware.InitRateLimits(requests, window)
+}
 
 // Run is the application entrypoint invoked from cmd/server/main.go.
 // On failure, Run calls exitFunc(1) (os.Exit in production) to terminate.

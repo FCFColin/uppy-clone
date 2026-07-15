@@ -30,14 +30,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./state_types.js', () => ({
   state: mocks.state,
+  getState: () => mocks.state,
 }));
 vi.mock('./state_interp.js', () => ({
   resetInterpolation: mocks.resetInterpolation,
   freezeInterpolation: mocks.freezeInterpolation,
   clearSeenSeqs: mocks.clearSeenSeqs,
-}));
-
-vi.mock('./state_reset.js', () => ({
   resetRoundClientState: () => {
     mocks.state.ripples = [];
     mocks.state.explosionEffect = null;
@@ -54,17 +52,29 @@ vi.mock('./state_reset.js', () => ({
   },
 }));
 
-vi.mock('./ui.js', () => ({
+vi.mock('./ui_update.js', () => ({
   updateUI: mocks.updateUI,
+}));
+
+vi.mock('./ui_utils.js', () => ({
   startCountdownTimer: mocks.startCountdownTimer,
   hideCountdownOverlay: mocks.hideCountdownOverlay,
   showCountdownOverlay: mocks.showCountdownOverlay,
+}));
+
+vi.mock('./seen_seqs.js', () => ({
+  clearSeenSeqs: mocks.clearSeenSeqs,
+}));
+
+vi.mock('./ui_cooldown.js', () => ({
   startCooldownUpdater: vi.fn(),
   stopCooldownUpdater: vi.fn(),
 }));
 
 vi.mock('./entry_flow.js', () => ({
   tryEntryHandoff: vi.fn(),
+  isEntryHandoff: vi.fn(() => false),
+  getWaitingTitleText: vi.fn(() => ''),
 }));
 
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
@@ -217,13 +227,11 @@ describe('shouldApplySnapshotPhase', () => {
     expect(shouldApplySnapshotPhase('playing')).toBe(true);
   });
 
-  it('clears countdown and restart timers when entering playing', () => {
+  it('clears countdown timer when entering playing', () => {
     mocks.state.phase = 'countdown';
     mocks.state.countdownTimerInterval = setInterval(() => {}, 1000);
-    window._restartCountdownTimer = setInterval(() => {}, 1000);
     applyPhaseChange('playing');
     expect(mocks.state.countdownTimerInterval).toBeNull();
-    expect(window._restartCountdownTimer).toBeNull();
   });
 
   it('handles missing nickname inline element when entering playing', () => {

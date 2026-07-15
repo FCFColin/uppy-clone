@@ -10,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker/v2"
 
 	"github.com/uppy-clone/backend/internal/auth"
@@ -33,20 +32,10 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *s
 	if db != nil {
 		pool = db.Pool()
 	}
-	var rdb *goredis.Client
+	var redisPinger health.RedisPinger
 	if cluster != nil {
-		rdb = cluster.Stateful.Client()
+		redisPinger = cluster.Stateful.Client()
 	}
-	healthChecker := health.NewChecker(pool, rdb)
-	if hub != nil {
-		healthChecker = healthChecker.WithCanAcceptWS(hub.CanAcceptWSConnection)
-	}
-	r.Get("/health/live", healthChecker.LiveHandler)
-	r.Get("/health/ready", healthChecker.ReadyHandler)
-	r.Get("/health", healthChecker.ReadyHandler)
-
-	r.Handle("/metrics", metricsAuthMiddleware(promhttp.Handler()))
-
 	// ─── Degradation detection ──────────────────────────────────────────
 	var cbs []*gobreaker.CircuitBreaker[any]
 	if db != nil {
@@ -55,6 +44,17 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *s
 	if cluster != nil {
 		cbs = append(cbs, cluster.CircuitBreakers()...)
 	}
+
+	healthChecker := health.NewChecker(pool, redisPinger)
+	if hub != nil {
+		healthChecker = healthChecker.WithCanAcceptWS(hub.CanAcceptWSConnection)
+	}
+	healthChecker = healthChecker.WithCircuitBreakers(cbs...)
+	r.Get("/health/live", healthChecker.LiveHandler)
+	r.Get("/health/ready", healthChecker.ReadyHandler)
+	r.Get("/health", healthChecker.ReadyHandler)
+
+	r.Handle("/metrics", metricsAuthMiddleware(promhttp.Handler()))
 	r.Get("/health/degraded", handler.DegradedHandler(cbs...))
 }
 
@@ -125,9 +125,6 @@ func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, cluster *s
 		r.With(authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("lobby", "join")).Get("/{code}/ws", lobbyHandler.WebSocket)
 	})
 }
-
-// filepathAbsFn resolves absolute paths; tests may replace it to simulate errors.
-var filepathAbsFn = filepath.Abs
 
 // setupStaticRoutes registers SPA static file serving with path-traversal protection.
 func setupStaticRoutes(r *chi.Mux, cfg *handler.Config) {

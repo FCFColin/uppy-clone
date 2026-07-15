@@ -38,16 +38,6 @@ vi.mock('./renderer.js', () => ({
   renderOnce: mockRenderOnce,
   $canvas: mockCanvas,
 }));
-vi.mock('./ui.js', () => ({
-  updateUI: mockUpdateUI,
-  generateRandomNickname: mockGenerateRandomNickname,
-  copyCode: mockCopyCode,
-  refreshLayout: mockRefreshLayout,
-  showFallbackErrorScreen: mockShowFallbackErrorScreen,
-  $copyCodeBtn: null,
-  $hudCopyBtn: null,
-  $setupNicknameInput: null,
-}));
 vi.mock('./ws_connect.js', () => ({ connectWebSocket: mockConnectWebSocket }));
 vi.mock('./ws_connection.js', () => ({ stopHeartbeat: mockStopHeartbeat, getWs: mockGetWs }));
 

@@ -9,11 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
 )
 
 type trackingRoomRepo struct {
@@ -34,74 +31,16 @@ func (t *trackingRoomRepo) CreateGameSession(_ context.Context, _ *domain.GameSe
 	return t.createSessionErr
 }
 
-func TestRoom_EnqueueGameResultAsync_NoHub(t *testing.T) {
-	r := &Room{state: NewGameState("TEST", testRNG()), logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
+func TestRoom_EnqueueGameResultAsync_NoHub(_ *testing.T) {
+	r := &Room{state: NewGameState("TEST", 42, testRNG()), logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
 	r.state.SessionID = "sess-1"
 	r.enqueueGameResultAsync()
 }
 
-func TestRoom_EnqueueGameResultAsync_NoSessionID(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+func TestRoom_EnqueueGameResultAsync_NoSessionID(_ *testing.T) {
+	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 	r := NewRoom("TEST1", h, nil, config.DefaultTimeoutConfig(), 0)
 	r.enqueueGameResultAsync()
-}
-
-func TestRoom_RunGameResultJob_Success(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
-	if err != nil {
-		t.Fatalf("NewRedisStore: %v", err)
-	}
-	defer redisStore.Close()
-
-	repo := &trackingRoomRepo{mockRoomRepository: *newMockRoomRepository()}
-	h := NewHub(repo, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
-	r := NewRoom("TEST1", h, repo, config.DefaultTimeoutConfig(), 0)
-	r.state.SessionID = "sess-abc"
-	r.state.LobbyCode = domain.RoomCode("TEST1")
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", ScoreContribution: 10, TapsCount: 2}
-
-	r.enqueueGameResultAsync()
-	r.asyncWg.Wait()
-
-	if repo.insertOutboxCount != 1 {
-		t.Fatalf("insertOutboxCount = %d, want 1", repo.insertOutboxCount)
-	}
-}
-
-func TestRoom_RunGameResultJob_OutboxError(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
-	if err != nil {
-		t.Fatalf("NewRedisStore: %v", err)
-	}
-	defer redisStore.Close()
-
-	repo := &trackingRoomRepo{
-		mockRoomRepository: *newMockRoomRepository(),
-		insertOutboxErr:    errors.New("outbox down"),
-	}
-	h := NewHub(repo, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
-	r := NewRoom("TEST1", h, repo, config.DefaultTimeoutConfig(), 0)
-	r.state.SessionID = "sess-abc"
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
-
-	r.runGameResultJob(gameResultJob{
-		sessionID: "sess-abc",
-		roomCode:  "TEST1",
-		payload:   []byte(`{"game_id":"sess-abc"}`),
-		outbox:    []byte(`{"event":"game.ended"}`),
-	})
 }
 
 func TestRoom_CreateGameSessionAsync(t *testing.T) {
@@ -173,21 +112,21 @@ func TestRoom_WritePersistJob_NilStore(t *testing.T) {
 	}
 }
 
-func TestRoom_WritePersistJob_StoreError(t *testing.T) {
+func TestRoom_WritePersistJob_StoreError(_ *testing.T) {
 	repo := newMockRoomRepository()
 	repo.saveErr = errors.New("save failed")
 	r := NewRoom("ERR", nil, repo, config.DefaultTimeoutConfig(), 0)
 	r.writePersistJob(persistJob{code: "ERR", stateJSON: []byte("{}")})
 }
 
-func TestRoom_RequestPersist_NilStore(t *testing.T) {
+func TestRoom_RequestPersist_NilStore(_ *testing.T) {
 	r := NewRoom("TEST1", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.mu.Lock()
 	r.requestPersist()
 	r.mu.Unlock()
 }
 
-func TestRoom_RequestPersist_QueueCoalesce(t *testing.T) {
+func TestRoom_RequestPersist_QueueCoalesce(_ *testing.T) {
 	repo := newMockRoomRepository()
 	r := NewRoom("TEST1", nil, repo, config.DefaultTimeoutConfig(), 0)
 	r.startPersistLoop()
@@ -207,30 +146,21 @@ func TestRoom_RequestPersist_QueueCoalesce(t *testing.T) {
 	r.stopPersist()
 }
 
-func TestRoom_EnqueueGameResultAsync_WithRedisPath(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
-	if err != nil {
-		t.Fatalf("NewRedisStore: %v", err)
-	}
-	defer redisStore.Close()
-
+func TestRoom_EnqueueGameResultAsync_OutboxPath(t *testing.T) {
 	repo := &trackingRoomRepo{mockRoomRepository: *newMockRoomRepository()}
-	h := NewHub(repo, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
-	r := NewRoom("RES1", h, repo, config.DefaultTimeoutConfig(), 0)
+	r := NewRoom("RES1", nil, repo, config.DefaultTimeoutConfig(), 0)
 	r.state.SessionID = "sess-res"
 	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", ScoreContribution: 5, TapsCount: 1}
 
 	r.enqueueGameResultAsync()
 	r.asyncWg.Wait()
+
+	if repo.insertOutboxCount != 1 {
+		t.Fatalf("insertOutboxCount = %d, want 1", repo.insertOutboxCount)
+	}
 }
 
-func TestRoom_CreateGameSessionAsync_StoreError(t *testing.T) {
+func TestRoom_CreateGameSessionAsync_StoreError(_ *testing.T) {
 	repo := &trackingRoomRepo{
 		mockRoomRepository: *newMockRoomRepository(),
 		createSessionErr:   errors.New("create failed"),
@@ -240,25 +170,14 @@ func TestRoom_CreateGameSessionAsync_StoreError(t *testing.T) {
 	r.asyncWg.Wait()
 }
 
-func TestRoom_RunGameResultJob_EnqueueError(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
+// --- coverage gap 补充用例 ---
 
-	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
-	if err != nil {
-		t.Fatalf("NewRedisStore: %v", err)
+func TestRoom_EnqueueGameResultAsync_OutboxPayloadError(t *testing.T) {
+	room := NewRoom("GPE", nil, nil, config.DefaultTimeoutConfig(), 4)
+	room.gameEndedOutboxPayloadFunc = func(map[string]interface{}) ([]byte, error) {
+		return nil, errors.New("outbox failed")
 	}
-	defer redisStore.Close()
-	_ = redisStore.Close()
-
-	h := NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0, nil)
-	r := NewRoom("RQ", h, nil, config.DefaultTimeoutConfig(), 0)
-	r.runGameResultJob(gameResultJob{
-		sessionID: "s1",
-		roomCode:  "RQ",
-		payload:   []byte(`{"game_id":"s1"}`),
-	})
+	room.state.SessionID = "sess-outbox-err"
+	room.enqueueGameResultAsync()
+	room.asyncWg.Wait()
 }

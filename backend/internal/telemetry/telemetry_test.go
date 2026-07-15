@@ -76,7 +76,7 @@ func TestTracer_ReturnsNonNil(t *testing.T) {
 
 // TestTracer_ReturnsConsistentInstance verifies that Tracer() returns the
 // same instance on repeated calls (it's a package-level var).
-func TestTracer_ReturnsConsistentInstance(t *testing.T) {
+func TestTracer_ReturnsConsistentInstance(_ *testing.T) {
 	tr1 := Tracer()
 	tr2 := Tracer()
 	// Tracer returns the same pointer/value each time.

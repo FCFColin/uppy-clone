@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: alertmanager
   labels:
@@ -9,25 +9,68 @@ spec:
   selector:
     matchLabels:
       app: alertmanager
+  serviceName: alertmanager
   template:
     metadata:
       labels:
         app: alertmanager
     spec:
+      # infra-029: Pod 级 securityContext，与 PSS-restricted 对齐。
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
       containers:
         - name: alertmanager
           image: prom/alertmanager:v0.27.0
           args:
             - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
           ports:
             - containerPort: 9093
+          # infra-029: 增加 liveness/readiness probe，使 K8s 能自动重启死锁实例
+          # 并在就绪前不路由流量。Alertmanager 暴露 /-/healthy 与 /-/ready。
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
           volumeMounts:
             - name: config
               mountPath: /etc/alertmanager
+              readOnly: true
+            - name: data
+              mountPath: /alertmanager
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
       volumes:
         - name: config
           configMap:
             name: alertmanager-config
+  # infra-029: PVC 持久化 silence / notification state，避免 Pod 重启后丢通知上下文。
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+        storageClassName: premium-rwo
 ---
 apiVersion: v1
 kind: Service
@@ -39,3 +82,17 @@ spec:
   ports:
     - port: 9093
       targetPort: 9093
+---
+# infra-029: PodDisruptionBudget 保证节点维护期间至少 1 个 Alertmanager 副本可用，
+# 避免 alert 通知在 voluntary eviction 时整体不可达。生产建议 replicas>=3 + PDB minAvailable=1。
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: alertmanager
+  labels:
+    app: alertmanager
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: alertmanager

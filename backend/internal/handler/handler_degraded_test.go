@@ -295,7 +295,7 @@ func TestRequireHub_ReturnsTrueWhenNotNil(t *testing.T) {
 
 	t.Run("non-nil hub returns true", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+		hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 		result := RequireHub(hub, w)
 		if !result {
 			t.Error("RequireHub(non-nil) = false, want true")
@@ -328,7 +328,7 @@ func TestRequireHubDegraded_ReturnsTrueWhenNotNil(t *testing.T) {
 
 	t.Run("non-nil hub returns true", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+		hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 		result := RequireHubDegraded(hub, w, http.StatusOK, nil, "")
 		if !result {
 			t.Error("RequireHubDegraded(non-nil) = false, want true")

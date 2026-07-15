@@ -2,14 +2,13 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/resilience"
-	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -20,12 +19,14 @@ type ConfigRepository struct {
 }
 
 // NewConfigRepository creates a ConfigRepository.
-func NewConfigRepository(pool pgPool) *ConfigRepository {
-	return &ConfigRepository{baseRepository: newBaseRepository(pool)}
+func NewConfigRepository(pool pgPool, deps ...Deps) *ConfigRepository {
+	d := depsOrZero(deps...)
+	return &ConfigRepository{baseRepository: newBaseRepository(pool, d)}
 }
 
+// GetConfig retrieves an application configuration by ID.
 func (r *ConfigRepository) GetConfig(ctx context.Context, id string) (*domain.AppConfig, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "config_repo.GetConfig",
+	ctx, span := r.deps.Tracer.Start(ctx, "config_repo.GetConfig",
 		trace.WithAttributes(attribute.String("db.system", "postgresql")),
 	)
 	defer span.End()
@@ -41,6 +42,16 @@ func (r *ConfigRepository) GetConfig(ctx context.Context, id string) (*domain.Ap
 			}
 			return fmt.Errorf("get config: %w", scanErr)
 		}
+		// store-018: Parse the JSON config to populate EmailEnabled and EmailFrom
+		// fields that were always zero because they are part of the JSON config column.
+		var parsed struct {
+			EmailEnabled bool   `json:"email_enabled"`
+			EmailFrom    string `json:"email_from"`
+		}
+		if jsonErr := json.Unmarshal([]byte(cfg.Config), &parsed); jsonErr == nil {
+			cfg.EmailEnabled = parsed.EmailEnabled
+			cfg.EmailFrom = parsed.EmailFrom
+		}
 		c = &cfg
 		return nil
 	})
@@ -50,13 +61,14 @@ func (r *ConfigRepository) GetConfig(ctx context.Context, id string) (*domain.Ap
 	return c, nil
 }
 
+// SaveConfig persists an application configuration.
 func (r *ConfigRepository) SaveConfig(ctx context.Context, c *domain.AppConfig) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "config_repo.SaveConfig",
+	ctx, span := r.deps.Tracer.Start(ctx, "config_repo.SaveConfig",
 		trace.WithAttributes(attribute.String("db.system", "postgresql")),
 	)
 	defer span.End()
 
-	err := retry.Do(ctx, resilience.DefaultDBRetry(), func(ctx context.Context) error {
+	err := retry.Do(ctx, r.deps.DBRetryPolicy, func(ctx context.Context) error {
 		_, cbErr := r.cb.Execute(func() (any, error) {
 			_, execErr := r.pool.Exec(ctx,
 				`INSERT INTO admin_config (id, config, updated_at) VALUES ($1, $2, $3)
@@ -67,7 +79,7 @@ func (r *ConfigRepository) SaveConfig(ctx context.Context, c *domain.AppConfig) 
 			}
 			return nil, nil
 		})
-		return resilience.MaybeRetryable(cbErr)
+		return r.deps.MaybeRetryableFn(cbErr)
 	})
 	return err
 }

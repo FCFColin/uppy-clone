@@ -31,7 +31,7 @@ func main() {
 	}
 
 	goOut := filepath.Join(root, "backend", "internal", "nicknames", "pools_gen.go")
-	tsOut := filepath.Join(root, "frontend", "src", "shared", "nickname_pools_gen.ts")
+	tsOut := filepath.Join(root, "frontend", "src", "shared", "assets", "nickname_pools_gen.ts")
 
 	if err := os.WriteFile(goOut, renderGo(pools), 0o644); err != nil {
 		fatal(err)

@@ -185,7 +185,7 @@ func TestGameStateRemovePlayer_NotFound(t *testing.T) {
 	// Must not panic
 }
 
-func TestGameStateRemovePlayer_NilMap(t *testing.T) {
+func TestGameStateRemovePlayer_NilMap(_ *testing.T) {
 	gs := &GameState{}
 	gs.RemovePlayer("p1")
 	// Must not panic
@@ -209,7 +209,7 @@ func TestGameStateUpdatePlayerState_NotFound(t *testing.T) {
 	t.Parallel()
 	gs := &GameState{Players: make(map[string]*PlayerState)}
 	called := false
-	gs.UpdatePlayerState("nonexistent", func(p *PlayerState) {
+	gs.UpdatePlayerState("nonexistent", func(_ *PlayerState) {
 		called = true
 	})
 	if called {
@@ -220,7 +220,7 @@ func TestGameStateUpdatePlayerState_NotFound(t *testing.T) {
 func TestGameStateUpdatePlayerState_NilMap(t *testing.T) {
 	gs := &GameState{}
 	called := false
-	gs.UpdatePlayerState("p1", func(p *PlayerState) {
+	gs.UpdatePlayerState("p1", func(_ *PlayerState) {
 		called = true
 	})
 	if called {

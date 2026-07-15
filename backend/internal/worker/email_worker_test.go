@@ -20,6 +20,7 @@ import (
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/resilience"
 )
 
 // ─── Test helpers ────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ func setupRedis(t *testing.T) *redis.Client {
 	if err != nil {
 		t.Skipf("skipping: redis container unavailable (Docker not running?): %v", err)
 	}
-	t.Cleanup(func() { redisContainer.Terminate(ctx) })
+	t.Cleanup(func() { _ = redisContainer.Terminate(ctx) })
 
 	addr, err := redisContainer.Endpoint(ctx, "")
 	if err != nil {
@@ -55,7 +56,7 @@ func setupRedis(t *testing.T) *redis.Client {
 	}
 
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
-	t.Cleanup(func() { rdb.Close() })
+	t.Cleanup(func() { _ = rdb.Close() })
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		t.Fatalf("redis ping: %v", err)
@@ -88,7 +89,7 @@ func TestProcessMessage_Success(t *testing.T) {
 	rdb := setupRedis(t)
 
 	var requestCount int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requestCount, 1)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -131,7 +132,7 @@ func TestProcessMessage_Success(t *testing.T) {
 func TestProcessMessage_InvalidPayload(t *testing.T) {
 	rdb := setupRedis(t)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("should not call API for invalid payload")
 	}))
 	defer server.Close()
@@ -154,7 +155,7 @@ func TestProcessMessage_InvalidPayload(t *testing.T) {
 
 func TestProcessMessage_NonStringPayload(t *testing.T) {
 	rdb := setupRedis(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("should not call API for non-string payload")
 	}))
 	defer server.Close()
@@ -177,7 +178,7 @@ func TestProcessMessage_NonStringPayload(t *testing.T) {
 func TestProcessMessage_NoAPIKey(t *testing.T) {
 	rdb := setupRedis(t)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("should not call API when apiKey is empty")
 	}))
 	defer server.Close()
@@ -207,7 +208,7 @@ func TestProcessMessage_Retry(t *testing.T) {
 	rdb := setupRedis(t)
 
 	var requestCount int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requestCount, 1)
 		w.WriteHeader(http.StatusInternalServerError) // 500 → trips breaker
 	}))
@@ -267,7 +268,7 @@ func TestProcessMessage_RetryThenSuccess(t *testing.T) {
 	rdb := setupRedis(t)
 
 	var requestCount int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		n := atomic.AddInt32(&requestCount, 1)
 		if n == 1 {
 			w.WriteHeader(http.StatusInternalServerError) // first fails
@@ -329,7 +330,7 @@ func TestProcessMessage_DeadLetterQueue(t *testing.T) {
 	rdb := setupRedis(t)
 
 	var requestCount int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requestCount, 1)
 		w.WriteHeader(http.StatusInternalServerError) // always fail
 	}))
@@ -387,8 +388,9 @@ func TestProcessMessage_DeadLetterQueue(t *testing.T) {
 // (ConsecutiveFailures > 3), the circuit breaker opens and subsequent calls
 // return ErrOpenState without hitting the API.
 func TestSendEmail_CircuitBreakerOpens(t *testing.T) {
+	t.Cleanup(func() { resilience.ResetBreakersForTesting() })
 	var requestCount int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requestCount, 1)
 		w.WriteHeader(http.StatusInternalServerError) // 5xx trips breaker
 	}))
@@ -428,7 +430,7 @@ func TestSendEmail_CircuitBreakerOpens(t *testing.T) {
 // TestSendEmail_CircuitBreakerStaysClosedOn4xx verifies that 4xx errors do NOT
 // trip the circuit breaker (client errors are not retryable).
 func TestSendEmail_CircuitBreakerStaysClosedOn4xx(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest) // 4xx → clientErr, does NOT trip breaker
 	}))
 	defer server.Close()
@@ -452,7 +454,7 @@ func TestSendEmail_CircuitBreakerStaysClosedOn4xx(t *testing.T) {
 
 // TestSendEmail_Success verifies a successful API call returns nil.
 func TestSendEmail_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -518,7 +520,7 @@ func TestSendEmail_InvalidURL(t *testing.T) {
 
 func TestSendEmail_TruncatesLong5xxBody(t *testing.T) {
 	longBody := strings.Repeat("x", 1500)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(longBody))
 	}))
@@ -614,7 +616,7 @@ func TestEmailWorker_Start_ProcessesMessage(t *testing.T) {
 	}
 
 	var requestCount int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requestCount, 1)
 		w.WriteHeader(http.StatusOK)
 	}))

@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
     },
   },
   server: {
+    host: true,
     port: Number(env.FRONTEND_PORT) || 5173,
     strictPort: !!env.FRONTEND_PORT,
     proxy: {

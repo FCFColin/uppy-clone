@@ -42,7 +42,21 @@ spec:
       containers:
         - name: redis
           image: redis:7.4.0-alpine3.20@sha256:c35af3bbcef51a62c8bae5a9a563c6f1b60d7ebaea4cb5a3ccbcc157580ae098
-          args: ["--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "no"]
+          command:
+            - sh
+            - -c
+            - |
+              exec redis-server \
+                --maxmemory 64mb \
+                --maxmemory-policy allkeys-lru \
+                --appendonly no \
+                --requirepass "${REDIS_PASSWORD}"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: redis-password
           ports:
             - containerPort: 6379
           resources:
@@ -54,11 +68,11 @@ spec:
               memory: "128Mi"
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["sh", "-c", "redis-cli -a $REDIS_PASSWORD ping"]
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["sh", "-c", "redis-cli -a $REDIS_PASSWORD ping"]
             initialDelaySeconds: 10
             periodSeconds: 30

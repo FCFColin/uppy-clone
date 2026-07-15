@@ -92,7 +92,7 @@ func TestInitDB_MigrationWarnEmptyDatabaseURL(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	origPG := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
 	t.Cleanup(func() { newPostgresStoreFn = origPG })
@@ -103,7 +103,7 @@ func TestInitDB_MigrationWarnEmptyDatabaseURL(t *testing.T) {
 	t.Cleanup(origRun)
 
 	cfg := &handler.Config{DatabaseURL: ""}
-	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err != nil {
 		t.Fatalf("initDB should warn-not-fail when DatabaseURL empty: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestInitDB_MigrationFailsNonEmptyURL(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	origPG := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
 	t.Cleanup(func() { newPostgresStoreFn = origPG })
@@ -134,7 +134,7 @@ func TestInitDB_MigrationFailsNonEmptyURL(t *testing.T) {
 	t.Cleanup(origRun)
 
 	cfg := &handler.Config{DatabaseURL: "postgres://mock/mock?sslmode=disable"}
-	_, err = initDB(cfg, appConfig.DefaultTimeoutConfig())
+	_, err = initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err == nil {
 		t.Fatal("expected migration error when DatabaseURL set")
 	}
@@ -147,10 +147,9 @@ func TestWaitForShutdown_AlreadyClosedServer(t *testing.T) {
 	t.Cleanup(func() { shutdownSignals = prev })
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	broadcaster := game.NewPubSubBroadcaster(redisStore.Client())
-	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, broadcaster)
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	srv.Close()
@@ -158,7 +157,7 @@ func TestWaitForShutdown_AlreadyClosedServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, broadcaster, nil)
+		_ = waitForShutdown(srv.Config, cancel, hub, nil)
 		close(done)
 	}()
 
@@ -175,23 +174,23 @@ func TestWaitForShutdown_AlreadyClosedServer(t *testing.T) {
 	}
 }
 
-func TestWaitForShutdown_NilBroadcaster(t *testing.T) {
+func TestWaitForShutdown_GracefulNoRedis(t *testing.T) {
 	sigCh := make(chan os.Signal, 1)
 	prev := shutdownSignals
 	shutdownSignals = func() <-chan os.Signal { return sigCh }
 	t.Cleanup(func() { shutdownSignals = prev })
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
 
-	hub := game.NewHub(nil, nil, appConfig.DefaultTimeoutConfig(), 0, 0, nil)
+	hub := game.NewHub(nil, nil, appConfig.DefaultTimeoutConfig(), 0, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, nil, nil)
+		_ = waitForShutdown(srv.Config, cancel, hub, nil)
 		close(done)
 	}()
 
@@ -208,45 +207,9 @@ func TestWaitForShutdown_NilBroadcaster(t *testing.T) {
 	}
 }
 
-func TestWaitForShutdown_BroadcasterCloseError(t *testing.T) {
-	sigCh := make(chan os.Signal, 1)
-	prev := shutdownSignals
-	shutdownSignals = func() <-chan os.Signal { return sigCh }
-	t.Cleanup(func() { shutdownSignals = prev })
-
-	redisStore := testutil.SetupMiniredisStore(t)
-	broadcaster := game.NewPubSubBroadcaster(redisStore.Client())
-	t.Cleanup(game.SetPubsubCloseErrForTest(errors.New("broadcaster close failed")))
-	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, broadcaster)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		waitForShutdown(srv.Config, cancel, hub, broadcaster, nil)
-		close(done)
-	}()
-
-	sigCh <- syscall.SIGTERM
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("waitForShutdown did not complete")
-	}
-	select {
-	case <-ctx.Done():
-	default:
-		t.Fatal("expected context cancelled after shutdown")
-	}
-}
-
 func TestInitDB_InvalidURL(t *testing.T) {
 	cfg := &handler.Config{DatabaseURL: "postgres://invalid-host:59999/nodb?sslmode=disable&connect_timeout=1"}
-	_, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	_, err := initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err == nil {
 		t.Fatal("expected initDB error")
 	}
@@ -259,7 +222,7 @@ func TestInitDB_MigrationFails(t *testing.T) {
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	cfg := &handler.Config{DatabaseURL: dbURL}
-	_, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	_, err := initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err == nil {
 		t.Fatal("expected migration error when migrations path is invalid")
 	}
@@ -278,7 +241,7 @@ func TestInitDB_SuccessMocked(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	origPG := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
 	t.Cleanup(func() { newPostgresStoreFn = origPG })
@@ -291,7 +254,7 @@ func TestInitDB_SuccessMocked(t *testing.T) {
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	cfg := &handler.Config{DatabaseURL: "postgres://mock/mock?sslmode=disable"}
-	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err != nil {
 		t.Fatalf("initDB: %v", err)
 	}
@@ -311,7 +274,7 @@ func TestInitDB_MigrationsDirFromEnv(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	origPG := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
 	t.Cleanup(func() { newPostgresStoreFn = origPG })
@@ -329,7 +292,7 @@ func TestInitDB_MigrationsDirFromEnv(t *testing.T) {
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	cfg := &handler.Config{DatabaseURL: "postgres://mock/mock?sslmode=disable"}
-	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err != nil {
 		t.Fatalf("initDB: %v", err)
 	}
@@ -356,10 +319,10 @@ func TestRunServer_MockDeps(t *testing.T) {
 
 	origPG := newPostgresStoreFn
 	origRedis := newRedisStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
 		return redisStore, nil
 	}
 	t.Cleanup(func() {
@@ -403,7 +366,7 @@ func TestRunServer_MockDeps(t *testing.T) {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -449,10 +412,10 @@ func TestRun_SuccessMocked(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
 		return redisStore, nil
 	}
 	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
@@ -486,7 +449,7 @@ func TestRun_SuccessMocked(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		Run()
+		_ = Run()
 		close(done)
 	}()
 
@@ -494,7 +457,7 @@ func TestRun_SuccessMocked(t *testing.T) {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -515,7 +478,7 @@ func TestInitDB_Success(t *testing.T) {
 	t.Cleanup(func() { serverEnv = prevEnv })
 
 	cfg := &handler.Config{DatabaseURL: dbURL}
-	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig())
+	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err != nil {
 		t.Fatalf("initDB: %v", err)
 	}
@@ -563,7 +526,7 @@ func TestRunServer_FullHappyPath(t *testing.T) {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -601,8 +564,10 @@ func TestRunServer_InvalidDatabase(t *testing.T) {
 func TestStartServer_ListenErrorExits(t *testing.T) {
 	if os.Getenv("TEST_START_SERVER_LISTEN_ERROR") == "1" {
 		r := chi.NewRouter()
-		startServer(r, &handler.Config{Port: "999999"})
-		time.Sleep(500 * time.Millisecond)
+		_, errCh := startServer(r, &handler.Config{Port: "999999"})
+		if err := <-errCh; err != nil {
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 
@@ -632,7 +597,7 @@ func TestStartMetricsCollector_TickInShort(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	startMetricsCollector(ctx, hub, db, cluster)
@@ -654,7 +619,7 @@ func TestStartMetricsCollector_UpdatesOnTick(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	startMetricsCollector(ctx, hub, db, cluster)
@@ -667,11 +632,11 @@ func TestInitRedisCluster_Success(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	addr := redisStore.Client().Options().Addr
 	cfg := &handler.Config{RedisURL: addr}
-	got, err := initRedisCluster(cfg, appConfig.DefaultTimeoutConfig())
+	got, err := initRedisCluster(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err != nil {
 		t.Fatalf("initRedisCluster: %v", err)
 	}
-	defer got.Close()
+	defer func() { _ = got.Close() }()
 }
 
 func TestInitRedisCluster_InvalidURL(t *testing.T) {
@@ -680,7 +645,7 @@ func TestInitRedisCluster_InvalidURL(t *testing.T) {
 		RedisConnectTimeout: time.Second,
 		RedisReadTimeout:    time.Second,
 		RedisWriteTimeout:   time.Second,
-	})
+	}, store.DefaultDeps())
 	if err == nil {
 		t.Fatal("expected initRedisCluster error")
 	}
@@ -699,12 +664,11 @@ func TestInitHub_RestoreRoomsError(t *testing.T) {
 
 	db := store.NewPostgresStoreWithPool(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
-	broadcaster := game.NewPubSubBroadcaster(redisStore.Client())
 
 	serverEnv = &appConfig.Env{MaxWSConnections: 100, MaxPlayersPerRoom: 8}
 	t.Cleanup(func() { serverEnv = nil })
 
-	hub := initHub(db, redisStore, appConfig.DefaultTimeoutConfig(), broadcaster)
+	hub := initHub(db, redisStore, appConfig.DefaultTimeoutConfig())
 	if hub == nil {
 		t.Fatal("initHub should return hub even when restore fails")
 	}
@@ -725,12 +689,11 @@ func TestInitHub_RestoresRooms(t *testing.T) {
 
 	db := store.NewPostgresStoreWithPool(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
-	broadcaster := game.NewPubSubBroadcaster(redisStore.Client())
 
 	serverEnv = &appConfig.Env{MaxWSConnections: 100, MaxPlayersPerRoom: 8}
 	t.Cleanup(func() { serverEnv = nil })
 
-	hub := initHub(db, redisStore, appConfig.DefaultTimeoutConfig(), broadcaster)
+	hub := initHub(db, redisStore, appConfig.DefaultTimeoutConfig())
 	if hub == nil {
 		t.Fatal("initHub returned nil")
 	}
@@ -763,7 +726,7 @@ func TestStartMetricsCollector_Cancel(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 	db := store.NewPostgresStoreWithPool(mock)
-	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	startMetricsCollector(ctx, hub, db, cluster)
@@ -788,10 +751,10 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 
 	origPG := newPostgresStoreFn
 	origRedis := newRedisStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
 		return nil, errors.New("redis unavailable")
 	}
 	t.Cleanup(func() {
@@ -869,7 +832,7 @@ func TestRun_ExitsOnFailure(t *testing.T) {
 	serverEnv = &appConfig.Env{}
 	t.Cleanup(func() { serverEnv = prevEnv })
 
-	Run()
+	_ = Run()
 	if exitCode != 1 {
 		t.Fatalf("Run should exit 1, got %d", exitCode)
 	}
@@ -883,7 +846,7 @@ func TestRun_ExitsOnInitCryptoFailure(t *testing.T) {
 
 	t.Setenv("ENABLE_HSTS", "false")
 	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
-	t.Setenv("ADMIN_JWT_SECRET", "test-admin-jwt-secret-padded-32bytes!")
+	t.Setenv("ADMIN_JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
 	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
 	t.Setenv("REDIS_URL", "127.0.0.1:6379")
 	t.Setenv("ENCRYPTION_KEY", "not-valid-hex")
@@ -894,7 +857,7 @@ func TestRun_ExitsOnInitCryptoFailure(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	t.Cleanup(func() { serverEnv = prevEnv })
 
-	Run()
+	_ = Run()
 	if exitCode != 1 {
 		t.Fatalf("Run should exit 1 on init crypto failure, got %d", exitCode)
 	}
@@ -907,10 +870,9 @@ func TestWaitForShutdown_Graceful(t *testing.T) {
 	t.Cleanup(func() { shutdownSignals = prev })
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	broadcaster := game.NewPubSubBroadcaster(redisStore.Client())
-	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, broadcaster)
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -918,7 +880,7 @@ func TestWaitForShutdown_Graceful(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, broadcaster, nil)
+		_ = waitForShutdown(srv.Config, cancel, hub, nil)
 		close(done)
 	}()
 
@@ -967,7 +929,6 @@ func TestServe_StartsAndStops(t *testing.T) {
 		MaxWSConnections:  100,
 		MaxPlayersPerRoom: 8,
 		AllowedOrigins:    "http://localhost",
-		
 	}
 	t.Cleanup(func() { serverEnv = prevEnv })
 
@@ -988,14 +949,14 @@ func TestServe_StartsAndStops(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- serve(ctx, cfg, timeouts, db, cluster)
+		done <- serve(ctx, cfg, timeouts, db, cluster, store.DefaultDeps())
 	}()
 
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := http.Get("http://127.0.0.1:" + cfg.Port + "/health/live")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -1044,10 +1005,10 @@ func TestRunServer_TracerInitError(t *testing.T) {
 
 	origPG := newPostgresStoreFn
 	origRedis := newRedisStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
 		return redisStore, nil
 	}
 	t.Cleanup(func() {
@@ -1105,10 +1066,10 @@ func TestRunServer_TracerShutdownError(t *testing.T) {
 
 	origPG := newPostgresStoreFn
 	origRedis := newRedisStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(pool), nil
 	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig) (*store.RedisStore, error) {
+	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
 		return redisStore, nil
 	}
 	t.Cleanup(func() {
@@ -1169,18 +1130,18 @@ func TestWaitForShutdown_ServerShutdownError(t *testing.T) {
 	}
 	t.Cleanup(func() { serverShutdownFn = prevShutdown })
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8, nil)
+	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
 	_, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		waitForShutdown(srv.Config, cancel, hub, nil, nil)
+		_ = waitForShutdown(srv.Config, cancel, hub, nil)
 		close(done)
 	}()
 

@@ -124,6 +124,19 @@ describe('establishGameSession', () => {
     await expect(establishGameSession()).resolves.toEqual({ ok: false, status: 500, reason: 'server' });
     vi.unstubAllGlobals();
   });
+
+  // shared-002: POST is non-idempotent — quickplay must NOT retry on failure.
+  it('does not retry quickplay POST on network failure (retries=0)', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ refreshed: false }), { status: 401 }))
+      .mockRejectedValueOnce(new Error('network down'));
+    const result = await establishGameSession();
+    expect(result).toEqual({ ok: false, reason: 'network' });
+    // Exactly 3 calls: auth/check, auth/refresh, quickplay POST (no retry).
+    expect(fetch).toHaveBeenCalledTimes(3);
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('sessionErrorMessage', () => {

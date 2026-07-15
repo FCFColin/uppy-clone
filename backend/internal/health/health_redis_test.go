@@ -18,8 +18,8 @@ func TestReadyHandler_RedisUnavailable_Degraded(t *testing.T) {
 	rec := httptest.NewRecorder()
 	checker.ReadyHandler(rec, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200 degraded", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 degraded", rec.Code)
 	}
 	var body map[string]interface{}
 	_ = json.NewDecoder(rec.Body).Decode(&body)

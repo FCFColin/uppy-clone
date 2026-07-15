@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getOutboundQueueLength, clearOutboundQueue } from './ws_connection.js';
+import { MockWebSocket } from '../shared/test/mocks/websocket.js';
 
 vi.mock('./local_constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./local_constants.js')>();
@@ -31,16 +32,6 @@ import {
   showReconnectBanner,
   updatePingDisplay,
 } from './connection_ui.js';
-
-class MockWebSocket {
-  static OPEN = 1;
-  readyState = MockWebSocket.OPEN;
-  sent: ArrayBuffer[] = [];
-  send(data: ArrayBuffer): void {
-    this.sent.push(data);
-  }
-  close(): void {}
-}
 
 describe('ws_connection', () => {
   beforeEach(() => {

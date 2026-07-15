@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/apierror"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/audit"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/middleware"
+	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
 // maxFailedLoginAttempts is the threshold at which an IP is locked out.
@@ -37,7 +38,10 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	clientIP := middleware.ExtractClientIP(r)
+	clientIP := requestctx.ExtractClientIP(r)
+	// handler-025: account-dimension lockout key — the lockout uses BOTH the
+	// client IP and the admin account identifier so that a distributed brute
+	// force (many IPs, one account) triggers the account-dimension lock.
 	adminAccount := adminRole
 	if h.isLoginLocked(ctx, w, clientIP, adminAccount) {
 		return
@@ -59,7 +63,10 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 func (h *AdminHandler) isLoginLocked(ctx context.Context, w http.ResponseWriter, clientIP, account string) bool {
 	if h.redis == nil {
-		return false
+		slog.Error("admin login: redis not available, denying login")
+		apierror.New(http.StatusServiceUnavailable, "Service Unavailable",
+			"Login temporarily unavailable, please retry later").Write(w)
+		return true
 	}
 	locked, err := h.redis.IsLoginLocked(ctx, clientIP, account)
 	if err != nil {
@@ -85,6 +92,7 @@ func (h *AdminHandler) completeAdminLogin(w http.ResponseWriter, r *http.Request
 
 	audit.Log(ctx, audit.AuditEntry{
 		Action:    "admin.login.success",
+		ActorType: audit.ActorTypeAdmin,
 		ActorID:   adminRole,
 		ActorIP:   clientIP,
 		Resource:  "admin/session",
@@ -125,9 +133,10 @@ func (h *AdminHandler) handleFailedLogin(ctx context.Context, clientIP, account 
 		}
 	}
 	audit.Log(ctx, audit.AuditEntry{
-		Action:   "admin.login.failed",
-		ActorID:  adminRole,
-		ActorIP:  clientIP,
-		Resource: "admin/session",
+		Action:    "admin.login.failed",
+		ActorType: audit.ActorTypeAdmin,
+		ActorID:   adminRole,
+		ActorIP:   clientIP,
+		Resource:  "admin/session",
 	})
 }

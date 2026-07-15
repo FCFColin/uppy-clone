@@ -21,7 +21,7 @@ type testEnv struct {
 
 func setupTestEnv(t *testing.T) *testEnv {
 	t.Helper()
-	pool := testutil.SetupPostgresPoolMigrated(t)
+	pool := testutil.SetupPostgres(t, testutil.WithPool(), testutil.WithMigrations()).Pool
 	rdb, _ := testutil.SetupRedisClient(t)
 	return &testEnv{pool: pool, rdb: rdb}
 }

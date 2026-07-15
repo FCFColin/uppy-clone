@@ -68,10 +68,10 @@ func TestLeaderboardQuery_Scopes(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_DefaultLimit(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
 		WithArgs(51).
@@ -87,10 +87,10 @@ func TestLoadAllActiveLobbies_DefaultLimit(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_CappedLimit(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(5))
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
 		WithArgs(101).
@@ -106,10 +106,10 @@ func TestLoadAllActiveLobbies_CappedLimit(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_WithCursor(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(10))
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
 		WithArgs(int64(100), "CODE1", 6).
@@ -126,10 +126,10 @@ func TestLoadAllActiveLobbies_WithCursor(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_CountError(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnError(errors.New("count failed"))
 
 	_, err := repo.LoadAllActiveLobbies(ctx, 10, "")
@@ -139,10 +139,10 @@ func TestLoadAllActiveLobbies_CountError(t *testing.T) {
 }
 
 func TestLoadAllActiveLobbies_FetchError(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
+	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(5))
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
 		WillReturnError(errors.New("query failed"))

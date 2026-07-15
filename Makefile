@@ -1,4 +1,8 @@
-.PHONY: help dev observability-up test test-all test-property test-cover test-integration test-containers lint lint-all build run migrate seed bench audit clean generate simplify deadcode check check-fast ci e2e sync-alert-rules check-repo-layout security-check
+.PHONY: help dev observability-up
+.PHONY: test test-all test-property test-cover test-integration test-containers
+.PHONY: lint lint-all check check-fast ci
+.PHONY: build run migrate seed bench audit clean generate simplify deadcode
+.PHONY: e2e sync-alert-rules check-repo-layout security-check check-protocol-sync
 
 help:
 	@echo "Targets:"
@@ -22,7 +26,7 @@ help:
 TOOL_BUILD = cd backend && go build -o bin
 
 dev:
-	docker compose up -d postgres redis
+	docker compose up -d postgres redis redis-ephemeral
 	$(TOOL_BUILD)/air github.com/air-verse/air
 	cd backend && ./bin/air &
 	cd frontend && npm run dev
@@ -57,23 +61,25 @@ test-cover:
 	bash scripts/ci/check-coverage.sh frontend
 
 lint:
+	@command -v golangci-lint >/dev/null 2>&1 || go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 	cd backend && golangci-lint run --allow-parallel-runners=false
 
 lint-all: lint
 	cd frontend && npm run lint
 	cd frontend && npm run typecheck
 
-check: lint-all test-cover check-protocol-constants
+check: lint-all test-cover check-protocol-sync
 
 check-fast: lint-all test
 
 ci: check test-containers audit check-repo-layout
 
 check-repo-layout:
-	@bash scripts/ci/check-repo-layout.sh 2>/dev/null || powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/check-repo-layout.ps1
+	go run scripts/ci/check-repo-layout.go
 
-check-protocol-constants:
-	@powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/check-protocol-constants.ps1
+check-protocol-sync:
+	cd backend && go generate ./internal/protocol/...
+	@git diff --exit-code frontend/src/shared/game/constants.ts || (echo "generated protocol constants out of sync; run make generate" >&2; exit 1)
 
 security-check:
 	@echo "==> detect-secrets (requires: pip install detect-secrets)"
@@ -132,7 +138,7 @@ generate:
 
 check-generated:
 	go run scripts/codegen/generate_nicknames.go
-	@git diff --exit-code backend/internal/nicknames/pools_gen.go frontend/src/shared/nickname_pools_gen.ts || (echo "generated nickname pools out of sync; run make generate" >&2; exit 1)
+	@git diff --exit-code backend/internal/nicknames/pools_gen.go frontend/src/shared/assets/nickname_pools_gen.ts || (echo "generated nickname pools out of sync; run make generate" >&2; exit 1)
 
 simplify:
 	cd backend && gofmt -w .

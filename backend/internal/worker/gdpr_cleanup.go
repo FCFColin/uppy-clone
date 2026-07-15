@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sethvargo/go-retry"
 
+	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/resilience"
 	"github.com/uppy-clone/backend/internal/slogctx"
 )
@@ -98,5 +99,11 @@ func (w *GDPRCleanupWorker) runOnce(ctx context.Context) {
 	if deleted > 0 {
 		gdprDeletedUsers.Add(float64(deleted))
 		logger.Info("gdpr cleanup completed", "deleted_users", deleted, "retention_days", w.retentionDays)
+		audit.Log(ctx, audit.AuditEntry{
+			Action:    "gdpr_hard_delete_executed",
+			ActorType: audit.ActorTypeSystem,
+			ActorID:   "system",
+			Resource:  "gdpr/cleanup",
+		})
 	}
 }

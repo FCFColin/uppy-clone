@@ -54,7 +54,7 @@ func TestJitteredBackoff(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := JitteredBackoff(base, tt.attempt)
-			minExpected := base * time.Duration(1<<uint(tt.attempt)) //nolint:gosec:G115 // test value, bounded
+			minExpected := base * time.Duration(1<<uint(tt.attempt)) //nolint:gosec // G115: test value, bounded
 			if d < minExpected {
 				t.Fatalf("backoff too small: got %v, minimum expected %v for attempt %d", d, minExpected, tt.attempt)
 			}
@@ -83,7 +83,7 @@ func TestJitteredBackoff_ZeroBase(t *testing.T) {
 func TestRetryWithBackoff_SucceedsImmediately(t *testing.T) {
 	ctx := context.Background()
 	attempts := 0
-	err := retry.Do(ctx, DefaultDBRetry(), func(ctx context.Context) error {
+	err := retry.Do(ctx, DefaultDBRetry(), func(_ context.Context) error {
 		attempts++
 		return nil
 	})
@@ -98,7 +98,7 @@ func TestRetryWithBackoff_SucceedsImmediately(t *testing.T) {
 func TestRetryWithBackoff_SucceedsAfterRetries(t *testing.T) {
 	ctx := context.Background()
 	attempts := 0
-	err := retry.Do(ctx, DefaultDBRetry(), func(ctx context.Context) error {
+	err := retry.Do(ctx, DefaultDBRetry(), func(_ context.Context) error {
 		attempts++
 		if attempts < 3 {
 			return retry.RetryableError(errors.New("transient error"))
@@ -116,7 +116,7 @@ func TestRetryWithBackoff_SucceedsAfterRetries(t *testing.T) {
 func TestRetryWithBackoff_ExhaustsRetries(t *testing.T) {
 	ctx := context.Background()
 	attempts := 0
-	err := retry.Do(ctx, DefaultDBRetry(), func(ctx context.Context) error {
+	err := retry.Do(ctx, DefaultDBRetry(), func(_ context.Context) error {
 		attempts++
 		return retry.RetryableError(errors.New("persistent error"))
 	})
@@ -133,7 +133,7 @@ func TestRetryWithBackoff_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	err := retry.Do(ctx, DefaultDBRetry(), func(ctx context.Context) error {
+	err := retry.Do(ctx, DefaultDBRetry(), func(_ context.Context) error {
 		return errors.New("should not execute")
 	})
 	if err == nil {

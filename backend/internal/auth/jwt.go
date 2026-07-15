@@ -15,6 +15,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/validate"
 )
 
@@ -50,9 +51,10 @@ func NewJWTManagerWithKeys(privateKey *ecdsa.PrivateKey, publicKey *ecdsa.Public
 	return &JWTManager{privateKey: privateKey, publicKey: publicKey}
 }
 
-// customClaims extends jwt.RegisteredClaims with nickname.
+// customClaims extends jwt.RegisteredClaims with nickname and role.
 type customClaims struct {
 	Nickname string `json:"nickname"`
+	Role     string `json:"role,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -61,6 +63,14 @@ type customClaims struct {
 // 企业为何需要：无撤销机制的 JWT 意味着被盗 token 在过期前持续有效。JWT 撤销列表是登出安全的行业标准实现，
 // 用 Redis SET + TTL 实现最小性能开销。jti (JWT ID) 是 RFC 7519 标准字段，用于唯一标识每个 token。
 func (m *JWTManager) SignToken(userId, nickname string) (string, error) {
+	return m.SignTokenWithRole(userId, nickname, domain.RoleUser)
+}
+
+// SignTokenWithRole creates a JWT with userId (sub), nickname, role, and jti claims.
+// Access token expires in 15 minutes; use refresh tokens for longer sessions.
+// 企业为何需要：role claim 使 AuthMiddleware 能从已验证的凭据中读取用户角色，
+// 而非硬编码。这确保即使中间件误挂，RBAC 仍能基于 token 中的 role 做出正确决策。
+func (m *JWTManager) SignTokenWithRole(userId, nickname, role string) (string, error) {
 	now := time.Now()
 	jti, err := generateJTI()
 	if err != nil {
@@ -68,9 +78,12 @@ func (m *JWTManager) SignToken(userId, nickname string) (string, error) {
 	}
 	claims := customClaims{
 		Nickname: nickname,
+		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        jti,
 			Subject:   userId,
+			Issuer:    config.JWTIssuer,
+			Audience:  []string{config.JWTAudience},
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL)),
 		},
@@ -79,9 +92,12 @@ func (m *JWTManager) SignToken(userId, nickname string) (string, error) {
 	return token.SignedString(m.privateKey)
 }
 
-// PrivateKey returns the ECDSA private key.
-func (m *JWTManager) PrivateKey() *ecdsa.PrivateKey {
-	return m.privateKey
+// SignWithClaims signs a JWT with the provided custom claims using ES256.
+// This allows callers to create tokens with custom fields without exposing
+// the raw ECDSA private key.
+func (m *JWTManager) SignWithClaims(claims map[string]any) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims(claims))
+	return token.SignedString(m.privateKey)
 }
 
 // PublicKey returns the ECDSA public key.
@@ -125,10 +141,10 @@ func RefreshTokenFromRequest(r *http.Request) string {
 }
 
 // ParseAuthCookie extracts and verifies JWT from the named cookie.
-func ParseAuthCookie(r *http.Request, cookieName string, jwtManager *JWTManager) (userId, nickname, jti string, err error) {
+func ParseAuthCookie(r *http.Request, cookieName string, jwtManager *JWTManager) (userId, nickname, jti, role string, err error) {
 	cookie, err := r.Cookie(cookieName)
 	if err != nil {
-		return "", "", "", fmt.Errorf("cookie %s not found: %w", cookieName, err)
+		return "", "", "", "", fmt.Errorf("cookie %s not found: %w", cookieName, err)
 	}
 	return jwtManager.VerifyToken(cookie.Value)
 }

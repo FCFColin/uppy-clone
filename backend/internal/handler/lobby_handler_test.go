@@ -1,13 +1,10 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/go-chi/chi/v5"
 )
 
 func TestCreateRoom(t *testing.T) {
@@ -51,10 +48,8 @@ func TestCheckRoom_Exists(t *testing.T) {
 	w2 := httptest.NewRecorder()
 	r2 := httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/"+code, nil)
 
-	// Use chi router to set URL params
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("code", code)
-	r2 = r2.WithContext(context.WithValue(r2.Context(), chi.RouteCtxKey, rctx))
+	// Set URL path param via stdlib (Go 1.22+)
+	r2.SetPathValue("code", code)
 
 	h.CheckRoom(w2, r2)
 
@@ -77,9 +72,7 @@ func TestCheckRoom_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ZZZZZ", nil)
 
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("code", "ZZZZZ")
-	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	r.SetPathValue("code", "ZZZZZ")
 
 	h.CheckRoom(w, r)
 
@@ -96,9 +89,7 @@ func TestCheckRoom_MissingCode(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/", nil)
 
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("code", "")
-	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	r.SetPathValue("code", "")
 
 	h.CheckRoom(w, r)
 
@@ -146,7 +137,7 @@ func TestMatchRoom(t *testing.T) {
 func TestCheckRoom_InvalidCharset(t *testing.T) {
 	h := newTestLobbyHandler()
 	w := httptest.NewRecorder()
-	r := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCD0", nil), "code", "ABCD0")
+	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCD0", nil), "code", "ABCD0")
 	h.CheckRoom(w, r)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
@@ -156,7 +147,7 @@ func TestCheckRoom_InvalidCharset(t *testing.T) {
 func TestCheckRoom_InvalidLength(t *testing.T) {
 	h := newTestLobbyHandler()
 	w := httptest.NewRecorder()
-	r := withChiParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABC", nil), "code", "ABC")
+	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABC", nil), "code", "ABC")
 	h.CheckRoom(w, r)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)

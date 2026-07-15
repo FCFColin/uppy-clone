@@ -5,7 +5,7 @@ import { MSG_TYPE } from '../../shared/game/protocol.js';
  *
  * Layout follows EncodeSnapshot in backend/internal/protocol/encode.go:
  *   msgType(1) + tickCount(4) + score(4) + phaseCode(1)
- *   + balloon: x(4) + y(4) + vy(4) + vx(4)
+ *   + balloon: x(4) + y(4) + vx(4) + vy(4)
  *   + bird: active(1) [inactive → no x/y]
  *   + ghost: active(1) [inactive → no x/y/repelTimer]
  *   + playerCount(1) + rippleCount(1) + wind(4)
@@ -25,8 +25,8 @@ export function buildMinimalSnapshot(phaseCode: number, timestamp = 100): ArrayB
   dv.setUint8(o, phaseCode); o += 1;            // phaseCode
   dv.setFloat32(o, 0.5, true); o += 4;          // balloon.x
   dv.setFloat32(o, 0.6, true); o += 4;          // balloon.y
-  dv.setFloat32(o, 0.0, true); o += 4;          // balloon.vy
   dv.setFloat32(o, 0.0, true); o += 4;          // balloon.vx
+  dv.setFloat32(o, 0.0, true); o += 4;          // balloon.vy
   dv.setUint8(o, 0); o += 1;                    // bird.active (0 = inactive)
   dv.setUint8(o, 0); o += 1;                    // ghost.active (0 = inactive)
   // float32(0.5) LE = [0x00, 0x00, 0x00, 0x3F]:

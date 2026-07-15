@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -12,57 +13,61 @@ import (
 
 // Env holds server environment configuration loaded from process env.
 type Env struct {
-	JWTPrivateKey     string
-	JWTPublicKey      string
-	DatabaseURL       string
-	RedisURL          string
-	RedisEphemeralURL string
-	RedisRegionURL    string
-	RedisPubSubURL    string
-	EncryptionKey     string
-	ResendAPIKey      string
-	EmailFrom         string
-	AdminPassword     string
-	AuditSecret       string
-	TrustedProxyCIDRs string
-	AllowedOrigins    string
-	Port              string
-	FrontendDir       string
-	MigrationsDir     string
-	EnableHSTS        bool
-	Environment       string
-	MaxWSConnections  int
-	MaxPlayersPerRoom int
-	MetricsUser       string
-	MetricsPassword   string
+	JWTPrivateKey      string
+	JWTPublicKey       string
+	AdminJWTPrivateKey string
+	AdminJWTPublicKey  string
+	DatabaseURL        string
+	RedisURL           string
+	RedisEphemeralURL  string
+	RedisRegionURL     string
+	RedisPubSubURL     string
+	EncryptionKey      string
+	ResendAPIKey       string
+	EmailFrom          string
+	AdminPassword      string
+	AuditSecret        string
+	TrustedProxyCIDRs  string
+	AllowedOrigins     string
+	Port               string
+	FrontendDir        string
+	MigrationsDir      string
+	EnableHSTS         bool
+	Environment        string
+	MaxWSConnections   int
+	MaxPlayersPerRoom  int
+	MetricsUser        string
+	MetricsPassword    string
 }
 
 // Load reads configuration from environment variables.
 func Load() *Env {
 	return &Env{
-		JWTPrivateKey:     os.Getenv("JWT_PRIVATE_KEY"),
-		JWTPublicKey:      os.Getenv("JWT_PUBLIC_KEY"),
-		DatabaseURL:       os.Getenv("DATABASE_URL"),
-		RedisURL:          GetEnv("REDIS_URL", "localhost:6379"),
-		RedisEphemeralURL: GetEnv("REDIS_EPHEMERAL_URL", ""),
-		RedisRegionURL:    GetEnv("REDIS_REGIONAL_URL", ""),
-		RedisPubSubURL:    GetEnv("REDIS_PUBSUB_URL", ""),
-		EncryptionKey:     os.Getenv("ENCRYPTION_KEY"),
-		ResendAPIKey:      os.Getenv("RESEND_API_KEY"),
-		EmailFrom:         os.Getenv("EMAIL_FROM"),
-		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
-		AuditSecret:       os.Getenv("AUDIT_SECRET"),
-		TrustedProxyCIDRs: os.Getenv("TRUSTED_PROXY_CIDRS"),
-		AllowedOrigins:    os.Getenv("ALLOWED_ORIGINS"),
-		Port:              GetEnv("PORT", "8080"),
-		FrontendDir:       os.Getenv("FRONTEND_DIR"),
-		MigrationsDir:     GetEnv("MIGRATIONS_DIR", "migrations"),
-		EnableHSTS:        os.Getenv("ENABLE_HSTS") != "false",
-		Environment:       os.Getenv("ENV"),
-		MaxWSConnections:  GetEnvInt("MAX_WS_CONNECTIONS", MaxWSConnections),
-		MaxPlayersPerRoom: GetEnvInt("MAX_PLAYERS_PER_ROOM", MaxPlayersPerRoom),
-		MetricsUser:       os.Getenv("METRICS_USER"),
-		MetricsPassword:   os.Getenv("METRICS_PASSWORD"),
+		JWTPrivateKey:      os.Getenv("JWT_PRIVATE_KEY"),
+		JWTPublicKey:       os.Getenv("JWT_PUBLIC_KEY"),
+		AdminJWTPrivateKey: os.Getenv("ADMIN_JWT_PRIVATE_KEY"),
+		AdminJWTPublicKey:  os.Getenv("ADMIN_JWT_PUBLIC_KEY"),
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		RedisURL:           GetEnv("REDIS_URL", "localhost:6379"),
+		RedisEphemeralURL:  GetEnv("REDIS_EPHEMERAL_URL", ""),
+		RedisRegionURL:     GetEnv("REDIS_REGIONAL_URL", ""),
+		RedisPubSubURL:     GetEnv("REDIS_PUBSUB_URL", ""),
+		EncryptionKey:      os.Getenv("ENCRYPTION_KEY"),
+		ResendAPIKey:       os.Getenv("RESEND_API_KEY"),
+		EmailFrom:          os.Getenv("EMAIL_FROM"),
+		AdminPassword:      os.Getenv("ADMIN_PASSWORD"),
+		AuditSecret:        os.Getenv("AUDIT_SECRET"),
+		TrustedProxyCIDRs:  os.Getenv("TRUSTED_PROXY_CIDRS"),
+		AllowedOrigins:     os.Getenv("ALLOWED_ORIGINS"),
+		Port:               GetEnv("PORT", "8080"),
+		FrontendDir:        os.Getenv("FRONTEND_DIR"),
+		MigrationsDir:      GetEnv("MIGRATIONS_DIR", "migrations"),
+		EnableHSTS:         !strings.EqualFold(os.Getenv("ENABLE_HSTS"), "false"),
+		Environment:        os.Getenv("ENV"),
+		MaxWSConnections:   GetEnvInt("MAX_WS_CONNECTIONS", MaxWSConnections),
+		MaxPlayersPerRoom:  GetEnvInt("MAX_PLAYERS_PER_ROOM", MaxPlayersPerRoom),
+		MetricsUser:        os.Getenv("METRICS_USER"),
+		MetricsPassword:    os.Getenv("METRICS_PASSWORD"),
 	}
 }
 
@@ -88,8 +93,16 @@ func (e *Env) Validate() error {
 	if e.DatabaseURL == "" {
 		missing = append(missing, "DATABASE_URL")
 	}
-	if e.EncryptionKey == "" {
-		missing = append(missing, "ENCRYPTION_KEY")
+	if e.IsProduction() {
+		if e.EncryptionKey == "" {
+			missing = append(missing, "ENCRYPTION_KEY")
+		}
+		if e.AuditSecret == "" {
+			missing = append(missing, "AUDIT_SECRET")
+		}
+		if err := validateDatabaseURLSSLModes(e.DatabaseURL); err != nil {
+			return err
+		}
 	}
 	if e.IsProduction() && strings.TrimSpace(e.TrustedProxyCIDRs) == "" {
 		missing = append(missing, "TRUSTED_PROXY_CIDRS")
@@ -157,15 +170,26 @@ func (e *Env) GetRedisPubSubURL() string {
 	return e.GetRedisStatefulURL()
 }
 
+// GetAdminJWTPrivateKey returns ADMIN_JWT_PRIVATE_KEY or falls back to JWT_PRIVATE_KEY.
+func (e *Env) GetAdminJWTPrivateKey() string {
+	if e.AdminJWTPrivateKey != "" {
+		return e.AdminJWTPrivateKey
+	}
+	if e.IsProduction() {
+		slog.Warn("ADMIN_JWT_PRIVATE_KEY not set in production - admin and user JWTs share the same signing key. Set ADMIN_JWT_PRIVATE_KEY to a separate key for defense-in-depth.")
+	}
+	return e.JWTPrivateKey
+}
+
 // AuditSecretOrJWT returns AUDIT_SECRET or falls back to JWT_PRIVATE_KEY.
 // In production, AUDIT_SECRET must be explicitly set - the fallback to JWTPrivateKey
-// is only acceptable in development/testing environments.
+// compromises audit integrity since a single key leak breaks both auth and audit.
 func (e *Env) AuditSecretOrJWT() string {
 	if e.AuditSecret != "" {
 		return e.AuditSecret
 	}
 	if e.IsProduction() {
-		slog.Warn("AUDIT_SECRET not set in production, falling back to JWT_PRIVATE_KEY - set AUDIT_SECRET explicitly for proper key separation")
+		slog.Error("AUDIT_SECRET not set in production - audit log integrity is compromised. Set AUDIT_SECRET to a separate key from JWT_PRIVATE_KEY.")
 	}
 	return e.JWTPrivateKey
 }
@@ -226,5 +250,28 @@ func GetEnvDuration(key string, defaultVal time.Duration) time.Duration {
 }
 
 func isWeakJWTSecret(secret string) bool {
+	if len(secret) < 32 {
+		return true
+	}
 	return strings.Contains(secret, "DEV_ONLY") || strings.Contains(secret, "change-in-production")
+}
+
+func validateDatabaseURLSSLModes(dbURL string) error {
+	if !strings.HasPrefix(dbURL, "postgres://") && !strings.HasPrefix(dbURL, "postgresql://") {
+		return nil
+	}
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		return fmt.Errorf("DATABASE_URL: %w", err)
+	}
+	sslmodes := u.Query()["sslmode"]
+	if len(sslmodes) == 0 {
+		return nil
+	}
+	finalSSLMode := sslmodes[len(sslmodes)-1]
+	switch finalSSLMode {
+	case "disable", "allow", "prefer":
+		return fmt.Errorf("DATABASE_URL sslmode=%q rejected in production; use require, verify-ca, or verify-full", finalSSLMode)
+	}
+	return nil
 }

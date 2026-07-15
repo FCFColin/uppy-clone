@@ -57,7 +57,7 @@
 
 ### 消费者契约
 
-所有 outbox 下游消费者（如 `worker/email_worker.go`、未来分析消费者）**必须满足幂等性**：
+所有 outbox 下游消费者（如 `worker/email_worker.go`、`worker/game_result_worker.go`、未来分析消费者）**必须满足幂等性**：
 
 - 以 `(aggregate_type, aggregate_id, event_id)` 为去重键；event_id 由 Publisher 写入 Stream 字段（当前为 PG 行 `id`）。
 - 处理前检查去重表/缓存（如 Redis SETNX、PG 唯一约束）；已处理则跳过。
@@ -83,3 +83,15 @@ Publisher 已暴露以下 Prometheus 指标（`backend/internal/metrics/`）：
 1. **两阶段提交（2PC）**：Redis 不支持，延迟高
 2. **CDC（Debezium）**：搭建复杂，当前规模过度
 3. **尽力而为发布**：不可靠，事件可丢失
+
+## 游戏结果事件（RO-043，2026-07）
+
+游戏结束结果现已通过 outbox 单路投递（RO-043）。原先的三写路径（PG 直写、Redis Stream
+直写 `game:results`、outbox）已收敛为 outbox 单路：
+
+1. `Room.enqueueGameResultAsync()` → `InsertOutboxEvent("game", sessionID, payload)`
+2. Outbox Publisher 发布到 `game.events` Redis Stream（aggregate_type = `"game"`）
+3. `GameResultWorker` 消费 `game.events` stream，批量写入 PG
+
+旧的 `game:results` stream 和 `EnqueueGameResult()` 方法已删除。`GameResultWorker`
+通过 `outboxEventEnvelope` 解包 `{"event":"game.ended","data":{...}}` 格式的事件。

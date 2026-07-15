@@ -1,45 +1,39 @@
 package crypto
 
 import (
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
 )
 
-// emailHMACKey is derived from encKey with domain separation, so the same
-// encryption key is never reused as an HMAC key (cryptographic key separation).
-var emailHMACKey []byte
-
-// initEmailHMACKey derives a separate HMAC key from the encryption key.
-func initEmailHMACKey() {
-	if encKey == nil {
-		emailHMACKey = nil
-		return
-	}
-	mac := hmac.New(sha256.New, encKey)
-	mac.Write([]byte("uppy-email-hmac-v1"))
-	emailHMACKey = mac.Sum(nil)
-}
-
-// EmailHMAC computes HMAC-SHA256 of a normalized email for indexed lookup.
+// EmailHMAC computes SHA-256 of a normalized email for indexed lookup.
+// Uses unkeyed SHA-256 to ensure email_hash remains stable across key rotation.
+// If keyed HMAC is needed for additional rainbow-table resistance, the HMAC key
+// must be stored independently from the encryption key and rotated separately.
 func EmailHMAC(email string) string {
 	normalized := strings.ToLower(strings.TrimSpace(email))
-	if emailHMACKey == nil {
-		sum := sha256.Sum256([]byte(normalized))
-		return hex.EncodeToString(sum[:])
-	}
-	mac := hmac.New(sha256.New, emailHMACKey)
-	_, _ = mac.Write([]byte(normalized))
-	return hex.EncodeToString(mac.Sum(nil))
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:])
 }
 
 // EncryptEmailForStorage encrypts email for DB storage.
+//
+// Deprecated: Use EncryptPIIForStorage for new code — same logic, generic name.
 func EncryptEmailForStorage(email string) (string, error) {
-	if encKey == nil {
-		return email, nil
+	return EncryptPIIForStorage(email)
+}
+
+// EncryptPIIForStorage encrypts any PII field (email, nickname, etc.) for
+// DB or outbox storage. Returns plaintext if no encryption key is configured
+// (dev/test environments).
+func EncryptPIIForStorage(plaintext string) (string, error) {
+	encKeyMu.RLock()
+	key := encKey
+	encKeyMu.RUnlock()
+	if key == nil {
+		return plaintext, nil
 	}
-	return Encrypt(email)
+	return Encrypt(plaintext)
 }
 
 // DecryptEmailFromStorage decrypts stored email; passes through legacy plaintext.

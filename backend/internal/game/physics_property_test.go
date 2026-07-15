@@ -112,7 +112,7 @@ func TestPhysics_UpdateWindBounds(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		seed := rapid.Int64().Draw(t, "seed")
 		rng := newSeededRNG(seed)
-		state := NewGameState("PROP", rng)
+		state := NewGameState("PROP", 0, rng)
 		for i := 0; i < 1000; i++ {
 			UpdateWind(state, rng)
 		}

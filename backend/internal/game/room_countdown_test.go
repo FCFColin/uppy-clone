@@ -27,7 +27,7 @@ func TestScheduleCountdownFromNow(t *testing.T) {
 	}
 }
 
-func TestResumeCountdownForReconnect(t *testing.T) {
+func TestResumeCountdownForReconnect(_ *testing.T) {
 	r := NewRoom("RC", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.state.Phase = domain.PhaseCountdown
 	r.countdownStart = time.Now().UnixMilli()
@@ -45,13 +45,13 @@ func TestCloseExistingConnection(t *testing.T) {
 	}
 }
 
-func TestCloseExistingConnection_DisconnectedPlayer(t *testing.T) {
+func TestCloseExistingConnection_DisconnectedPlayer(_ *testing.T) {
 	r := NewRoom("CC2", nil, nil, config.DefaultTimeoutConfig(), 0)
 	player := &domain.PlayerState{ID: "p1", Disconnected: true}
 	r.closeExistingConnection("p1", player)
 }
 
-func TestSetEndGameAlarm_Countdown(t *testing.T) {
+func TestSetEndGameAlarm_Countdown(_ *testing.T) {
 	r := NewRoom("EA", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.state.Phase = domain.PhaseCountdown
 	r.setEndGameAlarm(time.Now())

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MockWebSocket } from '../shared/test/mocks/websocket.js';
 
 vi.mock('./ws_connect.js', () => ({ connectWebSocket: vi.fn() }));
 vi.mock('./connection_ui.js', () => ({
@@ -19,16 +20,6 @@ vi.mock('./local_constants.js', async (importOriginal) => {
 
 import { HEARTBEAT_INTERVAL_MS } from './local_constants.js';
 import { startHeartbeat, setWs, stopHeartbeat } from './ws_connection.js';
-
-class MockWebSocket {
-  static OPEN = 1;
-  readyState = MockWebSocket.OPEN;
-  sent: ArrayBuffer[] = [];
-  close = vi.fn();
-  send(data: ArrayBuffer): void {
-    this.sent.push(data);
-  }
-}
 
 describe('ws_connection heartbeat reset', () => {
   beforeEach(() => {

@@ -28,29 +28,21 @@ linters:
 
   exclusions:
     rules:
-      # Test files may have longer functions and unchecked errors
+      # Test files may have longer functions
       - path: '(.+)_test\.go'
         linters:
-          - errcheck
           - gocritic
           - funlen
           - gocognit
           - dupl
-          - gocyclo
-          - bodyclose
           - goconst
           - gosec
-          - revive
-          - staticcheck
       # Generated protocol files
       - path: protocol/encode\.go
         linters:
           - gocritic
-      # Bounded protocol conversions; lengths validated before cast
-      - path: internal/(game|protocol)/
-        linters:
-          - gosec
-        text: "G115"
+      # Bounded protocol conversions; lengths validated before cast with line-level nolint
+      # Directory-level exclusion removed — line-level nolint is preferred.
       - path: internal/game/cooldown_contract_test\.go
         linters:
           - gosec

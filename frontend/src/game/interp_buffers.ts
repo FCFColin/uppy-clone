@@ -46,6 +46,11 @@ function capBuffer<T>(buf: T[], max: number): void {
   while (buf.length > max) buf.shift();
 }
 
+function pushAnchor<T>(buffer: T[], item: T): void {
+  buffer.push(item);
+  capBuffer(buffer, MAX_SNAPSHOT_BUFFER);
+}
+
 export const balloonBuffer: BalloonAnchor[] = [];
 export const ghostBuffer: EntityAnchor[] = [];
 export const birdBuffer: EntityAnchor[] = [];
@@ -57,31 +62,9 @@ export function getRenderTime(): number {
 export function pushAnchors(tickCount: number): void {
   const receivedAt = Date.now();
   const s = getState();
-  balloonBuffer.push({
-    tick: tickCount,
-    receivedAt,
-    x: s.balloon.x,
-    y: s.balloon.y,
-    vx: s.balloon.vx,
-    vy: s.balloon.vy,
-  });
-  ghostBuffer.push({
-    tick: tickCount,
-    receivedAt,
-    x: s.ghost.x,
-    y: s.ghost.y,
-    active: s.ghost.active,
-  });
-  birdBuffer.push({
-    tick: tickCount,
-    receivedAt,
-    x: s.bird.x,
-    y: s.bird.y,
-    active: s.bird.active,
-  });
-  capBuffer(balloonBuffer, MAX_SNAPSHOT_BUFFER);
-  capBuffer(ghostBuffer, MAX_SNAPSHOT_BUFFER);
-  capBuffer(birdBuffer, MAX_SNAPSHOT_BUFFER);
+  pushAnchor(balloonBuffer, { tick: tickCount, receivedAt, x: s.balloon.x, y: s.balloon.y, vx: s.balloon.vx, vy: s.balloon.vy });
+  pushAnchor(ghostBuffer, { tick: tickCount, receivedAt, x: s.ghost.x, y: s.ghost.y, active: s.ghost.active });
+  pushAnchor(birdBuffer, { tick: tickCount, receivedAt, x: s.bird.x, y: s.bird.y, active: s.bird.active });
 }
 
 export function clearAnchorBuffers(): void {
@@ -112,7 +95,7 @@ export function tryBalloonFromDelayBuffer(): InterpPoint | null {
   }
 
   const span = b.receivedAt - a.receivedAt;
-  const t = Math.min(1, (renderTime - a.receivedAt) / span);
+  const t = Math.max(0, Math.min(1, (renderTime - a.receivedAt) / span));
   return {
     x: a.x + (b.x - a.x) * t,
     y: a.y + (b.y - a.y) * t,
@@ -134,7 +117,7 @@ export function tryEntityFromDelayBuffer(
   if (!b.active) return { x: a.x, y: a.y };
 
   const span = b.receivedAt - a.receivedAt;
-  const t = Math.min(1, (renderTime - a.receivedAt) / span);
+  const t = Math.max(0, Math.min(1, (renderTime - a.receivedAt) / span));
   return {
     x: a.x + (b.x - a.x) * t,
     y: a.y + (b.y - a.y) * t,

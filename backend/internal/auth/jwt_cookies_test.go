@@ -16,7 +16,7 @@ func TestJWTManager_SignAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
 	}
-	if _, _, _, err := mgr.VerifyToken(token); err != nil {
+	if _, _, _, _, err := mgr.VerifyToken(token); err != nil {
 		t.Fatalf("VerifyToken: %v", err)
 	}
 }
@@ -28,7 +28,7 @@ func TestJWTManager_DifferentKeyFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	if _, _, _, err := mgr.VerifyToken(token); err == nil {
+	if _, _, _, _, err := mgr.VerifyToken(token); err == nil {
 		t.Fatal("expected verify failure when keys differ")
 	}
 }

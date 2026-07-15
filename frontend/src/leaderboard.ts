@@ -1,5 +1,7 @@
 export {};
 
+import { apiFetch } from './shared/network/api_fetch.js';
+
 type Scope = 'global' | 'weekly';
 
 interface Entry {
@@ -42,7 +44,7 @@ async function load(): Promise<void> {
   listEl.textContent = '';
   emptyEl.textContent = EMPTY_TEXT;
   try {
-    const res = await fetch(`/api/v1/leaderboard?scope=${scope}&limit=50`);
+    const res = await apiFetch(`/api/v1/leaderboard?scope=${scope}&limit=50`, { autoRefresh: false });
     if (!res.ok) throw new Error(`load failed (${res.status})`);
     const data: { entries: Entry[] } = await res.json();
     if (!data.entries?.length) {
@@ -72,14 +74,20 @@ tabWeekly.addEventListener('click', () => setScope('weekly'));
 // Show "返回游戏" button when a game URL was saved (opened from game page).
 const backBtn = document.getElementById('back-to-game-btn');
 const gameUrl = localStorage.getItem('uppy-game-url');
-if (backBtn && gameUrl) {
-  const isSafeUrl = gameUrl.startsWith('/') || (() => { try { return new URL(gameUrl, window.location.origin).origin === window.location.origin; } catch { return false; } })();
-  if (isSafeUrl) {
-    backBtn.hidden = false;
-    backBtn.addEventListener('click', () => {
-      window.location.href = gameUrl;
-    });
+function isSafeLocalUrl(url: string): boolean {
+  if (url.startsWith('//')) return false;
+  if (url.startsWith('/')) return true;
+  try {
+    return new URL(url, window.location.origin).origin === window.location.origin;
+  } catch {
+    return false;
   }
+}
+if (backBtn && gameUrl && isSafeLocalUrl(gameUrl)) {
+  backBtn.hidden = false;
+  backBtn.addEventListener('click', () => {
+    window.location.href = gameUrl;
+  });
 }
 
 void load();

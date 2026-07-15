@@ -3,6 +3,7 @@ import { $canvas, getCtx } from './renderer_canvas.js';
 import { getState } from './store.js';
 import { getInterpolatedBalloon, getInterpolatedBird } from './state_interp.js';
 import { isRangeCircleVisible } from './tutorial.js';
+import { registerResetFn } from './reset_registry.js';
 
 interface FloatingText {
   x: number;
@@ -93,3 +94,14 @@ function pruneFloatingTexts(now: number): void {
 export function isLowHeightDanger(): boolean {
   return getState().phase === 'playing' && getState().balloon.y < 0.15;
 }
+
+/** Reset visual helpers state for a new game session. */
+export function resetVisualHelpers(): void {
+  floatingTexts.length = 0;
+  lastFloatingAt = 0;
+  _vignetteGradLeft = null;
+  _vignetteGradRight = null;
+  _vignetteCachedW = 0;
+}
+
+registerResetFn(resetVisualHelpers);

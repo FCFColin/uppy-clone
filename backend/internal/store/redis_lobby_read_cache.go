@@ -22,8 +22,20 @@ func lobbyCheckCacheKey(code string) string {
 	return lobbyCheckCachePrefix + code
 }
 
+// LobbyReadCacheStore handles ADR-006 read-through cache for lobby list and
+// room-check responses in Redis.
+type LobbyReadCacheStore struct {
+	baseRedisStore
+}
+
+// NewLobbyReadCacheStore creates a LobbyReadCacheStore.
+func NewLobbyReadCacheStore(rdb *redis.Client, deps ...Deps) *LobbyReadCacheStore {
+	d := depsOrZero(deps...)
+	return &LobbyReadCacheStore{baseRedisStore: newBaseRedisStore(rdb, d)}
+}
+
 // GetCachedLobbyList returns cached lobby list JSON if present.
-func (s *RedisStore) GetCachedLobbyList(ctx context.Context, limit int, cursor string) ([]byte, bool, error) {
+func (s *LobbyReadCacheStore) GetCachedLobbyList(ctx context.Context, limit int, cursor string) ([]byte, bool, error) {
 	var data []byte
 	var found bool
 	_, err := s.cb.Execute(func() (any, error) {
@@ -46,7 +58,7 @@ func (s *RedisStore) GetCachedLobbyList(ctx context.Context, limit int, cursor s
 }
 
 // SetCachedLobbyList stores lobby list JSON with ADR-006 TTL.
-func (s *RedisStore) SetCachedLobbyList(ctx context.Context, limit int, cursor string, data []byte) error {
+func (s *LobbyReadCacheStore) SetCachedLobbyList(ctx context.Context, limit int, cursor string, data []byte) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		key := lobbyListCacheKey(limit, cursor)
 		if err := s.rdb.Set(ctx, key, data, LobbyReadCacheTTL).Err(); err != nil {
@@ -58,7 +70,7 @@ func (s *RedisStore) SetCachedLobbyList(ctx context.Context, limit int, cursor s
 }
 
 // GetCachedRoomCheck returns cached room check JSON if present.
-func (s *RedisStore) GetCachedRoomCheck(ctx context.Context, code string) ([]byte, bool, error) {
+func (s *LobbyReadCacheStore) GetCachedRoomCheck(ctx context.Context, code string) ([]byte, bool, error) {
 	var data []byte
 	var found bool
 	_, err := s.cb.Execute(func() (any, error) {
@@ -81,7 +93,7 @@ func (s *RedisStore) GetCachedRoomCheck(ctx context.Context, code string) ([]byt
 }
 
 // SetCachedRoomCheck stores room check JSON with ADR-006 TTL.
-func (s *RedisStore) SetCachedRoomCheck(ctx context.Context, code string, data []byte) error {
+func (s *LobbyReadCacheStore) SetCachedRoomCheck(ctx context.Context, code string, data []byte) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		key := lobbyCheckCacheKey(code)
 		if err := s.rdb.Set(ctx, key, data, LobbyReadCacheTTL).Err(); err != nil {
@@ -93,7 +105,7 @@ func (s *RedisStore) SetCachedRoomCheck(ctx context.Context, code string, data [
 }
 
 // InvalidateLobbyListCaches removes all paginated lobby list cache entries.
-func (s *RedisStore) InvalidateLobbyListCaches(ctx context.Context) error {
+func (s *LobbyReadCacheStore) InvalidateLobbyListCaches(ctx context.Context) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		var cursor uint64
 		for {
@@ -117,7 +129,7 @@ func (s *RedisStore) InvalidateLobbyListCaches(ctx context.Context) error {
 }
 
 // InvalidateRoomCheck removes the check cache for a single room.
-func (s *RedisStore) InvalidateRoomCheck(ctx context.Context, code string) error {
+func (s *LobbyReadCacheStore) InvalidateRoomCheck(ctx context.Context, code string) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		if err := s.rdb.Del(ctx, lobbyCheckCacheKey(code)).Err(); err != nil {
 			return nil, fmt.Errorf("delete room check cache: %w", err)

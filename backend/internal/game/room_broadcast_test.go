@@ -162,7 +162,7 @@ func BenchmarkRoom_BuildSnapshot(b *testing.B) {
 func TestBuildSnapshot_EmptyPlayers(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST", testRNG()),
+		state:  NewGameState("TEST", 42, testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	data := room.buildSnapshot()
@@ -180,7 +180,7 @@ func TestBuildSnapshot_EmptyPlayers(t *testing.T) {
 func TestBuildSnapshot_WithPlayers(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST", testRNG()),
+		state:  NewGameState("TEST", 42, testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Players["p1"] = &domain.PlayerState{
@@ -209,21 +209,21 @@ func TestBuildSnapshot_WithPlayers(t *testing.T) {
 func TestBuildSnapshot_SkipsDisconnectedPlayers(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST", testRNG()),
+		state:  NewGameState("TEST", 42, testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Players["p1"] = &domain.PlayerState{Nickname: "Alice", PlayerIndex: 0}
 	room.state.Players["p2"] = &domain.PlayerState{Nickname: "Bob", PlayerIndex: 1, Disconnected: true}
-	room.buildSnapshot()
-	if len(room.players) != 1 {
-		t.Fatalf("connected players in snapshot = %d, want 1", len(room.players))
+	sd := room.extractSnapshotDataLocked()
+	if len(sd.players) != 1 {
+		t.Fatalf("connected players in snapshot = %d, want 1", len(sd.players))
 	}
 }
 
 func TestBuildSnapshot_WithFullState(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST", testRNG()),
+		state:  NewGameState("TEST", 42, testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Phase = domain.PhasePlaying
@@ -261,7 +261,7 @@ func TestBuildSnapshot_WithFullState(t *testing.T) {
 
 func TestBuildSnapshot_ReusesBuffer(t *testing.T) {
 	room := &Room{
-		state:  NewGameState("TEST", testRNG()),
+		state:  NewGameState("TEST", 42, testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	room.state.Players["p1"] = &domain.PlayerState{
@@ -281,7 +281,7 @@ func TestBuildSnapshot_ReusesBuffer(t *testing.T) {
 func TestBuildSnapshot_CooldownActiveVsExpired(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:  NewGameState("TEST", testRNG()),
+		state:  NewGameState("TEST", 42, testRNG()),
 		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	now := time.Now().UnixMilli()
@@ -316,12 +316,12 @@ func TestBuildSnapshot_AllPhases(t *testing.T) {
 	}
 	for _, phase := range phases {
 		room := &Room{
-			state:  NewGameState("TEST", testRNG()),
+			state:  NewGameState("TEST", 42, testRNG()),
 			logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		}
 		room.state.Phase = phase
 		data := room.buildSnapshot()
-		if data == nil || len(data) == 0 {
+		if len(data) == 0 {
 			t.Errorf("buildSnapshot failed for phase %v", phase)
 		}
 	}

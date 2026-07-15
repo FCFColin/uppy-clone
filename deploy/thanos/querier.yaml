@@ -4,6 +4,12 @@
 #
 # 跨区域 gRPC 必须经 mTLS（服务网格或 Thanos --grpc-client-tls-*），见
 # docs/architecture/multi-region-topology.md。
+#
+# PREREQUISITE(module-infra-thanos-001): Cross-cluster DNS resolution
+# (<svc>.<namespace>.<region>.svc) requires GKE Multi-Cluster Services (MCS)
+# to be enabled on the GKE fleet. Without MCS, the dnssrv+ store endpoints
+# will resolve to NXDOMAIN and Thanos Query will have no stores to query.
+# Terraform does not currently manage MCS (see module-infra-global-001).
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -21,6 +27,14 @@ spec:
       labels:
         app: thanos-query
     spec:
+      volumes:
+        # infra-017: mTLS certificates for cross-region gRPC.
+        # Create this Secret via cert-manager or manually:
+        #   kubectl create secret generic thanos-tls-client \
+        #     --from-file=client.crt --from-file=client.key --from-file=ca.crt
+        - name: thanos-tls-client
+          secret:
+            secretName: thanos-tls-client
       containers:
         - name: thanos-query
           image: quay.io/thanos/thanos:v0.36.1
@@ -30,8 +44,15 @@ spec:
             - --grpc-address=0.0.0.0:10901
             - --query.replica-label=replica
             - --query.replica-label=region
+            # infra-017: mTLS for cross-region gRPC (previously TODO only).
+            # The Prometheus sidecar Store Gateway must have corresponding
+            # --grpc-server-tls-* flags and the same CA certificate.
+            - --grpc-client-tls-secure
+            - --grpc-client-tls-cert=/etc/thanos/tls/client.crt
+            - --grpc-client-tls-key=/etc/thanos/tls/client.key
+            - --grpc-client-tls-ca=/etc/thanos/tls/ca.crt
+            - --grpc-client-server-name=thanos-store-gateway.balloon-game
             # 每区域 Thanos sidecar Store 端点（通过区域间私网/网格 DNS）。
-            # 生产用 dnssrv+ 自动发现，并启用 gRPC mTLS。
             - --store=dnssrv+_grpc._tcp.thanos-store-gateway.balloon-game.us-east1.svc
             - --store=dnssrv+_grpc._tcp.thanos-store-gateway.balloon-game.europe-west1.svc
             - --store=dnssrv+_grpc._tcp.thanos-store-gateway.balloon-game.asia-southeast1.svc
@@ -40,6 +61,10 @@ spec:
               containerPort: 9090
             - name: grpc
               containerPort: 10901
+          volumeMounts:
+            - name: thanos-tls-client
+              mountPath: /etc/thanos/tls
+              readOnly: true
           resources:
             requests:
               cpu: 100m

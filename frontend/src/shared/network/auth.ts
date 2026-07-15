@@ -4,9 +4,11 @@
  * Access token: 15 分钟有效，存储在 HttpOnly cookie（前端不可读）
  * Refresh token: 7 天有效，存储在 HttpOnly cookie（前端不可读）
  * 当 API 返回 401 时，自动尝试 refresh，成功则重试原请求
+ *
+ * RO-042: fetchWithRefresh 已合并到 apiFetch (api_fetch.ts)。
+ * refreshAccessToken 和 logout 继续使用原生 fetch 以避免递归
+ * (apiFetch → refreshAccessToken → apiFetch)。
  */
-
-import { fetchWithRetry } from './fetch.js';
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
@@ -46,25 +48,6 @@ export async function refreshAccessToken(): Promise<boolean> {
   })();
 
   return refreshPromise;
-}
-
-/**
- * 带自动刷新的 fetch
- *
- * 当请求返回 401 时，自动尝试 refresh，成功则重试原请求
- */
-export async function fetchWithRefresh(url: string, options: RequestInit = {}): Promise<Response> {
-  const res = await fetch(url, { ...options, credentials: 'include' });
-
-  if (res.status === 401) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) {
-      return fetchWithRetry(url, { ...options, credentials: 'include' });
-    }
-    window.location.href = '/';
-  }
-
-  return res;
 }
 
 /**

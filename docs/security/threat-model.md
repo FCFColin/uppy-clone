@@ -8,7 +8,7 @@
 
 | 威胁 | 影响 | 缓解措施 |
 |------|------|---------|
-| 攻击者伪造 JWT 访问他人账户 | 未授权访问 | JWT 使用 ES256（ECDSA P-256）签名，私钥（JWT_PRIVATE_KEY）仅服务端持有，公钥（JWT_PUBLIC_KEY）用于验证。见 backend/internal/auth/jwt.go |
+| 攻击者伪造 JWT 访问他人账户 | 未授权访问 | JWT 使用 ES256（ECDSA P-256）签名，私钥（JWT_PRIVATE_KEY）仅服务端持有，公钥（JWT_PUBLIC_KEY）用于验证。JWT claims 包含 `role` 字段（user/admin），AuthMiddleware 从已验证的 token 读取 role 注入 context（非硬编码），确保即使中间件误挂 RBAC 仍能基于 token 中的 role 做出正确授权决策。见 backend/internal/auth/jwt.go |
 | 攻击者重放已过期的 Magic Link | 未授权访问 | Magic Link 一次性使用，验证后立即删除 |
 | 攻击者伪造 WebSocket 连接 | 冒充玩家 | WebSocket 握手时验证 JWT cookie |
 | 攻击者伪造 Origin 头进行 CSWSH 攻击 | 跨站 WebSocket 劫持 | 服务端校验 Origin 与 Host 是否匹配，不匹配则拒绝 |
@@ -83,7 +83,7 @@
 | JWT | 认证凭据 | HttpOnly cookie（access） | HTTPS + Secure flag |
 | Resend API Key | 密钥 | AES-256-GCM 加密 | HTTPS |
 | Admin Password | 密钥 | bcrypt 哈希 | HTTPS |
-| Admin JWT | 认证凭据 | 共享 ECDSA 私钥（JWT_PRIVATE_KEY）签名，SigningMethodES256，与普通用户 JWT 同一密钥对（role=admin claim 区分） | HttpOnly `admin_token` cookie + HTTPS |
+| Admin JWT | 认证凭据 | 独立 ECDSA 私钥（ADMIN_JWT_PRIVATE_KEY，ES256 PEM；未配置时回退 JWT_PRIVATE_KEY）签名，SigningMethodES256 | HttpOnly `admin_token` cookie + HTTPS |
 | Refresh Token | 认证凭据 | Redis（TTL 自动过期） | HttpOnly `refresh` cookie + HTTPS |
 
 ## GDPR/CCPA 合规要点

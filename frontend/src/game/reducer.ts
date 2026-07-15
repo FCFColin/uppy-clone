@@ -1,13 +1,4 @@
-import type { ClientState } from './state_types.js';
-
-interface ClientRipple {
-  playerIndex: number;
-  x: number;
-  y: number;
-  time: number;
-  rejected?: boolean;
-  isOptimistic?: boolean;
-}
+import type { ClientRipple, ClientState } from './state_types.js';
 
 export type GameAction =
   | { type: 'SET_STATE'; partial: Partial<ClientState> }
@@ -16,7 +7,7 @@ export type GameAction =
   | { type: 'RESET_ROUND' }
   | { type: 'RESET_ALL' };
 
-function createDefaultState(): ClientState {
+export function createDefaultState(): ClientState {
   return {
     phase: 'waiting',
     balloon: { x: 0.5, y: 0.5, vx: 0, vy: 0 },
@@ -42,11 +33,12 @@ function createDefaultState(): ClientState {
     wasEverConnected: false,
     blockGameRender: false,
     entryStep: 'connecting',
+    // RO-041: Migrated from module-level `let` to store dispatch.
+    wsConnectInFlight: false,
+    connectedLobbyCode: null,
+    lobbyPublished: false,
+    wsConnected: false,
   };
-}
-
-export function createInitialState(): ClientState {
-  return createDefaultState();
 }
 
 export function gameReducer(state: ClientState, action: GameAction): ClientState {
@@ -60,7 +52,7 @@ export function gameReducer(state: ClientState, action: GameAction): ClientState
     case 'RESET_ROUND':
       return resetRound(state);
     case 'RESET_ALL': {
-      return { ...state, ...createInitialState() };
+      return { ...state, ...createDefaultState() };
     }
     default:
       return state;

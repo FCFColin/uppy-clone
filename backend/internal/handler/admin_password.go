@@ -43,6 +43,7 @@ func isBcryptHash(s string) bool {
 func AuditPasswordChange(ctx context.Context, actorIP string) {
 	audit.Log(ctx, audit.AuditEntry{
 		Action:    "admin.password.change",
+		ActorType: audit.ActorTypeAdmin,
 		ActorID:   "admin",
 		ActorIP:   actorIP,
 		Resource:  "admin/config/global:admin_password",

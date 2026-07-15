@@ -15,7 +15,7 @@ import (
 )
 
 func TestPostgresStore_AnonymizeUser(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	userRepo := store.NewUserRepository(db.Pool())
 
@@ -44,7 +44,7 @@ func TestPostgresStore_AnonymizeUser(t *testing.T) {
 }
 
 func TestPostgresStore_LoadAllActiveLobbiesCursor(t *testing.T) {
-	db := testutil.SetupPostgresStore(t)
+	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	gameStore := store.NewGameStore(db.Pool())
 

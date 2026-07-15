@@ -30,9 +30,10 @@ type TimeoutConfig struct {
 	HTTPRequestTimeout time.Duration
 
 	// WebSocket
-	WSWriteTimeout time.Duration
-	WSPongTimeout  time.Duration
-	WSPingInterval time.Duration
+	WSWriteTimeout   time.Duration
+	WSPongTimeout    time.Duration
+	WSPingInterval   time.Duration
+	WSHandlerTimeout time.Duration
 }
 
 // DefaultTimeoutConfig returns production-ready defaults.
@@ -49,8 +50,9 @@ func DefaultTimeoutConfig() TimeoutConfig {
 		HTTPConnectTimeout: GetEnvDuration("HTTP_CONNECT_TIMEOUT", 5*time.Second),
 		HTTPRequestTimeout: GetEnvDuration("HTTP_REQUEST_TIMEOUT", 10*time.Second),
 
-		WSWriteTimeout: GetEnvDuration("WS_WRITE_TIMEOUT", 10*time.Second),
-		WSPongTimeout:  GetEnvDuration("WS_PONG_TIMEOUT", 60*time.Second),
-		WSPingInterval: GetEnvDuration("WS_PING_INTERVAL", 30*time.Second),
+		WSWriteTimeout:   GetEnvDuration("WS_WRITE_TIMEOUT", 10*time.Second),
+		WSPongTimeout:    GetEnvDuration("WS_PONG_TIMEOUT", 60*time.Second),
+		WSPingInterval:   GetEnvDuration("WS_PING_INTERVAL", 30*time.Second),
+		WSHandlerTimeout: GetEnvDuration("WS_HANDLER_TIMEOUT", 2*time.Hour),
 	}
 }

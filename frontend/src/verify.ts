@@ -1,5 +1,7 @@
 export {};
 
+import { apiFetch } from './shared/network/api_fetch.js';
+
 const statusEl = document.getElementById('status') as HTMLElement | null;
 
 async function verifyMagicLink(): Promise<void> {
@@ -10,11 +12,11 @@ async function verifyMagicLink(): Promise<void> {
   }
 
   try {
-    const res = await fetch('/api/v1/auth/verify', {
+    const res = await apiFetch('/api/v1/auth/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ token }),
+      autoRefresh: false,
     });
 
     if (res.ok) {

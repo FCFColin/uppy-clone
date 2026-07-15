@@ -145,7 +145,7 @@ func TestRunSeed_SuccessHooked(t *testing.T) {
 	}
 
 	orig := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ config.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ config.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(mock), nil
 	}
 	t.Cleanup(func() { newPostgresStoreFn = orig })
@@ -183,7 +183,7 @@ func TestMain_SuccessHooked(t *testing.T) {
 	}
 
 	orig := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ config.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ config.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(mock), nil
 	}
 	t.Cleanup(func() { newPostgresStoreFn = orig })
@@ -212,7 +212,7 @@ func TestRunSeed_ReportsActualCountsOnError(t *testing.T) {
 	mock.ExpectRollback()
 
 	orig := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ config.TimeoutConfig) (*store.PostgresStore, error) {
+	newPostgresStoreFn = func(_ string, _ config.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
 		return store.NewPostgresStoreWithPool(mock), nil
 	}
 	t.Cleanup(func() { newPostgresStoreFn = orig })
@@ -228,6 +228,8 @@ func TestRunSeed_ReportsActualCountsOnError(t *testing.T) {
 }
 
 // v2-R-96: Duplicate-key errors are non-fatal (idempotent re-runs).
+// misc-033: On duplicate, seedUsers looks up the existing user's real DB ID
+// so that seedResults references the actual record.
 func TestSeedUsers_DuplicateIsNonFatal(t *testing.T) {
 	initSeedTestCrypto(t)
 	mock, err := pgxmock.NewPool()
@@ -236,12 +238,22 @@ func TestSeedUsers_DuplicateIsNonFatal(t *testing.T) {
 	}
 	t.Cleanup(func() { mock.Close() })
 
+	existingIDs := []string{"existing-alice", "existing-bob", "existing-charlie"}
+	emails := []string{"alice@test.com", "bob@test.com", "charlie@test.com"}
+	nicks := []string{"Alice", "Bob", "Charlie"}
+
 	for i := 0; i < 3; i++ {
+		// CreateUser returns duplicate
 		mock.ExpectBegin()
 		mock.ExpectExec("INSERT INTO users").
 			WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
 			WillReturnError(&pgconn.PgError{Code: "23505", Message: "duplicate key"})
 		mock.ExpectRollback()
+		// GetUserByEmail returns the existing user's real ID
+		mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
+			WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).
+			WillReturnRows(pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
+				AddRow(existingIDs[i], emails[i], nicks[i], i, int64(1000), nil))
 	}
 
 	userRepo := store.NewUserRepository(mock)
@@ -255,5 +267,12 @@ func TestSeedUsers_DuplicateIsNonFatal(t *testing.T) {
 	}
 	if stats.usersCreated != 0 {
 		t.Fatalf("usersCreated = %d, want 0 (all duplicates)", stats.usersCreated)
+	}
+	// Verify that duplicate users have their IDs replaced with the existing
+	// DB record's ID, not the discarded UUID.
+	for i, u := range users {
+		if u.ID != existingIDs[i] {
+			t.Errorf("users[%d].ID = %q, want %q (existing DB ID)", i, u.ID, existingIDs[i])
+		}
 	}
 }

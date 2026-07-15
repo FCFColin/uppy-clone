@@ -37,7 +37,7 @@ spec:
       backend:
         serviceName: balloon-game-mcs
         servicePort: 80
-      # WebSocket 长连接：会话亲和性 + 充足超时由 BackendConfig 设置（见下）。
+      # WebSocket 长连接：充足超时由 BackendConfig 设置（见下）；不再启用会话亲和性（infra-024）。
 ---
 apiVersion: cloud.google.com/v1
 kind: BackendConfig
@@ -49,8 +49,10 @@ spec:
   timeoutSec: 86400
   connectionDraining:
     drainingTimeoutSec: 60
-  sessionAffinity:
-    affinityType: "CLIENT_IP"
+  # infra-024: 移除 sessionAffinity: CLIENT_IP。WebSocket 升级后连接是长连接，
+  # 不依赖客户端 IP 粘性；CLIENT_IP 亲和性反而会导致负载在 backend Pod 间倾斜
+  # （特别是当客户端经过 CGNAT/企业出口共享 IP 时）。owner 反向代理在应用层
+  # 处理房间路由，LB 层应保持均匀轮询。
   healthCheck:
     type: HTTP
     requestPath: /health/ready

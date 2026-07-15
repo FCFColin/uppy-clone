@@ -75,7 +75,7 @@ func TestIsRetryable_PgconnSafeToRetry(t *testing.T) {
 
 type stubSafeToRetryErr struct{}
 
-func (stubSafeToRetryErr) Error() string   { return "safe to retry" }
+func (stubSafeToRetryErr) Error() string     { return "safe to retry" }
 func (stubSafeToRetryErr) SafeToRetry() bool { return true }
 
 func TestIsRetryable_StubSafeToRetry(t *testing.T) {

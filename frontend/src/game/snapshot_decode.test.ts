@@ -37,6 +37,9 @@ describe('decodeSnapshot', () => {
     expect(decoded!.timestamp).toBe(100);
     expect(decoded!.score).toBe(42);
     expect(decoded!.balloon.y).toBeCloseTo(0.6);
+    expect(decoded!.balloon.x).toBeCloseTo(0.5);
+    expect(decoded!.balloon.vx).toBeCloseTo(-0.1);
+    expect(decoded!.balloon.vy).toBeCloseTo(0.2);
     expect(decoded!.ripples).toEqual([]);
     expect(decoded!.wind).toBe(0);
   });
@@ -55,6 +58,8 @@ describe('decodeSnapshot', () => {
     applySnapshot(decoded, target);
     expect(target.score).toBe(42);
     expect(target.balloon.y).toBeCloseTo(0.6);
+    expect(target.balloon.vx).toBeCloseTo(-0.1);
+    expect(target.balloon.vy).toBeCloseTo(0.2);
   });
 
   it('decodes active bird coordinates', () => {

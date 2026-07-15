@@ -22,9 +22,7 @@ playwright-report/
 test-results/
 coverage/
 vitest.config.ts
-vitest.workers.config.mts
 playwright.config.ts
-playwright.prod.config.ts
 
 # IDE
 .idea/

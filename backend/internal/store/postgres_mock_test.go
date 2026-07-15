@@ -6,54 +6,23 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 )
 
-func newMockPostgresStore(t *testing.T) (*PostgresStore, pgxmock.PgxPoolIface) {
+// newMockRepo creates a pgxmock pool and wraps it with the provided constructor.
+// The mock pool is registered with t.Cleanup for automatic close.
+// This is the single mock factory for store tests — replaces the 5 former
+// per-repository factory functions (RO-031).
+//
+// Testing-strategy boundary (RO-048): pgxmock backs UNIT tests (pure logic,
+// no build tag). For SQL correctness / migration / constraint tests use
+// testutil.SetupPostgres (testcontainers, `//go:build integration`). See the
+// boundary doc at the top of internal/testutil/postgres.go.
+func newMockRepo[T any](t *testing.T, newFn func(pgPool, ...Deps) T) (T, pgxmock.PgxPoolIface) {
 	t.Helper()
 	mock, err := pgxmock.NewPool()
 	if err != nil {
 		t.Fatalf("pgxmock.NewPool: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
-	return NewPostgresStoreWithPool(mock), mock
-}
-
-func newMockUserRepository(t *testing.T) (*UserRepository, pgxmock.PgxPoolIface) {
-	t.Helper()
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
-	return NewUserRepository(mock), mock
-}
-
-func newMockLobbyRepository(t *testing.T) (*LobbyRepository, pgxmock.PgxPoolIface) {
-	t.Helper()
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
-	return NewLobbyRepository(mock), mock
-}
-
-func newMockResultRepository(t *testing.T) (*ResultRepository, pgxmock.PgxPoolIface) {
-	t.Helper()
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
-	return NewResultRepository(mock), mock
-}
-
-func newMockConfigRepository(t *testing.T) (*ConfigRepository, pgxmock.PgxPoolIface) {
-	t.Helper()
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
-	return NewConfigRepository(mock), mock
+	return newFn(mock), mock
 }
 
 func TestNewPostgresStoreWithPool(t *testing.T) {

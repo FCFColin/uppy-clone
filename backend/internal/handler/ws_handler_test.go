@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
@@ -30,9 +29,9 @@ func TestWebSocket_ConnectAndDisconnect(t *testing.T) {
 		t.Fatalf("CreateRoom failed: %v", err)
 	}
 
-	conn, resp := wsDial(t, server, code, "http://localhost")
-	if resp != nil && resp.StatusCode != http.StatusSwitchingProtocols {
-		t.Fatalf("expected 101 Switching Protocols, got %d", resp.StatusCode)
+	conn, statusCode := wsDial(t, server, code, "http://localhost")
+	if statusCode != 0 && statusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("expected 101 Switching Protocols, got %d", statusCode)
 	}
 	if conn == nil {
 		t.Fatal("expected non-nil connection")
@@ -78,7 +77,7 @@ func TestWebSocket_RoomCreation(t *testing.T) {
 	if conn == nil {
 		t.Fatal("expected non-nil connection")
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Set a read deadline to avoid blocking forever if the server doesn't send.
 	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
@@ -131,7 +130,10 @@ func TestWebSocket_ConcurrentConnections(t *testing.T) {
 			hdr := http.Header{}
 			hdr.Set("Origin", "http://localhost")
 			hdr.Set("X-Test-User-ID", fmt.Sprintf("user%d", idx))
-			conn, _, err := dialer.Dial(url, hdr)
+			conn, resp, err := dialer.Dial(url, hdr)
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
 			if err != nil {
 				errors[idx] = err
 				return
@@ -150,7 +152,7 @@ func TestWebSocket_ConcurrentConnections(t *testing.T) {
 	if t.Failed() {
 		for _, c := range conns {
 			if c != nil {
-				c.Close()
+				_ = c.Close()
 			}
 		}
 		return
@@ -167,7 +169,7 @@ func TestWebSocket_ConcurrentConnections(t *testing.T) {
 		closeWg.Add(1)
 		go func(c *websocket.Conn) {
 			defer closeWg.Done()
-			c.Close()
+			_ = c.Close()
 		}(c)
 	}
 	closeWg.Wait()
@@ -193,17 +195,16 @@ func TestWebSocket_InvalidRoom(t *testing.T) {
 	defer server.Close()
 
 	// Don't create any rooms; try to connect to a non-existent code.
-	conn, resp := wsDial(t, server, "NOPE1", "http://localhost")
+	conn, statusCode := wsDial(t, server, "NOPE1", "http://localhost")
 	if conn != nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Fatal("expected connection to be rejected (nil conn)")
 	}
-	if resp == nil {
+	if statusCode == 0 {
 		t.Fatal("expected HTTP response for rejected connection")
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("expected 404 Not Found, got %d", resp.StatusCode)
+	if statusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found, got %d", statusCode)
 	}
 }
 
@@ -221,9 +222,9 @@ func TestWebSocket_Unauthorized(t *testing.T) {
 	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
 	// Create a server WITHOUT the test auth middleware — simulates an
 	// unauthenticated request.
-	r := chi.NewRouter()
-	r.Get("/lobby/{code}/ws", h.WebSocket)
-	server := httptest.NewServer(r)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /lobby/{code}/ws", h.WebSocket)
+	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	code, err := h.hub.CreateRoom(context.Background())
@@ -231,17 +232,16 @@ func TestWebSocket_Unauthorized(t *testing.T) {
 		t.Fatalf("CreateRoom failed: %v", err)
 	}
 
-	conn, resp := wsDial(t, server, code, "http://localhost")
+	conn, statusCode := wsDial(t, server, code, "http://localhost")
 	if conn != nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Fatal("expected connection to be rejected (nil conn)")
 	}
-	if resp == nil {
+	if statusCode == 0 {
 		t.Fatal("expected HTTP response for rejected connection")
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 Unauthorized, got %d", resp.StatusCode)
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", statusCode)
 	}
 }
 
@@ -265,17 +265,16 @@ func TestWebSocket_ForbiddenOrigin(t *testing.T) {
 	}
 
 	// Use an Origin that doesn't match the allowed list.
-	conn, resp := wsDial(t, server, code, "http://evil.example.com")
+	conn, statusCode := wsDial(t, server, code, "http://evil.example.com")
 	if conn != nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Fatal("expected connection to be rejected (nil conn)")
 	}
-	if resp == nil {
+	if statusCode == 0 {
 		t.Fatal("expected HTTP response for rejected connection")
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403 Forbidden, got %d", resp.StatusCode)
+	if statusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden, got %d", statusCode)
 	}
 }
 
@@ -291,7 +290,7 @@ func TestWebSocket_RateLimit(t *testing.T) {
 	}
 
 	// Create a handler with a very low WS connection limit (2).
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 2, 50, nil)
+	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 2, 50)
 	h := NewLobbyHandler(hub, []string{"http://localhost"})
 	server := newWSTestServerMultiUser(h)
 	defer server.Close()
@@ -306,20 +305,26 @@ func TestWebSocket_RateLimit(t *testing.T) {
 	hdr1 := http.Header{}
 	hdr1.Set("Origin", "http://localhost")
 	hdr1.Set("X-Test-User-ID", "user0")
-	conn1, _, err := dialer.Dial("ws"+server.URL[4:]+"/lobby/"+code+"/ws", hdr1)
+	conn1, resp1, err := dialer.Dial("ws"+server.URL[4:]+"/lobby/"+code+"/ws", hdr1)
+	if resp1 != nil {
+		_ = resp1.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial 1 failed: %v", err)
 	}
-	defer conn1.Close()
+	defer func() { _ = conn1.Close() }()
 
 	hdr2 := http.Header{}
 	hdr2.Set("Origin", "http://localhost")
 	hdr2.Set("X-Test-User-ID", "user1")
-	conn2, _, err := dialer.Dial("ws"+server.URL[4:]+"/lobby/"+code+"/ws", hdr2)
+	conn2, resp2, err := dialer.Dial("ws"+server.URL[4:]+"/lobby/"+code+"/ws", hdr2)
+	if resp2 != nil {
+		_ = resp2.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial 2 failed: %v", err)
 	}
-	defer conn2.Close()
+	defer func() { _ = conn2.Close() }()
 
 	// Wait for both server-side pumps to start.
 	if !waitForConnCount(h, 2, 3*time.Second) {
@@ -337,7 +342,7 @@ func TestWebSocket_RateLimit(t *testing.T) {
 	if resp3 == nil {
 		t.Fatal("expected HTTP response for rejected connection")
 	}
-	defer resp3.Body.Close()
+	defer func() { _ = resp3.Body.Close() }()
 	if resp3.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 Service Unavailable, got %d", resp3.StatusCode)
 	}

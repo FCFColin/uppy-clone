@@ -1,4 +1,6 @@
+import type { EntryStep } from './entry_flow_ui.js';
 import type { GamePhase } from '../shared/game/types.js';
+import { createDefaultState } from './reducer.js';
 
 interface ClientBalloon {
   x: number;
@@ -28,7 +30,7 @@ export interface ClientPlayer {
   scoreContribution: number;
 }
 
-interface ClientRipple {
+export interface ClientRipple {
   playerIndex: number;
   x: number;
   y: number;
@@ -69,33 +71,29 @@ export interface ClientState {
   wasEverConnected: boolean;
   blockGameRender: boolean;
   entryStep: EntryStep;
+  // RO-041: Migrated from module-level `let` to store dispatch.
+  wsConnectInFlight: boolean;
+  connectedLobbyCode: string | null;
+  lobbyPublished: boolean;
+  wsConnected: boolean;
 }
 
-export type EntryStep = 'connecting' | 'error' | 'nickname' | 'waiting' | 'handoff';
+const _state: ClientState = createDefaultState();
 
-export const state: ClientState = {
-  phase: 'waiting',
-  balloon: { x: 0.5, y: 0.5, vx: 0, vy: 0 },
-  bird: { x: 0, y: 0, active: false },
-  ghost: { x: 0, y: 0, active: false, repelTimer: 0 },
-  players: [],
-  myCooldownEnd: 0,
-  score: 0,
-  ripples: [],
-  lobbyCode: '',
-  lastTapX: null,
-  lastTapY: null,
-  connectionError: null,
-  wind: 0,
-  restartVotes: { yes: 0, total: 0, countdownMs: 0 },
-  hasReceivedFirstSnapshot: false,
-  explosionEffect: null,
-  restartClicked: false,
-  nicknameSubmitted: false,
-  pendingNickname: null,
-  countdownTimerInterval: null,
-  endReason: null,
-  wasEverConnected: false,
-  blockGameRender: false,
-  entryStep: 'connecting',
-};
+export function getState(): ClientState {
+  return _state;
+}
+
+/** @internal Update the module-level state reference. Used by store.dispatch(). */
+export function setState(newState: ClientState): void {
+  // Assign each property to preserve the reference for consumers that hold
+  // the old object (including the deprecated `state` export used in tests).
+  Object.assign(_state, newState);
+}
+
+/** @deprecated Only for test use. Production code must use getState(). */
+export { _state as state };
+
+export function resetStateForTest(): void {
+  Object.assign(_state, createDefaultState());
+}

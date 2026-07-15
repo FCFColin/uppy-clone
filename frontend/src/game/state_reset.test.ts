@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { state } from './state_types.js';
-import { isDuplicateSeq, getSeenSeqsSize } from './state_interp.js';
+import { isDuplicateSeq, getSeenSeqsSize } from './seen_seqs.js';
 
 vi.mock('./ws_connection.js', () => ({
   clearOutboundQueue: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock('./ws_connection.js', () => ({
   handlePong: vi.fn(),
 }));
 
-import { resetClientState, resetRoundClientState } from './state_reset.js';
+import { resetClientState, resetRoundClientState } from './state_interp.js';
 
 describe('client_state_reset', () => {
   beforeEach(() => {

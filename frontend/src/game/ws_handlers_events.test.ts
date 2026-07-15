@@ -12,13 +12,15 @@ const { mockState } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('./state_types.js', () => ({ state: mockState }));
-vi.mock('./ui.js', () => ({ updateUI: vi.fn() }));
+vi.mock('./state_types.js', () => ({
+  state: mockState,
+  getState: () => mockState,
+}));
 vi.mock('./visual_helpers.js', () => ({
   pushFloatingText: vi.fn(),
 }));
 
-import { handleTapAccepted, handleTapRejected } from './ws_handlers_events.js';
+import { handleTapAccepted, handleTapRejected } from './ws_handlers.js';
 import { pushFloatingText } from './visual_helpers.js';
 import { MSG_TYPE } from '../shared/game/protocol.js';
 

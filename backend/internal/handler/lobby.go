@@ -2,8 +2,6 @@ package handler
 
 import (
 	"log/slog"
-
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // LobbyHandler handles lobby/room endpoints.
@@ -21,7 +19,3 @@ func NewLobbyHandler(hub GameService, allowedOrigins []string) *LobbyHandler {
 		allowedOrigins: allowedOrigins,
 	}
 }
-
-// wsStaticSpanAttr is the pre-allocated static attribute shared by all WebSocket
-// read/write pump spans.
-var wsStaticSpanAttr = attribute.String("messaging.system", "websocket")

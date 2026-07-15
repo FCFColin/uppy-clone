@@ -12,7 +12,7 @@ import (
 )
 
 func TestSaveLobbyState_Success(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 	ls := &domain.LobbyState{ID: "l1", Code: "ABCD1", State: "waiting", UpdatedAt: 100, CreatedAt: 50}
 
@@ -26,7 +26,7 @@ func TestSaveLobbyState_Success(t *testing.T) {
 }
 
 func TestSaveLobbyState_Error(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("INSERT INTO lobby_states").
@@ -39,7 +39,7 @@ func TestSaveLobbyState_Error(t *testing.T) {
 }
 
 func TestLoadLobbyState_Found(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
@@ -58,7 +58,7 @@ func TestLoadLobbyState_Found(t *testing.T) {
 }
 
 func TestLoadLobbyState_NotFound(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
@@ -75,7 +75,7 @@ func TestLoadLobbyState_NotFound(t *testing.T) {
 }
 
 func TestDeleteLobbyState_Success(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("DELETE FROM lobby_states WHERE code").
@@ -88,7 +88,7 @@ func TestDeleteLobbyState_Success(t *testing.T) {
 }
 
 func TestDeleteLobbyState_Error(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("DELETE FROM lobby_states WHERE code").
@@ -100,7 +100,7 @@ func TestDeleteLobbyState_Error(t *testing.T) {
 }
 
 func TestLoadLobbyState_ScanError(t *testing.T) {
-	repo, mock := newMockLobbyRepository(t)
+	repo, mock := newMockRepo(t, NewLobbyRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).

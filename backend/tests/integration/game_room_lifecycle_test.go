@@ -14,12 +14,12 @@ import (
 )
 
 func TestGameRoom_FullLifecycle(t *testing.T) {
-	pgStore := testutil.SetupPostgresStore(t)
+	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	gameStore := store.NewGameStore(pgStore.Pool())
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
-	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50, nil)
+	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50)
 
 	ctx := context.Background()
 	roomID, err := hub.CreateRoom(ctx)
@@ -55,12 +55,12 @@ func TestGameRoom_FullLifecycle(t *testing.T) {
 }
 
 func TestGameRoom_CheckNonExistentRoom(t *testing.T) {
-	pgStore := testutil.SetupPostgresStore(t)
+	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	gameStore := store.NewGameStore(pgStore.Pool())
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
-	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50, nil)
+	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50)
 	info, err := hub.CheckRoom("NONEXIST")
 	if err != nil {
 		t.Fatalf("CheckRoom: %v", err)
@@ -71,12 +71,12 @@ func TestGameRoom_CheckNonExistentRoom(t *testing.T) {
 }
 
 func TestGameRoom_ConcurrentCreate(t *testing.T) {
-	pgStore := testutil.SetupPostgresStore(t)
+	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	gameStore := store.NewGameStore(pgStore.Pool())
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
-	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50, nil)
+	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50)
 	ctx := context.Background()
 
 	const concurrency = 10
@@ -119,12 +119,12 @@ func TestGameRoom_ConcurrentCreate(t *testing.T) {
 }
 
 func TestGameRoom_MatchRoom(t *testing.T) {
-	pgStore := testutil.SetupPostgresStore(t)
+	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	gameStore := store.NewGameStore(pgStore.Pool())
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
-	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50, nil)
+	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50)
 	ctx := context.Background()
 
 	firstCode, err := hub.MatchRoom(ctx)
@@ -151,7 +151,7 @@ func TestGameRoom_MatchRoom(t *testing.T) {
 
 func TestGameRoom_NilStore(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
-	hub := game.NewHub(nil, nil, timeouts, 10, 50, nil)
+	hub := game.NewHub(nil, nil, timeouts, 10, 50)
 	ctx := context.Background()
 
 	code, err := hub.CreateRoom(ctx)
@@ -174,12 +174,12 @@ func TestGameRoom_NilStore(t *testing.T) {
 }
 
 func TestGameRoom_RemoveRoom(t *testing.T) {
-	pgStore := testutil.SetupPostgresStore(t)
+	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	gameStore := store.NewGameStore(pgStore.Pool())
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
-	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50, nil)
+	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50)
 	ctx := context.Background()
 
 	code, err := hub.CreateRoom(ctx)
@@ -198,27 +198,27 @@ func TestGameRoom_RemoveRoom(t *testing.T) {
 }
 
 func TestGameRoom_RemoveNonExistent(t *testing.T) {
-	pgStore := testutil.SetupPostgresStore(t)
+	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	gameStore := store.NewGameStore(pgStore.Pool())
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
-	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50, nil)
+	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50)
 	ctx := context.Background()
 
 	hub.RemoveRoom(ctx, "NONEXIST")
 }
 
 func TestGameRoom_CodeConflictHook(t *testing.T) {
-	pgStore := testutil.SetupPostgresStore(t)
+	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	gameStore := store.NewGameStore(pgStore.Pool())
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
-	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50, nil)
+	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50)
 	ctx := context.Background()
 
-	restore := game.SetGenerateRoomCodeHook(func() string { return "AAAAA" })
+	restore := hub.SetGenerateRoomCodeHook(func() string { return "AAAAA" })
 	defer restore()
 
 	code1, err := hub.CreateRoom(ctx)
@@ -236,12 +236,12 @@ func TestGameRoom_CodeConflictHook(t *testing.T) {
 }
 
 func TestGameRoom_DefaultTimeoutConfig(t *testing.T) {
-	pgStore := testutil.SetupPostgresStore(t)
+	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	gameStore := store.NewGameStore(pgStore.Pool())
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
-	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50, nil)
+	hub := game.NewHub(gameStore, redisStore, timeouts, 10, 50)
 	got := hub.Timeouts()
 	if got.RedisConnectTimeout <= 0 {
 		t.Fatal("expected non-zero RedisConnectTimeout")

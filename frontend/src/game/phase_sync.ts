@@ -1,12 +1,12 @@
 import type { GamePhase } from '../shared/game/types.js';
 import { dispatch, getState } from './store.js';
-import { resetInterpolation, freezeInterpolation, clearSeenSeqs } from './state_interp.js';
-import { resetRoundClientState } from './state_reset.js';
-import {
-  updateUI, startCountdownTimer,
-  hideCountdownOverlay, showCountdownOverlay,
-  startCooldownUpdater, stopCooldownUpdater,
-} from './ui.js';
+import { resetInterpolation, freezeInterpolation } from './state_interp.js';
+import { clearSeenSeqs } from './seen_seqs.js';
+import { resetRoundClientState } from './state_interp.js';
+import { updateUI } from './ui_update.js';
+import { startCountdownTimer, hideCountdownOverlay, showCountdownOverlay } from './ui_utils.js';
+import { clearRestartCountdownTimer as clearVoteCountdownTimer } from './restart_vote_ui.js';
+import { startCooldownUpdater, stopCooldownUpdater } from './ui_cooldown.js';
 import { tryEntryHandoff } from './entry_flow.js';
 import { END_REASON } from '../shared/game/constants.js';
 
@@ -53,10 +53,7 @@ function clearRestartCountdownTimer(): void {
     clearInterval(interval);
     dispatch({ type: 'SET_STATE', partial: { countdownTimerInterval: null } });
   }
-  if (window._restartCountdownTimer !== null) {
-    clearInterval(window._restartCountdownTimer);
-    window._restartCountdownTimer = null;
-  }
+  clearVoteCountdownTimer();
 }
 
 function onEnterPlaying(): void {
@@ -118,7 +115,11 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
   }
 
   dispatch({ type: 'SET_STATE', partial: { phase: nextPhase } });
-  window.__gamePhase = nextPhase;
+  // shared-016: Only expose debug global in dev mode to avoid leaking
+  // internal state in production builds.
+  if (import.meta.env.DEV) {
+    window.__gamePhase = nextPhase;
+  }
 
   tryEntryHandoff(nextPhase);
   phaseEnterHooks[nextPhase](countdownSeconds);

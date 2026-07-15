@@ -143,7 +143,7 @@ func TestLeaderboardQuery(t *testing.T) {
 }
 
 func TestGetLeaderboard_Success(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"final_score", "lobby_code", "ended_at"}).
@@ -163,7 +163,7 @@ func TestGetLeaderboard_Success(t *testing.T) {
 }
 
 func TestGetLeaderboard_EmptyReturnsSlice(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"final_score", "lobby_code", "ended_at"})
@@ -184,7 +184,7 @@ func TestGetLeaderboard_EmptyReturnsSlice(t *testing.T) {
 }
 
 func TestGetLeaderboard_QueryError(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT final_score, lobby_code, ended_at FROM game_sessions").
@@ -197,7 +197,7 @@ func TestGetLeaderboard_QueryError(t *testing.T) {
 }
 
 func TestGetUserBestScore_Success(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"max", "count"}).
@@ -214,7 +214,7 @@ func TestGetUserBestScore_Success(t *testing.T) {
 }
 
 func TestGetUserBestScore_Error(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT COALESCE").WillReturnError(errors.New("query failed"))

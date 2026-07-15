@@ -1,5 +1,4 @@
-import { fetchWithRefresh } from '../shared/network/auth.js';
-import { createFetchTimeout } from './fetch_timeout.js';
+import { apiFetch } from '../shared/network/api_fetch.js';
 
 export type RoomValidateResult =
   | { ok: true }
@@ -22,10 +21,13 @@ export async function validateRoomCode(code: string): Promise<RoomValidateResult
   if (!ROOM_CODE_RE.test(code)) {
     return { ok: false, reason: 'not_found' };
   }
-  const { signal, cleanup } = createFetchTimeout();
   try {
     const encoded = encodeURIComponent(code);
-    const res = await fetch(`/api/v1/registry/check/${encoded}`, { signal });
+    const res = await apiFetch(`/api/v1/registry/check/${encoded}`, {
+      timeoutMs: 8000,
+      retries: 0,
+      autoRefresh: false,
+    });
     if (res.status === 404) {
       return { ok: false, reason: 'not_found' };
     }
@@ -42,8 +44,6 @@ export async function validateRoomCode(code: string): Promise<RoomValidateResult
     return { ok: true };
   } catch {
     return { ok: true, degraded: true };
-  } finally {
-    cleanup();
   }
 }
 
@@ -52,19 +52,17 @@ export function roomErrorMessage(reason: 'not_found' | 'ended'): string {
 }
 
 export async function matchNewRoomCode(): Promise<string | null> {
-  const { signal, cleanup } = createFetchTimeout();
   try {
-    const res = await fetchWithRefresh('/api/v1/registry/match', {
+    const res = await apiFetch('/api/v1/registry/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal,
+      timeoutMs: 8000,
+      retries: 0,
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { lobbyCode: string };
     return data.lobbyCode ?? null;
   } catch {
     return null;
-  } finally {
-    cleanup();
   }
 }

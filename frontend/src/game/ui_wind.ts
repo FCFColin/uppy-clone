@@ -87,3 +87,7 @@ export function hideWindIndicator(): void {
   ensureElements();
   if ($windIndicator) $windIndicator.classList.add('hidden');
 }
+
+export function resetWindHint(): void {
+  windHintShown = false;
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -16,41 +17,78 @@ import (
 
 var tracer = otel.Tracer("github.com/uppy-clone/backend/internal/game")
 
-// defaultSeedRNG is the package-level RNG for non-game operations (room codes, nicknames).
-// It is separate from per-room RNG to keep game ticks deterministic.
-var defaultSeedRNG = newSeededRNG(time.Now().UnixNano())
-
 // PlayerConn 表示一个玩家的 WebSocket 连接
 type PlayerConn struct {
 	PlayerID string
 	Conn     *websocket.Conn
 	Send     chan []byte
 	// consecutiveDrops tracks consecutive message drops for slow client detection.
-	// P4-5: 连续丢弃计数，达到阈值后告警/断开慢客户端。访问由 Room.mu 保护。
-	consecutiveDrops int
+	// P4-5: 连续丢弃计数，达到阈值后告警/断开慢客户端。
+	// Protected by atomic operations (accessed concurrently by outbound goroutine
+	// without holding connMu).
+	consecutiveDrops atomic.Int64
 	// pendingDisconnect marks a slow client for removal after outbound delivery.
-	pendingDisconnect bool
+	pendingDisconnect atomic.Bool
 }
 
 // SendChannel returns the outbound message channel for interface access.
 func (p *PlayerConn) SendChannel() chan []byte { return p.Send }
 
-// SnapshotTargets implements ConnectionSource.
-func (r *Room) SnapshotTargets(excludePlayerID string) []connTarget {
-	targets := make([]connTarget, 0, len(r.connections))
-	for pid, pc := range r.connections {
+// RoomConnections manages the per-room WebSocket connection registry.
+// Embedded in Room; has its own mutex (connMu) to avoid deadlock with the
+// outbound goroutine, which must not acquire Room.mu.
+type RoomConnections struct {
+	connMu      sync.RWMutex
+	connections map[string]*PlayerConn
+}
+
+func (rc *RoomConnections) GetConnection(playerID string) *PlayerConn {
+	rc.connMu.RLock()
+	defer rc.connMu.RUnlock()
+	return rc.connections[playerID]
+}
+
+// removeConnectionLocked closes and removes a player connection.
+// Caller must NOT hold connMu (acquires it internally).
+func (rc *RoomConnections) removeConnectionLocked(playerID string) {
+	rc.connMu.Lock()
+	defer rc.connMu.Unlock()
+	if pc, ok := rc.connections[playerID]; ok {
+		if pc.Conn != nil {
+			_ = pc.Conn.Close()
+		}
+		delete(rc.connections, playerID)
+	}
+}
+
+func (rc *RoomConnections) sendToPlayer(playerID string, data []byte) {
+	rc.connMu.RLock()
+	pc, ok := rc.connections[playerID]
+	rc.connMu.RUnlock()
+	if ok {
+		select {
+		case pc.Send <- data:
+		default:
+		}
+	}
+}
+
+func (rc *RoomConnections) SnapshotTargets(excludePlayerID string) []connTarget {
+	rc.connMu.RLock()
+	defer rc.connMu.RUnlock()
+	targets := make([]connTarget, 0, len(rc.connections))
+	for pid, pc := range rc.connections {
 		if pid == excludePlayerID || pc == nil || pc.Send == nil {
 			continue
 		}
-		pcCopy := pc
 		targets = append(targets, connTarget{
 			playerID:          pid,
-			send:              pcCopy.Send,
-			consecutiveDrops:  &pcCopy.consecutiveDrops,
-			pendingDisconnect: &pcCopy.pendingDisconnect,
+			send:              pc.Send,
+			consecutiveDrops:  &pc.consecutiveDrops,
+			pendingDisconnect: &pc.pendingDisconnect,
 			connClose: func() {
-				if pcCopy.Conn != nil {
-					_ = pcCopy.Conn.Close()
+				if pc.Conn != nil {
+					_ = pc.Conn.Close()
 				}
 			},
 		})
@@ -58,63 +96,195 @@ func (r *Room) SnapshotTargets(excludePlayerID string) []connTarget {
 	return targets
 }
 
-// RemovePendingDisconnects implements ConnectionSource.
+func (rc *RoomConnections) closeAllConnections() {
+	rc.connMu.Lock()
+	for pid, pc := range rc.connections {
+		if pc.Conn != nil {
+			_ = pc.Conn.Close()
+		}
+		delete(rc.connections, pid)
+		close(pc.Send)
+	}
+	rc.connections = make(map[string]*PlayerConn)
+	rc.connMu.Unlock()
+}
+
+// RemovePendingDisconnects removes slow clients flagged for disconnection.
+// In async (production) mode, acquires r.mu to protect r.state.Players access.
+// In sync (test) mode where r.mu may already be held, TryLock gracefully skips
+// player state marking since there's no concurrent access in the same goroutine.
+//
+// This method stays on Room (not RoomConnections) because it bridges the
+// connection registry and game state: it marks disconnected players in
+// r.state.Players while also deleting from the connection map.
 func (r *Room) RemovePendingDisconnects() {
+	hasMu := r.mu.TryLock()
+	if hasMu {
+		defer r.mu.Unlock()
+	}
+	r.connMu.Lock()
+	defer r.connMu.Unlock()
 	for pid, pc := range r.connections {
-		if pc != nil && pc.pendingDisconnect {
-			if player, ok := r.state.Players[pid]; ok {
-				player.MarkDisconnected(time.Now().UnixMilli())
+		if pc != nil && pc.pendingDisconnect.Load() {
+			if hasMu {
+				if player, ok := r.state.Players[pid]; ok {
+					player.MarkDisconnected(time.Now().UnixMilli())
+				}
 			}
 			delete(r.connections, pid)
-			pc.pendingDisconnect = false
 		}
 	}
 }
 
+// ─── Broadcast ───────────────────────────────────────────────────────
 
+// broadcast sends data to all connections (optionally excluding one player).
+// Caller must hold r.mu. Actual delivery happens in the outbound goroutine (lock-free).
+func (r *Room) broadcast(data []byte, excludePlayerID string) {
+	r.enqueueOutbound(data, broadcastOpts{excludePlayerID: excludePlayerID})
+}
 
-// Room 表示一个游戏房间。
+// broadcastCritical sends a critical phase message with blocking delivery per client.
+// 调用方必须持有 r.mu 锁。
+func (r *Room) broadcastCritical(message []byte) {
+	r.enqueueOutbound(message, broadcastOpts{critical: true})
+}
+
+// broadcastOpts controls outbound delivery behavior.
+type broadcastOpts struct {
+	excludePlayerID string
+	critical        bool
+}
+
+// enqueueOutbound queues a broadcast for async delivery. Caller must hold r.mu.
+func (r *Room) enqueueOutbound(payload []byte, opts broadcastOpts) {
+	r.initOutboundManager()
+	r.outbound.Enqueue(payload, opts.excludePlayerID, opts.critical)
+}
+
+func (r *Room) initOutboundManager() {
+	if r.outbound == nil {
+		r.outbound = NewOutboundManager(r.lobbyCode, &r.syncOutbound, r, r.logger, &r.asyncWg)
+	}
+}
+
+// stopOutbound stops the outbound delivery loop.
+func (r *Room) stopOutbound() {
+	if r.outbound == nil {
+		return
+	}
+	r.outbound.Stop()
+}
+
+// snapshotData holds a copy of game state for lock-free snapshot encoding.
+type snapshotData struct {
+	phase     protocol.GamePhase
+	tickCount uint32
+	score     uint32
+	balloon   protocol.BalloonState
+	bird      protocol.BirdState
+	ghost     protocol.GhostState
+	players   []protocol.PlayerState
+	wind      float64
+}
+
+// extractSnapshotDataLocked copies the state needed for a snapshot.
+// Caller must hold r.mu.
+func (r *Room) extractSnapshotDataLocked() snapshotData {
+	now := time.Now().UnixMilli()
+	players := make([]protocol.PlayerState, 0, len(r.state.Players))
+	for _, p := range r.state.Players {
+		if p.Disconnected {
+			continue
+		}
+		cooldownRemaining := int64(0)
+		if p.CooldownEndTime > now {
+			cooldownRemaining = p.CooldownEndTime - now
+		}
+		players = append(players, protocol.PlayerState{
+			PlayerIndex:       uint16(p.PlayerIndex),       //nolint:gosec // G115: PlayerIndex < MaxPlayersPerRoom(50)
+			CooldownMs:        uint32(cooldownRemaining),   //nolint:gosec // G115: bounded by cooldown duration
+			Palette:           uint32(p.Palette),           //nolint:gosec // G115: Palette < 10
+			ScoreContribution: uint32(p.ScoreContribution), //nolint:gosec // G115: score bounded by game logic
+			Nickname:          p.Nickname,
+		})
+	}
+	return snapshotData{
+		phase:     protocol.GamePhase(r.state.Phase),
+		tickCount: uint32(r.state.TickCount),     //nolint:gosec // G115: tick count bounded by game session
+		score:     uint32(r.state.Balloon.Score), //nolint:gosec // G115: score incremented one at a time, bounded by game session
+		balloon: protocol.BalloonState{
+			X:  float32(r.state.Balloon.X),
+			Y:  float32(r.state.Balloon.Y),
+			Vy: float32(r.state.Balloon.VY),
+			Vx: float32(r.state.Balloon.VX),
+		},
+		bird: protocol.BirdState{
+			X:      float32(r.state.Bird.X),
+			Y:      float32(r.state.Bird.Y),
+			Active: r.state.Bird.Active,
+		},
+		ghost: protocol.GhostState{
+			X:          float32(r.state.Ghost.X),
+			Y:          float32(r.state.Ghost.Y),
+			Active:     r.state.Ghost.Active,
+			RepelTimer: uint16(r.state.Ghost.RepelTimer), //nolint:gosec // G115: repel timer bounded by game logic
+		},
+		players: players,
+		wind:    r.state.Wind,
+	}
+}
+
+// encodeSnapshot encodes a snapshot from pre-captured data.
+// Safe to call without holding r.mu.
+func encodeSnapshot(sd snapshotData) []byte {
+	return protocol.EncodeSnapshot(sd.phase, sd.tickCount, sd.score, sd.balloon, sd.bird, sd.ghost, sd.players, nil, sd.wind)
+}
+
+// buildSnapshot encodes the current state as a snapshot.
+// Caller must hold r.mu.
+func (r *Room) buildSnapshot() []byte {
+	sd := r.extractSnapshotDataLocked()
+	return encodeSnapshot(sd)
+}
+
+// ─── Room Aggregate Root ─────────────────────────────────────────────
+
+// Room represents a game room and is the aggregate root.
 //
-// P3-5.1: Room 是 Aggregate Root，PlayerState 是其内部实体。
-// 外部代码必须通过 Room 方法（AddPlayer、RemovePlayer、UpdatePlayerState）
-// 修改玩家。直接访问 room.state.Players 字段是不推荐的。
-//
-// P3-5.3 Room 不变量（invariants）：
+// Invariants:
 //   - Player count <= maxPlayersPerRoom
-//   - Phase 转换必须遵循：waiting → countdown → playing → ended → waiting
-//   - 同一房间内所有玩家昵称必须唯一
+//   - Phase transitions follow: waiting → countdown → playing → ended → waiting
+//   - All player nicknames in a room must be unique
 //
-// P3-6.2: 领域事件（PlayerJoined/PlayerLeft/GameEnded/PhaseChanged，见 domain/events.go）
-// 应通过 Transactional Outbox（P1-10）发布。当前未实际接入事件发布逻辑，
-// 未来重构时在 AddPlayer/RemovePlayer/EndGame/阶段转换处生成事件并写入 outbox_events 表。
+// Domain events (PlayerJoined/PlayerLeft/GameEnded/PhaseChanged) should eventually
+// be published through the Transactional Outbox pattern.
 type Room struct {
-	mu             sync.RWMutex
-	state          *domain.GameState
-	usedNames      map[string]bool
-	connections    map[string]*PlayerConn // playerID → connection
-	hub            *Hub
-	store          RoomRepository
-	timeouts       config.TimeoutConfig
-	tickCancel     context.CancelFunc
-	countdownStart int64
-	logger         *slog.Logger
-	maxPlayers int // 每房间最大玩家数
+	mu              sync.RWMutex
+	RoomConnections // embedded: connMu + connections map + connection methods (promoted)
+
+	endGameAlarmVersion int64
+	endGameTimer        *time.Timer
+	startDelayTimer     *time.Timer
+	startDelay          time.Duration // 开始游戏前的延迟，默认 1.5 秒，测试中可覆盖
+	countdownStart      int64         // countdown phase 开始时间 (unix milli)
+	tickCancel          context.CancelFunc
+
+	outbound     *OutboundManager
+	syncOutbound bool // true = immediate delivery (unit tests)
+
+	state           *domain.GameState
+	usedNames       map[string]bool
+	hub             *Hub
+	store           RoomRepository
+	timeouts        config.TimeoutConfig
+	logger          *slog.Logger
+	maxPlayers      int // 每房间最大玩家数
 
 	lobbyCode string // 房间码，不可变，在 NewRoom 中设置
 
-	// players is a reusable slice for buildSnapshot to avoid allocating a new
-	// slice on every snapshot (15 Hz per room). Access is guarded by mu.
-	players []protocol.PlayerState
-
-	// endGameAlarm 用于 ended 阶段的定时重启
-	endGameAlarmVersion int64
-	endGameTimer        *time.Timer
-
-	// startDelayTimer 给玩家短暂时间看到欢迎信息后再开始倒计时
-	startDelayTimer *time.Timer
-
-	// startDelay 是开始游戏前的延迟，默认 1.5 秒，测试中可覆盖
-	startDelay time.Duration
+	// closed marks the room as shutting down; checked by timer callbacks to prevent ghost restarts.
+	closed atomic.Bool
 
 	// wg tracks tick goroutines so Close() can wait for them to exit
 	// before persisting state (P2-24: graceful shutdown).
@@ -123,23 +293,18 @@ type Room struct {
 	// asyncWg tracks outbound/persist worker goroutines.
 	asyncWg sync.WaitGroup
 
-	// outbound handles WebSocket message broadcasting (decoupled via interface).
-	outbound *OutboundManager
-
-	// syncOutbound delivers immediately (unit tests). Forwarded to OutboundManager.
-	syncOutbound bool
-
-	broadcaster Broadcaster
-	instanceID  string
-
-	persist        *PersistManager
-	persistMu      sync.RWMutex
-	lastPersistAt  time.Time
-	persistCh      chan persistJob
+	persist       *PersistManager
+	persistMu     sync.RWMutex
+	lastPersistAt time.Time
 
 	// rng is the per-room deterministic RNG for game ticks.
 	// Seed is stored in GameState for replayability.
 	rng RNGSource
+
+	// Test-injectable function fields (replaces global test seams)
+	serializeStateFunc         func(*domain.GameState) ([]byte, error)
+	gameEndedOutboxPayloadFunc func(map[string]interface{}) ([]byte, error)
+	handleMessageFunc          func(r *Room, playerID string, msgType byte, payload []byte) error
 }
 
 // NewRoom 创建新房间
@@ -150,55 +315,31 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 	if maxPlayers <= 0 {
 		maxPlayers = config.MaxPlayersPerRoom
 	}
-	var broadcaster Broadcaster
-	instanceID := defaultInstanceID()
-	if hub != nil {
-		broadcaster = hub.broadcaster
-		instanceID = hub.instanceID
-	}
 	seed := time.Now().UnixNano()
+	roomRNG := newSeededRNG(seed)
 	r := &Room{
-		state:       NewGameState(code, newSeededRNG(seed)),
-		usedNames:   make(map[string]bool),
-		connections: make(map[string]*PlayerConn),
-		hub:         hub,
-		store:       repo,
-		timeouts:    timeouts,
-		logger:      slog.Default().With("lobby", code),
-		maxPlayers:  maxPlayers,
-		instanceID:  instanceID,
-		broadcaster: broadcaster,
-		startDelay:  2000 * time.Millisecond,
-		lobbyCode:   code,
-		rng:         newSeededRNG(seed),
+		RoomConnections: RoomConnections{
+			connections: make(map[string]*PlayerConn),
+		},
+		startDelay: 2000 * time.Millisecond,
+		state:      NewGameState(code, seed, roomRNG),
+		usedNames:  make(map[string]bool),
+		hub:        hub,
+		store:      repo,
+		timeouts:   timeouts,
+		logger:     slog.Default().With("lobby", code),
+		maxPlayers: maxPlayers,
+		lobbyCode:  code,
+		rng:        roomRNG,
+		serializeStateFunc:         SerializeState,
+		gameEndedOutboxPayloadFunc: defaultGameEndedOutboxPayload,
+		handleMessageFunc: func(r *Room, playerID string, msgType byte, payload []byte) error {
+			return r.HandleMessage(playerID, msgType, payload)
+		},
 	}
-	r.outbound = NewOutboundManager(code, instanceID, &r.syncOutbound, broadcaster, r, r.logger, &r.asyncWg)
+	r.outbound = NewOutboundManager(code, &r.syncOutbound, r, r.logger, &r.asyncWg)
 	r.persist = newPersistManager(r, r.logger, &r.asyncWg)
 	return r
-}
-
-// GetConnection returns the PlayerConn for a given playerID, or nil if not found.
-func (r *Room) GetConnection(playerID string) *PlayerConn {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.connections[playerID]
-}
-
-// removeConnectionLocked 移除玩家连接（调用者须持有 r.mu）。
-func (r *Room) removeConnectionLocked(playerID string) {
-	if pc, ok := r.connections[playerID]; ok {
-		if pc.Conn != nil {
-			_ = pc.Conn.Close()
-		}
-		delete(r.connections, playerID)
-	}
-}
-
-// removeConnection 线程安全移除玩家连接。
-func (r *Room) removeConnection(playerID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.removeConnectionLocked(playerID)
 }
 
 // Code returns the lobby code for this room.
@@ -206,18 +347,32 @@ func (r *Room) Code() string {
 	return string(r.state.LobbyCode)
 }
 
-// Close 清理房间，确保 tick goroutine 退出并持久化状态。
-// 企业为何需要：优雅关闭时必须等待异步 tick goroutine 退出，避免写入已关闭的 channel
-// 或持久化不完整状态。saveState 确保崩溃/关闭时房间状态可恢复。
+// Close cleans up the room, ensuring the tick goroutine exits and state is persisted.
 func (r *Room) Close() {
 	_, span := tracer.Start(context.Background(), "game.room_close")
 	defer span.End()
 	span.SetAttributes(attribute.String("lobby.code", r.lobbyCode))
+	r.closed.Store(true)
 	r.mu.Lock()
 	r.stopTick()
 	r.mu.Unlock()
 
-	r.wg.Wait()
+	// Wait for tick goroutine to exit, with a timeout to prevent hanging.
+	// game-031: If the timeout fires, the goroutine running r.wg.Wait() will leak.
+	// This is an acceptable trade-off: the subsequent cleanup (closing connections,
+	// stopping tick) will cause the tick goroutine to exit, which decrements r.wg,
+	// allowing the leaked goroutine to also exit. A context-cancellable WaitGroup
+	// would add complexity for minimal benefit.
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		r.logger.Warn("tick goroutine did not exit within timeout", "lobby", r.lobbyCode)
+	}
 
 	r.stopOutbound()
 
@@ -228,16 +383,22 @@ func (r *Room) Close() {
 	if r.startDelayTimer != nil {
 		r.startDelayTimer.Stop()
 	}
-	for pid, pc := range r.connections {
-		r.removeConnectionLocked(pid)
-		close(pc.Send)
-	}
-	r.connections = make(map[string]*PlayerConn)
+	r.closeAllConnections()
 	r.mu.Unlock()
 
 	r.flushPersistSync()
 	r.stopPersist()
-	r.asyncWg.Wait()
+	// Wait for async workers with a timeout to prevent hanging on shutdown.
+	asyncDone := make(chan struct{})
+	go func() {
+		r.asyncWg.Wait()
+		close(asyncDone)
+	}()
+	select {
+	case <-asyncDone:
+	case <-time.After(10 * time.Second):
+		r.logger.Warn("async workers did not exit within timeout", "lobby", r.lobbyCode)
+	}
 }
 
 // ErrRoomFull 房间玩家已满
@@ -247,23 +408,23 @@ type roomFullError struct{}
 
 func (e *roomFullError) Error() string { return "room is full" }
 
-// SerializeStateJSON implements PersistSource.
+// SerializeStateJSON serializes the room state for persistence.
 func (r *Room) SerializeStateJSON() ([]byte, string, error) {
 	if r.state == nil {
 		return nil, "", nil
 	}
-	data, err := serializeStateFn(r.state)
+	data, err := r.serializeStateFunc(r.state)
 	if err != nil {
 		return nil, "", err
 	}
 	return data, string(r.state.LobbyCode), nil
 }
 
-// Store implements PersistSource.
+// Store returns the room's repository.
 func (r *Room) Store() RoomRepository { return r.store }
 
-// LobbyCode implements PersistSource.
+// LobbyCode returns the room's lobby code.
 func (r *Room) LobbyCode() string { return r.lobbyCode }
 
-// Timeouts implements PersistSource.
+// Timeouts returns the room's timeout configuration.
 func (r *Room) Timeouts() config.TimeoutConfig { return r.timeouts }

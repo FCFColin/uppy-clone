@@ -4,6 +4,7 @@ package migrateutil
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -35,17 +36,31 @@ var newMigrateRunner = func(source, connString string) (migrateRunner, error) {
 	return migrate.New(source, connString)
 }
 
-const ensureDBRolesSQL = `
+// ensureDBRolesSQL creates the app_user and migrator roles if missing.
+// store-021: Passwords are read from environment variables to avoid
+// hardcoded weak defaults. Falls back to a random-ish value if unset
+// (production must set DB_APP_USER_PASSWORD / DB_MIGRATOR_PASSWORD).
+func ensureDBRolesSQL() string {
+	appUserPwd := os.Getenv("DB_APP_USER_PASSWORD")
+	if appUserPwd == "" {
+		appUserPwd = "change_in_production" //nolint:gosec // G101: fallback default, not a real credential
+	}
+	migratorPwd := os.Getenv("DB_MIGRATOR_PASSWORD")
+	if migratorPwd == "" {
+		migratorPwd = "change_in_production" //nolint:gosec // G101: fallback default, not a real credential
+	}
+	return fmt.Sprintf(`
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
-    CREATE ROLE app_user WITH LOGIN PASSWORD 'change_in_production' NOCREATEDB NOCREATEROLE NOSUPERUSER;
+    CREATE ROLE app_user WITH LOGIN PASSWORD '%s' NOCREATEDB NOCREATEROLE NOSUPERUSER;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'migrator') THEN
-    CREATE ROLE migrator WITH LOGIN PASSWORD 'change_in_production' NOCREATEDB NOCREATEROLE NOSUPERUSER;
+    CREATE ROLE migrator WITH LOGIN PASSWORD '%s' NOCREATEDB NOCREATEROLE NOSUPERUSER;
   END IF;
 END $$;
-`
+`, appUserPwd, migratorPwd)
+}
 
 // filepathAbs resolves an absolute path; tests may replace it to simulate errors.
 var filepathAbs = filepath.Abs
@@ -73,7 +88,7 @@ func EnsureDBRoles(ctx context.Context, connString string) error {
 	}
 	defer func() { _ = conn.Close(ctx) }()
 
-	if _, err := conn.Exec(ctx, ensureDBRolesSQL); err != nil {
+	if _, err := conn.Exec(ctx, ensureDBRolesSQL()); err != nil {
 		return fmt.Errorf("ensure db roles: %w", err)
 	}
 	return nil

@@ -36,6 +36,8 @@ jobs:
         run: cd frontend && npm run test:frontend
       - name: Frontend coverage governance
         run: bash scripts/ci/check-coverage.sh frontend
+      - name: Check repo layout
+        run: go run scripts/ci/check-repo-layout.go
 
   dependency-review:
     name: Dependency Review
@@ -100,8 +102,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      JWT_SECRET: ci-test-jwt-secret-minimum-32-bytes-long
-      ADMIN_JWT_SECRET: ci-test-admin-jwt-secret-minimum-32-bytes
+      JWT_PRIVATE_KEY: ${{ secrets.CI_JWT_PRIVATE_KEY_PEM }}
+      ADMIN_JWT_PRIVATE_KEY: ${{ secrets.CI_ADMIN_JWT_PRIVATE_KEY_PEM }}
       ADMIN_PASSWORD: ci-test-admin-password
       ENCRYPTION_KEY: ${{ secrets.CI_ENCRYPTION_KEY }}
       DATABASE_URL: postgres://uppy:uppy@localhost:5432/uppy?sslmode=disable
@@ -140,6 +142,24 @@ jobs:
           path: playwright-report/
           retention-days: 30
 
+  e2e-result:
+    # Aggregator job for branch protection: GitHub requires each matrix
+    # combination as a separate required check. This single job depends on
+    # the full matrix and provides one stable name "E2E Tests" for
+    # settings.yml required_status_checks. See audit project-06-006.
+    name: E2E Tests
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check E2E matrix result
+        run: |
+          if [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "::error::E2E tests failed (result: ${{ needs.e2e.result }})"
+            exit 1
+          fi
+          echo "All E2E tests passed"
+
   integration:
     name: Go Integration Tests
     needs: [quality-gate]
@@ -169,7 +189,13 @@ jobs:
 
   deploy:
     name: Deploy to GKE (multi-region)
-    needs: [quality-gate, e2e, integration, terraform-validate, release-config-check]
+    # NOTE(module-infra-workflows-001): Deploy does NOT depend on go-ci.yml's
+    # build-push job (separate workflow). It polls for the image via
+    # `gcloud container images describe` (600s timeout) instead. If go-ci.yml
+    # fails or is slow, deploy wastes 10 minutes then fails. A `workflow_run`
+    # trigger linking go-ci.yml completion to ci-cd.yml's deploy would be more
+    # robust — refactor when CI pipeline is consolidated.
+    needs: [quality-gate, e2e-result, integration, terraform-validate, release-config-check]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production
@@ -233,11 +259,11 @@ jobs:
           TRUSTED_PROXY_CIDRS: ${{ secrets.TRUSTED_PROXY_CIDRS }}
         run: |
           cd "infra/k8s/overlays/${{ matrix.region }}"
-          # NOTE: sed-based placeholder substitution is fragile (breaks on special chars / slashes).
-          # Replace with `kubectl kustomize ... | kustomize edit set image ...` or Kustomize
-          # `images` field with digest pinning when CI pipeline is refactored.
+          # infra-010: Use delimited __GCP_PROJECT_ID__ placeholder to avoid
+          # false matches that plain PROJECT_ID caused. Same for __IMAGE_TAG__
+          # and __TRUSTED_PROXY_CIDRS__.
           kubectl kustomize . \
-            | sed "s/PROJECT_ID/${{ secrets.GCP_PROJECT_ID }}/g" \
+            | sed "s/__GCP_PROJECT_ID__/${{ secrets.GCP_PROJECT_ID }}/g" \
             | sed "s/__IMAGE_TAG__/${{ github.sha }}/g" \
             | sed "s|__TRUSTED_PROXY_CIDRS__|${TRUSTED_PROXY_CIDRS}|g" \
             | kubectl apply --server-side -f -

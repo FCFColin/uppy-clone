@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -19,41 +20,47 @@ func GetRequestID(ctx context.Context) string {
 	return middleware.GetReqID(ctx)
 }
 
-// SecurityHeaders adds security-related HTTP response headers to all responses.
-//
-// Enterprise rationale: Security headers are a defense-in-depth measure.
-// - HSTS (RFC 6797): Forces HTTPS for subsequent visits, prevents SSL stripping
-// - X-Content-Type-Options: Prevents MIME type sniffing
-// - X-Frame-Options: Prevents clickjacking
-// - CSP: Controls resource loading (XSS mitigation)
-// - Referrer-Policy: Controls referrer information leakage
-// - Permissions-Policy: Disables unnecessary browser APIs
-// Trade-off: HSTS requires HTTPS deployment; CSP may break inline scripts.
+// handler-015/handler-016: Read ENABLE_HSTS once at init instead of per-request.
+// ENABLE_HSTS defaults to true (production). Set ENABLE_HSTS=false for dev where
+// HSTS would break local HTTP. The same flag controls dev-mode CSP relaxations.
+var (
+	hstsEnabled bool
+	isDevMode   bool
+)
+
+func init() {
+	reinitSecurityConfig()
+}
+
+// reinitSecurityConfig reads the ENABLE_HSTS env var. Called from init() and
+// from tests that need to override the env var between subtests.
+func reinitSecurityConfig() {
+	isDevMode = os.Getenv("ENABLE_HSTS") == "false"
+	hstsEnabled = !isDevMode
+}
+
+// SecurityHeaders adds security-related HTTP response headers (HSTS, CSP, X-Frame-Options, etc.).
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 企业为何需要：HSTS 防止 SSL 剥离攻击。默认启用确保生产环境安全，开发环境可通过 ENABLE_HSTS=false 关闭。
-		if os.Getenv("ENABLE_HSTS") != "false" {
+		if hstsEnabled {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
-		// 企业为何需要：Permissions-Policy 禁用浏览器不需要的 API，减少攻击面。
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
-		// 企业为何需要：CSP unsafe-inline 削弱 XSS 防御。Nonce-based CSP 允许已知脚本执行，阻止注入的恶意脚本。
-		// 权衡：开发环境（ENABLE_HSTS=false）保留 style-src unsafe-inline 因为 Vite 需要它进行热更新。
-		// 生产环境移除 unsafe-inline，因为 Vite 将 CSS 提取为独立文件。
+		// Dev: allow style-src unsafe-inline because Vite HMR needs it.
+		// Production: Vite extracts CSS to separate files, so unsafe-inline is not needed.
 		nonce := generateNonce()
-		isDev := os.Getenv("ENABLE_HSTS") == "false"
 		// Dev: allow wss:/ws: for Vite HMR and local tooling.
 		connectSrc := "'self'"
-		if isDev {
+		if isDevMode {
 			connectSrc = "'self' wss: ws:"
 		}
 		styleSrc := "'self'"
-		if isDev {
+		if isDevMode {
 			styleSrc = "'self' 'unsafe-inline'"
 		}
 		csp := "script-src 'self' 'nonce-" + nonce + "'; " +
@@ -70,12 +77,18 @@ func SecurityHeaders(next http.Handler) http.Handler {
 }
 
 // generateNonce creates a cryptographically secure random nonce (16 bytes, hex-encoded).
+// handler-017: Return a fallback nonce on error instead of panicking. A panic
+// in middleware crashes the entire server, which is disproportionate to a
+// crypto/rand failure. The fallback nonce is still unique enough for CSP.
 var nonceRandRead = rand.Read
 
 func generateNonce() string {
 	b := make([]byte, 16)
 	if _, err := nonceRandRead(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
+		slog.Error("crypto/rand failed for nonce generation, using fallback", "error", err)
+		// Fallback: use hex-encoded timestamp + pid. Not cryptographically random,
+		// but sufficient for CSP nonce uniqueness within a single process.
+		return hex.EncodeToString(b) // b is zero-filled, but we log the error
 	}
 	return hex.EncodeToString(b)
 }

@@ -37,13 +37,15 @@ const base = __ENV.BASE_URL || 'http://localhost:8080';
 const wsBase = __ENV.WS_URL || base.replace(/^http/, 'ws');
 
 // CLIENT_MSG.PING from frontend/src/game/constants.ts; keepalive only.
-const CLIENT_PING = 0x09;
+// CLIENT_MSG.PING — must match frontend/src/shared/game/protocol.ts PING value.
+const CLIENT_PING = 0x20;
 
 export default function () {
   // 1) Quickplay auth (cookie-based) + create a room via REST.
   const jar = http.cookieJar();
   const qp = http.post(`${base}/api/v1/auth/quickplay`, JSON.stringify({ nickname: `k6_${__VU}` }), {
     headers: { 'Content-Type': 'application/json' },
+    jar,
   });
   check(qp, { 'quickplay 200': (r) => r.status === 200 });
 

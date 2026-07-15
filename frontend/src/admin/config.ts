@@ -1,3 +1,5 @@
+import { apiFetch } from '../shared/network/api_fetch.js';
+
 export interface AdminConfig {
   emailEnabled: boolean;
   resendApiKey: string;
@@ -11,9 +13,15 @@ export async function loadConfig(
   applyConfig: (config: AdminConfig) => void,
 ): Promise<void> {
   try {
-    const res: Response = await fetch('/api/v1/admin/config', { credentials: 'include' });
+    const res: Response = await apiFetch('/api/v1/admin/config', { autoRefresh: false });
     if (res.status === 401) {
       onUnauthorized();
+      return;
+    }
+    // shared-009: Handle non-401 errors (403, 500, etc.) instead of
+    // blindly calling res.json() on an error response.
+    if (!res.ok) {
+      showToast('加载配置失败', 'error');
       return;
     }
     const config: AdminConfig = await res.json();
@@ -29,11 +37,11 @@ export async function saveConfig(
   onSaved: () => void,
 ): Promise<void> {
   try {
-    const res: Response = await fetch('/api/v1/admin/config', {
+    const res: Response = await apiFetch('/api/v1/admin/config', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(config),
+      autoRefresh: false,
     });
     if (res.ok) {
       showToast('配置已保存', 'success');

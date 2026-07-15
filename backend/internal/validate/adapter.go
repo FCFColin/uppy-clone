@@ -8,6 +8,7 @@ var _ domain.NicknameValidator = NicknameValidatorFunc(nil)
 // NicknameValidatorFunc adapts a function to domain.NicknameValidator.
 type NicknameValidatorFunc func(string) string
 
+// ValidateNickname delegates to the underlying function to validate a nickname.
 func (f NicknameValidatorFunc) ValidateNickname(nickname string) string {
 	return f(nickname)
 }

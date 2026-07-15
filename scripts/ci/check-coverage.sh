@@ -342,7 +342,7 @@ case "$MODE" in
     check_frontend
     ;;
   all)
-    run_unit_coverage && check_unit "$UNIT_OUT"
+    cover_file=$(run_unit_coverage) && check_unit "$cover_file"
     run_integration_coverage && check_integration "$INT_OUT"
     run_frontend_coverage && check_frontend
     ;;

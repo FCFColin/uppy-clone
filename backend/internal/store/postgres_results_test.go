@@ -11,12 +11,8 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func strPtr(s string) *string { return &s }
-
-func int64Ptr(n int64) *int64 { return &n }
-
 func TestInsertSeedGameResult_Success(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 	result := &domain.GameResult{
 		ID: "r1", SessionID: "s1", UserID: "u1",
@@ -31,7 +27,7 @@ func TestInsertSeedGameResult_Success(t *testing.T) {
 }
 
 func TestInsertSeedGameResult_Error(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	mock.ExpectExec("INSERT INTO game_results").
@@ -44,7 +40,7 @@ func TestInsertSeedGameResult_Error(t *testing.T) {
 }
 
 func TestEndGameAndRecordResults_NoResults(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	mock.ExpectBegin()
@@ -59,7 +55,7 @@ func TestEndGameAndRecordResults_NoResults(t *testing.T) {
 }
 
 func TestEndGameAndRecordResults_WithResults(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	results := []domain.GameResult{
@@ -82,7 +78,7 @@ func TestEndGameAndRecordResults_WithResults(t *testing.T) {
 }
 
 func TestEndGameAndRecordResults_BeginError(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	mock.ExpectBegin().WillReturnError(errors.New("begin failed"))
@@ -94,7 +90,7 @@ func TestEndGameAndRecordResults_BeginError(t *testing.T) {
 }
 
 func TestEndGameAndRecordResults_UpdateError(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	mock.ExpectBegin()
@@ -108,7 +104,7 @@ func TestEndGameAndRecordResults_UpdateError(t *testing.T) {
 }
 
 func TestEndGameAndRecordResults_InsertBatchError(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	results := []domain.GameResult{
@@ -129,7 +125,7 @@ func TestEndGameAndRecordResults_InsertBatchError(t *testing.T) {
 }
 
 func TestEndGameAndRecordResults_CommitError(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	mock.ExpectBegin()
@@ -145,7 +141,7 @@ func TestEndGameAndRecordResults_CommitError(t *testing.T) {
 }
 
 func TestGetGameResultsByUserID_Success(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "session_id", "user_id", "score_contribution", "taps_count", "created_at"}).
@@ -165,7 +161,7 @@ func TestGetGameResultsByUserID_Success(t *testing.T) {
 }
 
 func TestGetGameResultsByUserID_Empty(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "session_id", "user_id", "score_contribution", "taps_count", "created_at"})
@@ -183,7 +179,7 @@ func TestGetGameResultsByUserID_Empty(t *testing.T) {
 }
 
 func TestCreateGameSession_Success(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	startedAt := int64(100)
@@ -203,7 +199,7 @@ func TestCreateGameSession_Success(t *testing.T) {
 }
 
 func TestRecordGameResult_Success(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	results := []domain.GameResultPlayer{
@@ -226,7 +222,7 @@ func TestRecordGameResult_Success(t *testing.T) {
 }
 
 func TestRecordGameResult_EmptyResults(t *testing.T) {
-	repo, mock := newMockResultRepository(t)
+	repo, mock := newMockRepo(t, NewResultRepository)
 	ctx := context.Background()
 
 	mock.ExpectBegin()

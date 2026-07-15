@@ -24,8 +24,10 @@ spec:
             cidr: 35.191.0.0/16
         - ipBlock:
             cidr: 130.211.0.0/22
+        # infra-026: 收窄 10.0.0.0/8 → 10.0.0.0/16（典型 VPC 主 CIDR）。
+        # 实际部署应替换为 VPC 真实 CIDR；过宽的 /8 会允许任意 RFC1918 来源访问 8080。
         - ipBlock:
-            cidr: 10.0.0.0/8
+            cidr: 10.0.0.0/16
       ports:
         - protocol: TCP
           port: 8080
@@ -79,13 +81,34 @@ spec:
     - Egress
   egress:
     - to:
+        # infra-026: 收窄 10.0.0.0/8 → 10.0.0.0/16（VPC 主 CIDR）。
+        # /8 会允许出站到任意 RFC1918 地址（含其他租户/项目的私有 IP）。
         - ipBlock:
-            cidr: 10.0.0.0/8
+            cidr: 10.0.0.0/16
       ports:
         - protocol: TCP
           port: 5432
         - protocol: TCP
           port: 6379
+---
+# infra-027: 允许 HTTPS 出站（443）——应用需要访问 Resend API、Secret Manager、
+# Cloud KMS、OAuth provider 等外部 HTTPS 端点。default-deny-egress 之后必须显式放行。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-https-egress
+  namespace: balloon-game
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
 ---
 # Allow health check probes from kube-system (kubelet / GKE node probes).
 apiVersion: networking.k8s.io/v1

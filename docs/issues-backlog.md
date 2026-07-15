@@ -1,6 +1,9 @@
-# Issues Backlog
+# Issues Backlog (Archived)
 
-Generated: 2026-07-07 (最终更新: 2026-07-07 — 所有 P1+P2 均已处理)
+> **归档说明**: 所有 P1+P2 项已于 2026-07-07 处理完毕。新增问题请通过 ADR 或 GitHub Issues 跟踪。
+> 保留此文件作为历史参考。
+
+Generated: 2026-07-07
 Source: Comprehensive codebase self-review (12 modules across 6 stages; fixes verified per-file)
 
 ## Resolved Items (2026-07-07)

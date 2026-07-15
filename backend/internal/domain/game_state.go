@@ -1,5 +1,7 @@
 package domain
 
+import "math"
+
 // GamePhase represents the current phase of a game.
 type GamePhase string
 
@@ -20,8 +22,14 @@ type BalloonState struct {
 	Score int     `json:"score"`
 }
 
+// Validate validates the balloon state fields.
 func (b *BalloonState) Validate() error {
-	if b.Y < 0 {
+	// store-029: Check NaN and add Y upper bound. X and Y are normalized [0,1].
+	// NaN comparisons always return false, so explicit math.IsNaN checks are needed.
+	if math.IsNaN(b.X) || math.IsNaN(b.Y) || math.IsNaN(b.VX) || math.IsNaN(b.VY) {
+		return ErrValidation
+	}
+	if b.Y < 0 || b.Y > 1 || b.X < 0 || b.X > 1 {
 		return ErrValidation
 	}
 	return nil
@@ -37,8 +45,9 @@ type BirdState struct {
 	SpawnTimer int     `json:"spawnTimer"`
 }
 
+// Validate checks the bird state for out-of-range coordinates.
 func (b *BirdState) Validate() error {
-	if b.Y < 0 {
+	if b.Y < -1 || b.Y > 2 || b.X < -1 || b.X > 2 {
 		return ErrValidation
 	}
 	return nil
@@ -55,15 +64,15 @@ type GhostState struct {
 	RepelTimer int     `json:"repelTimer"`
 }
 
+// Validate checks the ghost state for out-of-range coordinates.
 func (g *GhostState) Validate() error {
-	if g.Y < 0 {
+	if g.Y < -1 || g.Y > 2 || g.X < -1 || g.X > 2 {
 		return ErrValidation
 	}
 	return nil
 }
 
-// PlayerState 表示房间内一个玩家的状态。
-// P3-1.1：升级为充血对象，业务规则（冷却、速率限制、断连/重连）封装在方法内。
+// PlayerState represents a player in a room.
 type PlayerState struct {
 	ID                 string `json:"id"`
 	PlayerIndex        int    `json:"playerIndex"`
@@ -80,14 +89,12 @@ type PlayerState struct {
 	DisconnectedAt     *int64 `json:"disconnectedAt"`
 }
 
-// CanTap 检查玩家是否可以点击（冷却已结束）。
-// 企业为何需要：将冷却判断封装在领域对象内，防止外部代码绕过业务规则。
+// CanTap checks whether the player's cooldown has elapsed.
 func (p *PlayerState) CanTap(now int64) bool {
 	return now >= p.CooldownEndTime
 }
 
-// RecordTap 记录一次点击：设置新冷却结束时间并累加统计。
-// 企业为何需要：点击统计与冷却更新是原子业务操作，封装避免遗漏字段。
+// RecordTap records a tap: sets the new cooldown end time and increments stats.
 func (p *PlayerState) RecordTap(now int64, cooldown int64) {
 	if p.ScoreContribution >= MaxScore {
 		return
@@ -97,15 +104,23 @@ func (p *PlayerState) RecordTap(now int64, cooldown int64) {
 	p.ScoreContribution++
 }
 
-// IsRateLimited 检查玩家在当前消息窗口内是否已被速率限制。
+// IsRateLimited 检查玩家在当前消息窗口内是否已被速率限制（纯谓词，无副作用）。
 // windowMs 为窗口长度（毫秒），maxMessages 为窗口内最大消息数。
+// store-019: 已将窗口重置的副作用拆分到 ResetMessageWindow 方法。
 func (p *PlayerState) IsRateLimited(now int64, windowMs int64, maxMessages int) bool {
+	if now-p.MessageWindowStart > windowMs {
+		return false // window expired, not limited
+	}
+	return p.MessageCount > maxMessages
+}
+
+// ResetMessageWindow resets the player's message window when it has expired.
+// store-019: Side effect extracted from IsRateLimited to keep it a pure predicate.
+func (p *PlayerState) ResetMessageWindow(now int64, windowMs int64) {
 	if now-p.MessageWindowStart > windowMs {
 		p.MessageCount = 0
 		p.MessageWindowStart = now
-		return false
 	}
-	return p.MessageCount > maxMessages
 }
 
 // MarkDisconnected 标记玩家为断连并记录断连时间戳（进入优雅期）。
@@ -120,8 +135,7 @@ func (p *PlayerState) Reconnect() {
 	p.DisconnectedAt = nil
 }
 
-// GameState 表示一个房间的完整游戏状态（聚合）。
-// P3-1.2：添加 AddPlayer/RemovePlayer/IsGameOver 聚合方法。
+// GameState represents the complete game state for a room (aggregate).
 type GameState struct {
 	Phase               GamePhase               `json:"phase"`
 	Balloon             BalloonState            `json:"balloon"`
@@ -141,10 +155,10 @@ type GameState struct {
 	WindMidOffset       float64                 `json:"windMidOffset"`
 	RestartVotes        map[string]bool         `json:"restartVotes"`
 	RestartTimerStart   *int64                  `json:"restartTimerStart"`
+	RNGSeed             int64                   `json:"rngSeed"`
 }
 
-// AddPlayer 添加一个玩家到游戏状态。
-// 企业为何需要：聚合方法统一玩家加入入口，便于未来加入不变量校验。
+// AddPlayer adds a player to the game state.
 func (g *GameState) AddPlayer(p *PlayerState) error {
 	if g.Players == nil {
 		g.Players = make(map[string]*PlayerState)
@@ -161,8 +175,7 @@ func (g *GameState) RemovePlayer(userID string) {
 	delete(g.Players, userID)
 }
 
-// UpdatePlayerState 对指定玩家应用更新函数。
-// 企业为何需要：聚合方法控制玩家状态变更入口，便于审计与不变量校验。
+// UpdatePlayerState applies an update function to the specified player.
 func (g *GameState) UpdatePlayerState(userID string, fn func(p *PlayerState)) {
 	if p, ok := g.Players[userID]; ok {
 		fn(p)

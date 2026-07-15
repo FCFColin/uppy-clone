@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/uppy-clone/backend/internal/requestctx"
 )
@@ -10,7 +11,7 @@ import (
 // X-Forwarded-Proto is honored only when the peer is a trusted reverse proxy.
 func IsSecure(r *http.Request) bool {
 	if requestctx.IsTrustedProxy(r.Context()) {
-		if proto := r.Header.Get("X-Forwarded-Proto"); proto == "https" {
+		if proto := r.Header.Get("X-Forwarded-Proto"); strings.EqualFold(proto, "https") {
 			return true
 		}
 	}

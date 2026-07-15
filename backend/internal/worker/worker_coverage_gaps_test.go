@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -29,12 +28,12 @@ func TestGameResultWorker_processMessage_BeginError(t *testing.T) {
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 
 	w := &GameResultWorker{rdb: rdb, db: beginFailDB{}}
-	payload, _ := json.Marshal(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
+	payload := wrapGameResultEnvelope(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
 	w.processMessage(ctx, redis.XMessage{
-		ID: "20-0", Values: map[string]interface{}{"payload": string(payload)},
+		ID: "20-0", Values: map[string]interface{}{"payload": payload},
 	})
 }
 
@@ -47,10 +46,10 @@ func TestGameResultWorker_Start_FlushFullBatch(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	ctx := context.Background()
 
-	_ = rdb.XGroupCreateMkStream(ctx, "game:results", "result-workers", "0").Err()
+	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
 	for i := 0; i < 100; i++ {
 		if err := rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream: "game:results",
+			Stream: "game.events",
 			Values: map[string]interface{}{"payload": "not-json"},
 		}).Err(); err != nil {
 			t.Fatalf("XAdd: %v", err)
@@ -66,7 +65,7 @@ func TestGameResultWorker_Start_FlushFullBatch(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		pending, _ := rdb.XPending(ctx, "game:results", "result-workers").Result()
+		pending, _ := rdb.XPending(ctx, "game.events", "result-workers").Result()
 		if pending.Count == 0 {
 			break
 		}
@@ -103,7 +102,7 @@ func TestEmailWorker_Start_MultipleMessages(t *testing.T) {
 	_ = rdb.XGroupCreateMkStream(ctx, "email:queue", "email-workers", "0").Err()
 
 	var count int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&count, 1)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -138,7 +137,7 @@ func TestEmailWorker_Start_MultipleMessages(t *testing.T) {
 
 func TestSendEmail_JSONMarshalError(t *testing.T) {
 	orig := emailJSONMarshal
-	emailJSONMarshal = func(v interface{}) ([]byte, error) {
+	emailJSONMarshal = func(_ interface{}) ([]byte, error) {
 		return nil, errors.New("marshal failed")
 	}
 	t.Cleanup(func() { emailJSONMarshal = orig })
@@ -272,10 +271,10 @@ func TestHandleRetry_DeadLetterXAddError(t *testing.T) {
 		Values: map[string]interface{}{"payload": "test", "retry_count": "5"},
 	}
 
-	// Should return true (dead-letter path) even though XAdd fails (logs error)
+	// Should return false when XAdd to dead-letter fails (message remains in PEL)
 	moved := handleRetry(ctx, rdb, msg, "src", "grp", "dl", 3)
-	if !moved {
-		t.Fatal("expected true on dead-letter path even if XAdd fails")
+	if moved {
+		t.Fatal("expected false when dead-letter XAdd fails — message should stay in PEL")
 	}
 }
 

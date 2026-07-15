@@ -12,10 +12,11 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/redis/go-redis/v9"
 
+	"strings"
+
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
-	"strings"
 )
 
 func newQuickPlayPostgresStore(t *testing.T) (*store.UserRepository, pgxmock.PgxPoolIface) {
@@ -304,7 +305,44 @@ func TestRefreshSession_RevokesOldToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := refreshMgr.Validate(ctx, oldRefresh); err == nil {
-		t.Fatal("old refresh token should be revoked")
+	result, err := refreshMgr.ConsumeRefreshToken(ctx, oldRefresh)
+	if err != nil {
+		t.Fatalf("unexpected error on consumed token: %v", err)
+	}
+	if !result.Reused {
+		t.Fatal("old refresh token should show as reused after consumption")
+	}
+}
+
+func TestRefreshSession_ReuseDetection(t *testing.T) {
+	mr := miniredis.RunT(t)
+	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	ctx := context.Background()
+
+	token, err := refreshMgr.Generate(ctx, "user-reuse")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := refreshMgr.ConsumeRefreshToken(ctx, token)
+	if err != nil {
+		t.Fatalf("first consume: %v", err)
+	}
+	if result.Reused {
+		t.Fatal("first consume should not indicate reuse")
+	}
+	if result.UserID != "user-reuse" {
+		t.Fatalf("userID = %q, want %q", result.UserID, "user-reuse")
+	}
+
+	result, err = refreshMgr.ConsumeRefreshToken(ctx, token)
+	if err != nil {
+		t.Fatalf("second consume: %v", err)
+	}
+	if !result.Reused {
+		t.Fatal("second consume of same token should detect reuse")
+	}
+	if result.UserID != "user-reuse" {
+		t.Fatalf("userID = %q, want %q", result.UserID, "user-reuse")
 	}
 }

@@ -3,6 +3,7 @@ package protocol
 
 import (
 	"encoding/binary"
+	"log/slog"
 )
 
 // le is the package-level little-endian byte order for binary encoding.
@@ -11,32 +12,60 @@ var le = binary.LittleEndian
 // ─── 客户端消息类型（浏览器 → 服务端） ──────────────────────────────
 
 const (
-	MsgTap         = 0x10
+	// MsgTap is the client message type for tap actions.
+	// @ts CLIENT_MSG.TAP
+	MsgTap = 0x10
+	// MsgSetNickname is the client message type for setting a nickname.
+	// @ts CLIENT_MSG.SET_NICKNAME
 	MsgSetNickname = 0x11
+	// MsgRestartVote is the client message type for restart votes.
+	// @ts CLIENT_MSG.RESTART_VOTE
 	MsgRestartVote = 0x12
-	MsgPing        = 0x20
+	// MsgPing is the client message type for pings.
+	// @ts CLIENT_MSG.PING
+	MsgPing = 0x20
 )
 
 // ─── 服务端消息类型（服务端 → 浏览器） ──────────────────────────────
 
 const (
-	MsgSnapshot        = 0x01
-	MsgPlayerJoin      = 0x02
-	MsgPlayerLeave     = 0x03
-	MsgTapAccepted     = 0x04
-	MsgTapRejected     = 0x05
+	// MsgSnapshot is the server message type for game snapshots.
+	// @ts MSG_TYPE.SNAPSHOT
+	MsgSnapshot = 0x01
+	// MsgPlayerJoin is the server message type for player join events.
+	// @ts MSG_TYPE.PLAYER_JOIN
+	MsgPlayerJoin = 0x02
+	// MsgPlayerLeave is the server message type for player leave events.
+	// @ts MSG_TYPE.PLAYER_LEAVE
+	MsgPlayerLeave = 0x03
+	// MsgTapAccepted is the server message type for accepted taps.
+	// @ts MSG_TYPE.TAP_ACCEPTED
+	MsgTapAccepted = 0x04
+	// MsgTapRejected is the server message type for rejected taps.
+	// @ts MSG_TYPE.TAP_REJECTED
+	MsgTapRejected = 0x05
+	// MsgGameStateChange is the server message type for game state changes.
+	// @ts MSG_TYPE.GAME_STATE_CHANGE
 	MsgGameStateChange = 0x06
-	MsgRestartStatus   = 0x07
-	MsgPong            = 0x21
+	// MsgRestartStatus is the server message type for restart status updates.
+	// @ts MSG_TYPE.RESTART_STATUS
+	MsgRestartStatus = 0x07
+	// MsgPong is the server message type for pong responses.
+	// @ts MSG_TYPE.PONG
+	MsgPong = 0x21
 )
 
 // ─── 游戏阶段编码 ────────────────────────────────────────────────────
 
 // Phase codes for binary protocol.
 const (
-	PhaseCodeWaiting   = 0
-	PhaseCodePlaying   = 1
-	PhaseCodeEnded     = 2
+	// @ts PHASE_CODE.WAITING
+	PhaseCodeWaiting = 0
+	// @ts PHASE_CODE.PLAYING
+	PhaseCodePlaying = 1
+	// @ts PHASE_CODE.ENDED
+	PhaseCodeEnded = 2
+	// @ts PHASE_CODE.COUNTDOWN
 	PhaseCodeCountdown = 3
 )
 
@@ -77,6 +106,7 @@ func PhaseToCode(phase GamePhase) uint8 {
 	case PhaseCountdown:
 		return PhaseCodeCountdown
 	default:
+		slog.Warn("PhaseToCode: unknown phase", "phase", phase)
 		return PhaseCodeWaiting
 	}
 }
@@ -93,6 +123,7 @@ func CodeToPhase(code uint8) GamePhase {
 	case PhaseCodeCountdown:
 		return PhaseCountdown
 	default:
+		slog.Warn("CodeToPhase: unknown phase code", "code", code)
 		return PhaseWaiting
 	}
 }
@@ -233,8 +264,8 @@ const (
 
 // ─── 调色板颜色（10 色，由 go generate 自动同步到前端 constants.ts） ───
 
-// @ts PALETTE_COLORS
 // PaletteColors defines the color palette for players.
+// @ts PALETTE_COLORS
 var PaletteColors = [10][3]uint8{
 	{233, 69, 96},   // #e94560 red
 	{15, 52, 96},    // #0f3460 navy

@@ -1,4 +1,3 @@
-import { MAX_SEEN_SEQS } from './local_constants.js';
 import { PHYSICS } from '../shared/game/constants.js';
 import type { InterpBirdPoint, InterpGhostPoint, InterpPoint, EntityAnchor } from './interp_buffers.js';
 import {
@@ -12,7 +11,16 @@ import {
   tryBalloonFromDelayBuffer,
   tryEntityFromDelayBuffer,
 } from './interp_buffers.js';
-import { getState } from './store.js';
+import { dispatch, getState } from './store.js';
+import { clearOutboundQueue, resetReconnectAttempts } from './ws_connection.js';
+import { clearSeenSeqs } from './seen_seqs.js';
+import { resetTutorial } from './tutorial.js';
+import { resetWindHint } from './ui_wind.js';
+import { resetUIUpdateCache } from './ui_update.js';
+import { resetEntryFlowState } from './entry_flow.js';
+import { runRegisteredResets } from './reset_registry.js';
+import { stopCooldownUpdater } from './ui_cooldown.js';
+import { clearRestartCountdownTimer } from './restart_vote_ui.js';
 
 type ActivePoint = InterpGhostPoint;
 
@@ -174,32 +182,28 @@ export function commitRenderedState(now: number = Date.now()): void {
   lastRenderedBalloon = { ...getInterpolatedBalloon(now) };
 }
 
-const seenSeqs: Set<number> = new Set();
-
-export function isDuplicateSeq(seq: number): boolean {
-  if (seenSeqs.has(seq)) return true;
-  seenSeqs.add(seq);
-  if (seenSeqs.size > MAX_SEEN_SEQS) {
-    const toRemove = Math.floor(MAX_SEEN_SEQS / 2);
-    let i = 0;
-    for (const s of seenSeqs) {
-      seenSeqs.delete(s);
-      i++;
-      if (i >= toRemove) break;
-    }
-  }
-  return false;
-}
-
-export function clearSeenSeqs(): void {
-  seenSeqs.clear();
-}
-
-/** Exposed for testing. Use isDuplicateSeq and clearSeenSeqs for all production access. */
-export function getSeenSeqsSize(): number {
-  return seenSeqs.size;
-}
-
 export function getInterpState() {
   return { prevBalloon, currBalloon, prevGhost, currGhost };
+}
+
+export function resetRoundClientState(): void {
+  dispatch({ type: 'RESET_ROUND' });
+}
+
+export function resetClientState(): void {
+  dispatch({ type: 'RESET_ALL' });
+  clearSeenSeqs();
+  clearOutboundQueue();
+  resetInterpolation();
+  // ADR-025: reset all module-level mutable state to prevent cross-session leaks.
+  // Modules with circular deps on this module (renderer, visual_helpers)
+  // register their resets via reset_registry and are invoked below.
+  resetTutorial();
+  resetWindHint();
+  resetReconnectAttempts();
+  resetUIUpdateCache();
+  resetEntryFlowState();
+  stopCooldownUpdater();
+  clearRestartCountdownTimer();
+  runRegisteredResets();
 }

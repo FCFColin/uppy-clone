@@ -8,6 +8,7 @@ import {
   showReconnectBanner, updatePingDisplay,
   showConnectionError as showConnectionErrorUI, type ConnectionErrorOptions,
 } from './connection_ui.js';
+import { getState } from './state_types.js';
 
 export { type ConnectionErrorOptions } from './connection_ui.js';
 export { hideReconnectBanner } from './connection_ui.js';
@@ -64,8 +65,9 @@ export function startHeartbeat(): void {
         clearTimeout(connectionState.heartbeatTimeout);
         connectionState.heartbeatTimeout = null;
       }
+      const socketAtPing: WebSocket | null = connectionState.ws;
       connectionState.heartbeatTimeout = setTimeout(() => {
-        if (connectionState.ws) connectionState.ws.close();
+        if (connectionState.ws === socketAtPing) connectionState.ws.close();
       }, HEARTBEAT_TIMEOUT_MS);
     }
   }, HEARTBEAT_INTERVAL_MS);
@@ -107,7 +109,15 @@ export function flushPendingQueue(): void {
   if (!connectionState.ws || connectionState.ws.readyState !== WebSocket.OPEN) return;
   while (outboundMessageQueue.length > 0) {
     const msg: ArrayBuffer | undefined = outboundMessageQueue.shift();
-    if (msg) connectionState.ws.send(msg); /* v8 ignore else -- shift only returns undefined on empty queue */
+    if (msg) {
+      try {
+        connectionState.ws.send(msg);
+      } catch (e: unknown) {
+        console.error('[ws] flush send error, re-queueing message:', e);
+        outboundMessageQueue.unshift(msg);
+        break;
+      }
+    } /* v8 ignore else -- shift only returns undefined on empty queue */
   }
 }
 
@@ -153,12 +163,11 @@ export function setReconnectTimer(timer: ReturnType<typeof setTimeout> | null): 
 export function scheduleReconnect(): void {
   clearReconnectTimer();
   if (connectionState.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    void import('./state_types.js').then(({ state: s }) => {
-      showConnectionError(
-        s.wasEverConnected ? '对局连接已中断，请检查网络后重试' : '连接失败，请检查网络后重试',
-        { showActions: true, midGameDisconnect: s.wasEverConnected },
-      );
-    });
+    const s = getState();
+    showConnectionError(
+      s.wasEverConnected ? '对局连接已中断，请检查网络后重试' : '连接失败，请检查网络后重试',
+      { showActions: true, midGameDisconnect: s.wasEverConnected },
+    );
     return;
   }
   const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, connectionState.reconnectAttempts), 30000);
@@ -166,24 +175,28 @@ export function scheduleReconnect(): void {
   showReconnectBanner(connectionState.reconnectAttempts);
   connectionState.reconnectTimer = setTimeout(() => {
     connectionState.reconnectTimer = null;
-    void import('./ws_connect.js').then((m) => m.connectWebSocket());
+    void import('./ws_connect.js').then((m) => m.connectWebSocket()).catch((e: unknown) => {
+      console.error('reconnect import failed:', e);
+    });
   }, delay);
 }
 
 export function waitForWebSocket(maxWaitMs = 5000): Promise<boolean> {
-  let cancelled = false;
   return new Promise<boolean>((resolve: (ok: boolean) => void) => {
     if (connectionState.ws && connectionState.ws.readyState === WebSocket.OPEN) return resolve(true);
-    const start = Date.now();
-    const check: ReturnType<typeof setInterval> = setInterval(() => {
-      if (cancelled) { clearInterval(check); return; }
-      if (connectionState.ws && connectionState.ws.readyState === WebSocket.OPEN) {
-        clearInterval(check);
-        resolve(true);
-      } else if (Date.now() - start > maxWaitMs) {
-        clearInterval(check);
-        resolve(false);
-      }
-    }, 100);
+    const ws = connectionState.ws;
+    if (!ws) {
+      resolve(false);
+      return;
+    }
+    const onOpen = (): void => {
+      ws.removeEventListener('open', onOpen);
+      resolve(true);
+    };
+    ws.addEventListener('open', onOpen);
+    setTimeout(() => {
+      ws.removeEventListener('open', onOpen);
+      resolve(false);
+    }, maxWaitMs);
   });
 }

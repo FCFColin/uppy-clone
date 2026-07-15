@@ -13,7 +13,7 @@
 > **目标架构（部分已落地）**：统一 GKE 多区域（每区域 StatefulSet + HPA + 区域本地
 > Redis），全局 Anycast 入口就近接入，CockroachDB 多区域强一致持久化，跨区域绝不转发
 > 游戏帧。多区域拓扑图见 [multi-region-topology.md](./multi-region-topology.md)
-> （ADR-013/014/015/016）。**注意**：多区域 / CockroachDB 为**目标态（提议/进行中）**，
+> （ADR-014/015/016；ADR-013 已废弃）。**注意**：多区域 / CockroachDB 为**目标态（提议/进行中）**，
 > 当前实际运行为单区域单库 PostgreSQL，详见下方"提议 vs 已实现"状态。下图为**单区域内**
 > 的组件视图。
 
@@ -49,7 +49,7 @@ HTTP Handler → auth / game (domain logic) → store (PostgreSQL / Redis)
 
 **目标态 / 提议中（尚未实际多区域运行）**
 
-- 多区域拓扑与全局就近路由（ADR-014，提议中）
+- 多区域拓扑与全局就近路由（ADR-014，已接受；多区域部署待激活）
 - CockroachDB 多区域强一致持久化（ADR-015，提议中；`DB_DIALECT=postgres` 为默认回退）
 - 区域本地房间 + 跨区域重定向（ADR-016，提议中）
 
@@ -144,49 +144,36 @@ sequenceDiagram
     S->>R: DEL lobby_state
 ```
 
-### 游戏结果持久化：三写并行设计
+### 游戏结果持久化：Outbox 单路径设计
 
-> 实现：`backend/internal/game/room_result_async.go`；关联 ADR-007（消息队列）、ADR-009（Outbox）。
+> 实现：`backend/internal/game/room_persist.go`（`enqueueGameResultAsync` / `enqueueGameResultOutbox`）；关联 ADR-009（Outbox）。
 
-游戏结束时，Room 通过 `enqueueGameResultAsync()` 在独立 goroutine 中并行触发三条写入路径，
+游戏结束时，Room 通过 `enqueueGameResultAsync()` 在独立 goroutine 中触发 Outbox 写入路径，
 以平衡**一致性保证**与**tick 循环性能**：
 
 ```
 Room 结束
   └─ enqueueGameResultAsync() [goroutine, asyncWg 跟踪]
-       ├─ 1. recordGameResultDirect()
-       │     └─ store.RecordGameResult() → PostgreSQL（同步写，失败仅日志，无重试）
-       │
-       └─ 2. enqueueGameResultRedis()
-             ├─ 2a. cache.EnqueueGameResult() → Redis Stream
-             │      └─ GameResultWorker 消费 → PostgreSQL（at-least-once + 重试 + 死信）
-             │
-             └─ 2b. store.InsertOutboxEvent() → outbox_events 表
+       └─ enqueueGameResultOutbox()
+             └─ store.InsertOutboxEvent() → outbox_events 表
                     └─ Publisher → Redis Stream（at-least-once，circuit breaker 包装）
+                           └─ GameResultWorker 消费 → PostgreSQL（at-least-once + 重试 + 死信）
 ```
 
-**三条路径的设计意图**
+**设计意图**
 
 | 路径 | 目的 | 一致性 | 失败处理 |
 |------|------|--------|---------|
-| Direct write（1） | DB 健康时立即持久化，作为"安全网" | at-most-once（无重试） | 失败仅 `slog.Error`，依赖路径 2 兜底 |
-| Redis Stream（2a） | 异步批量写入，削峰保护 PG（ADR-007） | at-least-once（XACK + 重试 + 死信） | 5 次指数退避后转死信队列 |
-| Outbox（2b） | 跨消费者 at-least-once 传递（ADR-009） | at-least-once（Publisher + circuit breaker） | Publisher 持续轮询重试 |
+| Outbox | 跨消费者 at-least-once 传递（ADR-009） | at-least-once（Publisher + circuit breaker） | Publisher 持续轮询重试；Worker 5 次指数退避后转死信 |
 
-**去重机制**：三条路径可能重复写入 `game_results`。`GameResultWorker.processMessage` 用
+**去重机制**：`GameResultWorker.processMessage` 用
 `uuid.NewSHA1(gameID + userID)` 生成确定性 result ID，配合 `INSERT ... ON CONFLICT DO NOTHING`
-保证幂等。Direct write 已写入时，Worker 重处理不会产生重复行。
+保证幂等。
 
 **一致性 vs 性能权衡**：
-- **性能优先**：三写并行避免任一路径阻塞 Room 释放；direct write 在 goroutine 内同步执行，
-  但不阻塞 tick 循环（已通过 `asyncWg` 异步化）。
-- **一致性兜底**：Redis Stream + Outbox 双路 at-least-once 保证最终一致；direct write 失败时
-  Worker 仍会写入。但 direct write 路径**无重试**，若 DB 短暂不可用且 Worker 同时失败，
-  存在理论数据丢失窗口（依赖 outbox Publisher 恢复后补偿）。
-
-> ⚠️ **已知风险（v2 自检 v2-R-146 跨层发现）**：direct write 失败仅日志无重试，与
-> Worker/Outbox 的 at-least-once 语义不一致。当前靠 Worker 路径兜底，但 direct write 的
-> "安全网"作用在 DB 抖动场景下实际失效。at-least-once 语义未在 ADR-009 中显式文档化。
+- **性能优先**：Outbox 写入在 goroutine 内执行，不阻塞 tick 循环（通过 `asyncWg` 异步化）。
+- **一致性保证**：Outbox Publisher 持续轮询重试，保证最终一致。Worker 消费失败时消息留在
+  Pending 列表，其他 Worker 可 XCLAIM 接管。
 
 ## 技术选型 ADR
 
@@ -197,7 +184,7 @@ Room 结束
 1. **Hub 已可水平扩展（区域内 owner 反向代理 + 租约）**: 多实例下，连接落到非 owner
    实例时透明反向代理到 owner（ADR-005）；owner 失效且**同区域租约过期**时由同区域实例
    接管（取代无作用域 last-writer-wins）。要求实例间可寻址，故统一部署在 GKE
-   （ADR-013 终态）。跨区域由全局目录路由、就近重定向，绝不转发游戏帧（ADR-016）。
+   （ADR-014/016 多区域拓扑）。跨区域由全局目录路由、就近重定向，绝不转发游戏帧（ADR-016）。
 2. **单点 tick 循环**: 单个房间的物理模拟仍在单个 goroutine（单 owner 实例）中执行，
    受限于单核——这是实时权威模拟的固有限制；扩展靠"房间分散到多实例"而非"单房间并行"。
 3. **消息队列已引入**: 游戏结果通过三写并行持久化（direct write + Redis Stream + Outbox，
@@ -229,13 +216,13 @@ ListLobbies、CheckRoom 当前直接查 PG，高 QPS 下成为瓶颈。
 
 #### 队列解耦方案
 
-游戏结果通过三写并行持久化（详见上方"游戏结果持久化：三写并行设计"小节），Redis Stream
+游戏结果通过 Outbox 持久化（详见上方"游戏结果持久化：Outbox 单路径设计"小节），Redis Stream
 为异步批量写入主路径。
 
-- **策略**: 游戏结果写入 Redis Stream → Worker 消费批量写入 PG（同时有 direct write + outbox 兜底）
-- **实现**: Room 结束时 `enqueueGameResultAsync` 触发三写并行；Worker XREADGROUP 消费，`ON CONFLICT DO NOTHING` 去重
+- **策略**: 游戏结果写入 Outbox 表 → Publisher 发布到 Redis Stream → Worker 消费批量写入 PG
+- **实现**: Room 结束时 `enqueueGameResultAsync` 触发 Outbox 写入；Worker XREADGROUP 消费，`ON CONFLICT DO NOTHING` 去重
 - **容错**: Worker 消费失败时消息留在 Pending 列表，其他 Worker 可 XCLAIM 接管；5 次重试后转死信
-- **详见**: [`../adr/007-message-queue.md`](../adr/007-message-queue.md)、[`../adr/009-transactional-outbox.md`](../adr/009-transactional-outbox.md)
+- **详见**: [`../adr/009-transactional-outbox.md`](../adr/009-transactional-outbox.md)
 
 #### 容量规划
 

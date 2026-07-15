@@ -8,7 +8,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 func TestStatusWriter_DefaultOK(t *testing.T) {
@@ -43,12 +42,6 @@ func TestBeginAuth_RecordsOnEnd(t *testing.T) {
 
 	if got := testutil.ToFloat64(metrics.AuthRequestTotal.WithLabelValues("check", "401")); got != 1 {
 		t.Fatalf("401 count = %v, want 1", got)
-	}
-}
-
-func TestWSMessageTypeName(t *testing.T) {
-	if got := metrics.WSMessageTypeName(protocol.MsgSetNickname); got != "set_nickname" {
-		t.Fatalf("got %q, want set_nickname", got)
 	}
 }
 

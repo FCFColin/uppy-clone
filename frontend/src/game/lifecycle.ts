@@ -2,11 +2,10 @@ import { encodeSetNickname } from './message_codec.js';
 import { dispatch } from './store.js';
 import { normalizeAuthHost } from '../shared/network/session.js';
 import { showToast } from '../shared/ui/toast.js';
-import { resizeCanvas, gameLoop, renderOnce } from './renderer.js';
-import {
-  updateUI, generateRandomNickname,
-  $setupNicknameInput,
-} from './ui.js';
+import { resizeCanvas, startGameLoop, renderOnce } from './renderer.js';
+import { updateUI } from './ui_update.js';
+import { generateRandomNickname } from './ui_utils.js';
+import { $setupNicknameInput } from './ui_elements.js';
 import { connectWebSocket, showConnectionError } from './ws_connect.js';
 import { sendOrQueue } from './ws_connection.js';
 import { initWaitingTips } from './waiting_tips.js';
@@ -21,7 +20,11 @@ function submitSetupNickname(): void {
   if (!nickname) {
     nickname = generateRandomNickname();
   }
-  localStorage.setItem('uppy-nickname', nickname);
+  try {
+    localStorage.setItem('uppy-nickname', nickname);
+  } catch {
+    // localStorage may be unavailable (private browsing, quota)
+  }
   dispatch({ type: 'SET_STATE', partial: { pendingNickname: nickname } });
   onNicknameSubmit();
 
@@ -33,7 +36,12 @@ function submitSetupNickname(): void {
 }
 
 function initNickname(): void {
-  const savedNickname: string | null = localStorage.getItem('uppy-nickname');
+  let savedNickname: string | null = null;
+  try {
+    savedNickname = localStorage.getItem('uppy-nickname');
+  } catch {
+    // localStorage may be unavailable
+  }
   if (savedNickname && $setupNicknameInput) {
     $setupNicknameInput.value = savedNickname;
   } else if ($setupNicknameInput) {
@@ -49,15 +57,27 @@ function initConnection(): void {
   }, 8000);
 }
 
+let bootBound = false;
+
+/** Reset boot guard (test use only). */
+export function resetBootBound(): void {
+  bootBound = false;
+}
+
 export function boot(): void {
+  if (bootBound) return;
+  bootBound = true;
+
   normalizeAuthHost();
-  localStorage.setItem('uppy-game-url', window.location.href);
+  try {
+    localStorage.setItem('uppy-game-url', window.location.href);
+  } catch {
+    // localStorage may be unavailable (private browsing, quota)
+  }
   initNickname();
 
   initEntryFlow();
-  bindEntryUI(() => {
-    submitSetupNickname();
-  });
+  bindEntryUI(submitSetupNickname);
 
   initWaitingTips();
   bindReconnectRetry(() => {
@@ -65,7 +85,7 @@ export function boot(): void {
   });
 
   initConnection();
-  requestAnimationFrame(gameLoop);
+  startGameLoop();
 
   window.addEventListener('game-ws-open', () => {
     onWebSocketOpen();

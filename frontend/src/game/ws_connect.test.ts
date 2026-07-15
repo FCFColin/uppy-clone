@@ -1,25 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-let lastSocket: MockWebSocket | null = null;
-
-class MockWebSocket {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSED = 3;
-  binaryType = 'arraybuffer';
-  readyState = MockWebSocket.OPEN;
-  url = '';
-  onopen: (() => void) | null = null;
-  onmessage: ((ev: MessageEvent) => void) | null = null;
-  onclose: (() => void) | null = null;
-  onerror: ((ev: Event) => void) | null = null;
-  constructor(url: string) {
-    this.url = url;
-    lastSocket = this; // eslint-disable-line @typescript-eslint/no-this-alias -- test spy
-  }
-  send = vi.fn();
-  close = vi.fn();
-}
+import { MockWebSocket } from '../shared/test/mocks/websocket.js';
 
 const connectMocks = vi.hoisted(() => ({
   establishGameSession: vi.fn(async (): Promise<import('../shared/network/session.js').SessionResult> => ({ ok: true })),
@@ -88,11 +68,13 @@ vi.stubGlobal('localStorage', {
 });
 
 import { connectWebSocket } from './ws_connect.js';
+import { dispatch } from './store.js';
 
 describe('connectWebSocket', () => {
   beforeEach(() => {
+    dispatch({ type: 'RESET_ALL' });
     vi.clearAllMocks();
-    lastSocket = null;
+    MockWebSocket.lastInstance = null;
     connectMocks.ws = null;
     connectMocks.wsEverOpened = false;
     connectMocks.roomPreChecked = false;
@@ -106,7 +88,7 @@ describe('connectWebSocket', () => {
   it('routes inbound frames through the message queue', async () => {
     await connectWebSocket();
     const buf = new ArrayBuffer(4);
-    lastSocket?.onmessage?.({ data: buf } as MessageEvent);
+    MockWebSocket.lastInstance?.onmessage?.({ data: buf } as MessageEvent);
     expect(connectMocks.enqueueBinaryMessage).toHaveBeenCalledWith(buf);
   });
 
@@ -167,10 +149,10 @@ describe('connectWebSocket', () => {
 
   it('skips reconnect when socket already open for same lobby', async () => {
     await connectWebSocket();
-    expect(lastSocket).not.toBeNull();
-    const first = lastSocket;
+    expect(MockWebSocket.lastInstance).not.toBeNull();
+    const first = MockWebSocket.lastInstance;
     await connectWebSocket();
-    expect(lastSocket).toBe(first);
+    expect(MockWebSocket.lastInstance).toBe(first);
   });
 
   it('uses fresh match sessionStorage without re-validating room', async () => {
@@ -186,21 +168,21 @@ describe('connectWebSocket', () => {
     const { showConnectionError, setWsEverOpened } = await import('./ws_connection.js');
     await connectWebSocket();
     setWsEverOpened(false);
-    lastSocket?.onclose?.();
+    MockWebSocket.lastInstance?.onclose?.();
     expect(showConnectionError).toHaveBeenCalled();
   });
 
   it('ignores non-arraybuffer websocket messages', async () => {
     await connectWebSocket();
-    lastSocket?.onmessage?.({ data: 'text' } as MessageEvent);
+    MockWebSocket.lastInstance?.onmessage?.({ data: 'text' } as MessageEvent);
     expect(connectMocks.enqueueBinaryMessage).not.toHaveBeenCalled();
   });
 
   it('logs websocket errors without throwing', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await connectWebSocket();
-    expect(typeof lastSocket?.onerror).toBe('function');
-    lastSocket!.onerror!(new Event('error'));
+    expect(typeof MockWebSocket.lastInstance?.onerror).toBe('function');
+    MockWebSocket.lastInstance!.onerror!(new Event('error'));
     expect(errSpy).toHaveBeenCalledWith('WebSocket error');
     errSpy.mockRestore();
   });
@@ -224,7 +206,7 @@ describe('connectWebSocket', () => {
     await connectWebSocket();
     resolveSession({ ok: true });
     await first;
-    expect(lastSocket).not.toBeNull();
+    expect(MockWebSocket.lastInstance).not.toBeNull();
   });
 
   it('fires onopen handlers and restart vote after ended phase', async () => {
@@ -233,7 +215,7 @@ describe('connectWebSocket', () => {
     state.phase = 'ended';
     state.restartClicked = true;
     await connectWebSocket();
-    lastSocket?.onopen?.();
+    MockWebSocket.lastInstance?.onopen?.();
     expect(sendOrQueue).toHaveBeenCalled();
     state.phase = 'waiting';
     state.restartClicked = false;
@@ -243,7 +225,7 @@ describe('connectWebSocket', () => {
     const { scheduleReconnect, setWsEverOpened } = await import('./ws_connection.js');
     await connectWebSocket();
     setWsEverOpened(true);
-    lastSocket?.onclose?.();
+    MockWebSocket.lastInstance?.onclose?.();
     expect(scheduleReconnect).toHaveBeenCalled();
   });
 
@@ -251,20 +233,20 @@ describe('connectWebSocket', () => {
     connectMocks.getEntryStep.mockReturnValue('waiting');
     connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM2');
     await connectWebSocket();
-    const first = lastSocket;
+    const first = MockWebSocket.lastInstance;
     connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM2');
     await connectWebSocket();
-    expect(lastSocket).toBe(first);
+    expect(MockWebSocket.lastInstance).toBe(first);
   });
 
   it('closes an existing socket before opening a new lobby connection', async () => {
     await connectWebSocket();
-    const first = lastSocket!;
+    const first = MockWebSocket.lastInstance!;
     connectMocks.getLobbyCodeFromUrl.mockReturnValue('OTHER');
     connectMocks.getEntryStep.mockReturnValue('waiting');
     await connectWebSocket();
     expect(first.close).toHaveBeenCalled();
-    expect(lastSocket).not.toBe(first);
+    expect(MockWebSocket.lastInstance).not.toBe(first);
   });
 
   it('shows room-prechecked error when socket closes before open', async () => {
@@ -272,7 +254,7 @@ describe('connectWebSocket', () => {
     setRoomPreChecked(true);
     await connectWebSocket();
     setWsEverOpened(false);
-    lastSocket?.onclose?.();
+    MockWebSocket.lastInstance?.onclose?.();
     expect(showConnectionError).toHaveBeenCalledWith(
       '无法连接房间，请稍后重试',
       expect.objectContaining({ showActions: true }),
@@ -285,9 +267,9 @@ describe('connectWebSocket', () => {
     connectMocks.resolveLobbyCode.mockResolvedValue('MATCH2');
     connectMocks.getEntryStep.mockReturnValue('waiting');
     await connectWebSocket();
-    const first = lastSocket;
+    const first = MockWebSocket.lastInstance;
     await connectWebSocket();
-    expect(lastSocket).toBe(first);
+    expect(MockWebSocket.lastInstance).toBe(first);
   });
 
   it('uses wss protocol when page is served over https', async () => {
@@ -297,7 +279,7 @@ describe('connectWebSocket', () => {
       host: 'game.test',
     });
     await connectWebSocket();
-    expect(lastSocket?.url).toBe('wss://game.test/api/v1/lobby/URL22/ws');
+    expect(MockWebSocket.lastInstance?.url).toBe('wss://game.test/api/v1/lobby/URL22/ws');
     vi.unstubAllGlobals();
   });
 });

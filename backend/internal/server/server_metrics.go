@@ -22,7 +22,7 @@ func startMetricsCollector(ctx context.Context, hub *game.Hub, db *store.Postgre
 		for _, phase := range []string{"waiting", "countdown", "playing", "ended"} {
 			metrics.RoomsByPhase.WithLabelValues(phase).Set(float64(phaseCounts[phase]))
 		}
-		if streamLen, err := cluster.Stateful.Client().XLen(ctx, "game:results").Result(); err == nil {
+		if streamLen, err := cluster.Stateful.Client().XLen(ctx, "game.events").Result(); err == nil {
 			metrics.GameResultsStreamLen.Set(float64(streamLen))
 		}
 		if emailLen, err := cluster.Stateful.Client().XLen(ctx, "email:queue").Result(); err == nil {

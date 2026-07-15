@@ -13,13 +13,12 @@
 
 | 文档 | 说明 |
 |------|------|
-| [综合自审报告](superpowers/reports/2026-07-06-comprehensive-self-audit.md) | 全项目审计结果、发现项与整改建议 |
 | [安全自检清单](security/self-check-checklist.md) | 发布阻塞项与分层安全自检（原 repo-cleanup 条目已并入） |
 | [测试覆盖率策略](development/coverage-policy.md) | 单元/集成/前端覆盖率门禁 |
 | [日志策略](security/logging-policy.md) | 日志级别、结构化字段、PII 禁止项 |
 | [环境配置](operations/environments.md) | 本地 / staging / 生产配置矩阵 |
 | [Go microbench 基准](development/benchmarks-go-microbench.md) | CI 生成的 `go test -bench` 输出（勿手改） |
-| [k6 / Room SLO 基准](development/benchmarks-k6-room-slo.md) | 负载测试与 Room Prometheus SLO 基线 |
+| k6 / Room SLO 基准（已移除） | 负载测试与 Room Prometheus SLO 基线（文档已删除） |
 
 ## 运维
 
@@ -64,7 +63,6 @@
 | 文档 | 说明 |
 |------|------|
 | [Postmortem 模板](templates/postmortem.md) | P0/P1 事故复盘模板 |
-| [Superpowers 报告与规划](superpowers/) | 架构审计、测试覆盖改革、域拆分等报告与计划 |
 
 ## 路径变更说明（旧 flat 路径 → 当前位置）
 
@@ -75,7 +73,7 @@
 | `docs/slo.md` | `operations/slo.md` |
 | `docs/chaos-experiments.md` | `operations/chaos-experiments.md` |
 | `docs/coverage-policy.md` | `development/coverage-policy.md` |
-| `docs/benchmarks-v2.md` | `development/benchmarks-k6-room-slo.md` |
+| `docs/benchmarks-v2.md` | （已删除 — 迁移至 `development/benchmarks-go-microbench.md`） |
 | `docs/benchmarks.md`（flat） | `development/benchmarks-go-microbench.md` |
 | `infra/base/`、`infra/main.tf` | `infra/k8s/`、`infra/terraform/` |
 | `scripts/check-*.sh` | `scripts/ci/` |

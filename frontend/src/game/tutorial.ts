@@ -92,3 +92,12 @@ export function runTutorialIfNeeded(): Promise<void> {
     })();
   });
 }
+
+/** Reset all tutorial state for a new game session. */
+export function resetTutorial(): void {
+  hideOverlay();
+  resolveWait?.();
+  resolveWait = null;
+  currentStep = 0;
+  rangeCircleUntil = 0;
+}

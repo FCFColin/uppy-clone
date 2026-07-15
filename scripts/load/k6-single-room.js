@@ -35,6 +35,8 @@ export function setup() {
   const jar = http.cookieJar();
   const qp = http.post(`${base}/api/v1/auth/quickplay`, JSON.stringify({ nickname: 'host_k6' }), {
     headers: { 'Content-Type': 'application/json' },
+    // infra-039: Pass jar so auth cookies are preserved for subsequent requests.
+    jar,
   });
   check(qp, { 'host quickplay': (r) => r.status === 200 });
 
@@ -51,6 +53,8 @@ export default function (data) {
   const jar = http.cookieJar();
   const qp = http.post(`${base}/api/v1/auth/quickplay`, JSON.stringify({ nickname: `k6_${__VU}` }), {
     headers: { 'Content-Type': 'application/json' },
+    // infra-039: Pass jar so auth cookies are preserved for the WS connection.
+    jar,
   });
   check(qp, { 'quickplay': (r) => r.status === 200 });
 

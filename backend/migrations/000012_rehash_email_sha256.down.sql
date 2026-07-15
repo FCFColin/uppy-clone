@@ -1,0 +1,3 @@
+-- Cannot reverse a hash; down migration is a no-op.
+-- Re-apply migration 000010_add_email_hash to restore HMAC-based hashes
+-- if key rollback is needed.

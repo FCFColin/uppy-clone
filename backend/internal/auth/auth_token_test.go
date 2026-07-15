@@ -13,7 +13,9 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
+
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 )
@@ -37,7 +39,7 @@ func TestSignVerifyToken_RoundTrip(t *testing.T) {
 		t.Fatalf("SignToken 失败: %v", err)
 	}
 
-	userId, nickname, jti, err := mgr.VerifyToken(token)
+	userId, nickname, jti, _, err := mgr.VerifyToken(token)
 	if err != nil {
 		t.Fatalf("VerifyToken 失败: %v", err)
 	}
@@ -55,6 +57,72 @@ func TestSignVerifyToken_RoundTrip(t *testing.T) {
 	}
 }
 
+// ─── Role claim ─────────────────────────────────────────────────────
+
+func TestSignToken_DefaultRoleIsUser(t *testing.T) {
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+
+	token, err := mgr.SignToken("user-role", "RoleTest")
+	if err != nil {
+		t.Fatalf("SignToken: %v", err)
+	}
+
+	_, _, _, role, err := mgr.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if role != domain.RoleUser {
+		t.Fatalf("role = %q, want %q", role, domain.RoleUser)
+	}
+}
+
+func TestSignTokenWithRole_CustomRole(t *testing.T) {
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+
+	token, err := mgr.SignTokenWithRole("user-custom", "CustomRole", "moderator")
+	if err != nil {
+		t.Fatalf("SignTokenWithRole: %v", err)
+	}
+
+	_, _, _, role, err := mgr.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if role != "moderator" {
+		t.Fatalf("role = %q, want %q", role, "moderator")
+	}
+}
+
+func TestVerifyToken_LegacyTokenDefaultsToUser(t *testing.T) {
+	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+
+	// Manually construct a token without a role claim (simulating a legacy token)
+	claims := customClaims{
+		Nickname: "legacy",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "user-legacy",
+			ID:        "legacy-jti",
+			Issuer:    config.JWTIssuer,
+			Audience:  []string{config.JWTAudience},
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	tokenString, err := token.SignedString(mgr.privateKey)
+	if err != nil {
+		t.Fatalf("SignedString: %v", err)
+	}
+
+	_, _, _, role, err := mgr.VerifyToken(tokenString)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+	if role != domain.RoleUser {
+		t.Fatalf("legacy token role = %q, want %q (default)", role, domain.RoleUser)
+	}
+}
+
 // ─── JTI uniqueness ──────────────────────────────────────────────────
 
 func TestSignToken_JTIUnique(t *testing.T) {
@@ -63,8 +131,8 @@ func TestSignToken_JTIUnique(t *testing.T) {
 	token1, _ := mgr.SignToken("user-1", "alice")
 	token2, _ := mgr.SignToken("user-1", "alice")
 
-	_, _, jti1, _ := mgr.VerifyToken(token1)
-	_, _, jti2, _ := mgr.VerifyToken(token2)
+	_, _, jti1, _, _ := mgr.VerifyToken(token1)
+	_, _, jti2, _, _ := mgr.VerifyToken(token2)
 
 	if jti1 == jti2 {
 		t.Fatal("两个 token 的 jti 应不同")
@@ -87,12 +155,12 @@ func TestVerifyToken_Expired(t *testing.T) {
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	tokenString, err := token.SignedString(mgr.PrivateKey())
+	tokenString, err := token.SignedString(mgr.privateKey)
 	if err != nil {
 		t.Fatalf("签名失败: %v", err)
 	}
 
-	_, _, _, err = mgr.VerifyToken(tokenString)
+	_, _, _, _, err = mgr.VerifyToken(tokenString)
 	if err == nil {
 		t.Fatal("已过期的 token 应验证失败")
 	}
@@ -103,7 +171,7 @@ func TestVerifyToken_Expired(t *testing.T) {
 func TestVerifyToken_Invalid(t *testing.T) {
 	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 
-	_, _, _, err := mgr.VerifyToken("this.is.not.a.valid.token")
+	_, _, _, _, err := mgr.VerifyToken("this.is.not.a.valid.token")
 	if err == nil {
 		t.Fatal("无效 token 应验证失败")
 	}
@@ -120,7 +188,7 @@ func TestVerifyToken_WrongSecret(t *testing.T) {
 		t.Fatalf("SignToken 失败: %v", err)
 	}
 
-	_, _, _, err = mgr2.VerifyToken(token)
+	_, _, _, _, err = mgr2.VerifyToken(token)
 	if err == nil {
 		t.Fatal("使用错误密钥验证应失败")
 	}
@@ -141,7 +209,7 @@ func TestVerifyToken_UnexpectedSigningMethod(t *testing.T) {
 		t.Fatalf("SignedString: %v", err)
 	}
 
-	_, _, _, err = mgr.VerifyToken(tokenString)
+	_, _, _, _, err = mgr.VerifyToken(tokenString)
 	if err == nil {
 		t.Fatal("none-alg token should fail verification")
 	}
@@ -188,7 +256,7 @@ func TestParseAuthCookie_Valid(t *testing.T) {
 		Value: token,
 	})
 
-	userId, nickname, jti, err := ParseAuthCookie(req, "auth", mgr)
+	userId, nickname, jti, _, err := ParseAuthCookie(req, "auth", mgr)
 	if err != nil {
 		t.Fatalf("ParseAuthCookie 失败: %v", err)
 	}
@@ -208,7 +276,7 @@ func TestParseAuthCookie_Missing(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	_, _, _, err := ParseAuthCookie(req, "auth", mgr)
+	_, _, _, _, err := ParseAuthCookie(req, "auth", mgr)
 	if err == nil {
 		t.Fatal("缺少 cookie 应返回错误")
 	}
@@ -341,24 +409,17 @@ func TestRefreshTokenManager_RevokeAllForUserRedisError(t *testing.T) {
 	}
 }
 
-// The following tests require a real Redis connection.
-// They are skipped if Redis is not available.
-// In CI, use testcontainers or miniredis.
-
-func skipIfNoRedis(t *testing.T, rdb *redis.Client) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping integration test")
-	}
-}
+// RO-037: Converted from localhost:6379 to miniredis so this runs as a unit test
+// without any external Redis dependency.
 
 func TestRefreshTokenManager_Integration(t *testing.T) {
-	// Try to connect to local Redis
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-	skipIfNoRedis(t, rdb)
-	defer rdb.Close()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer func() { _ = rdb.Close() }()
 
 	mgr := NewRefreshTokenManager(rdb)
 	ctx := context.Background()
@@ -458,13 +519,18 @@ func testRefreshTokenRevokeAll(t *testing.T, mgr *RefreshTokenManager, ctx conte
 // 撤销失败可能导致被盗 token 在过期前持续有效。此测试覆盖所有分支：
 // 有/无 cookie、有效/无效 token、空 jti、redis 为 nil、以及真实撤销验证。
 
-// setupTestRedisStore creates a RedisStore for integration tests.
-// Skips the test if Redis is not available at localhost:6379.
+// setupTestRedisStore creates a RedisStore backed by miniredis for unit tests.
+// RO-037: converted from localhost:6379 to miniredis (no external dependency).
 func setupTestRedisStore(t *testing.T) *store.RedisStore {
 	t.Helper()
-	redisStore, err := store.NewRedisStore("localhost:6379", config.DefaultTimeoutConfig())
+	mr, err := miniredis.Run()
 	if err != nil {
-		t.Skipf("Redis not available, skipping integration test: %v", err)
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
+	if err != nil {
+		t.Fatalf("NewRedisStore: %v", err)
 	}
 	t.Cleanup(func() { _ = redisStore.Close() })
 	return redisStore
@@ -479,7 +545,7 @@ func newTestJWTManager(t *testing.T) *JWTManager {
 
 func TestRevokeAllTokens_NilRequest(t *testing.T) {
 	mgr := newTestJWTManager(t)
-	RevokeAllTokens(context.Background(), mgr, nil, nil, nil)
+	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, nil)
 }
 
 func TestRevokeAllTokens_NoCookie(t *testing.T) {
@@ -488,7 +554,7 @@ func TestRevokeAllTokens_NoCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 
 	// 不应 panic
-	RevokeAllTokens(context.Background(), mgr, nil, nil, req)
+	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, req)
 }
 
 func TestRevokeAllTokens_RefreshRevokeError(t *testing.T) {
@@ -514,7 +580,7 @@ func TestRevokeAllTokens_RefreshRevokeError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
 
-	RevokeAllTokens(ctx, mgr, refreshMgr, nil, req)
+	_ = RevokeAllTokens(ctx, mgr, refreshMgr, nil, req)
 }
 
 // --- cookie 存在但 token 无效：不应 panic，不调用 RevokeJWT ---
@@ -528,7 +594,7 @@ func TestRevokeAllTokens_InvalidToken(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: "also.invalid"})
 
 	// 不应 panic
-	RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
+	_ = RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
 }
 
 // --- cookie 值为空字符串：不应 panic ---
@@ -541,7 +607,7 @@ func TestRevokeAllTokens_EmptyCookieValue(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: ""})
 
 	// 不应 panic
-	RevokeAllTokens(context.Background(), mgr, nil, nil, req)
+	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, req)
 }
 
 // --- redis 为 nil：有效 token 也不应 panic ---
@@ -558,7 +624,7 @@ func TestRevokeAllTokens_NilRedis(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
 
 	// 不应 panic — redis 为 nil 时跳过 RevokeJWT
-	RevokeAllTokens(context.Background(), mgr, nil, nil, req)
+	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, req)
 }
 
 // --- jti 为空：VerifyToken 成功但 jti==""，不调用 RevokeJWT ---
@@ -573,18 +639,20 @@ func TestRevokeAllTokens_EmptyJTI(t *testing.T) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "user-empty-jti",
 			ID:        "", // 空 jti
+			Issuer:    config.JWTIssuer,
+			Audience:  []string{config.JWTAudience},
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	tokenString, err := token.SignedString(mgr.PrivateKey())
+	tokenString, err := token.SignedString(mgr.privateKey)
 	if err != nil {
 		t.Fatalf("SignedString failed: %v", err)
 	}
 
 	// 验证 token 确实有效且 jti 为空
-	_, _, jti, verifyErr := mgr.VerifyToken(tokenString)
+	_, _, jti, _, verifyErr := mgr.VerifyToken(tokenString)
 	if verifyErr != nil {
 		t.Fatalf("VerifyToken should succeed for manually-signed token: %v", verifyErr)
 	}
@@ -596,7 +664,7 @@ func TestRevokeAllTokens_EmptyJTI(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: tokenString})
 
 	// 不应 panic，也不应调用 RevokeJWT（jti 为空）
-	RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
+	_ = RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
 }
 
 // --- session cookie：有效 token + 真实 Redis → jti 被撤销 ---
@@ -611,7 +679,7 @@ func TestRevokeAllTokens_SessionCookie(t *testing.T) {
 		t.Fatalf("SignToken failed: %v", err)
 	}
 
-	_, _, jti, err := mgr.VerifyToken(token)
+	_, _, jti, _, err := mgr.VerifyToken(token)
 	if err != nil {
 		t.Fatalf("VerifyToken failed: %v", err)
 	}
@@ -628,7 +696,7 @@ func TestRevokeAllTokens_SessionCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
 
-	RevokeAllTokens(ctx, mgr, nil, redisStore, req)
+	_ = RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
 	// 撤销后 jti 应在撤销列表中
 	revoked, err = redisStore.IsJWTRevoked(ctx, jti)
@@ -652,7 +720,7 @@ func TestRevokeAllTokens_QuickPlayCookie(t *testing.T) {
 		t.Fatalf("SignToken failed: %v", err)
 	}
 
-	_, _, jti, err := mgr.VerifyToken(token)
+	_, _, jti, _, err := mgr.VerifyToken(token)
 	if err != nil {
 		t.Fatalf("VerifyToken failed: %v", err)
 	}
@@ -660,7 +728,7 @@ func TestRevokeAllTokens_QuickPlayCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
 
-	RevokeAllTokens(ctx, mgr, nil, redisStore, req)
+	_ = RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
 	revoked, err := redisStore.IsJWTRevoked(ctx, jti)
 	if err != nil {
@@ -687,14 +755,14 @@ func TestRevokeAllTokens_BothCookies(t *testing.T) {
 		t.Fatalf("SignToken quickplay failed: %v", err)
 	}
 
-	_, _, sessionJTI, _ := mgr.VerifyToken(sessionToken)
-	_, _, quickplayJTI, _ := mgr.VerifyToken(quickplayToken)
+	_, _, sessionJTI, _, _ := mgr.VerifyToken(sessionToken)
+	_, _, quickplayJTI, _, _ := mgr.VerifyToken(quickplayToken)
 
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: sessionToken})
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: quickplayToken})
 
-	RevokeAllTokens(ctx, mgr, nil, redisStore, req)
+	_ = RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
 	// 两个 jti 都应被撤销
 	sessionRevoked, err := redisStore.IsJWTRevoked(ctx, sessionJTI)
@@ -725,13 +793,13 @@ func TestRevokeAllTokens_OneValidOneInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SignToken failed: %v", err)
 	}
-	_, _, validJTI, _ := mgr.VerifyToken(validToken)
+	_, _, validJTI, _, _ := mgr.VerifyToken(validToken)
 
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: "invalid.token.value"})
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: validToken})
 
-	RevokeAllTokens(ctx, mgr, nil, redisStore, req)
+	_ = RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
 	// 有效的 quickplay token 应被撤销
 	revoked, err := redisStore.IsJWTRevoked(ctx, validJTI)
@@ -756,7 +824,7 @@ func TestRevokeAllTokens_Concurrent(t *testing.T) {
 			token, _ := mgr.SignToken("user-concurrent", "Concurrent")
 			req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 			req.AddCookie(&http.Cookie{Name: "session", Value: token})
-			RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
+			_ = RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
 		}()
 	}
 	for i := 0; i < 5; i++ {
@@ -803,7 +871,7 @@ func TestVerifyWithKey_UnexpectedSigningMethod(t *testing.T) {
 	if s == "" {
 		s = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.e30.signature"
 	}
-	if _, _, _, err := mgr.VerifyToken(s); err == nil {
+	if _, _, _, _, err := mgr.VerifyToken(s); err == nil {
 		t.Fatal("expected verify error for unexpected signing method")
 	}
 }
@@ -824,13 +892,154 @@ func TestVerifyWithKey_ExpiredToken(t *testing.T) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
 		},
 	})
-	s, err := expired.SignedString(mgr.PrivateKey())
+	s, err := expired.SignedString(mgr.privateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = token
-	if _, _, _, err := mgr.VerifyToken(s); err == nil {
+	if _, _, _, _, err := mgr.VerifyToken(s); err == nil {
 		t.Fatal("expected expired token error")
+	}
+}
+
+// --- RO-037: Tests moved from tests/integration/auth_full_flow_test.go ---
+// These use miniredis (in-process) and don't require external Redis.
+// Moved here so they run as unit tests without -tags integration.
+
+func TestAuth_RevokeAndCheckJWT(t *testing.T) {
+	redisStore := setupTestRedisStore(t)
+	ctx := context.Background()
+
+	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	token, err := jwtMgr.SignToken("user-revoke", "Revocable")
+	if err != nil {
+		t.Fatalf("SignToken: %v", err)
+	}
+
+	_, _, jti, _, err := jwtMgr.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("VerifyToken: %v", err)
+	}
+
+	revoked, err := redisStore.IsJWTRevoked(ctx, jti)
+	if err != nil {
+		t.Fatalf("IsJWTRevoked: %v", err)
+	}
+	if revoked {
+		t.Fatal("expected token to not be revoked initially")
+	}
+
+	if err := redisStore.RevokeJWT(ctx, jti, config.AccessTokenTTL); err != nil {
+		t.Fatalf("RevokeJWT: %v", err)
+	}
+
+	revoked, err = redisStore.IsJWTRevoked(ctx, jti)
+	if err != nil {
+		t.Fatalf("IsJWTRevoked after revoke: %v", err)
+	}
+	if !revoked {
+		t.Fatal("expected token to be revoked")
+	}
+}
+
+func TestAuth_RefreshTokenFlow(t *testing.T) {
+	redisStore := setupTestRedisStore(t)
+	ctx := context.Background()
+
+	refreshMgr := NewRefreshTokenManager(redisStore.Client())
+
+	oldToken, err := refreshMgr.Generate(ctx, "user-refresh")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if oldToken == "" {
+		t.Fatal("expected non-empty refresh token")
+	}
+
+	result, err := refreshMgr.ConsumeRefreshToken(ctx, oldToken)
+	if err != nil {
+		t.Fatalf("ConsumeRefreshToken: %v", err)
+	}
+	if result.Reused {
+		t.Fatal("expected no reuse on first consume")
+	}
+	if result.UserID != "user-refresh" {
+		t.Fatalf("UserID = %q, want user-refresh", result.UserID)
+	}
+
+	_, err = refreshMgr.Validate(ctx, oldToken)
+	if err == nil {
+		t.Fatal("expected old refresh token to be consumed")
+	}
+
+	result2, err := refreshMgr.ConsumeRefreshToken(ctx, oldToken)
+	if err != nil {
+		t.Fatalf("ConsumeRefreshToken second: %v", err)
+	}
+	if !result2.Reused {
+		t.Fatal("expected reuse flag on second consume")
+	}
+}
+
+func TestAuth_RefreshTokenInvalid(t *testing.T) {
+	redisStore := setupTestRedisStore(t)
+	ctx := context.Background()
+
+	refreshMgr := NewRefreshTokenManager(redisStore.Client())
+
+	_, err := refreshMgr.ConsumeRefreshToken(ctx, "invalid-token")
+	if err == nil {
+		t.Fatal("expected error for invalid refresh token")
+	}
+}
+
+func TestAuth_RefreshTokenRevoke(t *testing.T) {
+	redisStore := setupTestRedisStore(t)
+	ctx := context.Background()
+
+	refreshMgr := NewRefreshTokenManager(redisStore.Client())
+
+	token, err := refreshMgr.Generate(ctx, "user-revoke-test")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	if err := refreshMgr.Revoke(ctx, token); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+
+	_, err = refreshMgr.Validate(ctx, token)
+	if err == nil {
+		t.Fatal("expected revoked token to be invalid")
+	}
+}
+
+func TestAuth_RevokeAllForUser(t *testing.T) {
+	redisStore := setupTestRedisStore(t)
+	ctx := context.Background()
+
+	refreshMgr := NewRefreshTokenManager(redisStore.Client())
+
+	token1, err := refreshMgr.Generate(ctx, "user-all-revoke")
+	if err != nil {
+		t.Fatalf("Generate 1: %v", err)
+	}
+	token2, err := refreshMgr.Generate(ctx, "user-all-revoke")
+	if err != nil {
+		t.Fatalf("Generate 2: %v", err)
+	}
+
+	if err := refreshMgr.RevokeAllForUser(ctx, "user-all-revoke"); err != nil {
+		t.Fatalf("RevokeAllForUser: %v", err)
+	}
+
+	_, err = refreshMgr.Validate(ctx, token1)
+	if err == nil {
+		t.Fatal("expected token1 to be revoked")
+	}
+	_, err = refreshMgr.Validate(ctx, token2)
+	if err == nil {
+		t.Fatal("expected token2 to be revoked")
 	}
 }
 
@@ -842,7 +1051,7 @@ func TestVerifyWithKey_InvalidClaims(t *testing.T) {
 	}
 	t.Cleanup(func() { jwtParseWithClaimsFn = prev })
 
-	_, _, _, err := mgr.VerifyToken("any-token")
+	_, _, _, _, err := mgr.VerifyToken("any-token")
 	if err == nil {
 		t.Fatal("expected invalid token claims error")
 	}

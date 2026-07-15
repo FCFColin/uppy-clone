@@ -27,11 +27,10 @@ test.describe('Error Handling', () => {
 
     await submitNickname(page, 'E2EEndedPlayer');
 
-    // 等待游戏结束（对于单人房间，countdown 结束后气球的 phase 会变为 ended）
     await page.waitForFunction(
       () => {
         const s = (window as unknown as { state?: { phase?: string } }).state;
-        return !!s && (s.phase === 'ended' || s.phase === 'playing');
+        return !!s && s.phase === 'ended';
       },
       { timeout: 90000 },
     );

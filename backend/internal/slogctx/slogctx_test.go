@@ -24,7 +24,7 @@ func TestWithLogger_RoundTrip(t *testing.T) {
 
 func TestLoggerFromContext_WrongTypeIgnored(t *testing.T) {
 	// Adversarial: poisoned context value must not panic; fall back to default.
-	ctx := context.WithValue(context.Background(), ctxKey, "not-a-logger")
+	ctx := context.WithValue(context.Background(), CtxKey{}, "not-a-logger")
 	if LoggerFromContext(ctx) != slog.Default() {
 		t.Error("wrong type should fall back to default")
 	}

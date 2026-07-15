@@ -17,6 +17,8 @@ spec:
     spec:
       containers:
         - name: prometheus
+          # infra-034: 此版本为 Prometheus 的唯一权威引用；docker-compose.yml 本地 dev
+          # 环境必须与本行对齐（避免 dev/prod 版本漂移导致告警规则行为不一致）。
           image: prom/prometheus:v2.55.1
           args:
             - --config.file=/etc/prometheus/prometheus.yml
@@ -51,6 +53,11 @@ spec:
             - --tsdb.path=/prometheus
             - --grpc-address=0.0.0.0:10901
             - --http-address=0.0.0.0:10902
+            # infra-017: Server-side mTLS to match the Thanos Query client TLS.
+            # The CA cert must be the same as the querier's --grpc-client-tls-ca.
+            - --grpc-server-tls-cert=/etc/thanos/tls/server.crt
+            - --grpc-server-tls-key=/etc/thanos/tls/server.key
+            - --grpc-server-tls-ca=/etc/thanos/tls/ca.crt
           ports:
             - name: grpc
               containerPort: 10901
@@ -59,6 +66,9 @@ spec:
           volumeMounts:
             - name: prometheus-tsdb
               mountPath: /prometheus
+            - name: thanos-tls-server
+              mountPath: /etc/thanos/tls
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -73,6 +83,13 @@ spec:
         - name: rules
           configMap:
             name: alertmanager-rules
+        # infra-017: TLS certificates for Thanos sidecar server-side mTLS.
+        # Create via cert-manager or manually:
+        #   kubectl create secret generic thanos-tls-server \
+        #     --from-file=server.crt --from-file=server.key --from-file=ca.crt
+        - name: thanos-tls-server
+          secret:
+            secretName: thanos-tls-server
   volumeClaimTemplates:
     - metadata:
         name: prometheus-tsdb
@@ -81,7 +98,9 @@ spec:
         resources:
           requests:
             storage: 100Gi
-        storageClassName: ssd
+        # infra-030: storageClass 从 "ssd" 重命名为 "premium-rwo"——
+        # "ssd" 是介质名而非 GKE 标准命名；GKE 默认 pd-ssd StorageClass 名为 "premium-rwo"。
+        storageClassName: premium-rwo
 ---
 apiVersion: v1
 kind: Service

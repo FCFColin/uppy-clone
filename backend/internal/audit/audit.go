@@ -19,6 +19,7 @@ import (
 	"github.com/sethvargo/go-retry"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/resilience"
 )
 
@@ -34,6 +35,7 @@ type auditDBPool interface {
 var (
 	auditLogger *slog.Logger
 	dbLogger    *dbAuditLogger
+	dbLoggerMu  sync.RWMutex // audit-013: protects dbLogger from data race with CloseDBLogger
 )
 
 type dbAuditLogger struct {
@@ -57,9 +59,22 @@ func init() {
 	auditLogger = slog.New(handler.WithGroup("audit"))
 }
 
+// ActorType constants define the semantic category of an audit actor.
+// project-08-003: Previously ActorID was overloaded with mixed semantics
+// (UUID for users, "admin" for admins, "system" for automated actions,
+// role strings for RBAC denials). ActorType disambiguates these so that
+// SIEM consumers and compliance queries can reliably filter by actor kind.
+const (
+	ActorTypeSystem    = "system"    // automated/background process
+	ActorTypeUser      = "user"      // authenticated end-user (ActorID = user UUID)
+	ActorTypeAdmin     = "admin"     // administrative operator (ActorID = "admin")
+	ActorTypeAnonymous = "anonymous" // unauthenticated request (RBAC deny, etc.)
+)
+
 // AuditEntry represents a single audit log record.
 type AuditEntry struct {
 	Action    string      `json:"action"`
+	ActorType string      `json:"actor_type,omitempty"`
 	ActorID   string      `json:"actor_id"`
 	ActorIP   string      `json:"actor_ip"`
 	Resource  string      `json:"resource"`
@@ -75,8 +90,10 @@ func InitDBLogger(pool auditDBPool, secret string) {
 	if pool == nil || secret == "" {
 		return
 	}
+	dbLoggerMu.Lock()
+	defer dbLoggerMu.Unlock()
 	if dbLogger != nil {
-		CloseDBLogger()
+		closeDBLoggerLocked()
 	}
 	dbLogger = &dbAuditLogger{
 		pool:   pool,
@@ -91,6 +108,14 @@ func InitDBLogger(pool auditDBPool, secret string) {
 
 // CloseDBLogger 排空 channel 并停止后台协程，确保已入队的审计日志不丢失。
 func CloseDBLogger() {
+	dbLoggerMu.Lock()
+	defer dbLoggerMu.Unlock()
+	closeDBLoggerLocked()
+}
+
+// closeDBLoggerLocked performs the actual close without acquiring the lock.
+// Caller must hold dbLoggerMu.
+func closeDBLoggerLocked() {
 	if dbLogger == nil {
 		return
 	}
@@ -119,7 +144,14 @@ func (l *dbAuditLogger) loadLastHash() {
 func (l *dbAuditLogger) processLoop() {
 	defer close(l.done)
 	for entry := range l.ch {
-		l.writeToDB(entry.ctx, entry.entry)
+		// audit-005: Use detached context instead of the original request context.
+		// The request context may be canceled after the HTTP response is sent,
+		// which would cause retry.Do to fail immediately with context.Canceled.
+		// A fresh context with a generous timeout ensures audit writes complete
+		// even after the request lifecycle ends.
+		writeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		l.writeToDB(writeCtx, entry.entry)
+		cancel()
 	}
 }
 
@@ -142,9 +174,9 @@ func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
 	// updated on success, so concurrent writers cannot break the HMAC chain.
 	err = retry.Do(ctx, resilience.DefaultDBRetry(), func(ctx context.Context) error {
 		_, execErr := l.pool.Exec(ctx,
-			`INSERT INTO audit_logs (action, actor_id, actor_ip, resource, before, after, request_id, trace_id, prev_hash, this_hash)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			entry.Action, entry.ActorID, entry.ActorIP, entry.Resource,
+			`INSERT INTO audit_logs (action, actor_type, actor_id, actor_ip, resource, before, after, request_id, trace_id, prev_hash, this_hash)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			entry.Action, entry.ActorType, entry.ActorID, entry.ActorIP, entry.Resource,
 			entry.Before, entry.After, entry.RequestID, entry.TraceID,
 			prevHash, thisHash)
 		if execErr != nil {
@@ -154,13 +186,44 @@ func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
 	})
 	if err != nil {
 		l.mu.Unlock()
-		slog.Error("audit writeToDB failed after retries",
+		// audit-001: Increment metric for monitoring/alerting and write to
+		// dead-letter file so compliance-critical records are not silently lost.
+		metrics.AuditWriteFailures.Inc()
+		slog.Error("audit writeToDB failed after retries, writing to dead-letter",
 			"error", err, "action", entry.Action, "trace_id", entry.TraceID, "request_id", entry.RequestID)
+		l.writeDeadLetter(entry, err)
 		return
 	}
 
 	l.lastHash = thisHash
 	l.mu.Unlock()
+}
+
+// writeDeadLetter writes a failed audit entry to a local JSONL file as a
+// last-resort fallback (audit-001). This ensures compliance-critical audit
+// records survive DB outages and can be replayed manually.
+// Best-effort: if the file write also fails, the entry is lost (but the
+// metric has already been incremented for alerting).
+func (l *dbAuditLogger) writeDeadLetter(entry AuditEntry, writeErr error) {
+	dl := map[string]interface{}{
+		"entry":     entry,
+		"error":     writeErr.Error(),
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	data, err := json.Marshal(dl)
+	if err != nil {
+		slog.Error("audit dead-letter marshal failed", "error", err)
+		return
+	}
+	f, err := os.OpenFile("audit_deadletter.jsonl", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		slog.Error("audit dead-letter file open failed", "error", err)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		slog.Error("audit dead-letter file write failed", "error", err)
+	}
 }
 
 // computeHash = HMAC-SHA256(secret, prevHash || payload)。独立函数便于单元测试。
@@ -171,10 +234,20 @@ func computeHash(secret []byte, prevHash string, payload []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// hashActorIP computes SHA-256 of the actor IP before storage.
+// hashActorIP computes HMAC-SHA256 of the actor IP before storage.
+// Uses the audit secret as HMAC key to prevent rainbow-table reversal of IPv4.
+// Falls back to unkeyed SHA-256 only when no DB logger is initialized (e.g. tests).
 func hashActorIP(ip string) string {
 	if ip == "" {
 		return ""
+	}
+	dbLoggerMu.RLock()
+	l := dbLogger
+	dbLoggerMu.RUnlock()
+	if l != nil {
+		mac := hmac.New(sha256.New, l.secret)
+		mac.Write([]byte(ip))
+		return hex.EncodeToString(mac.Sum(nil))
 	}
 	h := sha256.Sum256([]byte(ip))
 	return hex.EncodeToString(h[:])
@@ -194,12 +267,13 @@ func Log(ctx context.Context, entry AuditEntry) {
 		}
 	}
 
-	// Hash actor IP with SHA-256 before storage for privacy compliance
+	// Hash actor IP with HMAC-SHA256 before storage for privacy compliance
 	entry.ActorIP = hashActorIP(entry.ActorIP)
 
 	// Always log to stdout for SIEM collection
 	auditLogger.Info("audit",
 		"action", entry.Action,
+		"actor_type", entry.ActorType,
 		"actor_id", entry.ActorID,
 		"actor_ip", entry.ActorIP,
 		"resource", entry.Resource,
@@ -210,16 +284,23 @@ func Log(ctx context.Context, entry AuditEntry) {
 	)
 
 	// Non-blocking write to DB (if initialized)
-	if dbLogger != nil {
+	// audit-013: Use RLock to safely access dbLogger without data race.
+	dbLoggerMu.RLock()
+	l := dbLogger
+	dbLoggerMu.RUnlock()
+	if l != nil {
 		select {
-		case dbLogger.ch <- dbEntry{entry: entry, ctx: ctx}:
-			default:
+		case l.ch <- dbEntry{entry: entry, ctx: ctx}:
+		default:
 			// Channel 满：同步回退写入 DB（100ms 超时），不丢弃记录。
+			// audit-005: Use context.Background() instead of request ctx — the
+			// request context may be canceled after the HTTP response is sent,
+			// which would cause the fallback write to fail immediately.
 			slog.Warn("audit log channel full, falling back to synchronous write",
 				"action", entry.Action)
-			fbCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+			fbCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
-			dbLogger.writeToDB(fbCtx, entry)
+			l.writeToDB(fbCtx, entry)
 		}
 	}
 }

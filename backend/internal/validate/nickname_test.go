@@ -132,7 +132,7 @@ func TestNickname_WhitespaceHandling(t *testing.T) {
 }
 
 func TestNicknameValidatorFunc(t *testing.T) {
-	fn := NicknameValidatorFunc(func(s string) string {
+	fn := NicknameValidatorFunc(func(_ string) string {
 		return "fixed"
 	})
 	if got := fn.ValidateNickname("anything"); got != "fixed" {

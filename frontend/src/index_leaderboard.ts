@@ -1,3 +1,5 @@
+import { apiFetch } from './shared/network/api_fetch.js';
+
 interface Entry {
   rank: number;
   score: number;
@@ -61,7 +63,7 @@ function updateCollapsedSummary(text: string): void {
 }
 
 async function fetchLeaderboard(limit: number): Promise<Entry[]> {
-  const res = await fetch(`/api/v1/leaderboard?scope=${scope}&limit=${limit}`);
+  const res = await apiFetch(`/api/v1/leaderboard?scope=${scope}&limit=${limit}`, { autoRefresh: false });
   if (!res.ok) throw new Error(`load failed (${res.status})`);
   const data: { entries: Entry[] } = await res.json();
   return data.entries ?? [];

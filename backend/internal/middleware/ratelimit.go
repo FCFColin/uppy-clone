@@ -3,41 +3,38 @@ package middleware
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
-	"os"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
-func init() {
-	if v := os.Getenv("RATE_LIMIT_DEFAULT_REQUESTS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg := DefaultEndpointRateLimits["default"]
-			cfg.Requests = n
-			DefaultEndpointRateLimits["default"] = cfg
-		}
+// InitRateLimits overrides default rate limit config from environment variables.
+// Must be called once during server initialization, before any rate-limited routes are used.
+// Replaces the previous init()-based approach for testability and explicit ordering.
+func InitRateLimits(requests int, window time.Duration) {
+	rateLimitMu.Lock()
+	defer rateLimitMu.Unlock()
+	if requests > 0 {
+		cfg := DefaultEndpointRateLimits["default"]
+		cfg.Requests = requests
+		DefaultEndpointRateLimits["default"] = cfg
 	}
-	if v := os.Getenv("RATE_LIMIT_DEFAULT_WINDOW_SECS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg := DefaultEndpointRateLimits["default"]
-			cfg.Window = time.Duration(n) * time.Second
-			DefaultEndpointRateLimits["default"] = cfg
-		}
+	if window > 0 {
+		cfg := DefaultEndpointRateLimits["default"]
+		cfg.Window = window
+		DefaultEndpointRateLimits["default"] = cfg
 	}
 }
 
 // setRateLimitHeaders writes the RFC 6585 Retry-After header and the optional
 // X-RateLimit-Limit header before a 429 response is emitted.
 //
-// 企业为何需要：RFC 6585 §4 要求 429 响应携带 Retry-After，告知客户端何时可重试，
-// 否则客户端只能盲目退避，加剧拥塞或延长用户感知延迟。X-RateLimit-Limit 让客户端
-// 能自适应配额。X-RateLimit-Remaining/Reset 需要存储层返回，当前 store 接口仅
-// 返回 (bool, error)，故暂不设置，避免过度工程化。
+// RFC 6585 §4 requires Retry-After on 429 responses.
 func setRateLimitHeaders(w http.ResponseWriter, limit int, window time.Duration) {
 	w.Header().Set("Retry-After", strconv.Itoa(int(window.Seconds())))
 	w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
@@ -58,8 +55,8 @@ type RateLimitConfig struct {
 }
 
 // EndpointRateLimitConfig defines per-endpoint rate limits.
-// 企业为何需要：限流是 DoS 防御的基础设施。按用户维度限流防止单一恶意用户耗尽配额，
-// 而按 IP 限制防止分布式攻击。两者缺一不可。
+// Per-user rate limiting prevents single-bad-actor exhaustion;
+// per-IP rate limiting mitigates distributed attacks.
 type EndpointRateLimitConfig struct {
 	Requests   int
 	Window     time.Duration
@@ -67,30 +64,35 @@ type EndpointRateLimitConfig struct {
 }
 
 // DefaultEndpointRateLimits defines per-endpoint rate limits.
-// Security-critical endpoints (auth:quickplay, admin:login) use FailClosed=true
+// Security-critical endpoints (auth:*, admin:login) use FailClosed=true
 // so that Redis unavailability blocks requests rather than allowing unbounded access.
+// handler-014: The "default" config is also fail-closed so that any unlisted
+// endpoint rejects requests when Redis is unavailable (safer default).
+var rateLimitMu sync.RWMutex
+
+// DefaultEndpointRateLimits defines per-endpoint rate limit configurations.
 var DefaultEndpointRateLimits = map[string]EndpointRateLimitConfig{
 	"auth:quickplay":    {Requests: 10, Window: time.Minute, FailClosed: true},
-	"auth:request":      {Requests: 5, Window: time.Minute},
-	"auth:verify":       {Requests: 10, Window: time.Minute},
+	"auth:request":      {Requests: 5, Window: time.Minute, FailClosed: true},
+	"auth:verify":       {Requests: 10, Window: time.Minute, FailClosed: true}, // handler-014: security-critical auth endpoint
 	"registry:create":   {Requests: 5, Window: time.Minute},
 	"registry:check":    {Requests: 30, Window: time.Minute},
 	"registry:lobbies":  {Requests: 30, Window: time.Minute},
 	"registry:match":    {Requests: 10, Window: time.Minute},
 	"stats:leaderboard": {Requests: 60, Window: time.Minute},
 	"admin:login":       {Requests: 5, Window: time.Minute, FailClosed: true},
-	"default":           {Requests: 60, Window: time.Minute},
+	"default":           {Requests: 60, Window: time.Minute, FailClosed: true}, // handler-014: fail-closed default
 }
 
 // RateLimit returns middleware that checks Redis-based rate limits.
 // It uses the client IP from X-Forwarded-For or RemoteAddr as the key.
 //
-// 当 Redis 出错时，行为由 config.FailClosed 控制（v2-R-05）：
-//   - FailClosed=false（默认）：放行请求（fail-open），避免 Redis 短暂故障阻断全部用户
-//   - FailClosed=true：拒绝请求（fail-closed），用于安全敏感端点防止 Redis 宕机时无限制攻击
+// When Redis errors occur, behavior is controlled by config.FailClosed (v2-R-05):
+//   - FailClosed=false (default): allow requests (fail-open) to avoid blocking all users during brief Redis outages
+//   - FailClosed=true: reject requests (fail-closed) for security-sensitive endpoints to prevent unbounded attacks during Redis downtime
 //
-// 生产路由使用 EndpointRateLimit（按端点配置 FailClosed），此基础函数主要供测试和
-// 自定义场景使用。
+// Production routes use EndpointRateLimit (which configures FailClosed per endpoint).
+// This base function is primarily for testing and custom scenarios.
 func RateLimit(redisStore RateLimiterStore, config RateLimitConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -127,14 +129,15 @@ func RateLimit(redisStore RateLimiterStore, config RateLimitConfig) func(http.Ha
 // the auth middleware has not set the context (e.g., on unauthenticated endpoints).
 // It may be nil, in which case cookie-based fallback is skipped.
 //
-// Fail-closed 策略：当配置的 EndpointRateLimitConfig.FailClosed 为 true 时，
-// Redis 出错将拒绝请求而非放行。安全敏感端点（auth:quickplay、admin:login）
-// 应使用 fail-closed，防止 Redis 宕机时遭受无限制攻击。
+// When FailClosed is true, Redis errors cause request rejection instead of admission.
+// Security-sensitive endpoints (auth:quickplay, admin:login) use fail-closed.
 func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr JWTManager) func(http.Handler) http.Handler {
+	rateLimitMu.RLock()
 	cfg, ok := DefaultEndpointRateLimits[endpoint]
 	if !ok {
 		cfg = DefaultEndpointRateLimits["default"]
 	}
+	rateLimitMu.RUnlock()
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -166,14 +169,9 @@ func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr JWTM
 
 // rateLimitKey builds a composite rate limit key from endpoint, user ID, and IP.
 //
-// 企业为何需要：限流维度必须正确识别用户，否则认证用户可绕过限流。
-// 优先从 auth 中间件已注入 context 的 user_id 读取；若 context 无值（如
-// 未经 AuthMiddleware 的端点），则回退到直接解析 "session" 或 "quickplay"
-// cookie 提取 userID。两者均无则回退到 IP 维度。
-//
-// 历史缺陷：此前读取名为 "token" 的 cookie，但实际认证 cookie 名为
-// "session" 与 "quickplay"（见 auth.BuildAuthCookie / auth.AuthMiddleware），
-// 导致 userID 恒为空，用户级限流完全失效。
+// Rate limit key with user identity hierarchy: auth context → session/quickplay cookie → IP.
+// Historical note: previously read a "token" cookie that didn't exist, making user-level
+// rate limiting completely ineffective.
 func rateLimitKey(r *http.Request, endpoint string, jwtMgr JWTManager) string {
 	ip := extractClientIP(r)
 
@@ -185,7 +183,7 @@ func rateLimitKey(r *http.Request, endpoint string, jwtMgr JWTManager) string {
 	// 2. Fallback: try "session" cookie, then "quickplay" cookie
 	if jwtMgr != nil {
 		for _, cookieName := range []string{"session", "quickplay"} {
-			if uid, _, _, err := parseAuthCookie(r, cookieName, jwtMgr); err == nil && uid != "" {
+			if uid, _, _, _, err := parseAuthCookie(r, cookieName, jwtMgr); err == nil && uid != "" {
 				return fmt.Sprintf("%s:%s:%s", endpoint, uid, ip)
 			}
 		}
@@ -201,36 +199,11 @@ func extractClientIP(r *http.Request) string {
 }
 
 // ExtractClientIP returns the client IP from X-Forwarded-For or RemoteAddr.
-// Exported so that other packages (e.g., handler/admin.go) can reuse the
-// same reverse-proxy-aware IP extraction logic for lockout keys.
+// handler-020: Delegates to requestctx.ExtractClientIP to eliminate duplication.
+// The canonical implementation lives in requestctx; this wrapper exists for
+// backward compatibility with callers that import middleware.
 //
-// 反向代理（GKE Ingress/nginx）后，r.RemoteAddr 为代理地址，须解析 X-Forwarded-For。
-// 恒为代理 IP，所有攻击者共享同一锁定 key，导致 DoS（单攻击者锁全部用户）
-// 或暴力破解成功（锁定永不触发）。必须从 X-Forwarded-For 提取真实客户端 IP。
+// Deprecated: use requestctx.ExtractClientIP directly in new code.
 func ExtractClientIP(r *http.Request) string {
-	// Only trust X-Forwarded-For from configured reverse proxies.
-	if !IsTrustedProxy(r) {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			return r.RemoteAddr
-		}
-		return ip
-	}
-
-	xff := r.Header.Get("X-Forwarded-For")
-	if xff != "" {
-		// X-Forwarded-For may contain multiple IPs; use the first one
-		ips := strings.SplitN(xff, ",", 2)
-		ip := strings.TrimSpace(ips[0])
-		if ip != "" {
-			return ip
-		}
-	}
-
-	// Fall back to RemoteAddr
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return ip
+	return requestctx.ExtractClientIP(r)
 }

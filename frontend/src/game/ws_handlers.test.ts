@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./state_types.js', () => ({
   state: mocks.state,
+  getState: () => mocks.state,
 }));
 vi.mock('./state_interp.js', () => ({
   updateInterpolation: mocks.updateInterpolation,
@@ -45,8 +46,7 @@ vi.mock('./phase_sync.js', () => ({
   applyPhaseChange: mocks.applyPhaseChange,
   shouldApplySnapshotPhase: mocks.shouldApplySnapshotPhase,
 }));
-vi.mock('./ui.js', () => ({ updateUI: mocks.updateUI }));
-vi.mock('./ui_update.js', () => ({ updateScoresOnly: mocks.updateScoresOnly }));
+vi.mock('./ui_update.js', () => ({ updateUI: mocks.updateUI, updateScoresOnly: mocks.updateScoresOnly }));
 vi.mock('./ui_wind.js', () => ({ updateWindIndicator: mocks.updateWindIndicator }));
 vi.mock('./tutorial.js', () => ({ runTutorialIfNeeded: vi.fn(() => Promise.resolve()) }));
 vi.mock('../shared/ui/audio.js', () => ({

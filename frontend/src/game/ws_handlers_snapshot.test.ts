@@ -24,10 +24,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./state_types.js', () => ({
   state: mocks.state,
+  getState: () => mocks.state,
 }));
 vi.mock('./state_interp.js', () => ({
   updateInterpolation: mocks.updateInterpolation,
   freezeInterpolation: mocks.freezeInterpolation,
+}));
+vi.mock('./seen_seqs.js', () => ({
   isDuplicateSeq: mocks.isDuplicateSeq,
 }));
 
@@ -52,7 +55,7 @@ vi.mock('./message_codec.js', async (importOriginal) => {
 });
 
 import { decodeSnapshot } from './message_codec.js';
-import { handleSnapshot } from './ws_handlers_snapshot.js';
+import { handleSnapshot } from './ws_handlers.js';
 
 describe('handleSnapshot', () => {
   beforeEach(() => {

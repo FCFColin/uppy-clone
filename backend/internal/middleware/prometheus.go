@@ -25,10 +25,15 @@ func PrometheusMiddleware(next http.Handler) http.Handler {
 		duration := time.Since(start).Seconds()
 		status := strconv.Itoa(ww.Status())
 
-		// Use chi route pattern as path label to avoid high cardinality
+		// Use chi route pattern as path label to avoid high cardinality.
+		// When not in a chi router context (e.g., tests), fall back to the
+		// raw URL path so metrics are still recorded with a meaningful label.
 		routePattern := chi.RouteContext(r.Context()).RoutePattern()
 		if routePattern == "" {
 			routePattern = r.URL.Path
+		}
+		if routePattern == "" {
+			routePattern = "__unknown__"
 		}
 
 		metrics.HTTPRequestsTotal.WithLabelValues(r.Method, routePattern, status).Inc()

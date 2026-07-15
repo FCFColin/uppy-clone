@@ -15,12 +15,12 @@ func TestNewAuthHandler(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{ResendAPIKey: "test", EmailFrom: "test@test.com"}
-	authSvc := newMockAuthSvc(auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), nil, nil, nil, "test", "test@test.com", config.DefaultTimeoutConfig())
-	h := NewAuthHandler(nil, nil, authSvc, cfg)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	h := NewAuthHandler(nil, nil, jwtMgr, nil, cfg)
 	if h == nil {
 		t.Fatal("NewAuthHandler returned nil")
 	}
-	if h.auth == nil || h.config != cfg {
+	if h.jwtMgr == nil || h.magicLink == nil || h.config != cfg {
 		t.Error("NewAuthHandler did not wire dependencies")
 	}
 }

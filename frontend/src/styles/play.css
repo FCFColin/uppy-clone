@@ -61,6 +61,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .countdown-pop { animation: none; }
+  /* shared-019: Respect reduced-motion for spinners too. */
+  .loading-spinner, .reconnect-spinner { animation: none; }
 }
 #loading-overlay .loading-text {
   margin-top: 20px;

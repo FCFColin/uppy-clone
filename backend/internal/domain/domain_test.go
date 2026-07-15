@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
 type testValidator struct{}
@@ -73,33 +72,6 @@ func TestNewRoomCode_InvalidLength(t *testing.T) {
 func TestNewRoomCode_InvalidChar(t *testing.T) {
 	if _, err := NewRoomCode("ABCD0"); err == nil {
 		t.Fatal("expected invalid char error for 0")
-	}
-}
-
-func TestEventTypes(t *testing.T) {
-	now := time.Now()
-	events := []Event{
-		PlayerJoined{DomainEvent: DomainEvent{At: now}, RoomCode: "ABCD2"},
-		PlayerLeft{DomainEvent: DomainEvent{At: now}, RoomCode: "ABCD2"},
-		GameEnded{DomainEvent: DomainEvent{At: now}, RoomCode: "ABCD2"},
-		PhaseChanged{DomainEvent: DomainEvent{At: now}, RoomCode: "ABCD2"},
-		UserHardDeleted{DomainEvent: DomainEvent{At: now}, UserID: "u1"},
-	}
-	for _, e := range events {
-		if e.EventType() == "" || e.OccurredAt().IsZero() {
-			t.Errorf("invalid event %T", e)
-		}
-	}
-}
-
-func TestUserHardDeletedEvent(t *testing.T) {
-	now := time.Now()
-	e := UserHardDeleted{DomainEvent: DomainEvent{At: now}, UserID: "u1"}
-	if et := e.EventType(); et != "user.hard_deleted" {
-		t.Errorf("EventType = %q, want %q", et, "user.hard_deleted")
-	}
-	if at := e.OccurredAt(); at != now {
-		t.Errorf("OccurredAt = %v, want %v", at, now)
 	}
 }
 

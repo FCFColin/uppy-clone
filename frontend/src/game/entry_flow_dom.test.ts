@@ -33,6 +33,8 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock('./state_types.js', () => ({
   state: mockState,
+  getState: () => mockState,
+  resetStateForTest: vi.fn(),
 }));
 
 vi.mock('./renderer_canvas.js', () => ({
@@ -60,7 +62,7 @@ import {
   setLobbyCodeDisplay,
   renderEntryFullScreenError,
   renderStartCountdownTitle,
-} from './entry_flow.js';
+} from './entry_flow_ui.js';
 import { resetEntryFlowForTest } from './entry_flow.js';
 import type { EntryOverlayContext } from './entry_flow.js';
 
@@ -139,7 +141,6 @@ describe('entry_flow_dom', () => {
       overlay.style.display = 'none';
       showLoadingOverlay();
       expect(overlay.classList.contains('hidden')).toBe(false);
-      expect(overlay.style.display).toBe('flex');
       expect(overlay.querySelector('.loading-text')!.textContent).toBe('正在连接房间…');
     });
 
@@ -161,7 +162,6 @@ describe('entry_flow_dom', () => {
       const overlay = document.getElementById('loading-overlay')!;
       overlay.style.display = 'flex';
       hideLoadingOverlay();
-      expect(overlay.style.display).toBe('none');
       expect(overlay.classList.contains('hidden')).toBe(true);
     });
   });

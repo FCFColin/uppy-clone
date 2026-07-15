@@ -1,5 +1,7 @@
 export {};
 
+import { apiFetch } from '../shared/network/api_fetch.js';
+
 const loginSection = document.getElementById('login-section')!;
 const configSection = document.getElementById('config-section')!;
 const adminPasswordInput = document.getElementById('admin-password') as HTMLInputElement;
@@ -14,13 +16,19 @@ async function doLogin(
   loginBtn.disabled = true;
   loginBtn.textContent = '登录中...';
   try {
-    const res: Response = await fetch('/api/v1/admin/login', {
+    const res: Response = await apiFetch('/api/v1/admin/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ password }),
+      autoRefresh: false,
     });
-    const data: { error?: string } = await res.json();
+    // shared-018: Guard against non-JSON responses (e.g., proxy error pages).
+    let data: { error?: string } = {};
+    try {
+      data = await res.json();
+    } catch {
+      // Response was not JSON — use generic error message.
+    }
     if (res.ok) {
       loginSection.classList.add('hidden');
       configSection.classList.remove('hidden');
@@ -28,11 +36,10 @@ async function doLogin(
     } else {
       loginError.textContent = data.error || '密码错误';
       loginError.style.display = 'block';
-      loginBtn.disabled = false;
-      loginBtn.textContent = '登录';
     }
   } catch {
     showToast('网络错误', 'error');
+  } finally {
     loginBtn.disabled = false;
     loginBtn.textContent = '登录';
   }

@@ -1,0 +1,19 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: '1.26'
+
+linters:
+  default: none
+  enable:
+    - errcheck
+
+issues:
+  exclude-dirs: []
+  exclude-use-default: false
+
+linters-settings:
+  errcheck:
+    check-blank: true
+    check-type-assertions: true

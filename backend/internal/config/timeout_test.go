@@ -51,6 +51,9 @@ func TestDefaultTimeoutConfig(t *testing.T) {
 	if cfg.WSPingInterval != 30*time.Second {
 		t.Fatalf("WSPingInterval: got %v, want 30s", cfg.WSPingInterval)
 	}
+	if cfg.WSHandlerTimeout != 2*time.Hour {
+		t.Fatalf("WSHandlerTimeout: got %v, want 2h", cfg.WSHandlerTimeout)
+	}
 }
 
 // ─── Environment variable overrides ──────────────────────────────────

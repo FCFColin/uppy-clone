@@ -1,12 +1,20 @@
 package domain
 
 const (
-	ScoreToWin         = 100
-	MaxScore           = 9999
-	ReconnectGraceMs   = 30000
-	RestartTimeoutMs   = 30000
-	AutoRestartMs      = 60000
-	MaxNicknameLen     = 12
+	// ScoreToWin is the team score required to win a game.
+	ScoreToWin = 100
+	// MaxScore is the hard cap on any player's score contribution.
+	MaxScore = 9999
+	// ReconnectGraceMs is the grace period (ms) before a disconnected player is removed.
+	ReconnectGraceMs = 30000
+	// RestartTimeoutMs is how long (ms) to wait for restart votes before aborting.
+	RestartTimeoutMs = 30000
+	// AutoRestartMs is the delay (ms) before a room auto-restarts after ending.
+	AutoRestartMs = 60000
+	// MaxNicknameLen is the maximum length of a player nickname.
+	MaxNicknameLen = 12
+	// NicknameCooldownMs is the minimum interval (ms) between nickname changes.
 	NicknameCooldownMs = 30000
-	MessageRateLimit   = 100
+	// MessageRateLimit is the maximum messages per player within the rate-limit window.
+	MessageRateLimit = 100
 )

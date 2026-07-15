@@ -42,7 +42,12 @@ func parseTrustedCIDRs(raw string) []*net.IPNet {
 			continue
 		}
 		if !strings.Contains(part, "/") {
-			part += "/32"
+			// handler-019: Use /128 for IPv6 single IPs, /32 for IPv4.
+			if strings.Contains(part, ":") {
+				part += "/128"
+			} else {
+				part += "/32"
+			}
 		}
 		_, n, err := net.ParseCIDR(part)
 		if err == nil {

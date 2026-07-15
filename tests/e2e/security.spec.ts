@@ -16,7 +16,8 @@ test.describe('security', () => {
     });
     expect(qp.ok()).toBeTruthy();
     const body = await qp.json();
-    expect(body.nickname).not.toContain('<script>');
+    expect(body.nickname).not.toContain('<');
+    expect(body.nickname).not.toContain('>');
   });
 
   test('rate limiting on rapid room code guessing', async ({ page }) => {

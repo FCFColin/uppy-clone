@@ -2,12 +2,21 @@ import { CLIENT_MSG } from '../shared/game/protocol.js';
 import { calculateCooldown } from './message_codec.js';
 import { dispatch, getState } from './store.js';
 import { sendOrQueue, getWs } from './ws_connection.js';
-import { clientToNormalized } from './renderer_canvas.js';
+import { $canvas, clientToNormalized } from './renderer_canvas.js';
 import { playTapSound } from '../shared/ui/audio.js';
-import { updateUI } from './ui.js';
+import { updateUI } from './ui_update.js';
 
 const PLAYER_INDEX_REJECTED = -1;
 const PLAYER_INDEX_OPTIMISTIC = -2;
+
+function createTapMessage(x: number, y: number): ArrayBuffer {
+  const buf: ArrayBuffer = new ArrayBuffer(9);
+  const dv: DataView = new DataView(buf);
+  dv.setUint8(0, CLIENT_MSG.TAP);
+  dv.setFloat32(1, x, true);
+  dv.setFloat32(5, y, true);
+  return buf;
+}
 
 export function handleTap(clientX: number, clientY: number): void {
   if (getState().phase !== 'playing') return;
@@ -27,19 +36,13 @@ export function handleTap(clientX: number, clientY: number): void {
 
   dispatch({ type: 'ADD_RIPPLE', ripple: { playerIndex: PLAYER_INDEX_OPTIMISTIC, x, y, time: now, isOptimistic: true } });
 
-  const buf: ArrayBuffer = new ArrayBuffer(9);
-  const dv: DataView = new DataView(buf);
-  dv.setUint8(0, CLIENT_MSG.TAP);
-  dv.setFloat32(1, x, true);
-  dv.setFloat32(5, y, true);
-  sendOrQueue(buf);
+  sendOrQueue(createTapMessage(x, y));
   playTapSound();
 }
 
 export function tapAtBalloonCenter(): void {
   if (getState().phase !== 'playing') return;
-  const canvas = document.getElementById('game-canvas');
-  const rect = canvas?.getBoundingClientRect();
+  const rect = $canvas.getBoundingClientRect();
   if (!rect) return;
   handleTap(rect.left + rect.width * getState().balloon.x, rect.top + rect.height * (1 - getState().balloon.y));
 }

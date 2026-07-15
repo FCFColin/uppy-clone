@@ -21,6 +21,7 @@ export function showReconnectBanner(attempt: number): void {
 }
 
 export function updatePingDisplay(rttMs: number): void {
+  if (!Number.isFinite(rttMs)) return;
   const $ping: HTMLElement | null = document.getElementById('ping-display');
   if (!$ping) return;
   $ping.classList.toggle('hidden', rttMs <= 150);

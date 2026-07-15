@@ -1,4 +1,7 @@
-// Package store provides PostgreSQL and Redis storage wrappers for the game backend.
+// Package store provides PostgreSQL and Redis data access layers.
+// store-022: This file provides the PostgreSQL connection pool wrapper
+// (PostgresStore), pool configuration, migration runner, and repository
+// factory functions. Package-level documentation lives in doc.go.
 package store
 
 import (
@@ -14,9 +17,7 @@ import (
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/migrateutil"
-	"github.com/uppy-clone/backend/internal/resilience"
 )
 
 // pgPool abstracts pgxpool for store operations (enables pgxmock in unit tests).
@@ -36,6 +37,7 @@ var ErrDuplicateUser = domain.ErrDuplicateUser
 type PostgresStore struct {
 	pool pgPool
 	cb   *gobreaker.CircuitBreaker[any]
+	deps Deps
 
 	lastAcquireDuration atomic.Value // float64
 	lastAcquireCount    atomic.Value // int64
@@ -54,7 +56,8 @@ var pgxNewWithConfigFn = func(ctx context.Context, cfg *pgxpool.Config) (pgPool,
 }
 
 // NewPostgresStore creates a connection pool and validates connectivity.
-func NewPostgresStore(connString string, timeouts config.TimeoutConfig) (*PostgresStore, error) {
+func NewPostgresStore(connString string, timeouts config.TimeoutConfig, deps ...Deps) (*PostgresStore, error) {
+	d := depsOrZero(deps...)
 	ctx, cancel := context.WithTimeout(context.Background(), timeouts.PGConnectTimeout)
 	defer cancel()
 
@@ -63,14 +66,14 @@ func NewPostgresStore(connString string, timeouts config.TimeoutConfig) (*Postgr
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	poolConfig.MaxConns = int32(config.GetEnvIntPositive("PG_POOL_MAX_CONNS", 25)) //nolint:gosec:G115
-	poolConfig.MinConns = int32(config.GetEnvIntPositive("PG_POOL_MIN_CONNS", 5))  //nolint:gosec:G115
+	poolConfig.MaxConns = int32(config.GetEnvIntPositive("PG_POOL_MAX_CONNS", 25)) //nolint:gosec // G115: bounded by config validation (positive int)
+	poolConfig.MinConns = int32(config.GetEnvIntPositive("PG_POOL_MIN_CONNS", 5))  //nolint:gosec // G115: bounded by config validation (positive int)
 	poolConfig.MaxConnLifetime = config.GetEnvDuration("PG_POOL_MAX_CONN_LIFETIME", 30*time.Minute)
 	poolConfig.MaxConnIdleTime = config.GetEnvDuration("PG_POOL_MAX_CONN_IDLE_TIME", 5*time.Minute)
 	poolConfig.HealthCheckPeriod = config.GetEnvDuration("PG_POOL_HEALTH_CHECK_PERIOD", 30*time.Second)
 
 	poolConfig.PrepareConn = func(_ context.Context, _ *pgx.Conn) (bool, error) {
-		metrics.DBPoolAcquireCount.Inc()
+		d.PoolMetrics.IncAcquireCount()
 		return true, nil
 	}
 
@@ -86,15 +89,18 @@ func NewPostgresStore(connString string, timeouts config.TimeoutConfig) (*Postgr
 
 	return &PostgresStore{
 		pool: pool,
-		cb:   resilience.NewPostgresBreaker(),
+		cb:   d.PostgresBreakerFactory(),
+		deps: d,
 	}, nil
 }
 
 // NewPostgresStoreWithPool wraps an existing pool (pgxmock-backed unit tests).
-func NewPostgresStoreWithPool(pool pgPool) *PostgresStore {
+func NewPostgresStoreWithPool(pool pgPool, deps ...Deps) *PostgresStore {
+	d := depsOrZero(deps...)
 	return &PostgresStore{
 		pool: pool,
-		cb:   resilience.NewPostgresBreaker(),
+		cb:   d.PostgresBreakerFactory(),
+		deps: d,
 	}
 }
 
@@ -116,13 +122,13 @@ func (s *PostgresStore) Pool() *pgxpool.Pool {
 // Unlike NewGameStore(db.Pool()), this works with pgxmock-backed stores in tests
 // because it uses the internal pool abstraction directly.
 func (s *PostgresStore) NewGameStore() *GameStore {
-	return NewGameStore(s.pool)
+	return NewGameStore(s.pool, s.deps)
 }
 
 // NewUserRepository returns a UserRepository backed by this store's pool.
 // Unlike NewUserRepository(db.Pool()), this works with pgxmock-backed stores in tests.
 func (s *PostgresStore) NewUserRepository() *UserRepository {
-	return NewUserRepository(s.pool)
+	return NewUserRepository(s.pool, s.deps)
 }
 
 // PoolStats returns the current connection pool statistics.
@@ -156,4 +162,32 @@ func (s *PostgresStore) RunMigrations(migrationsPath string) error {
 		return err
 	}
 	return nil
+}
+
+// ─── Pool Stats Observability ───────────────────────────────────────
+
+// ObservePoolStats publishes pgx pool saturation metrics to Prometheus.
+func (s *PostgresStore) ObservePoolStats() {
+	p, ok := s.pool.(*pgxpool.Pool)
+	if !ok {
+		return
+	}
+	stat := p.Stat()
+	s.deps.PoolMetrics.SetIdleConns(float64(stat.IdleConns()))
+	s.deps.PoolMetrics.SetInUseConns(float64(stat.AcquiredConns()))
+	s.recordAcquireDurationDelta(stat.AcquireDuration().Seconds(), stat.AcquireCount())
+}
+
+func (s *PostgresStore) recordAcquireDurationDelta(currentDuration float64, currentCount int64) {
+	if prevDur, ok := s.lastAcquireDuration.Load().(float64); ok && prevDur > 0 {
+		if prevCnt, ok := s.lastAcquireCount.Load().(int64); ok && currentCount > prevCnt {
+			delta := currentDuration - prevDur
+			countDelta := float64(currentCount - prevCnt)
+			if delta > 0 && countDelta > 0 {
+				s.deps.PoolMetrics.ObserveAcquireDuration(delta / countDelta)
+			}
+		}
+	}
+	s.lastAcquireDuration.Store(currentDuration)
+	s.lastAcquireCount.Store(currentCount)
 }

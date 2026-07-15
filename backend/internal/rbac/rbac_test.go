@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/domain"
 )
 
 func TestCheckPermission(t *testing.T) {
@@ -14,14 +14,14 @@ func TestCheckPermission(t *testing.T) {
 		role, resource, action string
 		want                   bool
 	}{
-		{RoleUser, "lobby", "create", true},
+		{domain.RoleUser, "lobby", "create", true},
 		{RoleGuest, "lobby", "create", false},
 		{RoleGuest, "lobby", "read", true},
-		{RoleAdmin, "users", "write", true},
+		{domain.RoleAdmin, "users", "write", true},
 		{RoleModerator, "users", "write", false},
 		{"unknown", "lobby", "read", false},
-		{RoleUser, "unknown_resource", "read", false},
-		{RoleAdmin, "lobby", "delete", false},
+		{domain.RoleUser, "unknown_resource", "read", false},
+		{domain.RoleAdmin, "lobby", "delete", false},
 	}
 	for _, tc := range tests {
 		if got := e.CheckPermission(tc.role, tc.resource, tc.action); got != tc.want {
@@ -33,7 +33,7 @@ func TestCheckPermission(t *testing.T) {
 func TestMiddleware_DeniesGuestForUserData(t *testing.T) {
 	e := NewEnforcer()
 	called := false
-	h := e.Middleware("user_data", "read")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := e.Middleware("user_data", "read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	}))
 
@@ -48,12 +48,12 @@ func TestMiddleware_DeniesGuestForUserData(t *testing.T) {
 func TestMiddleware_AllowsAuthenticatedUser(t *testing.T) {
 	e := NewEnforcer()
 	called := false
-	h := e.Middleware("lobby", "create")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := e.Middleware("lobby", "create")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req = req.WithContext(auth.WithRole(req.Context(), RoleUser))
+	req = req.WithContext(domain.WithRole(req.Context(), domain.RoleUser))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if !called || rec.Code != http.StatusOK {

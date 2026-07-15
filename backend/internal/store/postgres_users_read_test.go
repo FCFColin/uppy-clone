@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetUserByEmail_Found(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	lastLogin := int64(200)
@@ -35,7 +35,7 @@ func TestGetUserByEmail_Found(t *testing.T) {
 }
 
 func TestGetUserByEmail_NotFound(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
@@ -51,8 +51,33 @@ func TestGetUserByEmail_NotFound(t *testing.T) {
 	}
 }
 
+// store-020: Verify the OR branch is parenthesized so deleted_at IS NULL
+// filters the entire WHERE clause, not just the email fallback branch.
+// The regex requires an opening paren before email_hash which only exists
+// in the fixed query — a regression to the old unparenthesized OR would
+// cause pgxmock to report an unexpected query.
+func TestGetUserByEmail_SoftDeletedFilterParenthesized(t *testing.T) {
+	repo, mock := newMockRepo(t, NewUserRepository)
+	ctx := context.Background()
+
+	lastLogin := int64(300)
+	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
+		AddRow("user-1", "active@example.com", "Active", 1, int64(100), &lastLogin)
+	mock.ExpectQuery(`WHERE \(email_hash = \$1 OR`).
+		WithArgs(pgxmock.AnyArg(), "active@example.com").
+		WillReturnRows(rows)
+
+	user, err := repo.GetUserByEmail(ctx, "active@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	if user == nil || user.ID != "user-1" {
+		t.Fatalf("user = %+v", user)
+	}
+}
+
 func TestGetUserByEmail_ScanError(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
@@ -67,7 +92,7 @@ func TestGetUserByEmail_ScanError(t *testing.T) {
 }
 
 func TestGetUserByID_Found(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	lastLogin := int64(60)
@@ -87,7 +112,7 @@ func TestGetUserByID_Found(t *testing.T) {
 }
 
 func TestGetUserByID_NotFound(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
@@ -109,7 +134,7 @@ func TestGetUserByEmail_DecryptError(t *testing.T) {
 		t.Fatalf("crypto.InitFromEnv: %v", err)
 	}
 
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	lastLogin := int64(2)
@@ -126,7 +151,7 @@ func TestGetUserByEmail_DecryptError(t *testing.T) {
 }
 
 func TestGetUserByID_ScanError(t *testing.T) {
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
@@ -147,7 +172,7 @@ func TestGetUserByID_DecryptError(t *testing.T) {
 		t.Fatalf("crypto.InitFromEnv: %v", err)
 	}
 
-	repo, mock := newMockUserRepository(t)
+	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
 
 	lastLogin := int64(2)

@@ -15,11 +15,12 @@ services:
       - "8080:8080"
     environment:
       # Production: use app_user instead of uppy for least privilege
-      # DATABASE_URL=postgres://app_user:password@postgres:5432/uppy?sslmode=disable
+      # Also use sslmode=require (or verify-full) in production to enforce TLS.
+      # DATABASE_URL=postgres://app_user:password@postgres:5432/uppy?sslmode=require
       - DATABASE_URL=${DATABASE_URL:-postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-dev-redis-secret}@redis:6379
       - REDIS_EPHEMERAL_URL=redis://:${REDIS_EPHEMERAL_PASSWORD:-dev-redis-secret}@redis-ephemeral:6379
-      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
+      - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY:?JWT_PRIVATE_KEY required}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-noreply@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD required}
@@ -35,6 +36,7 @@ services:
         condition: service_healthy
       redis-ephemeral:
         condition: service_healthy
+    # Development resource limits only. Production uses Kubernetes HPA for autoscaling.
     deploy:
       resources:
         limits:
@@ -90,7 +92,11 @@ services:
       timeout: 5s
       retries: 5
   prometheus:
-    image: prom/prometheus:v2.53.0@sha256:075b1ba2c4ebb04bc3a6ab86c06ec8d8099f8fda1c96ef6d104d9bb1def1d8bc
+    # infra-034: 与 deploy/prometheus/deployment.yaml 对齐到 v2.55.1，避免本地 dev
+    # 与生产 K8s 环境的 Prometheus 版本漂移（行为/指标 schema 差异会导致告警规则
+    # 在 dev 验证通过却在 prod 失效）。摘要需通过 `docker pull prom/prometheus:v2.55.1`
+    # 后用 `docker inspect --format='{{index .RepoDigests 0}}' prom/prometheus:v2.55.1` 重新固定。
+    image: prom/prometheus:v2.55.1
     profiles: ["observability"]
     ports:
       - "9090:9090"

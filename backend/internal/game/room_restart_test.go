@@ -11,9 +11,9 @@ import (
 
 func TestHandleRestartVote_RecordsVoteInMap(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST", testRNG()),
-		usedNames:   make(map[string]bool),
-		connections: make(map[string]*PlayerConn),
+		state:           NewGameState("TEST", 42, testRNG()),
+		usedNames:       make(map[string]bool),
+		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
 	}
 	room.state.Phase = domain.PhaseEnded
 	room.state.Players = map[string]*domain.PlayerState{
@@ -117,9 +117,9 @@ func TestHandleRestartVote_DuplicateRetriesConsensus(t *testing.T) {
 
 func TestCheckRestartConsensus_PartialVoteStartsTimer(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST", testRNG()),
-		usedNames:   make(map[string]bool),
-		connections: make(map[string]*PlayerConn),
+		state:           NewGameState("TEST", 42, testRNG()),
+		usedNames:       make(map[string]bool),
+		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
 	}
 	room.state.Phase = domain.PhaseEnded
 	room.state.Players = map[string]*domain.PlayerState{
@@ -141,9 +141,9 @@ func TestCheckRestartConsensus_PartialVoteStartsTimer(t *testing.T) {
 func TestCheckRestartConsensus_TimerAlreadyStarted(t *testing.T) {
 	now := time.Now().UnixMilli()
 	room := &Room{
-		state:       NewGameState("TEST", testRNG()),
-		usedNames:   make(map[string]bool),
-		connections: make(map[string]*PlayerConn),
+		state:           NewGameState("TEST", 42, testRNG()),
+		usedNames:       make(map[string]bool),
+		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
 	}
 	room.state.Phase = domain.PhaseEnded
 	room.state.Players = map[string]*domain.PlayerState{
@@ -164,10 +164,10 @@ func TestCheckRestartConsensus_TimerAlreadyStarted(t *testing.T) {
 
 func TestCheckRestartConsensus_DisconnectedPlayersNotCounted(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST", testRNG()),
-		rng:         testRNG(),
-		usedNames:   make(map[string]bool),
-		connections: make(map[string]*PlayerConn),
+		state:           NewGameState("TEST", 42, testRNG()),
+		rng:             testRNG(),
+		usedNames:       make(map[string]bool),
+		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
 	}
 	room.state.Phase = domain.PhaseEnded
 	room.state.Players = map[string]*domain.PlayerState{
@@ -251,10 +251,10 @@ func TestRestartAndStart_WithActivePlayers(t *testing.T) {
 
 func TestRestartAndStart_RemovesDisconnectedPlayers(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST", testRNG()),
-		rng:         testRNG(),
-		usedNames:   make(map[string]bool),
-		connections: make(map[string]*PlayerConn),
+		state:           NewGameState("TEST", 42, testRNG()),
+		rng:             testRNG(),
+		usedNames:       make(map[string]bool),
+		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
 	}
 	room.state.Phase = domain.PhaseEnded
 	room.state.Players = map[string]*domain.PlayerState{
@@ -280,10 +280,10 @@ func TestRestartAndStart_RemovesDisconnectedPlayers(t *testing.T) {
 
 func TestRestartAndStart_ResetsPlayerStats(t *testing.T) {
 	room := &Room{
-		state:       NewGameState("TEST", testRNG()),
-		rng:         testRNG(),
-		usedNames:   make(map[string]bool),
-		connections: make(map[string]*PlayerConn),
+		state:           NewGameState("TEST", 42, testRNG()),
+		rng:             testRNG(),
+		usedNames:       make(map[string]bool),
+		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
 	}
 	room.state.Phase = domain.PhaseEnded
 	room.state.Players = map[string]*domain.PlayerState{
@@ -349,6 +349,92 @@ func TestCheckRestartConsensus_FirstVoteStartsTimer(t *testing.T) {
 	if r.state.RestartTimerStart == nil {
 		t.Fatal("expected restart timer after first vote")
 	}
+	r.mu.Unlock()
+}
+
+// --- coverage gap 补充用例 ---
+
+func TestHandleRestartVote_DuplicateWhenEnded(_ *testing.T) {
+	r := NewRoom("DUP", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.syncOutbound = true
+	r.mu.Lock()
+	r.state.Phase = domain.PhaseEnded
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
+	r.state.Players["p2"] = &domain.PlayerState{ID: "p2"}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
+	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 4)}
+	r.state.RestartVotes = map[string]bool{"p1": true}
+	now := time.Now().UnixMilli()
+	r.state.RestartTimerStart = &now
+	_ = HandleRestartVote(r, r.state.Players["p1"])
+	r.mu.Unlock()
+}
+
+func TestCheckRestartConsensus_WithExistingTimer(t *testing.T) {
+	r := NewRoom("RST", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.syncOutbound = true
+	r.mu.Lock()
+	r.state.Phase = domain.PhaseEnded
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
+	r.state.Players["p2"] = &domain.PlayerState{ID: "p2"}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
+	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 4)}
+	now := time.Now().UnixMilli()
+	r.state.RestartTimerStart = &now
+	r.state.RestartVotes = map[string]bool{"p1": true}
+	_ = CheckRestartConsensus(r)
+	r.mu.Unlock()
+}
+
+func TestCheckRestartConsensus_PhaseNotEnded(t *testing.T) {
+	r := NewRoom("PNE", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.syncOutbound = true
+	r.state.Phase = domain.PhasePlaying
+	if err := CheckRestartConsensus(r); err != nil {
+		t.Fatalf("CheckRestartConsensus: %v", err)
+	}
+}
+
+func TestCheckRestartConsensus_UnanimousRestart(t *testing.T) {
+	r := NewRoom("UNI", nil, newMockRoomRepository(), config.DefaultTimeoutConfig(), 0)
+	r.syncOutbound = true
+	r.mu.Lock()
+	r.state.Phase = domain.PhaseEnded
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "A"}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+	r.state.RestartVotes = map[string]bool{"p1": true}
+	err := CheckRestartConsensus(r)
+	r.mu.Unlock()
+	if err != nil {
+		t.Fatalf("CheckRestartConsensus: %v", err)
+	}
+	if r.state.Phase != domain.PhaseCountdown {
+		t.Fatalf("phase = %s, want countdown after unanimous restart", r.state.Phase)
+	}
+}
+
+func TestCheckRestartConsensus_NotEndedAfterBroadcast(t *testing.T) {
+	r := NewRoom("NBA", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.syncOutbound = true
+	r.state.Phase = domain.PhaseCountdown
+	if err := CheckRestartConsensus(r); err != nil {
+		t.Fatalf("CheckRestartConsensus: %v", err)
+	}
+}
+
+func TestCheckRestartConsensus_NegativeRemainingTimer(t *testing.T) {
+	r := NewRoom("NEG", nil, nil, config.DefaultTimeoutConfig(), 0)
+	r.syncOutbound = true
+	r.mu.Lock()
+	r.state.Phase = domain.PhaseEnded
+	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
+	r.state.Players["p2"] = &domain.PlayerState{ID: "p2"}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
+	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 4)}
+	past := time.Now().UnixMilli() - int64(domain.RestartTimeoutMs) - 1000
+	r.state.RestartTimerStart = &past
+	r.state.RestartVotes = map[string]bool{"p1": true}
+	_ = CheckRestartConsensus(r)
 	r.mu.Unlock()
 }
 

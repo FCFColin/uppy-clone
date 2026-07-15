@@ -1,14 +1,15 @@
 import { CLIENT_MSG } from '../shared/game/protocol.js';
 import { dispatch, getState } from './store.js';
-import { resetInterpolation, clearSeenSeqs } from './state_interp.js';
+import { resetInterpolation } from './state_interp.js';
+import { clearSeenSeqs } from './seen_seqs.js';
 import { establishGameSession, sessionErrorMessage } from '../shared/network/session.js';
 import {
   onLobbyCodeReady,
   onWebSocketOpen,
   onWebSocketClosed,
   getEntryStep,
-  clearWaitingInlineError,
 } from './entry_flow.js';
+import { clearWaitingInlineError } from './entry_flow_ui.js';
 import { resolveLobbyCode } from './lobby_match.js';
 import {
   getLobbyCodeFromUrl,
@@ -19,27 +20,30 @@ import {
 import {
   setWs, getWs, getWsEverOpened, setWsEverOpened,
   resetReconnectAttempts, setReconnectTimer,
-  startHeartbeat, stopHeartbeat, sendOrQueue, flushPendingQueue,
+  startHeartbeat, stopHeartbeat, sendOrQueue, flushPendingQueue, clearOutboundQueue,
   hideReconnectBanner, scheduleReconnect, showConnectionError,
   wasRoomPreChecked, setRoomPreChecked,
 } from './ws_connection.js';
 import { enqueueBinaryMessage } from './ws_message_queue.js';
+import { registerResetFn } from './reset_registry.js';
 
 export { showConnectionError } from './ws_connection.js';
-
-let connectInFlight = false;
-let connectedLobbyCode: string | null = null;
 
 function shouldSkipConnect(lobbyCode: string): boolean {
   const ws = getWs();
   if (!ws) return false;
-  if (connectedLobbyCode !== lobbyCode) return false;
+  if (getState().connectedLobbyCode !== lobbyCode) return false;
   return ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN;
 }
 
 async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
   if (urlCode) {
-    const freshMatch = sessionStorage.getItem('uppy-fresh-match');
+    let freshMatch: string | null = null;
+    try {
+      freshMatch = sessionStorage.getItem('uppy-fresh-match');
+    } catch {
+      // sessionStorage may be unavailable
+    }
     if (freshMatch === urlCode) {
       sessionStorage.removeItem('uppy-fresh-match');
       setRoomPreChecked(true);
@@ -68,6 +72,7 @@ async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
 
 function setupSocketHandlers(socket: WebSocket): void {
   socket.onopen = () => {
+    const isReconnect = getWsEverOpened();
     setWsEverOpened(true);
     dispatch({ type: 'SET_STATE', partial: { wasEverConnected: true } });
     resetReconnectAttempts();
@@ -76,6 +81,7 @@ function setupSocketHandlers(socket: WebSocket): void {
     onWebSocketOpen();
     window.dispatchEvent(new Event('game-ws-open'));
     startHeartbeat();
+    if (isReconnect) clearOutboundQueue();
     flushPendingQueue();
     clearSeenSeqs();
     resetInterpolation();
@@ -128,7 +134,7 @@ function openGameSocket(wsCode: string): void {
 
   const socket = new WebSocket(wsUrl);
   socket.binaryType = 'arraybuffer';
-  connectedLobbyCode = wsCode;
+  dispatch({ type: 'SET_STATE', partial: { connectedLobbyCode: wsCode } });
   setWs(socket);
   setupSocketHandlers(socket);
 }
@@ -145,8 +151,8 @@ export async function connectWebSocket(): Promise<void> {
     return;
   }
 
-  if (connectInFlight) return;
-  connectInFlight = true;
+  if (getState().wsConnectInFlight) return;
+  dispatch({ type: 'SET_STATE', partial: { wsConnectInFlight: true } });
 
   try {
     const [session, resolvedCode] = await Promise.all([
@@ -167,6 +173,13 @@ export async function connectWebSocket(): Promise<void> {
 
     openGameSocket(lobbyCode);
   } finally {
-    connectInFlight = false;
+    dispatch({ type: 'SET_STATE', partial: { wsConnectInFlight: false } });
   }
 }
+
+/** Reset ws_connect module-level state for a new game session. */
+export function resetWsConnectState(): void {
+  dispatch({ type: 'SET_STATE', partial: { wsConnectInFlight: false, connectedLobbyCode: null } });
+}
+
+registerResetFn(resetWsConnectState);

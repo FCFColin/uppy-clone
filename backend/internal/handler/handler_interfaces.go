@@ -3,34 +3,25 @@ package handler
 import (
 	"context"
 	"crypto/ecdsa"
-	"net/http"
 	"time"
 
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
 )
 
-// UserStore defines user persistence operations used by handlers.
-type UserStore interface {
-	GetUserByID(ctx context.Context, id string) (*domain.User, error)
-	CreateUser(ctx context.Context, user *domain.User) error
-	GetUserByEmail(ctx context.Context, email string) (*domain.User, error)
-	UpdateUserLastLogin(ctx context.Context, id string) error
-	AnonymizeUser(ctx context.Context, id string) error
-	GetGameResultsByUserID(ctx context.Context, userID string) ([]domain.GameResult, error)
-}
+// UserStore is an alias for auth.UserDB — the single source of truth for user
+// persistence operations. Kept as a handler-local alias so existing handler
+// code (struct fields, constructor params) compiles without mass-renaming.
+type UserStore = auth.UserDB
 
-// TokenStore defines token/Redis operations used by handlers.
-type TokenStore interface {
-	StoreMagicToken(ctx context.Context, hashedToken string, data []byte, ttl time.Duration) error
-	ConsumeMagicToken(ctx context.Context, tokenHash string) ([]byte, error)
-	DeleteMagicToken(ctx context.Context, hashedToken string) error
-	CheckRateLimit(ctx context.Context, key string, maxCount int64, window time.Duration) (bool, error)
-	IsJWTRevoked(ctx context.Context, jti string) (bool, error)
-	RevokeJWT(ctx context.Context, jti string, ttl time.Duration) error
-	EnqueueEmail(ctx context.Context, payload []byte) error
-}
+// TokenStore is an alias for auth.TokenStore — the single source of truth for
+// Redis token operations.
+type TokenStore = auth.TokenStore
+
+// JWTRevocationChecker is an alias for auth.JWTRevocationChecker.
+type JWTRevocationChecker = auth.JWTRevocationChecker
 
 // ConfigStore defines config persistence operations used by handlers.
 type ConfigStore interface {
@@ -38,17 +29,27 @@ type ConfigStore interface {
 	SaveConfig(ctx context.Context, c *domain.AppConfig) error
 }
 
-// AdminCache defines admin-specific Redis operations used by handlers.
-type AdminCache interface {
+// LoginLockoutCache abstracts admin login-lockout Redis operations.
+type LoginLockoutCache interface {
 	IsLoginLocked(ctx context.Context, ip, account string) (bool, error)
 	SetLoginLock(ctx context.Context, ip, account string, ttl time.Duration) error
 	ResetFailedLogin(ctx context.Context, ip, account string) error
 	IncrementFailedLogin(ctx context.Context, ip, account string) (int, int, error)
-	IsJWTRevoked(ctx context.Context, jti string) (bool, error)
-	RevokeJWT(ctx context.Context, jti string, ttl time.Duration) error
+}
+
+// AdminJTITracker abstracts admin-JTI tracking Redis operations.
+type AdminJTITracker interface {
 	GetAllAdminJTIs(ctx context.Context) ([]string, error)
 	RemoveAdminJTI(ctx context.Context, jti string) error
 	AddAdminJTI(ctx context.Context, jti string, ttl time.Duration) error
+}
+
+// AdminCache defines admin-specific Redis operations used by handlers.
+type AdminCache interface {
+	LoginLockoutCache
+	IsJWTRevoked(ctx context.Context, jti string) (bool, error)
+	RevokeJWT(ctx context.Context, jti string, ttl time.Duration) error
+	AdminJTITracker
 }
 
 // LeaderboardStore defines leaderboard query operations used by handlers.
@@ -60,8 +61,8 @@ type LeaderboardStore interface {
 // JWTManager defines JWT signing and verification operations used by handlers.
 type JWTManager interface {
 	SignToken(userID, nickname string) (string, error)
-	VerifyToken(tokenStr string) (userID, nickname, jti string, err error)
-	PrivateKey() *ecdsa.PrivateKey
+	VerifyToken(tokenStr string) (userID, nickname, jti, role string, err error)
+	SignWithClaims(claims map[string]any) (string, error)
 	PublicKey() *ecdsa.PublicKey
 }
 
@@ -74,26 +75,6 @@ type RefreshTokenManager interface {
 	RemoveFromUserSet(ctx context.Context, userID, token string) error
 }
 
-// JWTRevocationChecker checks if a JWT has been revoked by its jti.
-type JWTRevocationChecker interface {
-	IsJWTRevoked(ctx context.Context, jti string) (bool, error)
-}
-
-// AuthService defines the auth operations needed by handlers.
-type AuthService interface {
-	RequestMagicLink(ctx context.Context, email string, r *http.Request) error
-	RefreshSession(ctx context.Context, refreshToken string, r *http.Request) (accessToken, newRefreshToken string, cookieMaxAge int, err error)
-	VerifyMagicLink(ctx context.Context, token string, r *http.Request) (userID, accessToken, refreshToken string, err error)
-	QuickPlay(ctx context.Context, nickname string, r *http.Request) (userID, accessToken, refreshToken string, err error)
-	ExportUserData(ctx context.Context, userID string) (*domain.User, []domain.GameResult, error)
-	DeleteUserData(ctx context.Context, userID string, r *http.Request) error
-	RevokeRefreshToken(ctx context.Context, token string) error
-	RevokeAllTokens(ctx context.Context, r *http.Request) error
-	AuthenticatedUserFromRequest(r *http.Request) (userID, nickname string, ok bool)
-	GetJTI(r *http.Request) string
-	IsJWTRevoked(ctx context.Context, jti string) (bool, error)
-}
-
 // GameService defines the game hub operations needed by handlers.
 type GameService interface {
 	CreateRoom(ctx context.Context) (string, error)
@@ -103,6 +84,6 @@ type GameService interface {
 	TryReserveWSConnection() bool
 	DecrementWSConnection()
 	WSConnCount() int64
-	GetRoom(code string) *game.Room
+	GetRoom(code string) game.RoomHandle
 	Timeouts() config.TimeoutConfig
 }

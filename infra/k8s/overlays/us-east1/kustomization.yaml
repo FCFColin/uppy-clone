@@ -1,4 +1,8 @@
 # us-east1 regional overlay (ADR-014/016).
+# NOTE(module-infra-overlays-001): All three overlays share identical structure.
+# True per-region isolation (independent GSAs, per-region Redis, per-region Secret
+# references) is a future goal. Currently all three regions deploy the same config
+# with only region-specific string values differing.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -6,10 +10,13 @@ namespace: balloon-game
 
 resources:
   - ../../base
+  - ../../global
 
 images:
-  - name: gcr.io/PROJECT_ID/balloon-game
-    newName: gcr.io/PROJECT_ID/balloon-game
+  # infra-010: __GCP_PROJECT_ID__ is replaced during CI/CD via sed.
+  # Using a delimited placeholder avoids false matches that plain PROJECT_ID caused.
+  - name: gcr.io/__GCP_PROJECT_ID__/balloon-game
+    newName: gcr.io/__GCP_PROJECT_ID__/balloon-game
     newTag: __IMAGE_TAG__
 
 patches:
@@ -25,7 +32,7 @@ patches:
         value: wss://us.balloon.example
       - op: replace
         path: /data/db-dialect
-        value: cockroach
+        value: postgres
       - op: replace
         path: /data/trusted-proxy-cidrs
         value: __TRUSTED_PROXY_CIDRS__
@@ -43,4 +50,4 @@ patches:
       - op: add
         path: /metadata/annotations
         value:
-          iam.gke.io/gcp-service-account: balloon-game@PROJECT_ID.iam.gserviceaccount.com
+          iam.gke.io/gcp-service-account: balloon-game@__GCP_PROJECT_ID__.iam.gserviceaccount.com

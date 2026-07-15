@@ -66,11 +66,15 @@ func TestNewRedisStore_PoolEnvOverrides(t *testing.T) {
 	}
 	t.Cleanup(mr.Close)
 
-	os.Setenv("REDIS_POOL_SIZE", "8")
-	os.Setenv("REDIS_MIN_IDLE_CONNS", "2")
+	if err := os.Setenv("REDIS_POOL_SIZE", "8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("REDIS_MIN_IDLE_CONNS", "2"); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
-		os.Unsetenv("REDIS_POOL_SIZE")
-		os.Unsetenv("REDIS_MIN_IDLE_CONNS")
+		_ = os.Unsetenv("REDIS_POOL_SIZE")
+		_ = os.Unsetenv("REDIS_MIN_IDLE_CONNS")
 	})
 
 	s, err := NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())

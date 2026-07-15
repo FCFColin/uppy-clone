@@ -1,8 +1,8 @@
 import { PALETTE_COLORS } from '../shared/game/constants.js';
 import { endReasonLabel } from './local_constants.js';
+import { truncateNickname } from './message_codec.js';
 import type { GamePhase } from '../shared/game/types.js';
 import { dispatch, getState } from './store.js';
-import { state } from './state_types.js';
 import {
   $waitingScreen, $endedScreen, $gameHud, $cooldownIndicator,
   $hudScore, $hudPlayers, $finalScore, $hudPlayerList,
@@ -12,7 +12,8 @@ import {
 import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
 import { refreshLayout } from './ui_utils.js';
 import { isLowHeightDanger } from './visual_helpers.js';
-import { isEntryHandoff, getWaitingTitleText } from './entry_flow.js';
+import { isEntryHandoff } from './entry_flow.js';
+import { getWaitingTitleText } from './entry_flow_ui.js';
 import { syncRestartVoteProgress } from './restart_vote_ui.js';
 
 let lastPhase: GamePhase | null = null;
@@ -33,7 +34,13 @@ function endListKey(): string {
 }
 
 function isCurrentPlayer(p: { nickname: string }): boolean {
-  const self = localStorage.getItem('uppy-nickname') || getState().pendingNickname || '';
+  let savedNickname: string | null = null;
+  try {
+    savedNickname = localStorage.getItem('uppy-nickname');
+  } catch {
+    // localStorage may be unavailable
+  }
+  const self = savedNickname || getState().pendingNickname || '';
   return self !== '' && p.nickname === self;
 }
 
@@ -78,8 +85,8 @@ function setOverlayVisibility(): void {
     partial: {
       blockGameRender:
         isOverlayVisible($endedScreen) ||
-        (isOverlayVisible($nicknameSetupScreen) && !state.nicknameSubmitted) ||
-        (isOverlayVisible($waitingScreen) && state.nicknameSubmitted && state.phase === 'waiting') ||
+        (isOverlayVisible($nicknameSetupScreen) && !getState().nicknameSubmitted) ||
+        (isOverlayVisible($waitingScreen) && getState().nicknameSubmitted && getState().phase === 'waiting') ||
         isOverlayVisible(document.getElementById('tutorial-overlay')),
     },
   });
@@ -88,9 +95,13 @@ function setOverlayVisibility(): void {
 function displayNickname(p: { playerIndex: number; nickname: string }): string {
   const players = getState().players;
   const pending = getState().pendingNickname;
-  const name = (pending && players.length === 1 && players[0]?.playerIndex === p.playerIndex)
+  const raw = (pending && players.length === 1 && players[0]?.playerIndex === p.playerIndex)
     ? pending
     : (p.nickname || 'P' + p.playerIndex);
+  // game-022: Truncate nickname for display to prevent layout overflow.
+  // The backend also truncates, but the pending nickname (being typed) may
+  // temporarily exceed the limit before the SET_NICKNAME message is sent.
+  const name = truncateNickname(raw);
   if (isCurrentPlayer(p)) return `${name}（你）`;
   return name;
 }
@@ -206,4 +217,11 @@ export function updateScoresOnly(): void {
     $finalScore.textContent = String(getState().score);
     renderEndPlayerList(true, false);
   }
+}
+
+/** Reset UI update cache for a new game session. */
+export function resetUIUpdateCache(): void {
+  lastPhase = null;
+  lastPlayerListKey = '';
+  lastEndListKey = '';
 }

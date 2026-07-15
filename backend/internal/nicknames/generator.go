@@ -9,6 +9,9 @@ import (
 
 const maxNicknameLength = 12
 
+// maxSuffixAttempts limits the number of #N suffix tries before falling back to PlayerXXXX.
+const maxSuffixAttempts = 98
+
 func randomIndex(n int) int {
 	if n <= 0 {
 		return 0
@@ -39,7 +42,7 @@ func GenerateRandom(usedNames map[string]bool) string {
 	}
 
 	baseName := pickRandomCombo()
-	for i := 2; i < 100; i++ {
+	for i := 2; i < maxSuffixAttempts; i++ {
 		candidate := baseName + "#" + strconv.Itoa(i)
 		// v2-R-83: use rune count instead of byte length. The adjective/noun pools
 		// contain Chinese runes (3 bytes each), so a 5-rune base + "#2" = 7 runes
@@ -49,5 +52,11 @@ func GenerateRandom(usedNames map[string]bool) string {
 		}
 	}
 
+	for i := 0; i < maxSuffixAttempts; i++ {
+		candidate := "Player" + strconv.Itoa(randomIndex(10000))
+		if !usedNames[candidate] {
+			return candidate
+		}
+	}
 	return "Player" + strconv.Itoa(randomIndex(10000))
 }

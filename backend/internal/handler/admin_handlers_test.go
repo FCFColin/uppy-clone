@@ -381,7 +381,7 @@ func TestAdminHandler_UpdateConfig_NotFound(t *testing.T) {
 	h, mock, _ := newAdminHandlerWithDB(t)
 	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
 		WithArgs("global").
-		WillReturnError(context.Canceled)
+		WillReturnRows(pgxmock.NewRows([]string{"id", "config", "updated_at"})) // no rows → nil config
 
 	w := httptest.NewRecorder()
 	h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader(`{"emailEnabled":true}`)))
@@ -438,7 +438,7 @@ func TestAdminHandler_applyConfigUpdates_ChangePassword(t *testing.T) {
 	}
 }
 
-func TestAuditPasswordChange(t *testing.T) {
+func TestAuditPasswordChange(_ *testing.T) {
 	AuditPasswordChange(context.Background(), "127.0.0.1")
 }
 
@@ -511,8 +511,9 @@ func TestAdminHandler_Login_NilRedis(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	h.Login(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"`+password+`"}`)))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	// handler-001: nil Redis → fail-closed → 503 (login denied for security)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s, want 503", w.Code, w.Body.String())
 	}
 }
 
@@ -745,7 +746,7 @@ func TestAdminHandler_completeAdminLogin_SecureCookie(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_handleFailedLogin_NilRedis(t *testing.T) {
+func TestAdminHandler_handleFailedLogin_NilRedis(_ *testing.T) {
 	h := newTestAdminHandler()
 	h.handleFailedLogin(context.Background(), "127.0.0.1", "admin")
 }

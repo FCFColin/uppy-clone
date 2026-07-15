@@ -43,12 +43,12 @@ func CheckRestartConsensus(room *Room) error {
 		if remaining < 0 {
 			remaining = 0
 		}
-		countdownMs = uint32(remaining) //nolint:gosec:G115 // bounded by CountdownTicks
+		countdownMs = uint32(remaining) //nolint:gosec // G115: bounded by CountdownTicks
 	}
 
 	room.broadcast(protocol.EncodeRestartStatus(
-		uint8(yesVotes),       //nolint:gosec:G115 // yesVotes <= connectedCount <= MaxPlayersPerRoom(50) < 256
-		uint8(connectedCount), //nolint:gosec:G115 // connectedCount <= MaxPlayersPerRoom(50) < 256
+		uint8(yesVotes),       //nolint:gosec // G115: yesVotes <= connectedCount <= MaxPlayersPerRoom(50) < 256
+		uint8(connectedCount), //nolint:gosec // G115: connectedCount <= MaxPlayersPerRoom(50) < 256
 		countdownMs,
 	), "")
 
@@ -87,23 +87,32 @@ func RestartAndStart(room *Room) error {
 	nextPlayerIndex := room.state.NextPlayerIndex
 
 	activePlayerIDs := make(map[string]bool)
+	room.connMu.RLock()
 	for pid := range room.connections {
 		activePlayerIDs[pid] = true
 	}
+	room.connMu.RUnlock()
 
 	cleanupDisconnectedPlayers(room, players, activePlayerIDs)
 
 	// 清理后无活跃玩家时，重置为 waiting
 	if len(activePlayerIDs) == 0 {
-		room.state = NewGameState(string(room.state.LobbyCode), room.rng)
+		room.state = NewGameState(string(room.state.LobbyCode), room.state.RNGSeed, room.rng)
 		room.state.Phase = domain.PhaseWaiting
 		room.stopTick()
+		// game-021: Broadcast state change even with no active players —
+		// a reconnecting player may receive the updated phase.
+		room.broadcast(protocol.EncodeGameStateChange(protocol.PhaseWaiting), "")
+		room.broadcast(room.buildSnapshot(), "")
 		room.requestPersist()
 		return nil
 	}
 
-	room.state = buildRestartState(string(room.state.LobbyCode), players, nextPlayerIndex, room.rng)
-	ResetGameEntities(room.state, RandomSpawnTimer(room.rng), room.rng)
+	room.state = buildRestartState(string(room.state.LobbyCode), players, nextPlayerIndex, room.state.RNGSeed, room.rng)
+	// game-022: Removed redundant ResetGameEntities call — buildRestartState
+	// already initializes balloon, bird, ghost, and wind via NewGameState.
+	// Calling ResetGameEntities again consumed RNG a second time, causing
+	// deterministic divergence between server restart iterations.
 	room.countdownStart = time.Now().UnixMilli()
 
 	room.scheduleCountdownFromNow()
@@ -136,8 +145,8 @@ func cleanupDisconnectedPlayers(room *Room, players map[string]*domain.PlayerSta
 
 // buildRestartState creates a fresh GameState for a restart, preserving players
 // and the next-player index, then transitioning to the countdown phase.
-func buildRestartState(lobbyCode string, players map[string]*domain.PlayerState, nextPlayerIndex int, rng RNGSource) *domain.GameState {
-	state := NewGameState(lobbyCode, rng)
+func buildRestartState(lobbyCode string, players map[string]*domain.PlayerState, nextPlayerIndex int, seed int64, rng RNGSource) *domain.GameState {
+	state := NewGameState(lobbyCode, seed, rng)
 	state.RestartVotes = make(map[string]bool)
 	state.RestartTimerStart = nil
 	state.Players = players
@@ -149,4 +158,16 @@ func buildRestartState(lobbyCode string, players map[string]*domain.PlayerState,
 	state.SessionID = idgen.UUID()
 
 	return state
+}
+
+func countRestartYesVotes(players map[string]*domain.PlayerState, votes map[string]bool) (yes, connected int) {
+	for _, p := range players {
+		if !p.Disconnected {
+			connected++
+			if v, ok := votes[p.ID]; ok && v {
+				yes++
+			}
+		}
+	}
+	return yes, connected
 }

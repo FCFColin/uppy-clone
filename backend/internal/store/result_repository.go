@@ -8,10 +8,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/slogctx"
-	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// gameResultNamespace is a custom UUID namespace for generating deterministic game result IDs.
+// Using a fixed custom namespace (not NameSpaceDNS) ensures no collision with RFC 4122 reserved namespaces.
+var gameResultNamespace = uuid.MustParse("a6e0e8e0-3b9c-4a5e-8f1d-2c3b4a5e6f7d")
 
 // ResultRepository handles game session and result persistence.
 type ResultRepository struct {
@@ -19,12 +22,14 @@ type ResultRepository struct {
 }
 
 // NewResultRepository creates a ResultRepository.
-func NewResultRepository(pool pgPool) *ResultRepository {
-	return &ResultRepository{baseRepository: newBaseRepository(pool)}
+func NewResultRepository(pool pgPool, deps ...Deps) *ResultRepository {
+	d := depsOrZero(deps...)
+	return &ResultRepository{baseRepository: newBaseRepository(pool, d)}
 }
 
+// CreateGameSession inserts a new game session record into the database.
 func (r *ResultRepository) CreateGameSession(ctx context.Context, gs *domain.GameSession) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "result_repo.CreateGameSession",
+	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.CreateGameSession",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.operation", "INSERT"),
@@ -43,8 +48,9 @@ func (r *ResultRepository) CreateGameSession(ctx context.Context, gs *domain.Gam
 	})
 }
 
+// RecordGameResult records the final results of a game session.
 func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "result_repo.RecordGameResult",
+	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.RecordGameResult",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.session_id", sessionID),
@@ -73,7 +79,7 @@ func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, room
 			for i, pr := range results {
 				base := i * 6
 				placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d)", base+1, base+2, base+3, base+4, base+5, base+6))
-				resultID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte(sessionID+pr.UserID)).String()
+				resultID := uuid.NewSHA1(gameResultNamespace, []byte(sessionID+"\x00"+pr.UserID)).String()
 				values = append(values, resultID, sessionID, pr.UserID, pr.ScoreContribution, pr.TapsCount, endedAt)
 			}
 			query := fmt.Sprintf("INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES %s ON CONFLICT (id) DO NOTHING", strings.Join(placeholders, ","))
@@ -95,8 +101,9 @@ func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, room
 	return nil
 }
 
+// EndGameAndRecordResults ends a game session and records all player results transactionally.
 func (r *ResultRepository) EndGameAndRecordResults(ctx context.Context, sessionID string, endedAt int64, finalScore int, results []domain.GameResult) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "result_repo.EndGameAndRecordResults",
+	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.EndGameAndRecordResults",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.session_id", sessionID),
@@ -105,17 +112,17 @@ func (r *ResultRepository) EndGameAndRecordResults(ctx context.Context, sessionI
 	)
 	defer span.End()
 
-	_, err := r.cb.Execute(func() (any, error) {
+	err := r.withRetryWrite(ctx, func(ctx context.Context) error {
 		tx, txErr := r.pool.Begin(ctx)
 		if txErr != nil {
-			return nil, fmt.Errorf("begin tx: %w", txErr)
+			return fmt.Errorf("begin tx: %w", txErr)
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 
 		if _, execErr := tx.Exec(ctx,
 			`UPDATE game_sessions SET status = 'ended', ended_at = $1, final_score = $2 WHERE id = $3`,
 			endedAt, finalScore, sessionID); execErr != nil {
-			return nil, fmt.Errorf("end game session: %w", execErr)
+			return fmt.Errorf("end game session: %w", execErr)
 		}
 
 		if len(results) > 0 {
@@ -128,14 +135,14 @@ func (r *ResultRepository) EndGameAndRecordResults(ctx context.Context, sessionI
 			}
 			query := fmt.Sprintf("INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES %s ON CONFLICT (id) DO NOTHING", strings.Join(placeholders, ","))
 			if _, execErr := tx.Exec(ctx, query, values...); execErr != nil {
-				return nil, fmt.Errorf("insert game results: %w", execErr)
+				return fmt.Errorf("insert game results: %w", execErr)
 			}
 		}
 
 		if commitErr := tx.Commit(ctx); commitErr != nil {
-			return nil, fmt.Errorf("commit end game and results: %w", commitErr)
+			return fmt.Errorf("commit end game and results: %w", commitErr)
 		}
-		return nil, nil
+		return nil
 	})
 	if err != nil {
 		slogctx.LoggerFromContext(ctx).Error("end game and record results failed",
@@ -145,16 +152,22 @@ func (r *ResultRepository) EndGameAndRecordResults(ctx context.Context, sessionI
 	return nil
 }
 
+// InsertSeedGameResult inserts a seed game result with retry logic.
+// store-025: Use withRetryWrite (consistent with RecordGameResult and
+// EndGameAndRecordResults) instead of calling cb.Execute directly, so retry
+// backoff/max-retries are unified across all write entry points.
 func (r *ResultRepository) InsertSeedGameResult(ctx context.Context, result *domain.GameResult) error {
-	// Seed data is dev-only, non-critical — circuit breaker bypass is acceptable.
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
-		result.ID, result.SessionID, result.UserID, result.ScoreContribution, result.TapsCount, result.CreatedAt)
-	return err
+	return r.withRetryWrite(ctx, func(ctx context.Context) error {
+		_, execErr := r.pool.Exec(ctx,
+			`INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
+			result.ID, result.SessionID, result.UserID, result.ScoreContribution, result.TapsCount, result.CreatedAt)
+		return execErr
+	})
 }
 
+// GetLeaderboard returns the top entries for the given scope and limit.
 func (r *ResultRepository) GetLeaderboard(ctx context.Context, scope string, limit int) ([]domain.LeaderboardEntry, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "result_repo.GetLeaderboard",
+	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.GetLeaderboard",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("leaderboard.scope", scope),
@@ -185,8 +198,9 @@ func (r *ResultRepository) GetLeaderboard(ctx context.Context, scope string, lim
 	return entries, nil
 }
 
+// GetUserBestScore returns the best score and games played for the given user.
 func (r *ResultRepository) GetUserBestScore(ctx context.Context, userID string) (int, int, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "result_repo.GetUserBestScore",
+	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.GetUserBestScore",
 		trace.WithAttributes(attribute.String("db.system", "postgresql")),
 	)
 	defer span.End()

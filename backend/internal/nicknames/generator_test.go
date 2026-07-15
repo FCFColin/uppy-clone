@@ -157,7 +157,7 @@ func TestRandomIndex_NonPositive(t *testing.T) {
 
 func TestGenerateRandom_ReturnsValidSuffix(t *testing.T) {
 	prev := randIntFn
-	randIntFn = func(_ io.Reader, max *big.Int) (*big.Int, error) {
+	randIntFn = func(_ io.Reader, _ *big.Int) (*big.Int, error) {
 		return big.NewInt(0), nil
 	}
 	t.Cleanup(func() { randIntFn = prev })
@@ -178,7 +178,7 @@ func TestGenerateRandom_ReturnsValidSuffix(t *testing.T) {
 }
 
 func TestGenerateRandom_SkipsLongSuffixCandidate(t *testing.T) {
-	defer SetRandIntHook(func(_ io.Reader, max *big.Int) (*big.Int, error) {
+	defer SetRandIntHook(func(_ io.Reader, _ *big.Int) (*big.Int, error) {
 		return big.NewInt(0), nil
 	})()
 

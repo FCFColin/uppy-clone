@@ -1,5 +1,6 @@
 export {};
 
+import { apiFetch } from './shared/network/api_fetch.js';
 import { establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/network/session.js';
 import { initCollapsibleLeaderboard } from './index_leaderboard.js';
 
@@ -39,7 +40,10 @@ document.getElementById('email-change-link')?.addEventListener('click', (e) => {
 
 async function requestLoginLink(): Promise<void> {
   const email: string = emailInput.value.trim();
-  if (!email || !email.includes('@')) {
+  // shared-013: Basic email validation — must have @ and a dot in the domain part.
+  // Use a simple regex to catch common malformed inputs without rejecting valid edge cases.
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !emailRegex.test(email)) {
     showError('请输入有效的邮箱地址');
     return;
   }
@@ -47,10 +51,12 @@ async function requestLoginLink(): Promise<void> {
   loginBtn.textContent = '发送中...';
   errorMsg.style.display = 'none';
   try {
-    const res: Response = await fetch('/api/v1/auth/request', {
+    const res: Response = await apiFetch('/api/v1/auth/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
+      autoRefresh: false,
+      retries: 0,
     });
     if (res.ok) {
       successMsg.style.display = 'block';
@@ -87,7 +93,13 @@ async function quickPlay(): Promise<void> {
       resetButton(quickplayBtn, '快速开始');
       return;
     }
-    const matchData: { lobbyCode: string } = await matchRes.json();
+    const matchData: { lobbyCode?: string } = await matchRes.json();
+    // shared-014: Validate lobbyCode before using it.
+    if (!matchData.lobbyCode) {
+      showError('匹配房间失败，请重试');
+      resetButton(quickplayBtn, '快速开始');
+      return;
+    }
     sessionStorage.setItem('uppy-auth-ready', '1');
     sessionStorage.setItem('uppy-fresh-match', matchData.lobbyCode);
     window.location.href = `/play.html?code=${encodeURIComponent(matchData.lobbyCode)}`;
@@ -111,26 +123,30 @@ async function joinByCode(): Promise<void> {
   const prevLabel = joinCodeBtn.textContent;
   joinCodeBtn.textContent = '加入中...';
   try {
-    const res: Response = await fetch(`/api/v1/registry/check/${code}`);
-    const data: { full?: boolean } = await res.json();
+    const res: Response = await apiFetch(`/api/v1/registry/check/${code}`);
     if (res.status === 404) {
       errorEl.textContent = '房间不存在或已关闭';
       errorEl.classList.remove('hidden');
       return;
     }
+    // shared-010: Check !res.ok before parsing JSON — a 500 response
+    // may not contain valid JSON and would throw.
+    if (!res.ok) {
+      errorEl.textContent = '服务器错误，请重试';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+    const data: { full?: boolean } = await res.json();
     if (data.full) {
       errorEl.textContent = '房间已满';
       errorEl.classList.remove('hidden');
       return;
     }
-    const authCheck: Response = await fetch('/api/v1/auth/check', { credentials: 'include' });
-    if (!authCheck.ok) {
-      const session = await establishGameSession();
-      if (!session.ok) {
-        errorEl.textContent = sessionErrorMessage(session);
-        errorEl.classList.remove('hidden');
-        return;
-      }
+    const session = await establishGameSession();
+    if (!session.ok) {
+      errorEl.textContent = sessionErrorMessage(session);
+      errorEl.classList.remove('hidden');
+      return;
     }
     sessionStorage.setItem('uppy-auth-ready', '1');
     sessionStorage.setItem('uppy-fresh-match', code);
@@ -150,6 +166,7 @@ emailInput.addEventListener('keydown', (e: KeyboardEvent) => {
 });
 quickplayBtn.addEventListener('click', quickPlay);
 joinCodeBtn.addEventListener('click', joinByCode);
-document.getElementById('join-code-input')!.addEventListener('keypress', (e: KeyboardEvent) => {
+document.getElementById('join-code-input')!.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'Enter') joinByCode();
 });
+

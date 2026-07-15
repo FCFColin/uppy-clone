@@ -16,8 +16,7 @@ branches:
         contexts:
           # ci-cd.yml
           - "Quality Gate"
-          - "E2E Tests (gameplay)"
-          - "E2E Tests (performance)"
+          - "E2E Tests"
           # go-ci.yml
           - "Test"
           - "Lint"

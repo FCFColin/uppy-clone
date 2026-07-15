@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
@@ -78,7 +77,7 @@ func (h *LobbyHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 
 // CheckRoom handles GET /api/registry/check/{code}
 func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
-	code := chi.URLParam(r, "code")
+	code := URLParam(r, "code")
 	if code == "" {
 		apierror.BadRequest("Room code is required").Write(w)
 		return
@@ -93,7 +92,7 @@ func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !RequireHubDegraded(h.hub, w, http.StatusOK,
+	if !RequireHubDegraded(h.hub, w, http.StatusServiceUnavailable,
 		map[string]interface{}{
 			"code":     code,
 			"exists":   false,
@@ -106,8 +105,10 @@ func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 
 	info, err := h.hub.CheckRoomCached(r.Context(), code)
 	if err != nil {
+		// handler-021: Return 503 (Service Unavailable) when Redis is down,
+		// not 500 or 404. This signals degradation to the client.
 		slog.Warn("degraded: CheckRoom failed, returning not-found", "code", code, "error", err)
-		WriteDegradedJSON(w, http.StatusOK,
+		WriteDegradedJSON(w, http.StatusServiceUnavailable,
 			map[string]interface{}{
 				"code":     code,
 				"exists":   false,

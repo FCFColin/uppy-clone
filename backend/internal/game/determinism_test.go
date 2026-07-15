@@ -36,7 +36,7 @@ func deterministicTickHash(t *testing.T, tickCount int, fixedTime time.Time) str
 	defer r.mu.Unlock()
 
 	r.rng = newSeededRNG(42)
-	r.state = NewGameState("DET", r.rng)
+	r.state = NewGameState("DET", 42, r.rng)
 	r.state.Phase = domain.PhasePlaying
 	r.state.Players["p1"] = &domain.PlayerState{
 		ID:          "p1",
@@ -87,7 +87,7 @@ func deterministicTickHashWithSeed(t *testing.T, tickCount int, fixedTime time.T
 	defer r.mu.Unlock()
 
 	r.rng = newSeededRNG(seed)
-	r.state = NewGameState("DET", r.rng)
+	r.state = NewGameState("DET", seed, r.rng)
 	r.state.Phase = domain.PhasePlaying
 	r.state.Players["p1"] = &domain.PlayerState{
 		ID:          "p1",

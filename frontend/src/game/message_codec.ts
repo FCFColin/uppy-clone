@@ -3,8 +3,10 @@ import { PHASE_CODE } from '../shared/game/protocol.js';
 import { COOLDOWN } from '../shared/game/constants.js';
 import { CLIENT_MSG } from '../shared/game/protocol.js';
 
-export const textEncoder: TextEncoder = new TextEncoder();
-export const textDecoder: TextDecoder = new TextDecoder();
+const _textEncoder = new TextEncoder();
+const _textDecoder = new TextDecoder();
+export { _textEncoder as textEncoder, _textDecoder as textDecoder };
+
 
 const phaseByCode: Record<number, GamePhase> = {
   [PHASE_CODE.WAITING]: 'waiting',
@@ -34,7 +36,10 @@ export function calculateCooldown(playerCount: number): number {
 
 export function encodeSetNickname(nickname: string): ArrayBuffer {
   const truncated = truncateNickname(nickname);
-  const nickBytes: Uint8Array = textEncoder.encode(truncated);
+  const nickBytes: Uint8Array = _textEncoder.encode(truncated);
+  if (nickBytes.length > 255) {
+    throw new Error('nickname too long for uint8 length field');
+  }
   const buf: ArrayBuffer = new ArrayBuffer(1 + 1 + nickBytes.length);
   const dv: DataView = new DataView(buf);
   dv.setUint8(0, CLIENT_MSG.SET_NICKNAME);
@@ -70,7 +75,7 @@ function readBalloon(view: DataView, offset: number) {
   return {
     balloon: {
       x: view.getFloat32(offset, true), y: view.getFloat32(offset + 4, true),
-      vy: view.getFloat32(offset + 8, true), vx: view.getFloat32(offset + 12, true),
+      vx: view.getFloat32(offset + 8, true), vy: view.getFloat32(offset + 12, true),
     },
     bytesRead: 16,
   };
@@ -101,6 +106,11 @@ function readGhost(view: DataView, offset: number) {
   return { ghost: { active, x: view.getFloat32(offset + 1, true), y: view.getFloat32(offset + 5, true), repelTimer: view.getUint16(offset + 9, true) }, bytesRead: 11 };
 }
 
+function clampedNickLength(view: DataView, offset: number): number {
+  const maxLen = view.byteLength - offset - 1;
+  return maxLen > 0 ? Math.min(view.getUint8(offset), maxLen) : 0;
+}
+
 function readPlayers(view: DataView, offset: number) {
   if (view.byteLength < offset + 1) {
     return { players: [], playerCount: 0, bytesRead: 0 };
@@ -115,8 +125,9 @@ function readPlayers(view: DataView, offset: number) {
     const cooldownRemainingMs = view.getUint32(o, true); o += 4;
     const palette = view.getUint32(o, true); o += 4;
     const scoreContribution = view.getUint32(o, true); o += 4;
-    const nickLen = view.byteLength > o ? Math.min(view.getUint8(o), view.byteLength - o - 1) : 0; o += 1;
-    const nickname = nickLen > 0 ? textDecoder.decode(new Uint8Array(view.buffer, view.byteOffset + o, nickLen)) : '';
+    const nickLen = clampedNickLength(view, o); o += 1;
+    let nickname = nickLen > 0 ? _textDecoder.decode(new Uint8Array(view.buffer, view.byteOffset + o, nickLen)) : '';
+    nickname = truncateNickname(nickname);
     o += nickLen;
     players.push({ playerIndex, cooldownEndTime: now + cooldownRemainingMs, palette, scoreContribution, nickname });
   }
@@ -171,7 +182,7 @@ export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
   return { timestamp, score, phase, balloon, bird, ghost, players, ripples, wind, playerCount };
 }
 
-export interface SnapshotApplyTarget {
+interface SnapshotApplyTarget {
   score: number;
   balloon: { x: number; y: number; vx: number; vy: number };
   bird: { active: boolean; x: number; y: number };
@@ -185,7 +196,7 @@ export function applySnapshot(decoded: DecodedSnapshot, target?: SnapshotApplyTa
     balloon: { ...decoded.balloon },
     bird: { ...decoded.bird },
     ghost: { ...decoded.ghost },
-    players: decoded.players,
+    players: decoded.players.map(p => ({ ...p })),
   };
   if (target) {
     Object.assign(target, snapshot);

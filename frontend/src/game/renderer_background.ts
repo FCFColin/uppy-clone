@@ -54,18 +54,25 @@ function advanceCloud(cloud: Cloud, windDir: number): void {
 function drawProceduralCloud(target: CanvasRenderingContext2D, cx: number, cy: number, w: number, opacity: number): void {
   const h = w * 0.42;
   const alpha = Math.min(1, opacity);
+
+  const ellipses: [number, number, number, number][] = [
+    [-0.24, 0.12, 0.3, 0.34],
+    [0, -0.06, 0.34, 0.4],
+    [0.26, 0.08, 0.28, 0.32],
+  ];
+
   target.fillStyle = `rgba(90, 130, 170, ${alpha * 0.12})`;
   target.beginPath();
-  target.ellipse(cx - w * 0.24 + 4, cy + h * 0.12 + 5, w * 0.3, h * 0.34, 0, 0, Math.PI * 2);
-  target.ellipse(cx + 3, cy - h * 0.06 + 5, w * 0.34, h * 0.4, 0, 0, Math.PI * 2);
-  target.ellipse(cx + w * 0.26 + 3, cy + h * 0.08 + 5, w * 0.28, h * 0.32, 0, 0, Math.PI * 2);
+  for (const [dx, dy, rx, ry] of ellipses) {
+    target.ellipse(cx + dx * w + (dx < 0 ? 4 : dx > 0 ? 3 : 3), cy + dy * h + 5, w * rx, h * ry, 0, 0, Math.PI * 2);
+  }
   target.fill();
 
   target.fillStyle = `rgba(255, 255, 255, ${alpha})`;
   target.beginPath();
-  target.ellipse(cx - w * 0.24, cy + h * 0.12, w * 0.3, h * 0.34, 0, 0, Math.PI * 2);
-  target.ellipse(cx, cy - h * 0.06, w * 0.34, h * 0.4, 0, 0, Math.PI * 2);
-  target.ellipse(cx + w * 0.26, cy + h * 0.08, w * 0.28, h * 0.32, 0, 0, Math.PI * 2);
+  for (const [dx, dy, rx, ry] of ellipses) {
+    target.ellipse(cx + dx * w, cy + dy * h, w * rx, h * ry, 0, 0, Math.PI * 2);
+  }
   target.ellipse(cx - w * 0.04, cy + h * 0.18, w * 0.26, h * 0.26, 0, 0, Math.PI * 2);
   target.fill();
 }

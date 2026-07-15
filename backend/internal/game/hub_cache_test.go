@@ -29,12 +29,12 @@ func setupHubWithMiniredis(t *testing.T, repo RoomRepository) (*Hub, *store.Redi
 	}
 	t.Cleanup(func() { _ = redisStore.Close() })
 
-	h := NewHub(repo, redisStore, timeouts, 0, 0, nil)
+	h := NewHub(repo, redisStore, timeouts, 0, 0)
 	return h, redisStore
 }
 
 func TestHub_ListLobbiesCached_NilStore(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 	_, err := h.ListLobbiesCached(context.Background(), 10, "")
 	if err == nil {
 		t.Fatal("expected error when store is nil")
@@ -136,7 +136,7 @@ func TestHub_ListLobbiesCached_NoRedis(t *testing.T) {
 		ID: "lobby-1", Code: "NORED", State: "{}", UpdatedAt: time.Now().UnixMilli(),
 	})
 
-	h := NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0, nil)
+	h := NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
 	result, err := h.ListLobbiesCached(ctx, 10, "")
 	if err != nil {
 		t.Fatalf("ListLobbiesCached: %v", err)
@@ -201,18 +201,6 @@ func TestHub_CheckRoomCached_RedisGetError(t *testing.T) {
 	}
 }
 
-func TestHub_ResolveRoom_RedisError(t *testing.T) {
-	h, redisStore := setupHubWithMiniredis(t, nil)
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	_, err := h.ResolveRoom(context.Background(), "ABCDE")
-	if err == nil {
-		t.Fatal("expected error when redis is closed")
-	}
-}
-
 func TestHub_ListLobbiesCached_CorruptCacheReloads(t *testing.T) {
 	repo := newMockRoomRepository()
 	ctx := context.Background()
@@ -251,3 +239,11 @@ func (f *failLoadRepo) LoadAllActiveLobbies(_ context.Context, _ int, _ string) 
 }
 
 var errLoadFailed = errors.New("load failed")
+
+func TestHub_CheckRoomCached_RoomNotFound(t *testing.T) {
+	h, _ := setupHubWithMiniredis(t, nil)
+	info, err := h.CheckRoomCached(context.Background(), "NOPE")
+	if err != nil || info != nil {
+		t.Fatalf("info=%+v err=%v", info, err)
+	}
+}

@@ -1,4 +1,4 @@
-package middleware
+﻿package middleware
 
 import (
 	"bufio"
@@ -12,13 +12,15 @@ import (
 	"os"
 	"testing"
 
+	"strings"
+
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/requestctx"
-	"strings"
+	"github.com/uppy-clone/backend/internal/slogctx"
 )
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
@@ -27,9 +29,9 @@ func TestCORS(t *testing.T) {
 	allowedOrigins := []string{"https://example.com", "https://app.example.com"}
 	mw := CORS(allowedOrigins)
 
-	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
 
 	t.Run("allowed origin gets CORS headers", func(t *testing.T) {
@@ -235,7 +237,7 @@ func TestLoggerFromContext_Fallback(t *testing.T) {
 
 func TestLoggerFromContext_WithInjectedLogger(t *testing.T) {
 	testLogger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ctx := context.WithValue(context.Background(), slogCtxKey, testLogger)
+	ctx := context.WithValue(context.Background(), slogctx.CtxKey{}, testLogger)
 
 	logger := LoggerFromContext(ctx)
 	if logger != testLogger {
@@ -245,7 +247,7 @@ func TestLoggerFromContext_WithInjectedLogger(t *testing.T) {
 
 func TestRequestIDLogger_CallsNext(t *testing.T) {
 	called := false
-	handler := RequestIDLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequestIDLogger(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -267,7 +269,7 @@ func TestTracingMiddleware_InjectsTraceID(t *testing.T) {
 
 	var gotTraceID string
 	r.Get("/test", func(w http.ResponseWriter, r *http.Request) {
-		ctxLogger, ok := r.Context().Value(slogCtxKey).(*slog.Logger)
+		ctxLogger, ok := r.Context().Value(slogctx.CtxKey{}).(*slog.Logger)
 		if !ok {
 			t.Error("no logger found in context")
 			w.WriteHeader(500)
@@ -387,7 +389,7 @@ func TestTracingMiddleware_ResponseWriterSupportsHijack(t *testing.T) {
 
 	r := chi.NewRouter()
 	r.Use(TracingMiddleware)
-	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/ws", func(w http.ResponseWriter, _ *http.Request) {
 		hj, ok := w.(http.Hijacker)
 		if !ok {
 			http.Error(w, "not hijacker", http.StatusInternalServerError)
@@ -431,7 +433,7 @@ func TestTracingMiddleware_ResponseWriterSupportsFlush(t *testing.T) {
 
 	r := chi.NewRouter()
 	r.Use(TracingMiddleware)
-	r.Get("/stream", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/stream", func(w http.ResponseWriter, _ *http.Request) {
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -449,7 +451,7 @@ func TestTracingMiddleware_ResponseWriterSupportsFlush(t *testing.T) {
 func TestTracingMiddleware_HijackUnsupported(t *testing.T) {
 	r := chi.NewRouter()
 	r.Use(TracingMiddleware)
-	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/ws", func(w http.ResponseWriter, _ *http.Request) {
 		hj, ok := w.(http.Hijacker)
 		if !ok {
 			http.Error(w, "not hijacker", http.StatusInternalServerError)
@@ -477,7 +479,7 @@ func TestPrometheusMiddleware_IncrementsCounter(t *testing.T) {
 	// Reset the counter before test
 	metrics.HTTPRequestsTotal.Reset()
 
-	handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -494,7 +496,7 @@ func TestPrometheusMiddleware_IncrementsCounter(t *testing.T) {
 func TestPrometheusMiddleware_ObservesDuration(t *testing.T) {
 	metrics.HTTPRequestDuration.Reset()
 
-	handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -515,7 +517,7 @@ func TestPrometheusMiddleware_UsesChiRoutePattern(t *testing.T) {
 
 	r := chi.NewRouter()
 	r.Use(PrometheusMiddleware)
-	r.Get("/api/v1/users/{id}", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/api/v1/users/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -545,8 +547,8 @@ func TestPrometheusMiddleware_DifferentStatusCodes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Run(tt.name, func(_ *testing.T) {
+			handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.statusCode)
 			}))
 
@@ -598,7 +600,7 @@ func TestSecurityHeaders(t *testing.T) {
 		rec := makeSecurityRequest()
 		assertHeader(t, rec, "Referrer-Policy", "strict-origin-when-cross-origin")
 	})
-	
+
 	t.Run("sets Content-Security-Policy", func(t *testing.T) {
 		rec := makeSecurityRequest()
 		if got := rec.Header().Get("Content-Security-Policy"); got == "" {
@@ -636,18 +638,21 @@ func assertHeader(t *testing.T, rec *httptest.ResponseRecorder, header, want str
 func testHSTSBehavior(t *testing.T) {
 	t.Run("set by default (ENABLE_HSTS not set)", func(t *testing.T) {
 		_ = os.Unsetenv("ENABLE_HSTS")
+		reinitSecurityConfig()
 		rec := makeSecurityRequest()
 		assertHeader(t, rec, "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 	})
 	t.Run("set when ENABLE_HSTS=true", func(t *testing.T) {
 		_ = os.Setenv("ENABLE_HSTS", "true")
-		defer func() { _ = os.Unsetenv("ENABLE_HSTS") }()
+		defer func() { _ = os.Unsetenv("ENABLE_HSTS"); reinitSecurityConfig() }()
+		reinitSecurityConfig()
 		rec := makeSecurityRequest()
 		assertHeader(t, rec, "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 	})
 	t.Run("not set when ENABLE_HSTS=false", func(t *testing.T) {
 		_ = os.Setenv("ENABLE_HSTS", "false")
-		defer func() { _ = os.Unsetenv("ENABLE_HSTS") }()
+		defer func() { _ = os.Unsetenv("ENABLE_HSTS"); reinitSecurityConfig() }()
+		reinitSecurityConfig()
 		rec := makeSecurityRequest()
 		if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
 			t.Errorf("Strict-Transport-Security = %q, want empty", got)
@@ -672,7 +677,7 @@ func testSecurityCallsNext(t *testing.T) {
 
 func TestTrustedProxy_StripsUntrustedForwardedHeaders(t *testing.T) {
 	var seenProto, seenXFF string
-	handler := TrustedProxy("127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TrustedProxy("127.0.0.1/32")(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		seenProto = r.Header.Get("X-Forwarded-Proto")
 		seenXFF = r.Header.Get("X-Forwarded-For")
 		if !IsTrustedProxy(r) {
@@ -697,7 +702,7 @@ func TestTrustedProxy_StripsUntrustedForwardedHeaders(t *testing.T) {
 
 func TestTrustedProxy_StripsSpoofedHeadersFromUntrustedPeer(t *testing.T) {
 	var seenProto string
-	handler := TrustedProxy("10.0.0.0/8")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TrustedProxy("10.0.0.0/8")(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		seenProto = r.Header.Get("X-Forwarded-Proto")
 		if IsTrustedProxy(r) {
 			t.Error("expected untrusted proxy for public peer")
@@ -790,7 +795,7 @@ func TestExtractClientIP_TrustedEmptyXFF(t *testing.T) {
 }
 
 func TestTrustedProxy_IgnoresInvalidCIDR(t *testing.T) {
-	trustedHandler := TrustedProxy("not-a-cidr,127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	trustedHandler := TrustedProxy("not-a-cidr,127.0.0.1/32")(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		if !IsTrustedProxy(r) {
 			t.Error("expected valid CIDR in list to trust 127.0.0.1")
 		}
@@ -800,7 +805,7 @@ func TestTrustedProxy_IgnoresInvalidCIDR(t *testing.T) {
 	req.RemoteAddr = "127.0.0.1:9999"
 	trustedHandler.ServeHTTP(httptest.NewRecorder(), req)
 
-	untrustedHandler := TrustedProxy("not-a-cidr,127.0.0.1/32")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	untrustedHandler := TrustedProxy("not-a-cidr,127.0.0.1/32")(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		if IsTrustedProxy(r) {
 			t.Error("expected untrusted peer when CIDR does not match")
 		}
@@ -811,7 +816,7 @@ func TestTrustedProxy_IgnoresInvalidCIDR(t *testing.T) {
 }
 
 func TestTrustedProxy_EmptyCIDRListNeverTrusts(t *testing.T) {
-	handler := TrustedProxy(" , , ")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TrustedProxy(" , , ")(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		if IsTrustedProxy(r) {
 			t.Error("empty CIDR list must not trust proxy headers")
 		}
@@ -879,6 +884,7 @@ func TestTracingMiddleware_SetsEndUserID(t *testing.T) {
 
 func TestSecurityHeaders_DevConnectSrc(t *testing.T) {
 	t.Setenv("ENABLE_HSTS", "false")
+	reinitSecurityConfig()
 	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -927,12 +933,12 @@ func TestGenerateNonce_RandFailure(t *testing.T) {
 	nonceRandRead = func([]byte) (int, error) { return 0, errors.New("rand failed") }
 	t.Cleanup(func() { nonceRandRead = prev })
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic when nonce rand fails")
-		}
-	}()
-	generateNonce()
+	// handler-017: generateNonce should not panic on rand failure.
+	// It should return a fallback nonce instead.
+	nonce := generateNonce()
+	if len(nonce) != 32 {
+		t.Fatalf("expected 32-char fallback nonce, got %d chars", len(nonce))
+	}
 }
 
 func TestTrustedProxy_SplitHostPortFallback(t *testing.T) {

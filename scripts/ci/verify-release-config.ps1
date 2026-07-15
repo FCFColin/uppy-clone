@@ -18,6 +18,7 @@ function Assert-Contains($path, $pattern, $msg) {
 Assert-Contains '.github/workflows/go-ci.yml' 'github\.sha' 'build-push uses commit SHA tag'
 Assert-Contains '.github/workflows/go-ci.yml' 'cosign sign' 'build-push signs image with cosign'
 Assert-Contains '.github/workflows/ci-cd.yml' 'cosign verify' 'deploy verifies cosign signature'
+Assert-Contains '.github/workflows/ci-cd.yml' 'PROJECT_ID' 'deploy substitutes GCP_PROJECT_ID'
 Assert-Contains '.github/workflows/ci-cd.yml' '__IMAGE_TAG__' 'deploy substitutes pinned image tag'
 Assert-Contains '.github/workflows/ci-cd.yml' '__TRUSTED_PROXY_CIDRS__' 'deploy substitutes trusted proxy CIDRs'
 
@@ -26,6 +27,9 @@ foreach ($region in @('us-east1', 'europe-west1', 'asia-southeast1')) {
     if (-not (Test-Path $kust)) {
         Write-Host "FAIL: missing $kust" -ForegroundColor Red
         $fail = 1
+    } elseif ((Get-Content $kust -Raw) -notmatch 'PROJECT_ID') {
+        Write-Host "FAIL: $kust missing PROJECT_ID placeholder" -ForegroundColor Red
+        $fail = 1
     } elseif ((Get-Content $kust -Raw) -notmatch '__IMAGE_TAG__') {
         Write-Host "FAIL: $kust missing __IMAGE_TAG__ placeholder" -ForegroundColor Red
         $fail = 1
@@ -33,7 +37,7 @@ foreach ($region in @('us-east1', 'europe-west1', 'asia-southeast1')) {
         Write-Host "FAIL: $kust missing __TRUSTED_PROXY_CIDRS__ placeholder" -ForegroundColor Red
         $fail = 1
     } else {
-        Write-Host "OK: $kust has __IMAGE_TAG__ and __TRUSTED_PROXY_CIDRS__"
+        Write-Host "OK: $kust has PROJECT_ID, __IMAGE_TAG__, and __TRUSTED_PROXY_CIDRS__"
     }
 }
 

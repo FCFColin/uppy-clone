@@ -2,7 +2,7 @@ package crypto
 
 import "testing"
 
-func TestIsBcryptHash(t *testing.T) {
+func TestLooksLikeBcryptHash(t *testing.T) {
 	validBcrypt := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 	tests := []struct {
 		name  string
@@ -21,9 +21,9 @@ func TestIsBcryptHash(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsBcryptHash(tt.input)
+			got := LooksLikeBcryptHash(tt.input)
 			if got != tt.want {
-				t.Errorf("IsBcryptHash(%q) = %v, want %v", tt.input, got, tt.want)
+				t.Errorf("LooksLikeBcryptHash(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}

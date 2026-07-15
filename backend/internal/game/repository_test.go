@@ -1,4 +1,4 @@
-package game
+﻿package game
 
 import (
 	"context"
@@ -10,17 +10,9 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func TestRoomRepository_InterfaceSatisfaction(t *testing.T) {
+func TestRoomRepository_InterfaceSatisfaction(_ *testing.T) {
 	var _ RoomRepository = (*mockRoomRepository)(nil)
 	var _ RoomRepository = newMockRoomRepository()
-}
-
-// TestSnapshotEncoder_InterfaceSatisfaction verifies that mockSnapshotEncoder
-// satisfies the SnapshotEncoder interface at compile time.
-
-func TestSnapshotEncoder_InterfaceSatisfaction(t *testing.T) {
-	var _ SnapshotEncoder = (*mockSnapshotEncoder)(nil)
-	var _ SnapshotEncoder = &mockSnapshotEncoder{}
 }
 
 // --- RoomRepository Mock Tests ---
@@ -197,13 +189,21 @@ func TestMockRoomRepository_CallCounts(t *testing.T) {
 
 	// 3 saves
 	for i := 0; i < 3; i++ {
-		repo.SaveLobbyState(ctx, &domain.LobbyState{Code: fmt.Sprintf("C%02d", i)})
+		if err := repo.SaveLobbyState(ctx, &domain.LobbyState{Code: fmt.Sprintf("C%02d", i)}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	// 2 loads
-	repo.LoadLobbyState(ctx, "C00")
-	repo.LoadLobbyState(ctx, "C01")
+	if _, err := repo.LoadLobbyState(ctx, "C00"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.LoadLobbyState(ctx, "C01"); err != nil {
+		t.Fatal(err)
+	}
 	// 1 delete
-	repo.DeleteLobbyState(ctx, "C00")
+	if err := repo.DeleteLobbyState(ctx, "C00"); err != nil {
+		t.Fatal(err)
+	}
 
 	if repo.saveCount != 3 {
 		t.Fatalf("saveCount = %d, want 3", repo.saveCount)
@@ -219,7 +219,7 @@ func TestMockRoomRepository_CallCounts(t *testing.T) {
 // TestMockRoomRepository_ConcurrentAccess verifies the mock is safe for
 // concurrent use. Run with -race.
 
-func TestMockRoomRepository_ConcurrentAccess(t *testing.T) {
+func TestMockRoomRepository_ConcurrentAccess(_ *testing.T) {
 	repo := newMockRoomRepository()
 	ctx := context.Background()
 
@@ -270,69 +270,6 @@ func TestMockRoomRepository_CancelledContext(t *testing.T) {
 	}
 }
 
-// --- SnapshotEncoder Mock Tests ---
-
-// TestMockSnapshotEncoder_Encode verifies basic encoding.
-
-func TestMockSnapshotEncoder_Encode(t *testing.T) {
-	enc := &mockSnapshotEncoder{}
-	state := &domain.GameState{
-		Phase:     domain.PhaseWaiting,
-		LobbyCode: domain.RoomCode("ENC01"),
-	}
-
-	data, err := enc.Encode(state)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
-	if len(data) == 0 {
-		t.Fatal("Encode returned empty data")
-	}
-	if enc.encodeCount != 1 {
-		t.Fatalf("encodeCount = %d, want 1", enc.encodeCount)
-	}
-	if enc.lastState != state {
-		t.Fatal("lastState not set correctly")
-	}
-}
-
-// TestMockSnapshotEncoder_EncodeNil verifies encoding a nil state.
-
-func TestMockSnapshotEncoder_EncodeNil(t *testing.T) {
-	enc := &mockSnapshotEncoder{}
-	data, err := enc.Encode(nil)
-	if err != nil {
-		t.Fatalf("Encode(nil) failed: %v", err)
-	}
-	if string(data) != "null" {
-		t.Fatalf("Encode(nil) = %q, want %q", string(data), "null")
-	}
-}
-
-// TestMockSnapshotEncoder_ErrorInjection verifies error injection.
-
-func TestMockSnapshotEncoder_ErrorInjection(t *testing.T) {
-	enc := &mockSnapshotEncoder{}
-	enc.encodeErr = errors.New("encode failure")
-
-	_, err := enc.Encode(&domain.GameState{})
-	if err != enc.encodeErr {
-		t.Fatalf("Encode error = %v, want %v", err, enc.encodeErr)
-	}
-}
-
-// TestMockSnapshotEncoder_MultipleCalls verifies the counter increments.
-
-func TestMockSnapshotEncoder_MultipleCalls(t *testing.T) {
-	enc := &mockSnapshotEncoder{}
-	for i := 0; i < 5; i++ {
-		_, _ = enc.Encode(&domain.GameState{Phase: domain.PhasePlaying})
-	}
-	if enc.encodeCount != 5 {
-		t.Fatalf("encodeCount = %d, want 5", enc.encodeCount)
-	}
-}
-
 // --- Interface Contract Tests ---
 
 // TestRoomRepository_InterfaceContract verifies that any RoomRepository
@@ -361,23 +298,6 @@ func TestRoomRepository_InterfaceContract(t *testing.T) {
 	}
 }
 
-// TestSnapshotEncoder_InterfaceContract verifies that any SnapshotEncoder
-// implementation must have the correct method signature.
-
-func TestSnapshotEncoder_InterfaceContract(t *testing.T) {
-	// The interface requires:
-	//   Encode(state *domain.GameState) ([]byte, error)
-	var enc SnapshotEncoder = &mockSnapshotEncoder{}
-
-	data, err := enc.Encode(&domain.GameState{Phase: domain.PhaseEnded})
-	if err != nil {
-		t.Fatalf("Encode contract violation: %v", err)
-	}
-	if data == nil {
-		t.Fatal("Encode returned nil data")
-	}
-}
-
 // TestRoomRepository_MethodCount verifies the interface has exactly 3 methods.
 // This is adversarial: catches accidental addition/removal of methods.
 
@@ -387,12 +307,6 @@ func TestRoomRepository_MethodCount(t *testing.T) {
 	// If a method is missing, the code won't compile.
 	var _ = RoomRepository(nil)
 	// The fact that this compiles verifies the interface exists.
-}
-
-// TestSnapshotEncoder_MethodCount verifies the interface has exactly 1 method.
-
-func TestSnapshotEncoder_MethodCount(t *testing.T) {
-	var _ = SnapshotEncoder(nil)
 }
 
 // ─── GenerateRandomNickname ──────────────────────────────────────────

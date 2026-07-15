@@ -9,10 +9,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/slogctx"
-	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -23,12 +23,14 @@ type UserRepository struct {
 }
 
 // NewUserRepository creates a UserRepository.
-func NewUserRepository(pool pgPool) *UserRepository {
-	return &UserRepository{baseRepository: newBaseRepository(pool)}
+func NewUserRepository(pool pgPool, deps ...Deps) *UserRepository {
+	d := depsOrZero(deps...)
+	return &UserRepository{baseRepository: newBaseRepository(pool, d)}
 }
 
-func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "user_repo.CreateUser",
+// CreateUser inserts a new user record into the database.
+func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error { //nolint:funlen // multi-step user creation with validation+outbox
+	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.CreateUser",
 		trace.WithAttributes(attribute.String("db.system", "postgresql")),
 	)
 	defer span.End()
@@ -38,16 +40,22 @@ func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error {
 		return err
 	}
 
-	// email is intentionally included as plaintext in the outbox event payload.
-	// This is a transactional outbox pattern: the outbox event is written in the same
-	// DB transaction as the user insert, ensuring at-least-once delivery to downstream
-	// consumers (e.g., welcome emails, analytics). The outbox consumer is responsible
-	// for redacting or encrypting PII before forwarding to external systems.
+	outboxEmail, err := crypto.EncryptPIIForStorage(u.Email)
+	if err != nil {
+		return fmt.Errorf("encrypt email for outbox: %w", err)
+	}
+	// store-002: Encrypt nickname in outbox payload to prevent PII leakage
+	// through the outbox_events table. Email was already encrypted; nickname
+	// was the remaining plaintext PII field.
+	outboxNickname, err := crypto.EncryptPIIForStorage(u.Nickname)
+	if err != nil {
+		return fmt.Errorf("encrypt nickname for outbox: %w", err)
+	}
 	outboxPayload, err := json.Marshal(map[string]interface{}{
 		"event_type": "user.created",
 		"user_id":    u.ID,
-		"email":      u.Email,
-		"nickname":   u.Nickname,
+		"email":      outboxEmail,
+		"nickname":   outboxNickname,
 		"created_at": u.CreatedAt,
 	})
 	if err != nil {
@@ -94,8 +102,9 @@ func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error {
 	return nil
 }
 
+// GetUserByEmail retrieves a user by email address.
 func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "user_repo.GetUserByEmail",
+	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.GetUserByEmail",
 		trace.WithAttributes(attribute.String("db.system", "postgresql")),
 	)
 	defer span.End()
@@ -103,8 +112,11 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 	emailHash := crypto.EmailHMAC(email)
 	var u *domain.User
 	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+		// store-020: Wrap OR branch in parentheses so deleted_at IS NULL applies
+		// to the entire WHERE clause. Previously AND bound tighter than OR,
+		// causing soft-deleted users (email_hash match) to bypass the filter.
 		row := r.pool.QueryRow(ctx,
-			`SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE email_hash = $1 OR (email_hash IS NULL AND email = $2)`,
+			`SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE (email_hash = $1 OR (email_hash IS NULL AND email = $2)) AND deleted_at IS NULL`,
 			emailHash, email)
 
 		var user domain.User
@@ -129,8 +141,9 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 	return u, nil
 }
 
+// GetUserByID retrieves a user by ID.
 func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*domain.User, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "user_repo.GetUserByID",
+	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.GetUserByID",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.operation", "SELECT"),
@@ -141,7 +154,7 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 	var u *domain.User
 	err := r.withRetryRead(ctx, func(ctx context.Context) error {
 		row := r.pool.QueryRow(ctx,
-			`SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id = $1`, id)
+			`SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id = $1 AND deleted_at IS NULL`, id)
 
 		var user domain.User
 		if scanErr := row.Scan(&user.ID, &user.Email, &user.Nickname, &user.Palette, &user.CreatedAt, &user.LastLogin); scanErr != nil {
@@ -166,8 +179,9 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 	return u, nil
 }
 
+// UpdateUserLastLogin updates the last login timestamp for a user.
 func (r *UserRepository) UpdateUserLastLogin(ctx context.Context, id string) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "user_repo.UpdateUserLastLogin",
+	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.UpdateUserLastLogin",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.operation", "UPDATE"),
@@ -177,7 +191,7 @@ func (r *UserRepository) UpdateUserLastLogin(ctx context.Context, id string) err
 
 	return r.withRetryWrite(ctx, func(ctx context.Context) error {
 		_, execErr := r.pool.Exec(ctx,
-			`UPDATE users SET last_login = EXTRACT(EPOCH FROM NOW())::bigint WHERE id = $1`, id)
+			`UPDATE users SET last_login = (EXTRACT(EPOCH FROM NOW()) * 1000)::bigint WHERE id = $1`, id)
 		if execErr != nil {
 			slogctx.LoggerFromContext(ctx).Error("update user last_login failed",
 				"error", execErr, "user_id", id)
@@ -187,8 +201,9 @@ func (r *UserRepository) UpdateUserLastLogin(ctx context.Context, id string) err
 	})
 }
 
+// AnonymizeUser irreversibly anonymizes a user's personal data for GDPR compliance.
 func (r *UserRepository) AnonymizeUser(ctx context.Context, userID string) error {
-	ctx, span := telemetry.Tracer().Start(ctx, "user_repo.AnonymizeUser",
+	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.AnonymizeUser",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.operation", "UPDATE"),
@@ -211,6 +226,11 @@ func (r *UserRepository) AnonymizeUser(ctx context.Context, userID string) error
 		if execErr != nil {
 			return fmt.Errorf("anonymize user: %w", execErr)
 		}
+		if _, outboxErr := r.pool.Exec(ctx,
+			`UPDATE outbox_events SET payload = '{"anonymized":true}'::jsonb WHERE aggregate_type = 'user' AND aggregate_id = $1 AND processed_at IS NULL`,
+			userID); outboxErr != nil {
+			return fmt.Errorf("anonymize outbox: %w", outboxErr)
+		}
 		return nil
 	})
 	if err != nil {
@@ -221,13 +241,14 @@ func (r *UserRepository) AnonymizeUser(ctx context.Context, userID string) error
 	return nil
 }
 
+// HardDeleteExpiredUsers permanently deletes anonymized users older than the retention period.
 func (r *UserRepository) HardDeleteExpiredUsers(ctx context.Context, retentionDays int) (int64, error) {
 	if retentionDays <= 0 {
 		retentionDays = 30
 	}
 	cutoff := time.Now().AddDate(0, 0, -retentionDays).Unix()
 
-	ctx, span := telemetry.Tracer().Start(ctx, "user_repo.HardDeleteExpiredUsers",
+	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.HardDeleteExpiredUsers",
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
 			attribute.String("db.operation", "DELETE"),
@@ -249,8 +270,9 @@ func (r *UserRepository) HardDeleteExpiredUsers(ctx context.Context, retentionDa
 	return deleted, err
 }
 
+// GetGameResultsByUserID returns all game results for the given user.
 func (r *UserRepository) GetGameResultsByUserID(ctx context.Context, userID string) ([]domain.GameResult, error) {
-	ctx, span := telemetry.Tracer().Start(ctx, "user_repo.GetGameResultsByUserID",
+	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.GetGameResultsByUserID",
 		trace.WithAttributes(attribute.String("db.system", "postgresql")),
 	)
 	defer span.End()
@@ -277,4 +299,79 @@ func (r *UserRepository) GetGameResultsByUserID(ctx context.Context, userID stri
 		return nil, err
 	}
 	return results, nil
+}
+
+// GetGameSessionsByUserID retrieves all game sessions created by the given user.
+// auth-012: Required for complete GDPR data export.
+func (r *UserRepository) GetGameSessionsByUserID(ctx context.Context, userID string) ([]domain.GameSession, error) {
+	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.GetGameSessionsByUserID",
+		trace.WithAttributes(attribute.String("db.system", "postgresql")),
+	)
+	defer span.End()
+
+	var sessions []domain.GameSession
+	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+		rows, err := r.pool.Query(ctx,
+			`SELECT id, lobby_code, created_by, status, started_at, ended_at, final_score
+			 FROM game_sessions WHERE created_by = $1 ORDER BY COALESCE(started_at, 0) DESC`,
+			userID,
+		)
+		if err != nil {
+			return fmt.Errorf("query game sessions: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var gs domain.GameSession
+			if err := rows.Scan(&gs.ID, &gs.LobbyCode, &gs.CreatedBy, &gs.Status, &gs.StartedAt, &gs.EndedAt, &gs.FinalScore); err != nil {
+				return fmt.Errorf("scan game session: %w", err)
+			}
+			sessions = append(sessions, gs)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	if sessions == nil {
+		sessions = []domain.GameSession{}
+	}
+	return sessions, nil
+}
+
+// ─── Email helpers ────────────────────────────────────────────────────
+
+// prepareEmailForStorage returns HMAC hash and encrypted email for DB persistence.
+func prepareEmailForStorage(email string) (hash, stored string, err error) {
+	hash = crypto.EmailHMAC(email)
+	stored, err = encryptEmailForStorageFn(email)
+	if err != nil {
+		return "", "", fmt.Errorf("encrypt email: %w", err)
+	}
+	return hash, stored, nil
+}
+
+// Test seam: encryptEmailForStorageFn is injectable for unit tests (e.g. simulate encryption failures).
+var encryptEmailForStorageFn = crypto.EncryptPIIForStorage
+
+// emailFromStorage decrypts a stored email value (legacy plaintext passes through).
+func emailFromStorage(stored string) (string, error) {
+	plain, err := crypto.DecryptEmailFromStorage(stored)
+	if err != nil {
+		return "", fmt.Errorf("decrypt email: %w", err)
+	}
+	return plain, nil
+}
+
+// ─── Audit ───────────────────────────────────────────────────────────
+
+func logUserCreateAudit(ctx context.Context, u *domain.User) {
+	audit.Log(ctx, audit.AuditEntry{
+		Action:   "user.create",
+		ActorID:  u.ID,
+		Resource: "user/" + u.ID,
+		After: map[string]interface{}{
+			"id":       u.ID,
+			"nickname": u.Nickname,
+		},
+	})
 }

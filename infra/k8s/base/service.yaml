@@ -86,9 +86,21 @@ spec:
         readOnlyRootFilesystem: true
       # 滚动更新期间优雅排空 WebSocket：给正在进行的对局留出收尾时间。
       terminationGracePeriodSeconds: 60
+      # infra-020: topologySpreadConstraints 把 Pod 跨 zone 打散，避免单 zone 故障
+      # 导致 WebSocket 层整体不可用；maxSkew=1 容忍轻微不均衡以兼容 HPA 扩容节奏。
+      # whenUnsatisfiable: DoNotSchedule 强制至少跨 2 个 zone 调度（GKE multi-zone 集群）。
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: balloon-game
       containers:
         - name: balloon-game
-          image: gcr.io/PROJECT_ID/balloon-game
+          # infra-019: explicit tag (overlays may override via kustomize images:newTag).
+          # 避免隐式 :latest 拉取，使基线镜像版本可追溯。
+          image: gcr.io/PROJECT_ID/balloon-game:latest
           ports:
             - containerPort: 8080
           env:
@@ -137,12 +149,105 @@ spec:
                 secretKeyRef:
                   name: balloon-game-secrets
                   key: internal-proxy-secret
-            # 其余密钥（JWT_SECRET / ENCRYPTION_KEY / DATABASE_URL / REDIS_URL /
-            # REDIS_EPHEMERAL_URL / REDIS_REGIONAL_URL /
-            # METRICS_USER / METRICS_PASSWORD 等）同样来自 balloon-game-secrets。
-          envFrom:
-            - secretRef:
-                name: balloon-game-secrets
+            # infra-021: 用精确 env valueFrom 替代 envFrom 整 Secret 挂载——避免 Secret
+            # 中意外新增的 key 静默注入容器环境（最小权限 + 显式声明）。
+            # 仅声明 backend/internal/config/env.go 实际读取的密钥键。
+            - name: JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: jwt-private-key
+            - name: JWT_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: jwt-public-key
+            - name: ADMIN_JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: admin-jwt-private-key
+                  optional: true
+            - name: ADMIN_JWT_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: admin-jwt-public-key
+                  optional: true
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: encryption-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: redis-url
+            - name: REDIS_EPHEMERAL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: redis-ephemeral-url
+                  optional: true
+            - name: REDIS_REGIONAL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: redis-regional-url
+                  optional: true
+            - name: REDIS_PUBSUB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: redis-pubsub-url
+                  optional: true
+            - name: RESEND_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: resend-api-key
+                  optional: true
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: email-from
+                  optional: true
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: admin-password
+            - name: AUDIT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: audit-secret
+                  optional: true
+            - name: ALLOWED_ORIGINS
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: allowed-origins
+                  optional: true
+            - name: METRICS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: metrics-user
+                  optional: true
+            - name: METRICS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: balloon-game-secrets
+                  key: metrics-password
+                  optional: true
           # 企业为何需要：无 requests 时调度器无法合理调度，可能被驱逐到资源不足节点。
           resources:
             requests:

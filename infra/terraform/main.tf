@@ -12,6 +12,10 @@ terraform {
       # v2-R-26：provider version pinning（major version 锁定，允许 minor 修复）。
       version = "~> 5.0"
     }
+    random = {
+      source = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 }
 
@@ -59,15 +63,16 @@ resource "google_service_networking_connection" "private_vpc_connection" {
 }
 
 # PostgreSQL instance
-resource "google_sql_database_instance" "uppy_db" {
-  name             = "uppy-db"
+resource "google_sql_database_instance" "balloon_game_db" {
+  name             = "balloon-game-db"
   database_version = "POSTGRES_16"
   region           = var.region
   depends_on = [
     google_service_networking_connection.private_vpc_connection
   ]
   settings {
-    tier = "db-f1-micro"
+    tier = "db-custom-2-7680"
+    availability_type = "REGIONAL_AVAILABILITY"
     backup_configuration {
       enabled = true
     }
@@ -80,20 +85,48 @@ resource "google_sql_database_instance" "uppy_db" {
   deletion_protection = true
 }
 
-resource "google_sql_database" "uppy_database" {
-  name     = "uppy"
-  instance = google_sql_database_instance.uppy_db.name
+resource "google_sql_database" "balloon_game_database" {
+  name     = "balloon_game"
+  instance = google_sql_database_instance.balloon_game_db.name
 }
 
-resource "google_sql_user" "uppy_user" {
-  name     = "uppy"
-  instance = google_sql_database_instance.uppy_db.name
-  password = var.db_password
+# Database password managed via Google Secret Manager, not Terraform state.
+# Use `random_password` for initial creation, then `lifecycle ignore_changes` to
+# prevent drift. See Secret Manager for actual password value.
+resource "google_sql_user" "balloon_game_user" {
+  name     = "balloon_game"
+  instance = google_sql_database_instance.balloon_game_db.name
+  password = random_password.db_password.result
 }
 
-# Redis instance
-resource "google_redis_instance" "uppy_redis" {
-  name                    = "uppy-redis"
+resource "random_password" "db_password" {
+  length  = 24
+  special = false
+}
+
+# Least-privilege database roles (see docker/postgres/init/01-create-roles.sql for local dev).
+# These are created as Cloud SQL users with NOCREATEDB/NOCREATEROLE/NOSUPERUSER.
+# Migration 000009 grants TABLE-level permissions; this creates the login roles.
+resource "google_sql_user" "app_user" {
+  name     = "app_user"
+  instance = google_sql_database_instance.balloon_game_db.name
+  password = var.app_user_password
+  type     = "BUILT_IN"
+}
+
+resource "google_sql_user" "migrator" {
+  name     = "migrator"
+  instance = google_sql_database_instance.balloon_game_db.name
+  password = var.migrator_password
+  type     = "BUILT_IN"
+}
+
+# Redis instance (Memorystore). NOTE: infra/k8s/base/ also deploys self-hosted Redis
+# StatefulSets. Consolidation decision: production targets Memorystore; dev uses
+# self-hosted. See infra-008 audit finding — two Redis deployments coexist for
+# env separation. Future: remove self-hosted Redis from K8s manifests.
+resource "google_redis_instance" "balloon_game_redis" {
+  name                    = "balloon-game-redis"
   tier                    = "STANDARD_HA"
   memory_size_gb          = 1
   region                  = var.region
@@ -104,37 +137,37 @@ resource "google_redis_instance" "uppy_redis" {
   connect_mode            = "DIRECT_PEERING"
 }
 
-# Secret Manager secrets
+# Secret Manager secrets (renamed from uppy-* to balloon-game-* per infra-006 audit)
 resource "google_secret_manager_secret" "jwt_secret" {
-  secret_id = "uppy-jwt-secret"
+  secret_id = "balloon-game-jwt-secret"
   replication {
     auto {}
   }
 }
 
 resource "google_secret_manager_secret" "database_url" {
-  secret_id = "uppy-database-url"
+  secret_id = "balloon-game-database-url"
   replication {
     auto {}
   }
 }
 
 resource "google_secret_manager_secret" "redis_url" {
-  secret_id = "uppy-redis-url"
+  secret_id = "balloon-game-redis-url"
   replication {
     auto {}
   }
 }
 
 resource "google_secret_manager_secret" "resend_api_key" {
-  secret_id = "uppy-resend-api-key"
+  secret_id = "balloon-game-resend-api-key"
   replication {
     auto {}
   }
 }
 
 resource "google_secret_manager_secret" "admin_password" {
-  secret_id = "uppy-admin-password"
+  secret_id = "balloon-game-admin-password"
   replication {
     auto {}
   }
@@ -146,7 +179,26 @@ resource "google_secret_manager_secret" "admin_password" {
 # Manager / Cloud SQL / CRDB，免长期密钥。
 resource "google_service_account" "balloon_game" {
   account_id   = "balloon-game"
-  display_name = "Balloon Game GKE Workload Identity SA"
+  display_name = "Balloon Game GKE Workload Identity SA (legacy umbrella SA)"
+}
+
+# infra-028: 拆分最小权限 GSA——server/worker/migrator 各自独立身份。
+# 原 balloon-game SA 作为遗留 umbrella 保留向后兼容；新部署应使用下列细分 GSA。
+# 每个 GSA 只授予该服务实际需要的角色，避免横向越权（如 migrator 不应能读 Secret
+# Manager 中的 JWT 私钥）。
+resource "google_service_account" "balloon_game_server" {
+  account_id   = "balloon-game-server"
+  display_name = "Balloon Game WebSocket/Game server GSA (ADR-014)"
+}
+
+resource "google_service_account" "balloon_game_worker" {
+  account_id   = "balloon-game-worker"
+  display_name = "Balloon Game async worker GSA (email/outbox/gdpr cleanup)"
+}
+
+resource "google_service_account" "balloon_game_migrator" {
+  account_id   = "balloon-game-migrator"
+  display_name = "Balloon Game DB migrator GSA (DDL-only, ci-cd job)"
 }
 
 # Secret Manager access granted to the GKE Workload Identity GSA (not Cloud Run).
@@ -178,6 +230,100 @@ resource "google_project_iam_member" "cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.balloon_game.email}"
+}
+
+# infra-028: 细分 GSA 的 IAM 绑定（最小权限）。
+# - server: 读 Secret（含 JWT/DB URL/Redis URL）；Cloud SQL client（pgx 直连）。
+# - worker: 读 Secret（DB URL/Redis URL/Resend key）；Cloud SQL client。
+# - migrator: Cloud SQL client + Secret Manager Viewer（仅读 database-url）；不授予其它 Secret。
+resource "google_project_iam_member" "server_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.balloon_game_server.email}"
+}
+
+resource "google_project_iam_member" "worker_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.balloon_game_worker.email}"
+}
+
+resource "google_project_iam_member" "migrator_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.balloon_game_migrator.email}"
+}
+
+# Server GSA 读所有应用 Secret（与遗留 umbrella SA 一致，便于逐步迁移）。
+resource "google_secret_manager_secret_iam_member" "server_secret_accessor" {
+  for_each = toset([
+    google_secret_manager_secret.jwt_secret.secret_id,
+    google_secret_manager_secret.database_url.secret_id,
+    google_secret_manager_secret.redis_url.secret_id,
+    google_secret_manager_secret.resend_api_key.secret_id,
+    google_secret_manager_secret.admin_password.secret_id,
+  ])
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.balloon_game_server.email}"
+}
+
+# Worker GSA 仅读 DB/Redis/Resend（不需要 JWT/admin password）。
+resource "google_secret_manager_secret_iam_member" "worker_secret_accessor" {
+  for_each = toset([
+    google_secret_manager_secret.database_url.secret_id,
+    google_secret_manager_secret.redis_url.secret_id,
+    google_secret_manager_secret.resend_api_key.secret_id,
+  ])
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.balloon_game_worker.email}"
+}
+
+# Migrator GSA 仅读 database-url（DDL 期需要）。
+resource "google_secret_manager_secret_iam_member" "migrator_secret_accessor" {
+  secret_id = google_secret_manager_secret.database_url.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.balloon_game_migrator.email}"
+}
+
+# Workload Identity 绑定——K8s SA → GSA。K8s manifest 需相应增加 server/worker SA。
+resource "google_service_account_iam_member" "workload_identity_server" {
+  service_account_id = google_service_account.balloon_game_server.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game-server]"
+}
+
+resource "google_service_account_iam_member" "workload_identity_worker" {
+  service_account_id = google_service_account.balloon_game_worker.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game-worker]"
+}
+
+resource "google_service_account_iam_member" "workload_identity_migrator" {
+  service_account_id = google_service_account.balloon_game_migrator.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game-migrator]"
+}
+
+# infra-025: 全局 Anycast 静态 IP + Google-managed 证书纳入 Terraform 管理。
+# 此前 multicluster-ingress.yaml 通过注解引用 balloon-game-global-ip /
+# balloon-game-cert 的名字，但资源本身未在 IaC 中声明，导致环境重建时遗漏。
+# 这里以 google_compute_global_address + google_compute_managed_ssl_certificate 显式声明。
+resource "google_compute_global_address" "balloon_game_global_ip" {
+  name         = "balloon-game-global-ip"
+  description  = "Global Anycast IP for balloon-game MultiClusterIngress (ADR-014)"
+  address_type = "EXTERNAL"
+  ip_version   = "IPV4"
+}
+
+resource "google_compute_managed_ssl_certificate" "balloon_game_cert" {
+  name        = "balloon-game-cert"
+  description = "Managed TLS cert covering multi-region WSS subdomains + apex (ADR-014/016)"
+  managed {
+    # domains 列表应通过 var 配置；此处给出典型域，生产覆盖由 tfvars 注入。
+    domains = ["balloon.example", "*.balloon.example"]
+  }
 }
 
 

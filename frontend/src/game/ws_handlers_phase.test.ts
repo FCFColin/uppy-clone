@@ -21,12 +21,15 @@ const mocks = vi.hoisted(() => ({
   updateUI: vi.fn(),
 }));
 
-vi.mock('./state_types.js', () => ({ state: mocks.state }));
+vi.mock('./state_types.js', () => ({
+  state: mocks.state,
+  getState: () => mocks.state,
+}));
 vi.mock('./phase_sync.js', () => ({
   applyPhaseChange: mocks.applyPhaseChange,
   shouldApplySnapshotPhase: mocks.shouldApplySnapshotPhase,
 }));
-vi.mock('./ui.js', () => ({ updateUI: mocks.updateUI }));
+vi.mock('./ui_update.js', () => ({ updateUI: mocks.updateUI }));
 vi.mock('./tutorial.js', () => ({
   runTutorialIfNeeded: vi.fn(() => Promise.resolve()),
 }));
@@ -39,7 +42,7 @@ vi.mock('../shared/data/best_score_cookie.js', () => ({
   fetchUserBestScore: vi.fn(() => Promise.resolve(999)),
 }));
 
-import { handleGameStateChange, handleRestartStatus } from './ws_handlers_phase.js';
+import { handleGameStateChange, handleRestartStatus } from './ws_handlers.js';
 
 describe('handleGameStateChange', () => {
   beforeEach(() => {

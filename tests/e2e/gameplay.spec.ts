@@ -89,10 +89,8 @@ test.describe('Gameplay Smoke Tests', () => {
     await expect(page).toHaveTitle(/.+/, { timeout: 10000 });
   });
 
-  test('page contains game element', async ({ page }) => {
+  test('page contains quickplay button', async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('body', { timeout: 10000 });
-    const body = page.locator('body');
-    await expect(body).toBeVisible();
+    await expect(page.locator('#quickplay-btn')).toBeVisible({ timeout: 10000 });
   });
 });

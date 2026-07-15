@@ -93,7 +93,7 @@ func TestValidateTapRequest(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UnixMilli()
-	room := &Room{state: NewGameState("TEST", testRNG())}
+	room := &Room{state: NewGameState("TEST", 42, testRNG())}
 
 	t.Run("rejects when not playing", func(t *testing.T) {
 		room.state.Phase = domain.PhaseWaiting
@@ -131,7 +131,7 @@ func TestValidateTapRequest(t *testing.T) {
 func TestDecodeTapPayload(t *testing.T) {
 	t.Parallel()
 
-	room := &Room{state: NewGameState("TEST", testRNG())}
+	room := &Room{state: NewGameState("TEST", 42, testRNG())}
 
 	t.Run("rejects short payload", func(t *testing.T) {
 		_, _, ok := room.decodeTapPayload([]byte{0, 1, 2})
@@ -200,7 +200,7 @@ func TestUpdatePlayerStats(t *testing.T) {
 	t.Parallel()
 
 	t.Run("increments score", func(t *testing.T) {
-		room := &Room{state: NewGameState("TEST", testRNG())}
+		room := &Room{state: NewGameState("TEST", 42, testRNG())}
 		room.state.Balloon.Score = 5
 		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
 
@@ -214,7 +214,7 @@ func TestUpdatePlayerStats(t *testing.T) {
 	})
 
 	t.Run("calculates cooldown based on connected count", func(t *testing.T) {
-		room := &Room{state: NewGameState("TEST", testRNG())}
+		room := &Room{state: NewGameState("TEST", 42, testRNG())}
 		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
 		room.state.Players["p2"] = &domain.PlayerState{Nickname: "Player2", PlayerIndex: 1}
 		room.state.Players["p3"] = &domain.PlayerState{Nickname: "Player3", PlayerIndex: 2}
@@ -375,10 +375,13 @@ func TestRoom_HandleMessage_RateLimitDisconnect(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		up := websocket.Upgrader{}
-		up.Upgrade(w, req, nil)
+		_, _ = up.Upgrade(w, req, nil)
 	}))
 	defer server.Close()
-	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -423,3 +426,28 @@ func TestRoom_handleSetNicknameMsg_RejectedNickname(t *testing.T) {
 }
 
 // encodeTapTestPayload helper: creates a mock tap payload for testing decodeTapPayload.
+
+func TestRoom_handleSetNicknameMsg_EmptySanitized(t *testing.T) {
+	r := NewRoom("EMP", nil, nil, config.DefaultTimeoutConfig(), 0)
+	player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
+	// valid framing but nickname becomes empty after sanitize
+	payload := append([]byte{byte(3)}, []byte("   ")...)
+	r.mu.Lock()
+	r.handleSetNicknameMsg(player, payload)
+	r.mu.Unlock()
+	if player.NicknameConfirmed {
+		t.Fatal("whitespace-only nickname should not confirm")
+	}
+}
+
+func TestRoom_handleSetNicknameMsg_AcceptsValidNickname(t *testing.T) {
+	r := NewRoom("OK", nil, nil, config.DefaultTimeoutConfig(), 0)
+	player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
+	payload := append([]byte{byte(len("Valid"))}, []byte("Valid")...)
+	r.mu.Lock()
+	r.handleSetNicknameMsg(player, payload)
+	r.mu.Unlock()
+	if !player.NicknameConfirmed {
+		t.Fatal("valid nickname should confirm")
+	}
+}

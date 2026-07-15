@@ -34,8 +34,9 @@ spec:
           name: ws_connections
         target:
           type: AverageValue
-          # 每实例目标 ~6000 连接（舱壁上限 10000，留 40% 余量给突发与排空）。
-          averageValue: "6000"
+          # 每实例目标 ~800 连接（硬上限 MaxWSConnections=1000，留 20% 余量给突发与排空）。
+          # 审计 project-05-002: 原值 6000 与 MaxWSConnections=1000 矛盾，永远不会触发。
+          averageValue: "800"
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 30

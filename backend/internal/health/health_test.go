@@ -93,11 +93,7 @@ func TestReadyHandler_PostgresUnavailable(t *testing.T) {
 }
 
 func TestReadyHandler_PostgresOK(t *testing.T) {
-	prev := poolPingForTest
-	poolPingForTest = func(context.Context) error { return nil }
-	t.Cleanup(func() { poolPingForTest = prev })
-
-	checker := NewChecker(new(pgxpool.Pool), nil)
+	checker := NewChecker(new(pgxpool.Pool), nil).WithPoolPing(func(context.Context) error { return nil })
 	rec := httptest.NewRecorder()
 	checker.ReadyHandler(rec, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
 	if rec.Code != http.StatusOK {
