@@ -19,7 +19,7 @@ COPY backend/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /server ./cmd/server
 
 # Stage 3: Runtime — distroless nonroot (K8s restricted profile)
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:aef9602f8710ec12bde19d593fed1f76c708531bb7aba205110f1029786ead7b
 WORKDIR /app
 COPY --from=go-builder --chown=nonroot:nonroot /server ./server
 COPY --from=frontend-builder --chown=nonroot:nonroot /app/frontend/dist ./dist
