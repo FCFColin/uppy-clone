@@ -330,7 +330,7 @@ func (r *Room) readPump(playerID string, conn *websocket.Conn, wsCtx context.Con
 		msgName := protocol.WSMessageTypeName(msgType)
 		handleStart := time.Now()
 		span := r.maybeStartReadSpan(wsCtx, playerID, msgType, &tapSpanCounter)
-		if err := r.handleMessageFunc(r, playerID, msgType, payload); err != nil {
+		if err := r.HandleMessage(playerID, msgType, payload); err != nil {
 			if span != nil {
 				span.RecordError(err)
 			}

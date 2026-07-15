@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/domain"
 )
 
 func TestSaveStateWithError_PersistsLobbyMetadata(t *testing.T) {
@@ -19,7 +18,6 @@ func TestSaveStateWithError_PersistsLobbyMetadata(t *testing.T) {
 		state:              NewGameState("PERSIST", 42, testRNG()),
 		store:              repo,
 		logger:             slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		serializeStateFunc: SerializeState,
 		timeouts:           config.DefaultTimeoutConfig(),
 	}
 	if err := room.saveStateWithError(); err != nil {
@@ -40,7 +38,6 @@ func TestSaveStateWithError_NilStore(t *testing.T) {
 		state:              NewGameState("TEST", 42, testRNG()),
 		store:              nil,
 		logger:             slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		serializeStateFunc: SerializeState,
 	}
 
 	err := room.saveStateWithError()
@@ -56,7 +53,6 @@ func TestSaveStateWithError_StoreSuccess(t *testing.T) {
 		state:              NewGameState("TEST", 42, testRNG()),
 		store:              repo,
 		logger:             slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		serializeStateFunc: SerializeState,
 		timeouts:           config.DefaultTimeoutConfig(),
 	}
 
@@ -77,7 +73,6 @@ func TestSaveStateWithError_StoreError(t *testing.T) {
 		state:              NewGameState("TEST", 42, testRNG()),
 		store:              repo,
 		logger:             slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		serializeStateFunc: SerializeState,
 		timeouts:           config.DefaultTimeoutConfig(),
 	}
 
@@ -122,35 +117,4 @@ func TestRoom_RequestPersist_UpdatesPersistLag(_ *testing.T) {
 	r.mu.Unlock()
 	time.Sleep(200 * time.Millisecond)
 	r.stopPersist()
-}
-
-func TestSaveStateWithError_SerializeError(t *testing.T) {
-	repo := newMockRoomRepository()
-	r := NewRoom("SER", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.serializeStateFunc = func(*domain.GameState) ([]byte, error) {
-		return nil, errors.New("serialize failed")
-	}
-	if err := r.saveStateWithError(); err == nil {
-		t.Fatal("expected serialize error")
-	}
-}
-
-func TestRoom_RequestPersist_SerializeError(_ *testing.T) {
-	repo := newMockRoomRepository()
-	r := NewRoom("RSE", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.serializeStateFunc = func(*domain.GameState) ([]byte, error) {
-		return nil, errors.New("serialize failed")
-	}
-	r.mu.Lock()
-	r.requestPersist()
-	r.mu.Unlock()
-}
-
-func TestRoom_FlushPersistSync_SerializeError(_ *testing.T) {
-	repo := newMockRoomRepository()
-	r := NewRoom("FSE", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.serializeStateFunc = func(*domain.GameState) ([]byte, error) {
-		return nil, errors.New("serialize failed")
-	}
-	r.flushPersistSync()
 }

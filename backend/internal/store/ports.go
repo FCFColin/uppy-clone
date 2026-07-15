@@ -7,7 +7,8 @@ import (
 	"github.com/sethvargo/go-retry"
 	"github.com/sony/gobreaker/v2"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop")
+	"go.opentelemetry.io/otel/trace/noop"
+)
 
 // PoolMetricsRecorder abstracts Prometheus metrics for the PG connection pool.
 type PoolMetricsRecorder interface {

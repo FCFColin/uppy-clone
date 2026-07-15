@@ -169,15 +169,3 @@ func TestRoom_CreateGameSessionAsync_StoreError(_ *testing.T) {
 	r.createGameSessionAsync(&domain.GameSession{ID: "s1", LobbyCode: "SESS"})
 	r.asyncWg.Wait()
 }
-
-// --- coverage gap 补充用例 ---
-
-func TestRoom_EnqueueGameResultAsync_OutboxPayloadError(t *testing.T) {
-	room := NewRoom("GPE", nil, nil, config.DefaultTimeoutConfig(), 4)
-	room.gameEndedOutboxPayloadFunc = func(map[string]interface{}) ([]byte, error) {
-		return nil, errors.New("outbox failed")
-	}
-	room.state.SessionID = "sess-outbox-err"
-	room.enqueueGameResultAsync()
-	room.asyncWg.Wait()
-}

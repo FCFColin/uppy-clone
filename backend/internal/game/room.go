@@ -273,13 +273,13 @@ type Room struct {
 	outbound     *OutboundManager
 	syncOutbound bool // true = immediate delivery (unit tests)
 
-	state           *domain.GameState
-	usedNames       map[string]bool
-	hub             *Hub
-	store           RoomRepository
-	timeouts        config.TimeoutConfig
-	logger          *slog.Logger
-	maxPlayers      int // 每房间最大玩家数
+	state      *domain.GameState
+	usedNames  map[string]bool
+	hub        *Hub
+	store      RoomRepository
+	timeouts   config.TimeoutConfig
+	logger     *slog.Logger
+	maxPlayers int // 每房间最大玩家数
 
 	lobbyCode string // 房间码，不可变，在 NewRoom 中设置
 
@@ -300,11 +300,6 @@ type Room struct {
 	// rng is the per-room deterministic RNG for game ticks.
 	// Seed is stored in GameState for replayability.
 	rng RNGSource
-
-	// Test-injectable function fields (replaces global test seams)
-	serializeStateFunc         func(*domain.GameState) ([]byte, error)
-	gameEndedOutboxPayloadFunc func(map[string]interface{}) ([]byte, error)
-	handleMessageFunc          func(r *Room, playerID string, msgType byte, payload []byte) error
 }
 
 // NewRoom 创建新房间
@@ -331,11 +326,6 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 		maxPlayers: maxPlayers,
 		lobbyCode:  code,
 		rng:        roomRNG,
-		serializeStateFunc:         SerializeState,
-		gameEndedOutboxPayloadFunc: defaultGameEndedOutboxPayload,
-		handleMessageFunc: func(r *Room, playerID string, msgType byte, payload []byte) error {
-			return r.HandleMessage(playerID, msgType, payload)
-		},
 	}
 	r.outbound = NewOutboundManager(code, &r.syncOutbound, r, r.logger, &r.asyncWg)
 	r.persist = newPersistManager(r, r.logger, &r.asyncWg)
@@ -413,7 +403,7 @@ func (r *Room) SerializeStateJSON() ([]byte, string, error) {
 	if r.state == nil {
 		return nil, "", nil
 	}
-	data, err := r.serializeStateFunc(r.state)
+	data, err := SerializeState(r.state)
 	if err != nil {
 		return nil, "", err
 	}

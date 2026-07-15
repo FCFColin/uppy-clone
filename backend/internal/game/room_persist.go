@@ -204,7 +204,7 @@ func (r *Room) saveStateWithError() error {
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
 	defer cancel()
 
-	data, err := r.serializeStateFunc(r.state)
+	data, err := SerializeState(r.state)
 	if err != nil {
 		return fmt.Errorf("serialize state: %w", err)
 	}
@@ -236,7 +236,7 @@ func (r *Room) canPersist() bool {
 }
 
 func (r *Room) serializeState() ([]byte, error) {
-	return r.serializeStateFunc(r.state)
+	return SerializeState(r.state)
 }
 
 // asyncSaveState serializes state and queues a debounced persist outside the tick lock.
@@ -348,7 +348,7 @@ func (r *Room) enqueueGameResultOutbox(sessionID, roomCode string, finalScore in
 		"ended_at":    endedAt,
 	}
 
-	outboxPayload, err := r.gameEndedOutboxPayloadFunc(payload)
+	outboxPayload, err := defaultGameEndedOutboxPayload(payload)
 	if err != nil {
 		metrics.GameResultMarshalFailures.Inc()
 		r.logger.Error("marshal game ended outbox payload, skipping outbox insert",

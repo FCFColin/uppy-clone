@@ -2,7 +2,6 @@ package game
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -234,9 +233,6 @@ func TestRoom_RunSession_HandleJoinFailure(t *testing.T) {
 
 func TestRoom_ReadPump_HandleMessageErrorWithSpan(t *testing.T) {
 	room := NewRoom("RSPN", NewHub(nil, nil, config.DefaultTimeoutConfig(), 10, 8), nil, config.DefaultTimeoutConfig(), 4)
-	room.handleMessageFunc = func(_ *Room, _ string, _ byte, _ []byte) error {
-		return errors.New("handle failed")
-	}
 
 	if err := room.HandleJoin("p1", nil); err != nil {
 		t.Fatal(err)

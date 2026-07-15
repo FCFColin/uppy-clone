@@ -13,8 +13,7 @@ import (
 )
 
 func TestLogUserCreateAudit_DoesNotPanic(_ *testing.T) {
-	repo := NewUserRepository(nil)
-	repo.logUserCreateAudit(context.Background(), &domain.User{
+	logUserCreateAudit(context.Background(), &domain.User{
 		ID:       "user-1",
 		Nickname: "TestPlayer",
 	})
