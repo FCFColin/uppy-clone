@@ -47,11 +47,7 @@ variable "vpc_name" {
   }
 }
 
-# v2-R-148：trusted_proxy_cidrs 与 K8s 层对齐。
-# 对应 infra/k8s/base/region-config.yaml:trusted-proxy-cidrs（逗号分隔），
-# 由 ci-cd.yml 将 GitHub Secrets.TRUSTED_PROXY_CIDRS 注入 overlay 占位符。
-# 这里用 list(string) 符合 Terraform 惯例；部署时 join(",") 即得 ConfigMap 值。
-# 后端 backend/internal/middleware/proxy.go 据此解析 X-Forwarded-For。
+# v2-R-148: trusted_proxy_cidrs 与 K8s region-config.yaml 对齐，ci-cd.yml 注入 overlay，backend/internal/middleware/proxy.go 解析 X-Forwarded-For。
 variable "trusted_proxy_cidrs" {
   description = "Trusted proxy CIDRs (GKE Ingress / L7 LB) allowed to set X-Forwarded-* headers. Maps to K8s ConfigMap trusted-proxy-cidrs (comma-joined)."
   type        = list(string)

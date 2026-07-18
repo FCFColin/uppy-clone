@@ -86,8 +86,7 @@ func (h *LobbyHandler) validateWSOrigin(w http.ResponseWriter, r *http.Request) 
 
 func (h *LobbyHandler) reserveWSConnection(w http.ResponseWriter) bool {
 	if !h.hub.TryReserveWSConnection() {
-		domain.New(http.StatusServiceUnavailable, "Service Unavailable",
-			"WebSocket connection limit reached, please try again later").Write(w)
+		domain.ServiceUnavailable("WebSocket connection limit reached, please try again later").Write(w)
 		return false
 	}
 	return true

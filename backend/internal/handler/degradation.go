@@ -51,7 +51,7 @@ func RequireHub(hub interface{ RoomCount() int }, w http.ResponseWriter) bool {
 	if hub != nil {
 		return true
 	}
-	domain.New(http.StatusServiceUnavailable, "Service Unavailable", "Room service temporarily unavailable").Write(w)
+	domain.ServiceUnavailable("Room service temporarily unavailable").Write(w)
 	return false
 }
 

@@ -21,7 +21,6 @@ import (
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/rbac"
 	"github.com/uppy-clone/backend/internal/store"
-	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 	"golang.org/x/crypto/bcrypt"

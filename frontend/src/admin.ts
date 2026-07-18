@@ -10,6 +10,7 @@ export {};
 
 import { bindLoginEvents } from './admin/login.js';
 import { loadConfig, saveConfig, type AdminConfig } from './admin/config.js';
+import { showToast } from './shared/ui/utils.js';
 
 const loginSection = document.getElementById('login-section')!;
 const configSection = document.getElementById('config-section')!;
@@ -19,14 +20,6 @@ const resendKeyInput = document.getElementById('resend-key') as HTMLInputElement
 const emailFromInput = document.getElementById('email-from') as HTMLInputElement;
 const newAdminPasswordInput = document.getElementById('new-admin-password') as HTMLInputElement;
 const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
-const toastEl = document.getElementById('toast')!;
-
-function showToast(msg: string, type: 'success' | 'error'): void {
-  toastEl.textContent = msg;
-  toastEl.className = `toast toast-${type}`;
-  toastEl.style.display = 'block';
-  setTimeout(() => { toastEl.style.display = 'none'; }, 3000);
-}
 
 function updateEmailStatus(enabled: boolean): void {
   if (enabled) {

@@ -141,10 +141,8 @@ func (h *AdminHandler) signAdminTokenDefault() (string, string, error) {
 
 // revokeAllAdminSessions revokes all active admin JWTs by iterating the
 // tracked jtis in Redis. Called on password change to force re-login (H5).
+// Caller must guard with `h.redis != nil` check.
 func (h *AdminHandler) revokeAllAdminSessions(ctx context.Context) {
-	if h.redis == nil {
-		return
-	}
 	jtis, err := h.redis.GetAllAdminJTIs(ctx)
 	if err != nil {
 		slog.Warn("failed to get admin jtis for revocation", "error", err)
@@ -253,7 +251,5 @@ func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		RequestID: middleware.GetRequestID(ctx),
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessage: "Logged out"})
+	writeJSON(w, http.StatusOK, map[string]string{jsonMessage: "Logged out"})
 }

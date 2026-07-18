@@ -22,8 +22,8 @@ import (
 // maxFailedLoginAttempts is the threshold at which an IP is locked out.
 const maxFailedLoginAttempts = 5
 
-// loginLockDuration is how long an IP remains locked out after too many failures.
-const loginLockDuration = 15 * time.Minute
+// loginLockDuration is how long an IP/account is locked after max failed attempts.
+const loginLockDuration = config.AdminTokenTTL
 
 // Login handles POST /api/admin/login
 func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -270,8 +270,7 @@ func (h *AdminHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	h.auditConfigChange(ctx, r, beforeConfig, storedConfig)
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessage: "Config updated"})
+	writeJSON(w, http.StatusOK, map[string]string{jsonMessage: "Config updated"})
 }
 
 // applyConfigUpdates applies the requested updates to storedConfig.

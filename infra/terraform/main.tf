@@ -24,22 +24,13 @@ provider "google" {
   region  = var.region
 }
 
-# VPC：引用项目内现有 VPC（默认 default），用于 Cloud SQL/Redis 私网连接。
-# 决策：VPC 由项目默认提供，不自创建，避免误删整张网络波及其他资源。
+# VPC：引用项目内现有 VPC（默认 default）用于 Cloud SQL/Redis 私网连接；不自创建避免误删网络。
 data "google_compute_network" "balloon_vpc" {
   name    = var.vpc_name
   project = var.project_id
 }
 
-# GKE 集群（v2-C-01 折中方案：data 块引用现有手动创建的集群，不自创建）。
-#
-# 决策：GKE 集群 + node pool 手动管理，Terraform 仅通过 data 引用。
-#   1. 集群控制平面生命周期长、变更低频，误删代价极高（不可重建历史数据）；
-#   2. 多区域集群（us-east1/europe-west1/asia-southeast1，ADR-014）跨 region
-#      apply 复杂度高，与现有 ci-cd.yml 逐区域 kubectl 部署流程并存易冲突；
-#   3. node pool 启用自动扩缩容，与 Terraform 生命周期管理冲突（drift 频繁）。
-# 见 ADR-014（多区域拓扑）。若后续需全 IaC 化，应新建 ADR 评估迁移路径。
-# v2-R-23：var.gke_regions 默认含 3 个区域，与 ci-cd.yml deploy matrix 对齐。
+# GKE 集群手动管理，Terraform 仅 data 引用（v2-C-01/ADR-014）：控制平面误删代价极高、多区域 apply 复杂、node pool autoscaler 与 TF 生命周期冲突。
 data "google_container_cluster" "balloon_game" {
   for_each = toset(var.gke_regions)
   name     = "${var.gke_cluster_name_prefix}-${each.value}"
@@ -90,9 +81,7 @@ resource "google_sql_database" "balloon_game_database" {
   instance = google_sql_database_instance.balloon_game_db.name
 }
 
-# Database password managed via Google Secret Manager, not Terraform state.
-# Use `random_password` for initial creation, then `lifecycle ignore_changes` to
-# prevent drift. See Secret Manager for actual password value.
+# Database password managed via random_password + Secret Manager (not TF state).
 resource "google_sql_user" "balloon_game_user" {
   name     = "balloon_game"
   instance = google_sql_database_instance.balloon_game_db.name
@@ -104,9 +93,7 @@ resource "random_password" "db_password" {
   special = false
 }
 
-# Least-privilege database roles (see docker/postgres/init/01-create-roles.sql for local dev).
-# These are created as Cloud SQL users with NOCREATEDB/NOCREATEROLE/NOSUPERUSER.
-# Migration 000009 grants TABLE-level permissions; this creates the login roles.
+# Least-privilege DB roles (NOCREATEDB/NOCREATEROLE/NOSUPERUSER); migration 000009 grants TABLE-level permissions.
 resource "google_sql_user" "app_user" {
   name     = "app_user"
   instance = google_sql_database_instance.balloon_game_db.name
@@ -121,10 +108,7 @@ resource "google_sql_user" "migrator" {
   type     = "BUILT_IN"
 }
 
-# Redis instance (Memorystore). NOTE: infra/k8s/base/ also deploys self-hosted Redis
-# StatefulSets. Consolidation decision: production targets Memorystore; dev uses
-# self-hosted. See infra-008 audit finding — two Redis deployments coexist for
-# env separation. Future: remove self-hosted Redis from K8s manifests.
+# Redis (Memorystore). 生产用此; dev 用 infra/k8s/base/redis.yaml 自托管 (infra-008).
 resource "google_redis_instance" "balloon_game_redis" {
   name                    = "balloon-game-redis"
   tier                    = "STANDARD_HA"
@@ -137,7 +121,7 @@ resource "google_redis_instance" "balloon_game_redis" {
   connect_mode            = "DIRECT_PEERING"
 }
 
-# Secret Manager secrets (renamed from uppy-* to balloon-game-* per infra-006 audit)
+# Secret Manager secrets (renamed from uppy-* to balloon-game-* per infra-006).
 resource "google_secret_manager_secret" "jwt_secret" {
   secret_id = "balloon-game-jwt-secret"
   replication {
@@ -173,19 +157,13 @@ resource "google_secret_manager_secret" "admin_password" {
   }
 }
 
-# GKE Workload Identity service account (ADR-014).
-# 取代 Cloud Run compute 默认 SA：WebSocket 层运行在 GKE（owner 反向代理需实例间可
-# 寻址，ADR-005/013/016），Pod 通过 Workload Identity 以此 GSA 身份访问 Secret
-# Manager / Cloud SQL / CRDB，免长期密钥。
+# GKE Workload Identity SA (ADR-014/005/013/016): Pod 以此 GSA 身份访问 Secret Manager / Cloud SQL / CRDB，免长期密钥。
 resource "google_service_account" "balloon_game" {
   account_id   = "balloon-game"
   display_name = "Balloon Game GKE Workload Identity SA (legacy umbrella SA)"
 }
 
-# infra-028: 拆分最小权限 GSA——server/worker/migrator 各自独立身份。
-# 原 balloon-game SA 作为遗留 umbrella 保留向后兼容；新部署应使用下列细分 GSA。
-# 每个 GSA 只授予该服务实际需要的角色，避免横向越权（如 migrator 不应能读 Secret
-# Manager 中的 JWT 私钥）。
+# infra-028: 拆分最小权限 GSA——server 独立身份（worker/migrator 已删），原 balloon-game SA 作为遗留 umbrella 保留。
 resource "google_service_account" "balloon_game_server" {
   account_id   = "balloon-game-server"
   display_name = "Balloon Game WebSocket/Game server GSA (ADR-014)"
@@ -205,17 +183,14 @@ resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   member    = "serviceAccount:${google_service_account.balloon_game.email}"
 }
 
-# Bind the Kubernetes ServiceAccount (balloon-game in namespace balloon-game,
-# created by infra/k8s/base/service.yaml) to the GSA via Workload Identity.
-# 每区域集群共用同一 GSA；overlay 的 SA 注解 iam.gke.io/gcp-service-account 指向它。
+# Bind K8s SA (balloon-game) to GSA via Workload Identity; 每区域集群共用同一 GSA，overlay 注解 iam.gke.io/gcp-service-account 指向它。
 resource "google_service_account_iam_member" "workload_identity" {
   service_account_id = google_service_account.balloon_game.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game]"
 }
 
-# Cloud SQL client access for the Workload Identity GSA (single-region PostgreSQL;
-# multi-region CRDB uses its own client certs, see docs/data/cockroachdb-migration.md).
+# Cloud SQL client access for the GKE Workload Identity GSA (single-region PostgreSQL; multi-region CRDB uses its own client certs).
 resource "google_project_iam_member" "cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"

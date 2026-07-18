@@ -1,14 +1,5 @@
-# WebSocket tier — GKE StatefulSet + headless Service (ADR-005).
-#
-# 为什么不是 Cloud Run / Knative：owner 反向代理需要"任意实例都能把连接转发到
-# 拥有该房间的实例"，这要求实例之间网络可寻址。Cloud Run 实例彼此不可寻址，
-# 与按房间分片路由冲突（见 ADR-013 更新）。因此 WebSocket 层运行在 GKE：
-#   - headless Service 为每个 Pod 提供稳定 DNS + 直接 Pod IP 可达性
-#   - StatefulSet 提供稳定网络身份（balloon-game-0、-1 ...）
-#   - Pod 通过 downward API 注入 POD_IP，启动时拼成 INSTANCE_ADDR 写入 Redis 房间注册表
-#
-# 房间归属是动态的（owner 实例信息存 Redis，区域内租约接管故障切换 ADR-016），
-# 因此不依赖 StatefulSet 的持久卷；选用 StatefulSet 仅为稳定网络身份。
+# WebSocket tier — GKE StatefulSet + headless Service (ADR-005/013/014/016):
+# owner 反向代理需实例间可寻址，Cloud Run 不可达；StatefulSet 提供稳定网络身份，房间归属动态存 Redis 不依赖 PV。
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -16,8 +7,7 @@ metadata:
   name: balloon-game
   labels:
     app: balloon-game
-  # 每区域 overlay 追加注解：iam.gke.io/gcp-service-account=balloon-game@<project>.iam.gserviceaccount.com
-  # 实现 Workload Identity 绑定（ADR-014）。
+  # 每区域 overlay 追加注解 iam.gke.io/gcp-service-account 实现 Workload Identity 绑定 (ADR-014)。
 ---
 apiVersion: v1
 kind: Service
@@ -26,7 +16,7 @@ metadata:
   labels:
     app: balloon-game
 spec:
-  # Headless：clusterIP=None → 每个 Pod 获得独立 DNS A 记录，实例间可直接拨号。
+  # Headless: clusterIP=None → 每个 Pod 获得独立 DNS A 记录，实例间可直接拨号。
   clusterIP: None
   selector:
     app: balloon-game
@@ -42,8 +32,7 @@ metadata:
   labels:
     app: balloon-game
 spec:
-  # 面向客户端的入口 Service（由 Ingress / LoadBalancer 暴露）。
-  # 客户端连到任意实例即可——非 owner 实例会把 WebSocket 反向代理到 owner。
+  # 面向客户端的入口 Service（由 Ingress/LB 暴露）；非 owner 实例会把 WS 反向代理到 owner。
   type: ClusterIP
   selector:
     app: balloon-game
@@ -75,8 +64,7 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
-      # Workload Identity：Pod 以 GСР IAM 服务账户身份访问 Cloud SQL/CRDB/Secret
-      # Manager，免长期密钥（ADR-014）。每区域 overlay 把该 KSA 绑定到区域 GSA。
+      # Workload Identity (ADR-014): Pod 以 GCP IAM SA 身份访问 Cloud SQL/CRDB/Secret Manager，免长期密钥。
       serviceAccountName: balloon-game
       securityContext:
         runAsNonRoot: true
@@ -86,9 +74,7 @@ spec:
         readOnlyRootFilesystem: true
       # 滚动更新期间优雅排空 WebSocket：给正在进行的对局留出收尾时间。
       terminationGracePeriodSeconds: 60
-      # infra-020: topologySpreadConstraints 把 Pod 跨 zone 打散，避免单 zone 故障
-      # 导致 WebSocket 层整体不可用；maxSkew=1 容忍轻微不均衡以兼容 HPA 扩容节奏。
-      # whenUnsatisfiable: DoNotSchedule 强制至少跨 2 个 zone 调度（GKE multi-zone 集群）。
+      # infra-020: topologySpreadConstraints 跨 zone 打散，避免单 zone 故障；maxSkew=1 容忍轻微不均衡兼容 HPA。
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
@@ -98,29 +84,25 @@ spec:
               app: balloon-game
       containers:
         - name: balloon-game
-          # infra-019: explicit tag (overlays may override via kustomize images:newTag).
-          # 避免隐式 :latest 拉取，使基线镜像版本可追溯。
+          # infra-019: explicit tag (overlays may override via kustomize images:newTag); 避免隐式 :latest 拉取。
           image: gcr.io/PROJECT_ID/balloon-game:latest
           ports:
             - containerPort: 8080
           env:
-            # ── 多实例水平扩展（ADR-005）─────────────────────────────
-            # INSTANCE_ID：稳定实例标识（Pod 名，如 balloon-game-0）
+            # ── 多实例水平扩展 (ADR-005) ──
+            # INSTANCE_ID: 稳定实例标识 (Pod 名); POD_IP: 供其它实例反向代理拨号; PORT 与 containerPort 一致。
             - name: INSTANCE_ID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            # POD_IP：本 Pod IP，供其它实例反向代理拨号
             - name: POD_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            # PORT：与 containerPort 一致，INSTANCE_ADDR 由 POD_IP:PORT 拼成
             - name: PORT
               value: "8080"
-            # ── 多区域路由（ADR-016）────────────────────────────────
-            # DEPLOY_REGION / REGION_WS_ENDPOINT：由每区域 overlay 的 ConfigMap 注入，
-            # 决定房间 home region 与跨区域重定向时返回给客户端的就近入口。
+            # ── 多区域路由 (ADR-016) ──
+            # DEPLOY_REGION / REGION_WS_ENDPOINT: 每区域 overlay ConfigMap 注入，决定 home region 与就近入口。
             - name: DEPLOY_REGION
               valueFrom:
                 configMapKeyRef:
@@ -131,27 +113,25 @@ spec:
                 configMapKeyRef:
                   name: balloon-game-region
                   key: region-ws-endpoint
-            # DB_DIALECT：多区域生产为 cockroach（ADR-015），单区域默认 postgres。
+            # DB_DIALECT: 多区域生产为 cockroach (ADR-015)，单区域默认 postgres。
             - name: DB_DIALECT
               valueFrom:
                 configMapKeyRef:
                   name: balloon-game-region
                   key: db-dialect
-            # TRUSTED_PROXY_CIDRS：Ingress/LB 代理 CIDR，用于 ExtractClientIP 与 admin lockout
+            # TRUSTED_PROXY_CIDRS: Ingress/LB 代理 CIDR，用于 ExtractClientIP 与 admin lockout。
             - name: TRUSTED_PROXY_CIDRS
               valueFrom:
                 configMapKeyRef:
                   name: balloon-game-region
                   key: trusted-proxy-cidrs
-            # INTERNAL_PROXY_SECRET：跨实例 /internal 路由的共享密钥
+            # INTERNAL_PROXY_SECRET: 跨实例 /internal 路由的共享密钥。
             - name: INTERNAL_PROXY_SECRET
               valueFrom:
                 secretKeyRef:
                   name: balloon-game-secrets
                   key: internal-proxy-secret
-            # infra-021: 用精确 env valueFrom 替代 envFrom 整 Secret 挂载——避免 Secret
-            # 中意外新增的 key 静默注入容器环境（最小权限 + 显式声明）。
-            # 仅声明 backend/internal/config/env.go 实际读取的密钥键。
+            # infra-021: 精确 env valueFrom 替代 envFrom 整 Secret 挂载，避免意外新增 key 静默注入（最小权限）。
             - name: JWT_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:

@@ -38,7 +38,7 @@ async function doLogin(
       loginError.style.display = 'block';
     }
   } catch {
-    showToast('网络错误', 'error');
+    showToast('网络错误');
   } finally {
     loginBtn.disabled = false;
     loginBtn.textContent = '登录';
