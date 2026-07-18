@@ -13,7 +13,7 @@ import { updateWindIndicator, hideWindIndicator, refreshLayout } from './ui_comm
 import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff } from './entry_flow.js';
 import { getWaitingTitleText } from './entry_flow_ui.js';
-import { syncRestartVoteProgress, syncRestartVoteUI } from './restart_vote_ui.js';
+import { syncRestartVoteProgress } from './restart_vote_ui.js';
 import { safeGetItem } from '../shared/ui/utils.js';
 
 let lastPhase: GamePhase | null = null;

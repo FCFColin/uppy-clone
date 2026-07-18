@@ -17,7 +17,7 @@ export default tseslint.config(
   },
   {
     // Allow `any` in test files where mocking and dynamic typing are common.
-    files: ['src/**/*.test.ts', 'src/**/*.property.test.ts'],
+    files: ['src/**/*.test.ts', 'src/**/*.property.test.ts', 'src/**/*_test_setup.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'warn',
     },

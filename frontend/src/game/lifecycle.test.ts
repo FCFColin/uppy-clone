@@ -8,8 +8,6 @@ const mockResizeCanvas = vi.hoisted(() => vi.fn());
 const mockGameLoop = vi.hoisted(() => vi.fn());
 const mockStartGameLoop = vi.hoisted(() => vi.fn());
 const mockRenderOnce = vi.hoisted(() => vi.fn());
-const mockUpdateUI = vi.hoisted(() => vi.fn());
-const mockGenerateRandomNickname = vi.hoisted(() => vi.fn(() => 'RandomNick'));
 const mockConnectWebSocket = vi.hoisted(() => vi.fn());
 const mockShowConnectionError = vi.hoisted(() => vi.fn());
 const mockSendOrQueue = vi.hoisted(() => vi.fn());
@@ -20,7 +18,7 @@ const mockBindEntryUI = vi.hoisted(() => vi.fn());
 const mockOnNicknameSubmit = vi.hoisted(() => vi.fn());
 const mockOnWebSocketOpen = vi.hoisted(() => vi.fn());
 const mockGetEntryStep = vi.hoisted(() => vi.fn(() => 'connecting'));
-const mockSetupNicknameInput = vi.hoisted(() => ({ value: '' }));
+
 
 vi.mock('./message_codec.js', () => ({ encodeSetNickname: mockEncodeSetNickname }));
 vi.mock('./state.js', () => ({ dispatch: mockDispatch }));
