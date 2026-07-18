@@ -95,7 +95,6 @@ body.landing-page { height: 100dvh; overflow: hidden; }
 .hud-left, .hud-right { display: flex; align-items: center; gap: .4rem; }
 .hud-label { font-size: .7rem; opacity: .6; text-transform: uppercase; }
 .hud-value { font-size: .9rem; font-weight: 600; }
-.hud-center { text-align: center; }
 .hud-score { font-size: 1.6rem; font-weight: 700; color: #e94560; }
 .ping-display { font-size: .65rem; opacity: .5; margin-left: .4rem; }
 .ping-display.ping-unstable { color: #ffb4c4; opacity: .85; }
@@ -199,15 +198,6 @@ body.landing-page { height: 100dvh; overflow: hidden; }
 
 /* ===== Big Score ===== */
 .big-score { font-size: 4rem; font-weight: 700; color: #e94560; margin: .5rem 0; }
-
-/* ===== Nickname Inline ===== */
-.nickname-inline {
-  position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: .4rem; z-index: 8;
-  background: rgba(22,33,62,.8); padding: .3rem .6rem; border-radius: .4rem;
-}
-.nickname-inline input { padding:.3rem .6rem;border-radius:.3rem;border:none;background:#16213e;color:#eee;font-size:.8rem;width:100px; }
-.nickname-inline .btn-small { padding:.3rem .8rem;font-size:.8rem; }
 
 /* ===== Hint ===== */
 .hint { font-size: .8rem; opacity: .5; margin-top: .5rem; }

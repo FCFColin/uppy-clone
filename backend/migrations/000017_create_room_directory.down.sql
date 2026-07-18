@@ -1,0 +1,1 @@
+-- Migration 000017 retired: room_directory table removed with multi-region routing layer (Task 18, ADR-032).

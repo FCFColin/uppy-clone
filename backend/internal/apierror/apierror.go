@@ -76,11 +76,6 @@ func ServiceUnavailable(detail string) *ProblemDetails {
 	return New(http.StatusServiceUnavailable, "Service Unavailable", detail)
 }
 
-// GatewayTimeout returns a 504 problem details response.
-func GatewayTimeout(detail string) *ProblemDetails {
-	return New(http.StatusGatewayTimeout, "Gateway Timeout", detail)
-}
-
 // BadGateway returns a 502 problem details response.
 func BadGateway(detail string) *ProblemDetails {
 	return New(http.StatusBadGateway, "Bad Gateway", detail)

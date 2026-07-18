@@ -41,7 +41,7 @@
 
 以下组件是**有意为之的练习目标**，评审/自检时**不得**判定为过度工程：
 
-- 多区域拓扑 + CockroachDB + 全局就近路由（ADR-014/015/016）
+- 多区域拓扑 + 全局就近路由（ADR-014）
 - owner 反向代理 + 租约接管（ADR-005，`backend/internal/handler/wsproxy.go`）
 - GDPR 硬删除 Worker、审计日志防篡改、威胁模型、数据驻留
 - OTel、Pyroscope 持续剖析、完整 SLO/告警/混沌实验文档
@@ -74,9 +74,9 @@
   - 理由：这是"实例可寻址 + 有状态房间水平扩展"的练习核心，也是离开 Cloud Run、收敛
     到 GKE 的根本原因（ADR-005/013）。
   - 与 `/resolve` 的边界：`/resolve` 解决**跨区域**就近定位（返回房间 home region 的
-    `ws_endpoint`，ADR-016）；owner 反向代理解决**区域内**连接落到非 owner 实例时的透明
+    `ws_endpoint`，ADR-014）；owner 反向代理解决**区域内**连接落到非 owner 实例时的透明
     转发（ADR-005）。二者职责不重叠，并非冗余。
-- **多区域 + CockroachDB**（ADR-014/015/016）→ 保留为**目标态**，状态如实标注"提议/部分落地"。
+- **多区域拓扑**（ADR-014）→ 保留为**目标态**（代码层已实现，待部署激活）。CockroachDB 已归档删除，多区域持久化沿用 PostgreSQL。
 - **合规三件套**（GDPR 硬删除、审计防篡改、威胁模型）→ 保留：明确为学习目标，必须存在。
 - **可观测 / 弹性栈**（OTel、Pyroscope、熔断/隔板/幂等/限流）→ 保留。
 - **多路径认证**（QuickPlay + Magic Link + JWT + Refresh + bcrypt Admin + 轻量 RBAC，见 ADR-026）

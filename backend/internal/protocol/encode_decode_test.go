@@ -160,33 +160,6 @@ func TestDecodeTap_TooShort(t *testing.T) {
 	}
 }
 
-// ─── DecodeSetNickname ───────────────────────────────────────────────
-
-func TestDecodeSetNickname_Valid(t *testing.T) {
-	nick := "快乐的气球"
-	nickBytes := []byte(nick)
-
-	var buf bytes.Buffer
-	buf.WriteByte(MsgSetNickname)
-	buf.WriteByte(uint8(len(nickBytes)))
-	buf.Write(nickBytes)
-
-	nickname, ok := DecodeSetNickname(buf.Bytes())
-	if !ok {
-		t.Fatal("有效的 set-nickname 消息应解码成功")
-	}
-	if nickname != nick {
-		t.Fatalf("nickname 不匹配: got=%s, want=%s", nickname, nick)
-	}
-}
-
-func TestDecodeSetNickname_TooShort(t *testing.T) {
-	_, ok := DecodeSetNickname([]byte{MsgSetNickname})
-	if ok {
-		t.Fatal("过短的消息应解码失败")
-	}
-}
-
 func TestDecodeNicknamePayload_Valid(t *testing.T) {
 	nick, ok := DecodeNicknamePayload(append([]byte{5}, []byte("hello")...))
 	if !ok || nick != "hello" {
@@ -222,13 +195,6 @@ func TestDecodeNicknamePayload_NegativeLength(t *testing.T) {
 	}
 }
 
-func TestDecodeSetNickname_WrongType(t *testing.T) {
-	_, ok := DecodeSetNickname([]byte{MsgTap, 0x03, 'a', 'b', 'c'})
-	if ok {
-		t.Fatal("错误的消息类型应解码失败")
-	}
-}
-
 // ─── Round-trip: encode then decode ─────────────────────────────────
 
 func TestRoundTrip_Tap(t *testing.T) {
@@ -243,24 +209,6 @@ func TestRoundTrip_Tap(t *testing.T) {
 	}
 	if tapX != 0.75 || tapY != 0.25 {
 		t.Fatalf("round-trip 值不匹配: got (%v, %v), want (0.75, 0.25)", tapX, tapY)
-	}
-}
-
-func TestRoundTrip_SetNickname(t *testing.T) {
-	nick := "Player1"
-	nickBytes := []byte(nick)
-
-	var buf bytes.Buffer
-	buf.WriteByte(MsgSetNickname)
-	buf.WriteByte(uint8(len(nickBytes)))
-	buf.Write(nickBytes)
-
-	nickname, ok := DecodeSetNickname(buf.Bytes())
-	if !ok {
-		t.Fatal("round-trip 解码应成功")
-	}
-	if nickname != nick {
-		t.Fatalf("round-trip 值不匹配: got=%s, want=%s", nickname, nick)
 	}
 }
 
@@ -309,67 +257,28 @@ func TestWSMessageTypeName_AllCases(t *testing.T) {
 	}
 }
 
-// ─── PhaseToCode / CodeToPhase ───────────────────────────────────────
+// ─── PhaseToCode ────────────────────────────────────────────────────
 
 func TestPhaseToCode_RoundTrip(t *testing.T) {
-	phases := []GamePhase{PhaseWaiting, PhaseCountdown, PhasePlaying, PhaseEnded}
-	for _, p := range phases {
-		code := PhaseToCode(p)
-		got := CodeToPhase(code)
-		if got != p {
-			t.Errorf("CodeToPhase(PhaseToCode(%q)) = %q, want %q", p, got, p)
-		}
+	cases := []struct {
+		phase GamePhase
+		code  uint8
+	}{
+		{PhaseWaiting, PhaseCodeWaiting},
+		{PhaseCountdown, PhaseCodeCountdown},
+		{PhasePlaying, PhaseCodePlaying},
+		{PhaseEnded, PhaseCodeEnded},
 	}
-}
-
-func TestCodeToPhase_Unknown(t *testing.T) {
-	got := CodeToPhase(255)
-	if got != PhaseWaiting {
-		t.Fatalf("unknown code should map to PhaseWaiting, got %q", got)
+	for _, c := range cases {
+		if got := PhaseToCode(c.phase); got != c.code {
+			t.Errorf("PhaseToCode(%q) = %d, want %d", c.phase, got, c.code)
+		}
 	}
 }
 
 func TestPhaseToCode_Unknown(t *testing.T) {
 	if got := PhaseToCode(GamePhase("unknown")); got != PhaseCodeWaiting {
 		t.Fatalf("unknown phase should map to PhaseCodeWaiting, got %d", got)
-	}
-}
-
-// ─── DecodeRestartVote / DecodePing ──────────────────────────────────
-
-func TestDecodeRestartVote_Valid(t *testing.T) {
-	if !DecodeRestartVote([]byte{MsgRestartVote}) {
-		t.Fatal("valid restart vote should return true")
-	}
-}
-
-func TestDecodeRestartVote_Invalid(t *testing.T) {
-	if DecodeRestartVote([]byte{MsgTap}) {
-		t.Fatal("wrong message type should return false")
-	}
-}
-
-func TestDecodeRestartVote_Empty(t *testing.T) {
-	if DecodeRestartVote([]byte{}) {
-		t.Fatal("empty data should return false")
-	}
-}
-
-func TestDecodePing_Valid(t *testing.T) {
-	if !DecodePing([]byte{MsgPing}) {
-		t.Fatal("valid ping should return true")
-	}
-}
-
-func TestDecodePing_Invalid(t *testing.T) {
-	if DecodePing([]byte{MsgTap}) {
-		t.Fatal("wrong message type should return false")
-	}
-}
-
-func TestDecodePing_Empty(t *testing.T) {
-	if DecodePing([]byte{}) {
-		t.Fatal("empty data should return false")
 	}
 }
 
@@ -459,21 +368,6 @@ func BenchmarkDecodeTap(b *testing.B) {
 	}
 }
 
-func BenchmarkDecodeSetNickname(b *testing.B) {
-	nick := "TestPlayer"
-	nickBytes := []byte(nick)
-	var buf bytes.Buffer
-	buf.WriteByte(MsgSetNickname)
-	buf.WriteByte(uint8(len(nickBytes)))
-	buf.Write(nickBytes)
-	data := buf.Bytes()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		DecodeSetNickname(data)
-	}
-}
-
 func BenchmarkEncodeTapAccepted(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -521,7 +415,17 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 	o += 4
 	ds.score = le.Uint32(data[o:])
 	o += 4
-	ds.phase = CodeToPhase(data[o])
+	// Inline phase decode (CodeToPhase removed as dead production code).
+	switch data[o] {
+	case PhaseCodePlaying:
+		ds.phase = PhasePlaying
+	case PhaseCodeEnded:
+		ds.phase = PhaseEnded
+	case PhaseCodeCountdown:
+		ds.phase = PhaseCountdown
+	default:
+		ds.phase = PhaseWaiting
+	}
 	o++
 
 	// Balloon: x, y, vx, vy (16 bytes)
@@ -780,7 +684,7 @@ func TestEncodeSnapshot_RoundTrip_AllPhases(t *testing.T) {
 
 // FuzzDecodeNicknamePayload ensures DecodeNicknamePayload never panics and
 // returns consistent results for arbitrary byte inputs.
-// Note: FuzzDecodeTap/FuzzDecodeMessage/FuzzDecodeSetNickname already exist
+// Note: FuzzDecodeTap/FuzzDecodeMessage already exist
 // in decode_fuzz_test.go; this adds coverage for the standalone payload decoder.
 func FuzzDecodeNicknamePayload(f *testing.F) {
 	// Seed corpus: valid, empty, zero-length, truncated, oversized.

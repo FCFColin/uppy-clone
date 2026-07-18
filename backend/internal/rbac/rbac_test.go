@@ -18,7 +18,6 @@ func TestCheckPermission(t *testing.T) {
 		{RoleGuest, "lobby", "create", false},
 		{RoleGuest, "lobby", "read", true},
 		{domain.RoleAdmin, "users", "write", true},
-		{RoleModerator, "users", "write", false},
 		{"unknown", "lobby", "read", false},
 		{domain.RoleUser, "unknown_resource", "read", false},
 		{domain.RoleAdmin, "lobby", "delete", false},

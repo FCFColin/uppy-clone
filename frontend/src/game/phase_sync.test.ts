@@ -28,10 +28,18 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('./state_types.js', () => ({
-  state: mocks.state,
-  getState: () => mocks.state,
-}));
+vi.mock('./state.js', async (importActual) => {
+  const actual = await importActual() as any;
+  return {
+    ...actual,
+    state: mocks.state,
+    getState: () => mocks.state,
+    dispatch: (action: any) => {
+      const next = actual.gameReducer(mocks.state, action);
+      if (next !== mocks.state) Object.assign(mocks.state, next);
+    },
+  };
+});
 vi.mock('./state_interp.js', () => ({
   resetInterpolation: mocks.resetInterpolation,
   freezeInterpolation: mocks.freezeInterpolation,
@@ -56,20 +64,22 @@ vi.mock('./ui_update.js', () => ({
   updateUI: mocks.updateUI,
 }));
 
-vi.mock('./ui_utils.js', () => ({
-  startCountdownTimer: mocks.startCountdownTimer,
-  hideCountdownOverlay: mocks.hideCountdownOverlay,
-  showCountdownOverlay: mocks.showCountdownOverlay,
-}));
+vi.mock('./ui_common.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ui_common.js')>();
+  return {
+    ...actual,
+    startCountdownTimer: mocks.startCountdownTimer,
+    hideCountdownOverlay: mocks.hideCountdownOverlay,
+    showCountdownOverlay: mocks.showCountdownOverlay,
+    startCooldownUpdater: vi.fn(),
+    stopCooldownUpdater: vi.fn(),
+  };
+});
 
 vi.mock('./seen_seqs.js', () => ({
   clearSeenSeqs: mocks.clearSeenSeqs,
 }));
 
-vi.mock('./ui_cooldown.js', () => ({
-  startCooldownUpdater: vi.fn(),
-  stopCooldownUpdater: vi.fn(),
-}));
 
 vi.mock('./entry_flow.js', () => ({
   tryEntryHandoff: vi.fn(),

@@ -12,6 +12,7 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func initSeedTestCrypto(t *testing.T) {
@@ -34,11 +35,7 @@ func expectCreateUser(mock pgxmock.PgxPoolIface) {
 
 func TestSeedUsers_InsertsUsers(t *testing.T) {
 	initSeedTestCrypto(t)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	for i := 0; i < 3; i++ {
 		expectCreateUser(mock)
@@ -59,11 +56,7 @@ func TestSeedUsers_InsertsUsers(t *testing.T) {
 }
 
 func TestSeedSessions_InsertsSessions(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	for i := 0; i < 5; i++ {
 		mock.ExpectExec("INSERT INTO game_sessions").
@@ -86,11 +79,7 @@ func TestSeedSessions_InsertsSessions(t *testing.T) {
 }
 
 func TestSeedResults_InsertsResults(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	for i := 0; i < 10; i++ {
 		mock.ExpectExec("INSERT INTO game_results").
@@ -124,11 +113,7 @@ func hookReposForTest(t *testing.T, mock pgxmock.PgxPoolIface) {
 
 func TestRunSeed_SuccessHooked(t *testing.T) {
 	initSeedTestCrypto(t)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	for i := 0; i < 3; i++ {
 		expectCreateUser(mock)
@@ -162,11 +147,7 @@ func TestRunSeed_SuccessHooked(t *testing.T) {
 
 func TestMain_SuccessHooked(t *testing.T) {
 	initSeedTestCrypto(t)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	for i := 0; i < 3; i++ {
 		expectCreateUser(mock)
@@ -197,11 +178,7 @@ func TestMain_SuccessHooked(t *testing.T) {
 // when some inserts fail with non-duplicate errors.
 func TestRunSeed_ReportsActualCountsOnError(t *testing.T) {
 	initSeedTestCrypto(t)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	// First user succeeds, second fails (non-duplicate), third should not run.
 	expectCreateUser(mock)
@@ -218,7 +195,7 @@ func TestRunSeed_ReportsActualCountsOnError(t *testing.T) {
 	t.Cleanup(func() { newPostgresStoreFn = orig })
 	hookReposForTest(t, mock)
 
-	_, err = runSeed("postgres://u:p@127.0.0.1/dev?sslmode=disable")
+	_, err := runSeed("postgres://u:p@127.0.0.1/dev?sslmode=disable")
 	if err == nil {
 		t.Fatal("expected error when user insert fails with non-duplicate error")
 	}
@@ -232,11 +209,7 @@ func TestRunSeed_ReportsActualCountsOnError(t *testing.T) {
 // so that seedResults references the actual record.
 func TestSeedUsers_DuplicateIsNonFatal(t *testing.T) {
 	initSeedTestCrypto(t)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	existingIDs := []string{"existing-alice", "existing-bob", "existing-charlie"}
 	emails := []string{"alice@test.com", "bob@test.com", "charlie@test.com"}

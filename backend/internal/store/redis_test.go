@@ -12,52 +12,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func TestRedisKeyHelpers(t *testing.T) {
-	t.Parallel()
-
-	t.Run("jwtRevokedKey", func(t *testing.T) {
-		got := jwtRevokedKey("test-jti")
-		if got != "jwt_revoked:test-jti" {
-			t.Errorf("jwtRevokedKey = %q, want %q", got, "jwt_revoked:test-jti")
-		}
-	})
-
-	t.Run("magicTokenKey", func(t *testing.T) {
-		got := magicTokenKey("abc123")
-		if got != "magic:abc123" {
-			t.Errorf("magicTokenKey = %q, want %q", got, "magic:abc123")
-		}
-	})
-
-	t.Run("roomInfoKey", func(t *testing.T) {
-		got := roomInfoKey("ABCD1")
-		if got != "room:ABCD1" {
-			t.Errorf("roomInfoKey = %q, want %q", got, "room:ABCD1")
-		}
-	})
-
-	t.Run("rateLimitKey", func(t *testing.T) {
-		got := rateLimitKey("user:123")
-		if got != "rl:user:123" {
-			t.Errorf("rateLimitKey = %q, want %q", got, "rl:user:123")
-		}
-	})
-
-	t.Run("lobbyListCacheKey", func(t *testing.T) {
-		got := lobbyListCacheKey(20, "cursor123")
-		if got != "lobby:list:20:cursor123" {
-			t.Errorf("lobbyListCacheKey = %q, want %q", got, "lobby:list:20:cursor123")
-		}
-	})
-
-	t.Run("lobbyCheckCacheKey", func(t *testing.T) {
-		got := lobbyCheckCacheKey("ABCD1")
-		if got != "lobby:check:ABCD1" {
-			t.Errorf("lobbyCheckCacheKey = %q, want %q", got, "lobby:check:ABCD1")
-		}
-	})
-}
-
 func newTestRedisStore(t *testing.T) (*RedisStore, *miniredis.Miniredis) {
 	t.Helper()
 	mr, err := miniredis.Run()

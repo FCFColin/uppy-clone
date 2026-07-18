@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { showToast } from './toast.js';
+import { showToast } from './utils.js';
 
 describe('toast', () => {
   beforeEach(() => {

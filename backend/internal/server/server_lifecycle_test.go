@@ -18,12 +18,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pashagolub/pgxmock/v4"
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/telemetry"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
@@ -80,27 +80,12 @@ func TestInitProfiling_NoAddress(t *testing.T) {
 }
 
 func TestInitDB_MigrationWarnEmptyDatabaseURL(t *testing.T) {
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
 
-	origPG := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
-	t.Cleanup(func() { newPostgresStoreFn = origPG })
-
-	origRun := store.SetRunMigrationsHook(func(context.Context, string, string) error {
+	withMigrationsHook(t, func(context.Context, string, string) error {
 		return errors.New("migration failed")
 	})
-	t.Cleanup(origRun)
 
 	cfg := &handler.Config{DatabaseURL: ""}
 	db, err := initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
@@ -111,30 +96,15 @@ func TestInitDB_MigrationWarnEmptyDatabaseURL(t *testing.T) {
 }
 
 func TestInitDB_MigrationFailsNonEmptyURL(t *testing.T) {
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
 
-	origPG := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
-	t.Cleanup(func() { newPostgresStoreFn = origPG })
-
-	origRun := store.SetRunMigrationsHook(func(context.Context, string, string) error {
+	withMigrationsHook(t, func(context.Context, string, string) error {
 		return errors.New("migration failed")
 	})
-	t.Cleanup(origRun)
 
 	cfg := &handler.Config{DatabaseURL: "postgres://mock/mock?sslmode=disable"}
-	_, err = initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
+	_, err := initDB(cfg, appConfig.DefaultTimeoutConfig(), store.DefaultDeps())
 	if err == nil {
 		t.Fatal("expected migration error when DatabaseURL set")
 	}
@@ -229,25 +199,9 @@ func TestInitDB_MigrationFails(t *testing.T) {
 }
 
 func TestInitDB_SuccessMocked(t *testing.T) {
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	origPG := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
-	t.Cleanup(func() { newPostgresStoreFn = origPG })
-
-	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
-	t.Cleanup(restoreMig)
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
+	withMigrationsHook(t, nil)
 
 	prevEnv := serverEnv
 	serverEnv = &appConfig.Env{MigrationsDir: "migrations"}
@@ -262,30 +216,14 @@ func TestInitDB_SuccessMocked(t *testing.T) {
 }
 
 func TestInitDB_MigrationsDirFromEnv(t *testing.T) {
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	origPG := newPostgresStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
-	t.Cleanup(func() { newPostgresStoreFn = origPG })
-
-	origRun := store.SetRunMigrationsHook(func(_ context.Context, _, path string) error {
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
+	withMigrationsHook(t, func(_ context.Context, _, path string) error {
 		if path != "custom-migrations" {
 			t.Fatalf("migrations path = %q, want custom-migrations", path)
 		}
 		return nil
 	})
-	t.Cleanup(origRun)
 
 	prevEnv := serverEnv
 	serverEnv = &appConfig.Env{MigrationsDir: "custom-migrations"}
@@ -306,32 +244,10 @@ func TestRunServer_MockDeps(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	addr := redisStore.Client().Options().Addr
 
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	origPG := newPostgresStoreFn
-	origRedis := newRedisStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
-		return redisStore, nil
-	}
-	t.Cleanup(func() {
-		newPostgresStoreFn = origPG
-		newRedisStoreFn = origRedis
-	})
-
-	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
-	t.Cleanup(restoreMig)
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
+	withMockRedisStore(t, redisStore)
+	withMigrationsHook(t, nil)
 
 	t.Setenv("ENABLE_HSTS", "false")
 	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
@@ -387,39 +303,17 @@ func TestRun_SuccessMocked(t *testing.T) {
 	serverLifecycleMu.Lock()
 	t.Cleanup(func() { serverLifecycleMu.Unlock() })
 
-	origPG := newPostgresStoreFn
-	origRedis := newRedisStoreFn
 	origExit := exitFunc
 	exitFunc = func(code int) {
 		t.Fatalf("unexpected exit %d", code)
 	}
-	t.Cleanup(func() {
-		newPostgresStoreFn = origPG
-		newRedisStoreFn = origRedis
-		exitFunc = origExit
-	})
+	t.Cleanup(func() { exitFunc = origExit })
 
 	redisStore := testutil.SetupMiniredisStore(t)
-
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
-		return redisStore, nil
-	}
-	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
-	t.Cleanup(restoreMig)
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
+	withMockRedisStore(t, redisStore)
+	withMigrationsHook(t, nil)
 
 	t.Setenv("ENABLE_HSTS", "false")
 	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
@@ -590,12 +484,8 @@ func TestStartMetricsCollector_TickInShort(t *testing.T) {
 	t.Cleanup(func() { metricsCollectInterval = prev })
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	cluster := store.NewRedisClusterFromStores(redisStore, nil)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	cluster := &store.RedisCluster{Stateful: redisStore, Ephemeral: redisStore}
+	mock := testutil.NewPgxMock(t)
 	db := store.NewPostgresStoreWithPool(mock)
 	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
@@ -612,12 +502,8 @@ func TestStartMetricsCollector_UpdatesOnTick(t *testing.T) {
 	}
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	cluster := store.NewRedisClusterFromStores(redisStore, nil)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	cluster := &store.RedisCluster{Stateful: redisStore, Ephemeral: redisStore}
+	mock := testutil.NewPgxMock(t)
 	db := store.NewPostgresStoreWithPool(mock)
 	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
@@ -652,11 +538,7 @@ func TestInitRedisCluster_InvalidURL(t *testing.T) {
 }
 
 func TestInitHub_RestoreRoomsError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
 		WithArgs(pgxmock.AnyArg()).
@@ -675,11 +557,7 @@ func TestInitHub_RestoreRoomsError(t *testing.T) {
 }
 
 func TestInitHub_RestoresRooms(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM lobby_states").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(0))
@@ -701,11 +579,7 @@ func TestInitHub_RestoresRooms(t *testing.T) {
 
 func TestStartWorkers_Short(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewPostgresStoreWithPool(mock)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -719,12 +593,8 @@ func TestStartWorkers_Short(t *testing.T) {
 
 func TestStartMetricsCollector_Cancel(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
-	cluster := store.NewRedisClusterFromStores(redisStore, nil)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	cluster := &store.RedisCluster{Stateful: redisStore, Ephemeral: redisStore}
+	mock := testutil.NewPgxMock(t)
 	db := store.NewPostgresStoreWithPool(mock)
 	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
 
@@ -738,32 +608,16 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 	serverLifecycleMu.Lock()
 	t.Cleanup(func() { serverLifecycleMu.Unlock() })
 
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
 
-	origPG := newPostgresStoreFn
 	origRedis := newRedisStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
 	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
 		return nil, errors.New("redis unavailable")
 	}
-	t.Cleanup(func() {
-		newPostgresStoreFn = origPG
-		newRedisStoreFn = origRedis
-	})
+	t.Cleanup(func() { newRedisStoreFn = origRedis })
 
-	restoreMig := store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil })
-	t.Cleanup(restoreMig)
+	withMigrationsHook(t, nil)
 
 	t.Setenv("ENABLE_HSTS", "false")
 	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
@@ -777,7 +631,7 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 	serverEnv.EnableHSTS = false
 	serverEnv.MigrationsDir = "migrations"
 
-	err = runServer(slog.Default())
+	err := runServer(slog.Default())
 	if err == nil {
 		t.Fatal("expected runServer to fail on invalid redis")
 	}
@@ -908,11 +762,7 @@ func TestServe_StartsAndStops(t *testing.T) {
 	shutdownSignals = func() <-chan os.Signal { return sigCh }
 	t.Cleanup(func() { shutdownSignals = prev })
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
 		WithArgs(pgxmock.AnyArg()).
 		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}))
@@ -922,7 +772,7 @@ func TestServe_StartsAndStops(t *testing.T) {
 
 	db := store.NewPostgresStoreWithPool(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
-	cluster := store.NewRedisClusterFromStores(redisStore, nil)
+	cluster := &store.RedisCluster{Stateful: redisStore, Ephemeral: redisStore}
 
 	prevEnv := serverEnv
 	serverEnv = &appConfig.Env{
@@ -986,36 +836,16 @@ func TestRunServer_TracerInitError(t *testing.T) {
 	t.Cleanup(func() { serverLifecycleMu.Unlock() })
 
 	prevTracer := initTracerFn
-	initTracerFn = func(context.Context, string, string) (func(context.Context) error, error) {
+	initTracerFn = func(context.Context, string, string, telemetry.TracerConfig) (func(context.Context) error, error) {
 		return nil, errors.New("tracer init failed")
 	}
 	t.Cleanup(func() { initTracerFn = prevTracer })
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	origPG := newPostgresStoreFn
-	origRedis := newRedisStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
-		return redisStore, nil
-	}
-	t.Cleanup(func() {
-		newPostgresStoreFn = origPG
-		newRedisStoreFn = origRedis
-	})
-	t.Cleanup(store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil }))
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
+	withMockRedisStore(t, redisStore)
+	withMigrationsHook(t, nil)
 
 	t.Setenv("ENABLE_HSTS", "false")
 	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
@@ -1047,36 +877,16 @@ func TestRunServer_TracerShutdownError(t *testing.T) {
 	t.Cleanup(func() { serverLifecycleMu.Unlock() })
 
 	prevTracer := initTracerFn
-	initTracerFn = func(context.Context, string, string) (func(context.Context) error, error) {
+	initTracerFn = func(context.Context, string, string, telemetry.TracerConfig) (func(context.Context) error, error) {
 		return func(context.Context) error { return errors.New("tracer shutdown failed") }, nil
 	}
 	t.Cleanup(func() { initTracerFn = prevTracer })
 
 	redisStore := testutil.SetupMiniredisStore(t)
-	poolCfg, err := pgxpool.ParseConfig("postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable")
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-	poolCfg.ConnConfig.ConnectTimeout = 500 * time.Millisecond
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("create pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	origPG := newPostgresStoreFn
-	origRedis := newRedisStoreFn
-	newPostgresStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.PostgresStore, error) {
-		return store.NewPostgresStoreWithPool(pool), nil
-	}
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
-		return redisStore, nil
-	}
-	t.Cleanup(func() {
-		newPostgresStoreFn = origPG
-		newRedisStoreFn = origRedis
-	})
-	t.Cleanup(store.SetRunMigrationsHook(func(context.Context, string, string) error { return nil }))
+	pool := newMockPool(t)
+	withMockPostgresStore(t, pool)
+	withMockRedisStore(t, redisStore)
+	withMigrationsHook(t, nil)
 
 	t.Setenv("ENABLE_HSTS", "false")
 	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)

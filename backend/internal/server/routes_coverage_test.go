@@ -36,7 +36,7 @@ func TestAllRoutesRegistered(t *testing.T) {
 	statsHandler := handler.NewStatsHandler(nil)
 	rbacEnforcer := rbac.NewEnforcer()
 	redisStore := testutil.SetupMiniredisStore(t)
-	cluster := store.NewRedisClusterFromStores(redisStore, nil)
+	cluster := &store.RedisCluster{Stateful: redisStore, Ephemeral: redisStore}
 
 	r := chi.NewRouter()
 	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, nil, cluster, rbacEnforcer, cfg, hub)

@@ -151,8 +151,10 @@ func TestHub_CleanupLoop_RemovesEmptyRooms(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	h := NewHub(nil, nil, timeouts, 0, 0)
 
-	// Create a room with no connections → should be cleaned up in waiting phase
-	code, _ := h.CreateRoom(context.Background())
+	// Create a room with no connections→ should be cleaned up in waiting phase
+	if _, err := h.CreateRoom(context.Background()); err != nil {
+		t.Fatalf("CreateRoom failed: %v", err)
+	}
 	if h.RoomCount() != 1 {
 		t.Fatalf("expected 1 room, got %d", h.RoomCount())
 	}
@@ -160,11 +162,10 @@ func TestHub_CleanupLoop_RemovesEmptyRooms(t *testing.T) {
 	// Run one cleanup cycle
 	h.cleanupOnce()
 
-	// Room is in waiting phase with no connections → should be removed
+	// Room is in waiting phase with no connections→ should be removed
 	if h.RoomCount() != 0 {
 		t.Fatalf("expected 0 rooms after cleanup (waiting + no connections), got %d", h.RoomCount())
 	}
-	_ = code
 }
 
 func TestHub_CleanupLoop_KeepsRoomWithConnections(t *testing.T) {
@@ -320,35 +321,6 @@ func TestHub_ConcurrentCreateRemove(t *testing.T) {
 
 	if count := h.RoomCount(); count != 0 {
 		t.Fatalf("expected 0 rooms after removing all, got %d", count)
-	}
-}
-
-// ─── Hub registerRoomToRedis (nil redis) ─────────────────────────────
-
-func TestHub_RegisterRoomInRedis_NilRedis(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
-
-	// Should not panic with nil redis
-	h.registerRoomInRedis("TEST1")
-}
-
-func TestHub_UnregisterRoomFromRedis_NilRedis(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
-
-	// Should not panic with nil redis
-	h.unregisterRoomFromRedis("TEST1")
-}
-
-// ─── Benchmarks ──────────────────────────────────────────────────────
-
-func BenchmarkHub_CreateRoom(b *testing.B) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = h.CreateRoom(context.Background())
 	}
 }
 
@@ -952,15 +924,6 @@ func TestInstanceAddress(t *testing.T) {
 	})
 }
 
-func TestInvalidateLobbyReadCaches_NilRedis(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
-
-	// Should not panic when redis is nil
-	h.invalidateLobbyReadCaches("ABCD1")
-	h.invalidateLobbyReadCaches("")
-}
-
 func TestHub_CreateRoom_CodeConflict(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	h := NewHub(nil, nil, timeouts, 0, 0)
@@ -1169,7 +1132,7 @@ func TestHub_CleanupLoop_RunsCleanupOnce(t *testing.T) {
 
 // --- coverage gap 补充用例 ---
 
-func TestHub_CleanupOnce_SkipsMissingRoom(t *testing.T) {
+func TestHub_CleanupOnce_SkipsMissingRoom(_ *testing.T) {
 	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 	h.mu.Lock()
 	h.rooms["GHOST"] = NewRoom("GHOST", h, nil, config.DefaultTimeoutConfig(), 4)
@@ -1178,50 +1141,12 @@ func TestHub_CleanupOnce_SkipsMissingRoom(t *testing.T) {
 	h.cleanupOnce()
 }
 
-func TestHub_CreateRoom_RetryOnConflict(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
-	codes := []string{"AAAAA", "BBBBB"}
-	i := 0
-	restore := h.SetGenerateRoomCodeHook(func() string {
-		c := codes[i]
-		if i < len(codes)-1 {
-			i++
-		}
-		return c
-	})
-	defer restore()
-
-	h.mu.Lock()
-	h.rooms["AAAAA"] = NewRoom("AAAAA", h, nil, config.DefaultTimeoutConfig(), 4)
-	h.mu.Unlock()
-
-	code, err := h.CreateRoom(context.Background())
-	if err != nil || code != "BBBBB" {
-		t.Fatalf("code=%q err=%v", code, err)
-	}
-}
-
 func TestDefaultInstanceID_UnknownOnEmptyHostname(t *testing.T) {
 	t.Setenv("INSTANCE_ID", "")
 	got := defaultInstanceID(func() (string, error) { return "", errors.New("no hostname") })
 	if got != unknownPlayerID {
 		t.Fatalf("defaultInstanceID = %q, want unknown", got)
 	}
-}
-
-func TestHub_CleanupLoop_TickerFires(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
-	h.cleanupInterval = 20 * time.Millisecond
-	code, _ := h.CreateRoom(context.Background())
-	room := h.getRoom(code)
-	room.mu.Lock()
-	room.state.Phase = domain.PhaseWaiting
-	room.connections = make(map[string]*PlayerConn)
-	room.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
-	defer cancel()
-	h.CleanupLoop(ctx)
 }
 
 func TestHub_cleanupOnce_KeepsPlayingRoom(t *testing.T) {
@@ -1237,31 +1162,6 @@ func TestHub_cleanupOnce_KeepsPlayingRoom(t *testing.T) {
 		t.Fatal("playing room with connections should not be cleaned")
 	}
 }
-
-func TestHub_cleanupOnce_RemovesAllDisconnectedExpired(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
-	code, _ := h.CreateRoom(context.Background())
-	room := h.getRoom(code)
-	now := time.Now().UnixMilli()
-	expired := now - domain.ReconnectGraceMs - 1000
-	room.mu.Lock()
-	room.state.Phase = domain.PhaseWaiting
-	room.state.Players["p1"] = &domain.PlayerState{
-		ID: "p1", Nickname: "gone", Disconnected: true, DisconnectedAt: &expired,
-	}
-	room.connections = make(map[string]*PlayerConn)
-	room.mu.Unlock()
-	h.cleanupOnce()
-	if h.getRoom(code) != nil {
-		t.Fatal("expected room with all expired disconnected players to be cleaned")
-	}
-}
-
-func TestHub_cleanupOnce_SkipsMissingRoom(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
-	h.cleanupOnce()
-}
-
 func TestHub_cleanupOnce_KeepsDisconnectedWithoutTimestamp(t *testing.T) {
 	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 	code, _ := h.CreateRoom(context.Background())

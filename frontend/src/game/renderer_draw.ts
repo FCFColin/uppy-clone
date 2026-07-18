@@ -1,6 +1,5 @@
-import { $canvas, getCtx } from './renderer_canvas.js';
-import { gameImages } from './renderer_background.js';
-import { dispatch, getState } from './store.js';
+﻿import { $canvas, getCtx, gameImages } from './renderer.js';
+import { dispatch, getState } from './state.js';
 import { getInterpolatedBalloon, getInterpolatedGhost, getInterpolatedBird } from './state_interp.js';
 import { PALETTE_COLORS } from '../shared/game/constants.js';
 

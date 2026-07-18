@@ -16,13 +16,6 @@ func EmailHMAC(email string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// EncryptEmailForStorage encrypts email for DB storage.
-//
-// Deprecated: Use EncryptPIIForStorage for new code — same logic, generic name.
-func EncryptEmailForStorage(email string) (string, error) {
-	return EncryptPIIForStorage(email)
-}
-
 // EncryptPIIForStorage encrypts any PII field (email, nickname, etc.) for
 // DB or outbox storage. Returns plaintext if no encryption key is configured
 // (dev/test environments).

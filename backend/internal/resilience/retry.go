@@ -5,7 +5,6 @@ import (
 	"io"
 	"math/rand/v2"
 	"net"
-	"net/http"
 	"syscall"
 	"time"
 
@@ -24,12 +23,6 @@ func DefaultDBRetry() retry.Backoff {
 func DefaultRedisRetry() retry.Backoff {
 	b := retry.NewExponential(50 * time.Millisecond)
 	return retry.WithMaxRetries(2, retry.WithJitter(25*time.Millisecond, b))
-}
-
-// ExternalAPIRetry returns a backoff for external API calls (2 retries, 500ms base).
-func ExternalAPIRetry() retry.Backoff {
-	b := retry.NewExponential(500 * time.Millisecond)
-	return retry.WithMaxRetries(2, retry.WithJitter(200*time.Millisecond, b))
 }
 
 // JitteredBackoff computes an exponential backoff with jitter for the given attempt.
@@ -93,18 +86,4 @@ func MaybeRetryable(err error) error {
 		return retry.RetryableError(err)
 	}
 	return err
-}
-
-// IsHTTPRetryable classifies HTTP response status codes for retry decisions (audit-017).
-// 429 (Too Many Requests) and 5xx (Server Error) are retryable.
-// 4xx (Client Error, except 429/408) are permanent failures and should not be retried.
-// 408 (Request Timeout) is retryable.
-func IsHTTPRetryable(statusCode int) bool {
-	if statusCode == http.StatusTooManyRequests || statusCode == http.StatusRequestTimeout {
-		return true
-	}
-	if statusCode >= 500 && statusCode < 600 {
-		return true
-	}
-	return false
 }

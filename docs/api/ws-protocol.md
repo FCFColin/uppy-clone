@@ -132,7 +132,7 @@
 | MsgRestartStatus | 0x07 |
 | MsgPong | 0x21 |
 
-## 实例与区域路由（ADR-005 / ADR-016）
+## 实例与区域路由（ADR-005 / ADR-014）
 
 1. **就近接入预检**：客户端连接前先调 `GET /api/v1/lobby/{code}/resolve`，得到房间
    home region 的 `ws_endpoint`（同源则为空），再用该 endpoint 打开 WebSocket。

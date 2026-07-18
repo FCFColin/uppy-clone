@@ -98,6 +98,7 @@ func TestPostgresStore_NewPostgresStore_MockPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxmock.NewPool: %v", err)
 	}
+	t.Cleanup(func() { mock.Close() })
 	mock.ExpectPing().WillReturnError(nil)
 
 	var capturedCfg *pgxpool.Config

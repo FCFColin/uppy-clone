@@ -49,11 +49,7 @@ func TestHub_DeserializeAndMaterialize_Invalid(t *testing.T) {
 }
 
 func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewGameStore(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
@@ -90,11 +86,7 @@ func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
 }
 
 func TestHub_RestoreRooms_SkipsForeignOwner(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewGameStore(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
@@ -206,11 +198,7 @@ func TestHub_loadOrMaterializeRoom(t *testing.T) {
 	state := NewGameState("LOAD1", 42, testRNG())
 	stateJSON, _ := json.Marshal(state)
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("LOAD1").
@@ -241,11 +229,7 @@ func TestHub_loadOrMaterializeRoom_NilStore(t *testing.T) {
 }
 
 func TestHub_RestoreRooms_LoadError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnError(context.Canceled)
@@ -257,11 +241,7 @@ func TestHub_RestoreRooms_LoadError(t *testing.T) {
 }
 
 func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 
 	state := NewGameState("EXIST", 42, testRNG())
@@ -284,11 +264,7 @@ func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
 }
 
 func TestHub_RestoreRooms_DeserializeError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 
 	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
@@ -318,11 +294,7 @@ func TestHub_loadOrMaterializeRoom_ForeignOwner(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom_ForeignOwnerWithStore(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 
 	redisStore := testutil.SetupMiniredisStore(t)
@@ -336,11 +308,7 @@ func TestHub_loadOrMaterializeRoom_ForeignOwnerWithStore(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom_LoadError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("LOAD3").
@@ -353,11 +321,7 @@ func TestHub_loadOrMaterializeRoom_LoadError(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom_DeserializeError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("LOAD4").
@@ -371,11 +335,7 @@ func TestHub_loadOrMaterializeRoom_DeserializeError(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom_NotFound(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("MISSING").
@@ -446,11 +406,7 @@ func TestHub_RestoreRooms_EmptyPage(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom_ReturnsExisting(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 	state := NewGameState("EXIST1", 42, testRNG())
 	stateJSON, _ := json.Marshal(state)

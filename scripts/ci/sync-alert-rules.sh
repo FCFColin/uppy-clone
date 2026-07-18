@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Generate deploy/alertmanager/rules-configmap.yaml from rules.yml (single source of truth).
+# Generate deploy/alertmanager/rules-configmap.yaml from alerts.yml (single source of truth).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SRC="${ROOT}/deploy/alertmanager/rules.yml"
+SRC="${ROOT}/deploy/prometheus/alerts.yml"
 OUT="${ROOT}/deploy/alertmanager/rules-configmap.yaml"
 
 if [[ ! -f "$SRC" ]]; then
@@ -13,7 +13,7 @@ fi
 
 {
   cat <<'HEADER'
-# Generated from deploy/alertmanager/rules.yml — run: make sync-alert-rules
+# Generated from deploy/prometheus/alerts.yml — run: make sync-alert-rules
 apiVersion: v1
 kind: ConfigMap
 metadata:

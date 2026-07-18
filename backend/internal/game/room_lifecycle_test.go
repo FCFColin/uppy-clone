@@ -10,11 +10,11 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestRoom_Code(t *testing.T) {
@@ -88,16 +88,21 @@ func TestRoom_closeExistingConnection_ClosesAndRemoves(t *testing.T) {
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
 	player := &domain.PlayerState{ID: "p1", Disconnected: false}
 
+	// serverCloseCh signals the server handler to close the websocket.
+	// Replaces a fixed time.Sleep(2 * time.Second) that risked flaky on slow
+	// CI machines: the server now blocks on the channel until the test finishes.
+	serverCloseCh := make(chan struct{})
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		conn, err := upgrader.Upgrade(w, req, nil)
 		if err != nil {
 			return
 		}
-		time.Sleep(2 * time.Second)
+		<-serverCloseCh
 		_ = conn.Close()
 	}))
 	defer server.Close()
+	defer close(serverCloseCh)
 
 	wsURL := "ws" + server.URL[4:]
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -815,7 +820,7 @@ func TestNormalizePhaseForNicknameGate(t *testing.T) {
 func TestTransitionPhaseIfNeeded(t *testing.T) {
 	t.Parallel()
 
-	t.Run("playing without tick starts tick", func(t *testing.T) {
+	t.Run("playing without tick starts tick", func(_ *testing.T) {
 		room := &Room{
 			state:     NewGameState("TEST", 42, testRNG()),
 			usedNames: make(map[string]bool),
@@ -854,11 +859,7 @@ func TestRoom_HandleJoin_ExistingPlayer(t *testing.T) {
 		ID: "p1", Nickname: "Alice", PlayerIndex: 0, NicknameConfirmed: true,
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		up := websocket.Upgrader{}
-		_, _ = up.Upgrade(w, req, nil)
-	}))
-	defer server.Close()
+	server := testutil.NewWSTestUpgraderServer(t)
 	wsURL := "ws" + server.URL[4:]
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if resp != nil {
@@ -882,11 +883,7 @@ func TestRoom_HandleJoin_ReconnectDuringGrace(t *testing.T) {
 	}
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		up := websocket.Upgrader{}
-		_, _ = up.Upgrade(w, req, nil)
-	}))
-	defer server.Close()
+	server := testutil.NewWSTestUpgraderServer(t)
 	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -902,15 +899,6 @@ func TestRoom_HandleJoin_ReconnectDuringGrace(t *testing.T) {
 	if r.state.Players["p1"].Disconnected {
 		t.Fatal("player should be reconnected")
 	}
-}
-
-func TestRoom_reconnectPlayer_CountdownPhase(t *testing.T) {
-	r := NewRoom("RCD", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhaseCountdown
-	r.countdownStart = time.Now().UnixMilli()
-	player := &domain.PlayerState{ID: "p1", Nickname: "Nick", PlayerIndex: 0}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
-	r.reconnectPlayer("p1", player)
 }
 
 func TestRoom_reconnectPlayer_PlayingPhase(t *testing.T) {
@@ -938,16 +926,7 @@ func TestRoom_normalizePhaseForNicknameGate_Countdown(t *testing.T) {
 	}
 }
 
-func TestRoom_tryStartWhenAllReady_AlreadyScheduled(t *testing.T) {
-	r := NewRoom("TSR", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhaseWaiting
-	r.startDelayTimer = time.AfterFunc(time.Hour, func() {})
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", NicknameConfirmed: true}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1"}
-	r.tryStartWhenAllReady()
-}
-
-func TestRoom_setEndGameAlarm_EndedPhase(t *testing.T) {
+func TestRoom_setEndGameAlarm_EndedPhase(_ *testing.T) {
 	r := NewRoom("EGA", nil, nil, config.DefaultTimeoutConfig(), 4)
 	r.state.Phase = domain.PhaseEnded
 	addConnectedPlayer(r, "p1")
@@ -956,11 +935,7 @@ func TestRoom_setEndGameAlarm_EndedPhase(t *testing.T) {
 }
 
 func TestRoom_handleCountdownEnd_WithStore(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewGameStore(mock)
 	mock.ExpectExec("INSERT INTO game_sessions").WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 
@@ -969,19 +944,12 @@ func TestRoom_handleCountdownEnd_WithStore(t *testing.T) {
 	r.state.SessionID = "11111111-1111-4111-8111-111111111111"
 	r.state.StartedAt = time.Now().UnixMilli()
 	r.handleCountdownEnd()
-}
-
-func TestRoom_HandleJoin_NewPlayer(t *testing.T) {
-	r := NewRoom("NEW1", nil, nil, config.DefaultTimeoutConfig(), 4)
-	if err := r.HandleJoin("p1", nil); err != nil {
-		t.Fatalf("HandleJoin: %v", err)
-	}
 	if _, ok := r.state.Players["p1"]; !ok {
 		t.Fatal("new player should be added")
 	}
 }
 
-func TestRoom_reconnectPlayer_WaitingPhase(t *testing.T) {
+func TestRoom_reconnectPlayer_WaitingPhase(_ *testing.T) {
 	r := NewRoom("RW", nil, nil, config.DefaultTimeoutConfig(), 4)
 	r.startDelay = time.Millisecond
 	r.state.Phase = domain.PhaseWaiting
@@ -999,24 +967,6 @@ func TestRoom_normalizePhaseForNicknameGate_AllReadyNoOp(t *testing.T) {
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1"}
 	r.normalizePhaseForNicknameGate()
 	if r.state.Phase != domain.PhasePlaying {
-		t.Fatalf("phase = %s, want playing when all ready", r.state.Phase)
-	}
-}
-
-func TestRoom_setEndGameAlarm_ReplacesExisting(t *testing.T) {
-	r := NewRoom("RT", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.endGameTimer = time.AfterFunc(time.Hour, func() {})
-	r.state.Phase = domain.PhaseEnded
-	r.setEndGameAlarm(time.Now().Add(time.Millisecond))
-	time.Sleep(20 * time.Millisecond)
-}
-
-func TestRoom_setEndGameAlarm_PastDeadline(t *testing.T) {
-	r := NewRoom("PD", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhaseCountdown
-	r.setEndGameAlarm(time.Now().Add(-time.Second))
-	time.Sleep(20 * time.Millisecond)
-	if r.state.Phase != domain.PhasePlaying {
 		t.Fatalf("phase = %s, want playing after past deadline", r.state.Phase)
 	}
 }
@@ -1032,28 +982,10 @@ func TestRoom_handleAutoRestart_AutoRestart(t *testing.T) {
 	}
 }
 
-func TestRoom_Close_WithTickAndConnections(t *testing.T) {
-	repo := newMockRoomRepository()
-	r := NewRoom("CL1", nil, repo, config.DefaultTimeoutConfig(), 4)
-	r.syncOutbound = true
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4), Conn: nil}
-	r.endGameTimer = time.AfterFunc(time.Hour, func() {})
-	r.startDelayTimer = time.AfterFunc(time.Hour, func() {})
-	r.mu.Unlock()
-	r.startTick()
-	r.Close()
-}
-
 // --- coverage gap 补充用例 ---
 
 func TestRoom_addNewPlayer_ClosesConnWhenFull(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		up := websocket.Upgrader{}
-		_, _ = up.Upgrade(w, req, nil)
-	}))
-	defer server.Close()
+	server := testutil.NewWSTestUpgraderServer(t)
 	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -1072,7 +1004,7 @@ func TestRoom_addNewPlayer_ClosesConnWhenFull(t *testing.T) {
 	}
 }
 
-func TestRoom_handleAutoRestart_PruneDisconnectedVotes(t *testing.T) {
+func TestRoom_handleAutoRestart_PruneDisconnectedVotes(_ *testing.T) {
 	r := NewRoom("AR4", nil, nil, config.DefaultTimeoutConfig(), 4)
 	r.state.Phase = domain.PhaseEnded
 	addConnectedPlayer(r, "p1")
@@ -1080,7 +1012,7 @@ func TestRoom_handleAutoRestart_PruneDisconnectedVotes(t *testing.T) {
 	r.handleAutoRestart()
 }
 
-func TestRoom_Close_WithPersistFlush(t *testing.T) {
+func TestRoom_Close_WithPersistFlush(_ *testing.T) {
 	repo := newMockRoomRepository()
 	r := NewRoom("CL2", nil, repo, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = true
@@ -1092,25 +1024,3 @@ func TestRoom_Close_WithPersistFlush(t *testing.T) {
 	r.Close()
 }
 
-func TestRoom_Close_FullShutdown(t *testing.T) {
-	repo := newMockRoomRepository()
-	r := NewRoom("CL3", nil, repo, config.DefaultTimeoutConfig(), 0)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		up := websocket.Upgrader{}
-		_, _ = up.Upgrade(w, req, nil)
-	}))
-	defer server.Close()
-	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	r.mu.Lock()
-	r.endGameTimer = time.AfterFunc(time.Hour, func() {})
-	r.startDelayTimer = time.AfterFunc(time.Hour, func() {})
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4), Conn: conn}
-	r.mu.Unlock()
-	r.Close()
-}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { state } from './state_types.js';
+import { state } from './state.js';
 
 const mocks = vi.hoisted(() => {
   const bar = {
@@ -23,7 +23,7 @@ vi.mock('../shared/ui/audio.js', () => ({
   vibrate: vi.fn(),
 }));
 
-import { startCooldownUpdater, stopCooldownUpdater, updateCooldownBar } from './ui_cooldown.js';
+import { startCooldownUpdater, stopCooldownUpdater, updateCooldownBar } from './ui_common.js';
 
 describe('ui_cooldown', () => {
   beforeEach(() => {

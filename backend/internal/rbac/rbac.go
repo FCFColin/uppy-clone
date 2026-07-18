@@ -12,8 +12,24 @@ import (
 
 // Roles
 const (
-	RoleModerator = "moderator"
-	RoleGuest     = "guest"
+	RoleGuest = "guest"
+)
+
+// RBAC action verbs shared across the permissions table.
+const (
+	ActionRead   = "read"
+	ActionWrite  = "write"
+	ActionCreate = "create"
+	ActionJoin   = "join"
+	ActionDelete = "delete"
+)
+
+// RBAC resource keys shared across the permissions table.
+const (
+	ResourceConfig   = "config"
+	ResourceUsers    = "users"
+	ResourceLobby    = "lobby"
+	ResourceUserData = "user_data"
 )
 
 // Enforcer checks RBAC permissions from an in-memory policy map.

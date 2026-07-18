@@ -1,6 +1,6 @@
-import { PHYSICS } from '../shared/game/constants.js';
-import { $canvas, getCtx } from './renderer_canvas.js';
-import { getState } from './store.js';
+﻿import { PHYSICS } from '../shared/game/constants.js';
+import { $canvas, getCtx } from './renderer.js';
+import { getState } from './state.js';
 import { getInterpolatedBalloon, getInterpolatedBird } from './state_interp.js';
 import { isRangeCircleVisible } from './tutorial.js';
 import { registerResetFn } from './reset_registry.js';

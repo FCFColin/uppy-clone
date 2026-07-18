@@ -6,39 +6,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/testsecrets"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
 
-// --- Test helpers ---
-
-func newTestAdminHandler() *AdminHandler {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	return NewAdminHandler(nil, jwtMgr, nil)
-}
-
 // --- AdminHandler.Login tests ---
-
-func TestAdminHandler_Login_InvalidRequestBody(t *testing.T) {
-	h := newTestAdminHandler()
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", strings.NewReader("invalid json"))
-	rec := httptest.NewRecorder()
-	h.Login(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
 
 func TestAdminHandler_Login_AdminNotConfigured(t *testing.T) {
 	// AdminHandler.Login calls h.db.GetConfig which is nil — will panic.

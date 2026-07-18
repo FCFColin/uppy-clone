@@ -9,15 +9,16 @@ import (
 	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/store"
 )
 
 // StatsHandler serves public leaderboard and optional user stats.
 type StatsHandler struct {
-	db LeaderboardStore
+	db *store.ResultRepository
 }
 
 // NewStatsHandler creates a StatsHandler backed by the given leaderboard store.
-func NewStatsHandler(db LeaderboardStore) *StatsHandler {
+func NewStatsHandler(db *store.ResultRepository) *StatsHandler {
 	return &StatsHandler{db: db}
 }
 
@@ -30,9 +31,9 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 
 	scope := r.URL.Query().Get("scope")
 	if scope == "" {
-		scope = "global"
+		scope = globalScope
 	}
-	if scope != "global" && scope != "weekly" {
+	if scope != globalScope && scope != "weekly" {
 		apierror.BadRequest("invalid scope").Write(w)
 		return
 	}

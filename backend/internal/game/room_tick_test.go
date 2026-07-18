@@ -2,8 +2,6 @@ package game
 
 import (
 	"math"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -11,6 +9,7 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestRoom_HandleMessage_RateLimit(t *testing.T) {
@@ -373,11 +372,7 @@ func TestRoom_startTick_Idempotent(t *testing.T) {
 func TestRoom_HandleMessage_RateLimitDisconnect(t *testing.T) {
 	r := NewRoom("RL", nil, nil, config.DefaultTimeoutConfig(), 0)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		up := websocket.Upgrader{}
-		_, _ = up.Upgrade(w, req, nil)
-	}))
-	defer server.Close()
+	server := testutil.NewWSTestUpgraderServer(t)
 	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
 	if resp != nil {
 		_ = resp.Body.Close()

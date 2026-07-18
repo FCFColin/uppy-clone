@@ -93,11 +93,6 @@ func TestConfigRepository_SaveConfig_Error(t *testing.T) {
 	}
 }
 
-func TestPostgresStore_ObservePoolStats_NilPool(_ *testing.T) {
-	db := &PostgresStore{cb: DefaultDeps().PostgresBreakerFactory(), deps: DefaultDeps()}
-	db.ObservePoolStats() // no-op when pool is not *pgxpool.Pool
-}
-
 func TestPostgresStore_ObservePoolStats_RealPool(t *testing.T) {
 	connStr := os.Getenv("TEST_DATABASE_URL")
 	if connStr == "" {

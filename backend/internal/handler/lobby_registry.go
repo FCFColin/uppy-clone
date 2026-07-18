@@ -63,13 +63,13 @@ func (h *LobbyHandler) handleRegistryRoom(w http.ResponseWriter, r *http.Request
 // CreateRoom handles POST /api/registry/create
 func (h *LobbyHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	h.handleRegistryRoom(w, r, registryRoomParams{
-		emptyKey:      "code",
+		emptyKey:      codeKey,
 		emptyVal:      "",
 		unavailMsg:    "Room service temporarily unavailable, please retry",
 		unavailLog:    "Hub not available, cannot create room",
 		failLog:       "Hub.CreateRoom failed",
 		degradedMsg:   "Room creation temporarily unavailable, please retry",
-		responseField: "code",
+		responseField: codeKey,
 	}, func(ctx context.Context) (string, error) {
 		return h.hub.CreateRoom(ctx)
 	})
@@ -77,7 +77,7 @@ func (h *LobbyHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 
 // CheckRoom handles GET /api/registry/check/{code}
 func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
-	code := URLParam(r, "code")
+	code := URLParam(r, codeKey)
 	if code == "" {
 		apierror.BadRequest("Room code is required").Write(w)
 		return
@@ -94,9 +94,9 @@ func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 
 	if !RequireHubDegraded(h.hub, w, http.StatusServiceUnavailable,
 		map[string]interface{}{
-			"code":     code,
-			"exists":   false,
-			"degraded": true,
+			codeKey:     code,
+			"exists":    false,
+			degradedKey: true,
 		},
 		"Room check temporarily unavailable") {
 		slog.Warn("degraded: Hub not available, cannot check room")
@@ -107,12 +107,12 @@ func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// handler-021: Return 503 (Service Unavailable) when Redis is down,
 		// not 500 or 404. This signals degradation to the client.
-		slog.Warn("degraded: CheckRoom failed, returning not-found", "code", code, "error", err)
+		slog.Warn("degraded: CheckRoom failed, returning not-found", codeKey, code, "error", err)
 		WriteDegradedJSON(w, http.StatusServiceUnavailable,
 			map[string]interface{}{
-				"code":     code,
-				"exists":   false,
-				"degraded": true,
+				codeKey:     code,
+				"exists":    false,
+				degradedKey: true,
 			},
 			"Room check temporarily unavailable")
 		return
@@ -127,7 +127,7 @@ func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Last-Modified", time.Unix(info.CreatedAt, 0).UTC().Format(http.TimeFormat))
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"code":        info.Code,
+		codeKey:       info.Code,
 		"phase":       info.Phase,
 		"playerCount": info.PlayerCount,
 		"createdAt":   info.CreatedAt,
@@ -142,7 +142,7 @@ func writeDegradedLobbyList(w http.ResponseWriter) {
 		"total":       0,
 		"has_more":    false,
 		"next_cursor": "",
-		"degraded":    true,
+		degradedKey:   true,
 	})
 }
 

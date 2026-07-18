@@ -1,43 +1,43 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const dom = vi.hoisted(() => {
-  const ids = [
-    'loading-overlay', 'nickname-setup-screen', 'waiting-screen',
-    'nickname-connect-status', 'waiting-title', 'waiting-connect-error',
-    'loading-error-panel', 'loading-error-title', 'loading-error-text',
-    'loading-error-actions', 'loading-back-btn', 'loading-match-btn',
-    'reconnect-banner', 'lobby-code', 'hud-code', 'game-canvas',
-  ];
-  const elements = new Map<string, HTMLElement>();
-  for (const id of ids) {
-    const el = document.createElement('div');
-    el.id = id;
-    el.className = 'hidden';
-    if (id === 'loading-overlay') {
-      el.innerHTML = '<div class="loading-spinner"></div><div class="loading-text"></div>';
-    }
-    elements.set(id, el);
-    document.body.appendChild(el);
-  }
+vi.hoisted(() => {
+  document.body.innerHTML = `
+    <div id="loading-overlay">
+      <div class="loading-spinner"></div>
+      <div class="loading-text"></div>
+    </div>
+    <div id="loading-error-panel" class="hidden"></div>
+    <div id="loading-error-text"></div>
+    <div id="loading-error-title"></div>
+    <div id="loading-error-actions" class="hidden"></div>
+    <div id="waiting-title"></div>
+    <div id="nickname-connect-status"></div>
+    <div id="waiting-connect-error" class="hidden"></div>
+    <div id="nickname-setup-screen"></div>
+    <div id="waiting-screen"></div>
+    <div id="reconnect-banner" class="hidden"></div>
+    <div id="lobby-code"></div>
+    <div id="hud-code"></div>
+    <div id="loading-back-btn"></div>
+    <div id="loading-match-btn"></div>
+    <div id="game-canvas" style="pointer-events: none;"></div>
+    <div id="game-hud" class="hidden"></div>
+  `;
   const form = document.createElement('form');
   form.id = 'nickname-entry-form';
   document.body.appendChild(form);
-  const canvas = document.createElement('canvas');
-  canvas.id = 'game-canvas';
-  document.body.appendChild(canvas);
-  return { elements, form };
 });
 
-vi.mock('./renderer_canvas.js', () => ({
+vi.mock('./renderer.js', () => ({
   $canvas: document.getElementById('game-canvas') as HTMLCanvasElement,
 }));
 
 vi.mock('./ui_elements.js', () => ({
-  $lobbyCode: dom.elements.get('lobby-code')!,
-  $hudCode: dom.elements.get('hud-code')!,
+  $lobbyCode: document.getElementById('lobby-code')!,
+  $hudCode: document.getElementById('hud-code')!,
 }));
 
-import { state } from './state_types.js';
+import { state } from './state.js';
 import {
   applyEntryStep,
   getEntryStep,
@@ -97,7 +97,7 @@ describe('entry_flow', () => {
     onLobbyCodeReady('ABC12');
     onNicknameSubmit();
     expect(getEntryStep()).toBe('waiting');
-    expect(dom.elements.get('waiting-screen')!.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('waiting-screen')!.classList.contains('hidden')).toBe(false);
   });
 
   it('onNicknameSubmit is no-op when not on nickname step', () => {
@@ -140,7 +140,7 @@ describe('entry_flow', () => {
     onLobbyCodeReady('ABC12');
     const onSubmit = vi.fn();
     bindEntryUI(onSubmit);
-    dom.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    document.getElementById('nickname-entry-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
@@ -149,7 +149,7 @@ describe('entry_flow', () => {
     onNicknameSubmit();
     const onSubmit = vi.fn();
     bindEntryUI(onSubmit);
-    dom.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    document.getElementById('nickname-entry-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -164,7 +164,6 @@ describe('entry_flow', () => {
     onLobbyCodeReady('ABC12');
     onNicknameSubmit();
     expect(document.getElementById('waiting-title')!.textContent).toMatch(/即将开始 · \d…/);
-    // WebSocket 连接不应清除正在运行的倒计时
     onWebSocketOpen();
     expect(document.getElementById('waiting-title')!.textContent).toMatch(/即将开始 · \d…/);
   });
@@ -181,7 +180,6 @@ describe('entry_flow', () => {
   it('onWebSocketClosed updates waiting title when on waiting step', () => {
     onLobbyCodeReady('ABC12');
     onNicknameSubmit();
-    // 模拟倒计时已结束
     clearStartCountdown();
     onWebSocketOpen();
     onWebSocketClosed();

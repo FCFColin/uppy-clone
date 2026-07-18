@@ -1,4 +1,4 @@
-import { markTutorialDone, shouldShowTutorial } from '../shared/data/tutorial_cookie.js';
+import { markTutorialDone, shouldShowTutorial } from '../shared/data/cookies.js';
 
 const STEPS = [
   '在气球附近点击，把它往上推（点太远无效）',
@@ -16,16 +16,6 @@ export function isRangeCircleVisible(): boolean {
   return showRangeCircle && Date.now() < rangeCircleUntil;
 }
 
-let tutorialChangeCb: (() => void) | null = null;
-
-export function onTutorialStepChange(cb: () => void): void {
-  tutorialChangeCb = cb;
-}
-
-function notifyChange(): void {
-  tutorialChangeCb?.();
-}
-
 function getOverlay(): HTMLElement | null {
   if (!overlayEl) overlayEl = document.getElementById('tutorial-overlay');
   return overlayEl;
@@ -34,7 +24,6 @@ function getOverlay(): HTMLElement | null {
 function hideOverlay(): void {
   getOverlay()?.classList.add('hidden');
   showRangeCircle = false;
-  notifyChange();
 }
 
 function renderStep(): void {
@@ -47,7 +36,6 @@ function renderStep(): void {
 
   showRangeCircle = currentStep === 0;
   if (showRangeCircle) rangeCircleUntil = Date.now() + 5000;
-  notifyChange();
 }
 
 function finishTutorial(): void {

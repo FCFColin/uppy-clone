@@ -1,3 +1,4 @@
+// Package main generates TypeScript constants from Go source files.
 package main
 
 import (
@@ -34,7 +35,7 @@ func main() {
 		wd, _ := os.Getwd()
 		absPath = filepath.Join(wd, absPath)
 	}
-	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(absPath, []byte(content), 0600); err != nil { //nolint:gosec // G703: generator tool, path is trusted
 		fmt.Fprintf(os.Stderr, "write: %v\n", err)
 		os.Exit(1)
 	}
@@ -47,7 +48,7 @@ func main() {
 // → groupConsts → renderTS.
 func generate(srcDir string) (string, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, srcDir, nil, parser.ParseComments)
+	pkgs, err := parser.ParseDir(fset, srcDir, nil, parser.ParseComments) //nolint:staticcheck // SA1019: generator tool, refactor to go/packages is non-trivial
 	if err != nil {
 		return "", fmt.Errorf("parse: %w", err)
 	}
@@ -64,7 +65,7 @@ func generate(srcDir string) (string, error) {
 // resolveConstValues builds a name→value map for ALL const identifiers so that
 // expressions referencing other consts (e.g. TickInterval = 1000.0 / float64(TickRate))
 // can be resolved without hardcoding values.
-func resolveConstValues(pkg *ast.Package) map[string]string {
+func resolveConstValues(pkg *ast.Package) map[string]string { //nolint:staticcheck // SA1019: ast.Package deprecated, but generator tool
 	constValues := map[string]string{}
 	for _, f := range pkg.Files {
 		for _, decl := range f.Decls {
@@ -92,60 +93,73 @@ func resolveConstValues(pkg *ast.Package) map[string]string {
 
 // collectTSConsts extracts @ts-annotated consts for output, deduplicating by
 // path and returning the slice sorted by path for deterministic output.
-func collectTSConsts(pkg *ast.Package, constValues map[string]string) []tsConst {
+func collectTSConsts(pkg *ast.Package, constValues map[string]string) []tsConst { //nolint:staticcheck // SA1019: ast.Package deprecated, but generator tool
 	var consts []tsConst
 	seen := map[string]bool{}
 	for _, f := range pkg.Files {
 		for _, decl := range f.Decls {
-			gen, ok := decl.(*ast.GenDecl)
-			if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
-				continue
-			}
-
-			var tsPath string
-			if gen.Doc != nil {
-				for _, c := range gen.Doc.List {
-					if idx := strings.Index(c.Text, "@ts "); idx >= 0 {
-						tsPath = strings.TrimSpace(c.Text[idx+4:])
-					}
-				}
-			}
-
-			for _, spec := range gen.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-
-				if vs.Doc != nil {
-					for _, c := range vs.Doc.List {
-						if idx := strings.Index(c.Text, "@ts "); idx >= 0 {
-							tsPath = strings.TrimSpace(c.Text[idx+4:])
-						}
-					}
-				}
-
-				if tsPath == "" {
-					continue
-				}
-
-				for _, valExpr := range vs.Values {
-					val := exprValue(valExpr, constValues)
-					if val == "" {
-						continue
-					}
-					if !seen[tsPath] {
-						consts = append(consts, tsConst{path: tsPath, value: val})
-						seen[tsPath] = true
-					}
-				}
-			}
+			collectTSConstsFromDecl(decl, constValues, seen, &consts)
 		}
 	}
 	sort.Slice(consts, func(i, j int) bool {
 		return consts[i].path < consts[j].path
 	})
 	return consts
+}
+
+// collectTSConstsFromDecl processes a single declaration, appending any
+// @ts-annotated constants found to *consts. The seen map dedupes by path.
+func collectTSConstsFromDecl(decl ast.Decl, constValues map[string]string, seen map[string]bool, consts *[]tsConst) {
+	gen, ok := decl.(*ast.GenDecl)
+	if !ok {
+		return
+	}
+	if gen.Tok != token.CONST && gen.Tok != token.VAR {
+		return
+	}
+	tsPath := extractTSPath(gen.Doc)
+	for _, spec := range gen.Specs {
+		vs, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		if vs.Doc != nil {
+			if p := extractTSPath(vs.Doc); p != "" {
+				tsPath = p
+			}
+		}
+		if tsPath == "" {
+			continue
+		}
+		appendTSConsts(vs, tsPath, constValues, seen, consts)
+	}
+}
+
+// extractTSPath returns the @ts <path> annotation from a doc comment, or empty string.
+func extractTSPath(doc *ast.CommentGroup) string {
+	if doc == nil {
+		return ""
+	}
+	for _, c := range doc.List {
+		if idx := strings.Index(c.Text, "@ts "); idx >= 0 {
+			return strings.TrimSpace(c.Text[idx+4:])
+		}
+	}
+	return ""
+}
+
+// appendTSConsts appends deduplicated constants from vs's value expressions.
+func appendTSConsts(vs *ast.ValueSpec, tsPath string, constValues map[string]string, seen map[string]bool, consts *[]tsConst) {
+	for _, valExpr := range vs.Values {
+		val := exprValue(valExpr, constValues)
+		if val == "" {
+			continue
+		}
+		if !seen[tsPath] {
+			*consts = append(*consts, tsConst{path: tsPath, value: val})
+			seen[tsPath] = true
+		}
+	}
 }
 
 // groupConsts splits consts into prefixed groups (e.g. "PHYSICS.") and
@@ -178,16 +192,16 @@ func renderTS(groups map[string][]tsConst, standalone []tsConst) string {
 	sort.Strings(groupNames)
 
 	for _, name := range groupNames {
-		sb.WriteString(fmt.Sprintf("export const %s = {\n", name))
+		fmt.Fprintf(&sb, "export const %s = {\n", name)
 		for _, c := range groups[name] {
 			key := c.path[strings.Index(c.path, ".")+1:]
-			sb.WriteString(fmt.Sprintf("  %s: %s,\n", key, c.value))
+			fmt.Fprintf(&sb, "  %s: %s,\n", key, c.value)
 		}
 		sb.WriteString("} as const;\n\n")
 	}
 
 	for _, c := range standalone {
-		sb.WriteString(fmt.Sprintf("export const %s = %s as const;\n", c.path, c.value))
+		fmt.Fprintf(&sb, "export const %s = %s as const;\n", c.path, c.value)
 	}
 
 	return sb.String()
@@ -286,8 +300,6 @@ func unFloat(s string) string {
 	s = strings.TrimSuffix(s, ")")
 	// Normalize integer-valued floats (e.g. 1000.0 → 1000) so the generated
 	// TS uses clean integers where the Go source used a float literal.
-	if strings.HasSuffix(s, ".0") {
-		s = s[:len(s)-2]
-	}
+	s = strings.TrimSuffix(s, ".0")
 	return s
 }

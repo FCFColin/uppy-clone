@@ -34,9 +34,7 @@
 ├── deploy/                   # observability Kustomize + local/ 开发配置
 ├── docs/                     # adr/, architecture/, operations/, ...
 ├── scripts/
-│   ├── ci/                   # coverage、digest 校验
-│   ├── load/                 # k6
-│   └── archive/
+│   └── ci/                   # coverage、digest 校验
 ├── docker/postgres/init/     # DB 角色初始化 SQL
 ├── tests/e2e/                # Playwright
 ├── docker-compose.yml
@@ -51,7 +49,7 @@
 - **`docs/`**：禁止在根目录放置 flat 文档（`docs/README.md` 除外）；新文档必须归入 `adr/`、`architecture/`、`operations/` 等子目录。
 - **`infra/`**：禁止在根目录放置 YAML/Terraform；应用清单仅允许 `k8s/`，GCP 资源仅允许 `terraform/`。
 - **`backend/cmd/server/`**：仅保留薄 `main.go`；路由与生命周期代码位于 `internal/server/`。
-- **`scripts/`**：CI 与负载脚本分别位于 `ci/`、`load/`；禁止在 `scripts/` 根目录放置 `.sh`/`.py`。
+- **`scripts/`**：CI 脚本位于 `ci/`；禁止在 `scripts/` 根目录放置 `.sh`/`.py`。
 - **门禁**：`make check-repo-layout` 在 CI 中校验上述约束。
 
 ## 后果

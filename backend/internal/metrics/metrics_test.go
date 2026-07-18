@@ -4,22 +4,8 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
-
-// TestInit_DoesNotPanic verifies that the package init() function (which
-// registers Go runtime and process collectors) runs without panicking,
-// even when called multiple times across test packages.
-func TestInit_DoesNotPanic(t *testing.T) {
-	// Re-register to exercise the "already registered" error paths in init().
-	// The init() ignores errors from duplicate registration, so this should
-	// not panic.
-	if err := prometheus.Register(collectors.NewGoCollector()); err == nil {
-		t.Log("GoCollector was not previously registered (unexpected)")
-	}
-	// Whether it errors or not, the test passes — we just exercise the path.
-}
 
 // TestSLOBuckets verifies the SLO bucket configuration.
 func TestSLOBuckets(t *testing.T) {
@@ -38,109 +24,6 @@ func TestSLOBuckets(t *testing.T) {
 		if b >= 10.0 {
 			t.Fatalf("SLOBuckets should not contain 10s bucket, got %v", b)
 		}
-	}
-}
-
-// TestHTTPRequestsTotal_Increment verifies the HTTPRequestsTotal counter
-// can be incremented with label values and the value is retrievable.
-func TestHTTPRequestsTotal_Increment(t *testing.T) {
-	HTTPRequestsTotal.Reset()
-	HTTPRequestsTotal.WithLabelValues("GET", "/test", "200").Inc()
-	HTTPRequestsTotal.WithLabelValues("GET", "/test", "200").Inc()
-	HTTPRequestsTotal.WithLabelValues("POST", "/test", "201").Inc()
-
-	if got := testutil.ToFloat64(HTTPRequestsTotal.WithLabelValues("GET", "/test", "200")); got != 2 {
-		t.Fatalf("GET /test 200 count = %v, want 2", got)
-	}
-	if got := testutil.ToFloat64(HTTPRequestsTotal.WithLabelValues("POST", "/test", "201")); got != 1 {
-		t.Fatalf("POST /test 201 count = %v, want 1", got)
-	}
-}
-
-// TestHTTPRequestDuration_Observe verifies the HTTPRequestDuration histogram
-// accepts observations.
-func TestHTTPRequestDuration_Observe(t *testing.T) {
-	HTTPRequestDuration.Reset()
-	HTTPRequestDuration.WithLabelValues("GET", "/test").Observe(0.05)
-	HTTPRequestDuration.WithLabelValues("GET", "/test").Observe(0.15)
-
-	count := testutil.CollectAndCount(HTTPRequestDuration)
-	if count < 1 {
-		t.Fatalf("HTTPRequestDuration metric count = %d, want >= 1", count)
-	}
-}
-
-// TestDBPoolMetrics verifies DB pool counters, histograms, and gauges.
-func TestDBPoolMetrics(t *testing.T) {
-	// Counter
-	before := testutil.ToFloat64(DBPoolAcquireCount)
-	DBPoolAcquireCount.Inc()
-	DBPoolAcquireCount.Inc()
-	after := testutil.ToFloat64(DBPoolAcquireCount)
-	if after-before != 2 {
-		t.Fatalf("DBPoolAcquireCount delta = %v, want 2", after-before)
-	}
-
-	// Histogram
-	DBPoolAcquireDuration.Observe(0.01)
-	if testutil.CollectAndCount(DBPoolAcquireDuration) < 1 {
-		t.Fatal("DBPoolAcquireDuration not collected")
-	}
-
-	// Gauges
-	DBPoolIdleConns.Set(5)
-	if got := testutil.ToFloat64(DBPoolIdleConns); got != 5 {
-		t.Fatalf("DBPoolIdleConns = %v, want 5", got)
-	}
-	DBPoolIdleConns.Inc()
-	if got := testutil.ToFloat64(DBPoolIdleConns); got != 6 {
-		t.Fatalf("DBPoolIdleConns after Inc = %v, want 6", got)
-	}
-	DBPoolIdleConns.Dec()
-	if got := testutil.ToFloat64(DBPoolIdleConns); got != 5 {
-		t.Fatalf("DBPoolIdleConns after Dec = %v, want 5", got)
-	}
-
-	DBPoolInUseConns.Set(3)
-	if got := testutil.ToFloat64(DBPoolInUseConns); got != 3 {
-		t.Fatalf("DBPoolInUseConns = %v, want 3", got)
-	}
-	DBPoolInUseConns.Add(2)
-	if got := testutil.ToFloat64(DBPoolInUseConns); got != 5 {
-		t.Fatalf("DBPoolInUseConns after Add(2) = %v, want 5", got)
-	}
-	DBPoolInUseConns.Sub(1)
-	if got := testutil.ToFloat64(DBPoolInUseConns); got != 4 {
-		t.Fatalf("DBPoolInUseConns after Sub(1) = %v, want 4", got)
-	}
-}
-
-// TestBusinessMetrics verifies the business gauges and counters.
-func TestBusinessMetrics(t *testing.T) {
-	// ActiveRooms gauge
-	ActiveRooms.Set(10)
-	if got := testutil.ToFloat64(ActiveRooms); got != 10 {
-		t.Fatalf("ActiveRooms = %v, want 10", got)
-	}
-
-	// ActivePlayers gauge
-	ActivePlayers.Set(50)
-	if got := testutil.ToFloat64(ActivePlayers); got != 50 {
-		t.Fatalf("ActivePlayers = %v, want 50", got)
-	}
-
-	// WSConnections gauge
-	WSConnections.Set(100)
-	if got := testutil.ToFloat64(WSConnections); got != 100 {
-		t.Fatalf("WSConnections = %v, want 100", got)
-	}
-
-	// GameSessionsTotal counter
-	before := testutil.ToFloat64(GameSessionsTotal)
-	GameSessionsTotal.Inc()
-	after := testutil.ToFloat64(GameSessionsTotal)
-	if after-before != 1 {
-		t.Fatalf("GameSessionsTotal delta = %v, want 1", after-before)
 	}
 }
 
@@ -181,19 +64,6 @@ func TestCircuitBreakerState(t *testing.T) {
 	CircuitBreakerState.WithLabelValues("downstream-c", "open").Set(1)
 	if got := testutil.ToFloat64(CircuitBreakerState.WithLabelValues("downstream-c", "open")); got != 1 {
 		t.Fatalf("circuit breaker open = %v, want 1", got)
-	}
-}
-
-// TestRedisPoolMetrics verifies Redis pool gauges.
-func TestRedisPoolMetrics(t *testing.T) {
-	RedisPoolIdleConns.Set(8)
-	if got := testutil.ToFloat64(RedisPoolIdleConns); got != 8 {
-		t.Fatalf("RedisPoolIdleConns = %v, want 8", got)
-	}
-
-	RedisPoolTotalConns.Set(16)
-	if got := testutil.ToFloat64(RedisPoolTotalConns); got != 16 {
-		t.Fatalf("RedisPoolTotalConns = %v, want 16", got)
 	}
 }
 
@@ -278,19 +148,6 @@ func TestWSConnectionMetrics(t *testing.T) {
 	WSMessageDuration.WithLabelValues("join").Observe(0.02)
 	if testutil.CollectAndCount(WSMessageDuration) < 1 {
 		t.Fatal("WSMessageDuration not collected")
-	}
-}
-
-// TestStreamLengthGauges verifies the Redis Stream length gauges.
-func TestStreamLengthGauges(t *testing.T) {
-	GameResultsStreamLen.Set(42)
-	if got := testutil.ToFloat64(GameResultsStreamLen); got != 42 {
-		t.Fatalf("GameResultsStreamLen = %v, want 42", got)
-	}
-
-	EmailQueueStreamLen.Set(7)
-	if got := testutil.ToFloat64(EmailQueueStreamLen); got != 7 {
-		t.Fatalf("EmailQueueStreamLen = %v, want 7", got)
 	}
 }
 

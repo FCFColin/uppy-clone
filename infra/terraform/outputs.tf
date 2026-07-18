@@ -21,27 +21,6 @@ output "balloon_game_server_service_account" {
   value       = google_service_account.balloon_game_server.email
 }
 
-output "balloon_game_worker_service_account" {
-  description = "Dedicated GSA for async worker pods/jobs (infra-028)"
-  value       = google_service_account.balloon_game_worker.email
-}
-
-output "balloon_game_migrator_service_account" {
-  description = "Dedicated GSA for DB migration CI job (infra-028)"
-  value       = google_service_account.balloon_game_migrator.email
-}
-
-# infra-025: 全局静态 IP + 托管证书输出，与 multicluster-ingress.yaml 注解名字对齐。
-output "balloon_game_global_ip" {
-  description = "Global Anycast IP reserved for MultiClusterIngress (infra-025)"
-  value       = google_compute_global_address.balloon_game_global_ip.address
-}
-
-output "balloon_game_cert_name" {
-  description = "Name of the Google-managed SSL certificate referenced by MCI pre-shared-certs annotation (infra-025)"
-  value       = google_compute_managed_ssl_certificate.balloon_game_cert.name
-}
-
 # v2-C-01：GKE 集群引用输出（集群手动管理，Terraform 仅暴露属性供下游使用）。
 output "gke_clusters" {
   description = "Map of region -> GKE cluster attributes (existing clusters referenced via data)."

@@ -19,6 +19,7 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestVerifyMagicLink_ExistingUser(t *testing.T) {
@@ -34,11 +35,7 @@ func TestVerifyMagicLink_ExistingUser(t *testing.T) {
 		t.Fatalf("storeMagicLinkToken: %v", err)
 	}
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	lastLogin := int64(1)
@@ -69,11 +66,7 @@ func TestVerifyMagicLink_ExistingUser(t *testing.T) {
 }
 
 func TestFindOrCreateUserByEmail_CreatesUser(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	ctx := context.Background()
@@ -125,11 +118,7 @@ func TestIssueMagicLinkSession(t *testing.T) {
 	}
 	defer mr.Close()
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	mock.ExpectExec("UPDATE users SET last_login").
@@ -156,11 +145,7 @@ func TestIssueMagicLinkSession_LastLoginErrorIgnored(t *testing.T) {
 	}
 	defer mr.Close()
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	mock.ExpectExec("UPDATE users SET last_login").
@@ -181,11 +166,7 @@ func TestIssueMagicLinkSession_LastLoginErrorIgnored(t *testing.T) {
 }
 
 func TestIssueMagicLinkSession_RefreshError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	mock.ExpectExec("UPDATE users SET last_login").
@@ -311,29 +292,21 @@ func TestValidateMagicToken_Success(t *testing.T) {
 }
 
 func TestFindOrCreateUserByEmail_LookupError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WithArgs(pgxmock.AnyArg(), "fail@example.com").
 		WillReturnError(errors.New("db down"))
 
-	_, err = findOrCreateUserByEmail(context.Background(), db, "fail@example.com")
+	_, err := findOrCreateUserByEmail(context.Background(), db, "fail@example.com")
 	if err == nil {
 		t.Fatal("expected lookup user error")
 	}
 }
 
 func TestFindOrCreateUserByEmail_CreateError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
@@ -345,7 +318,7 @@ func TestFindOrCreateUserByEmail_CreateError(t *testing.T) {
 		WillReturnError(errors.New("insert failed"))
 	mock.ExpectRollback()
 
-	_, err = findOrCreateUserByEmail(context.Background(), db, "create-fail@example.com")
+	_, err := findOrCreateUserByEmail(context.Background(), db, "create-fail@example.com")
 	if err == nil {
 		t.Fatal("expected create user error")
 	}
@@ -376,11 +349,7 @@ func TestVerifyMagicLink_UserLookupError(t *testing.T) {
 		t.Fatalf("storeMagicLinkToken: %v", err)
 	}
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
@@ -398,11 +367,7 @@ func TestVerifyMagicLink_UserLookupError(t *testing.T) {
 
 func TestIssueMagicLinkSession_SignTokenError(t *testing.T) {
 	mr := miniredis.RunT(t)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	defer mock.Close()
+	mock := testutil.NewPgxMock(t)
 
 	db := store.NewUserRepository(mock)
 	mock.ExpectExec("UPDATE users SET last_login").
@@ -415,7 +380,7 @@ func TestIssueMagicLinkSession_SignTokenError(t *testing.T) {
 	defer SetRandReadHook(func([]byte) (int, error) { return 0, errors.New("rand failed") })()
 
 	user := &domain.User{ID: "user-1", Nickname: "Magic"}
-	_, _, err = issueMagicLinkSession(context.Background(), db, jwtMgr, refreshMgr, user,
+	_, _, err := issueMagicLinkSession(context.Background(), db, jwtMgr, refreshMgr, user,
 		httptest.NewRequest("GET", "/", nil))
 	if err == nil {
 		t.Fatal("expected sign token error")

@@ -6,8 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
-	"time"
-
+	
 	"github.com/uppy-clone/backend/internal/config"
 )
 
@@ -15,10 +14,10 @@ func TestSaveStateWithError_PersistsLobbyMetadata(t *testing.T) {
 	t.Parallel()
 	repo := newMockRoomRepository()
 	room := &Room{
-		state:              NewGameState("PERSIST", 42, testRNG()),
-		store:              repo,
-		logger:             slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		timeouts:           config.DefaultTimeoutConfig(),
+		state:    NewGameState("PERSIST", 42, testRNG()),
+		store:    repo,
+		logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		timeouts: config.DefaultTimeoutConfig(),
 	}
 	if err := room.saveStateWithError(); err != nil {
 		t.Fatalf("saveStateWithError: %v", err)
@@ -35,9 +34,9 @@ func TestSaveStateWithError_PersistsLobbyMetadata(t *testing.T) {
 func TestSaveStateWithError_NilStore(t *testing.T) {
 	t.Parallel()
 	room := &Room{
-		state:              NewGameState("TEST", 42, testRNG()),
-		store:              nil,
-		logger:             slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		state:  NewGameState("TEST", 42, testRNG()),
+		store:  nil,
+		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 
 	err := room.saveStateWithError()
@@ -50,10 +49,10 @@ func TestSaveStateWithError_StoreSuccess(t *testing.T) {
 	t.Parallel()
 	repo := newMockRoomRepository()
 	room := &Room{
-		state:              NewGameState("TEST", 42, testRNG()),
-		store:              repo,
-		logger:             slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		timeouts:           config.DefaultTimeoutConfig(),
+		state:    NewGameState("TEST", 42, testRNG()),
+		store:    repo,
+		logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		timeouts: config.DefaultTimeoutConfig(),
 	}
 
 	err := room.saveStateWithError()
@@ -70,10 +69,10 @@ func TestSaveStateWithError_StoreError(t *testing.T) {
 	repo := newMockRoomRepository()
 	repo.saveErr = errors.New("db unavailable")
 	room := &Room{
-		state:              NewGameState("TEST", 42, testRNG()),
-		store:              repo,
-		logger:             slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		timeouts:           config.DefaultTimeoutConfig(),
+		state:    NewGameState("TEST", 42, testRNG()),
+		store:    repo,
+		logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		timeouts: config.DefaultTimeoutConfig(),
 	}
 
 	err := room.saveStateWithError()
@@ -106,15 +105,3 @@ func TestSaveState_StoreErrorDoesNotPanic(t *testing.T) {
 
 // --- coverage gap 补充用例 ---
 
-func TestRoom_RequestPersist_UpdatesPersistLag(_ *testing.T) {
-	repo := newMockRoomRepository()
-	r := NewRoom("LAG", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.persistMu.Lock()
-	r.lastPersistAt = time.Now().Add(-500 * time.Millisecond)
-	r.persistMu.Unlock()
-	r.mu.Lock()
-	r.requestPersist()
-	r.mu.Unlock()
-	time.Sleep(200 * time.Millisecond)
-	r.stopPersist()
-}

@@ -38,42 +38,57 @@ type Env struct {
 	MaxPlayersPerRoom  int
 	MetricsUser        string
 	MetricsPassword    string
+	// Telemetry (OpenTelemetry tracing pipeline)
+	OTLPEndpoint    string
+	OTLPInsecure    bool
+	OTELSampleRatio float64
+	CloudRegion     string
+
+	// EnableEmbeddedWorkers controls whether the server process starts async
+	// workers (GameResult/Outbox/GDPR) in-process. Production default: true
+	// (in-process; standalone game-worker binary removed per ADR-032).
+	EnableEmbeddedWorkers bool
 }
 
 // Load reads configuration from environment variables.
 func Load() *Env {
 	return &Env{
-		JWTPrivateKey:      os.Getenv("JWT_PRIVATE_KEY"),
-		JWTPublicKey:       os.Getenv("JWT_PUBLIC_KEY"),
-		AdminJWTPrivateKey: os.Getenv("ADMIN_JWT_PRIVATE_KEY"),
-		AdminJWTPublicKey:  os.Getenv("ADMIN_JWT_PUBLIC_KEY"),
-		DatabaseURL:        os.Getenv("DATABASE_URL"),
-		RedisURL:           GetEnv("REDIS_URL", "localhost:6379"),
-		RedisEphemeralURL:  GetEnv("REDIS_EPHEMERAL_URL", ""),
-		RedisRegionURL:     GetEnv("REDIS_REGIONAL_URL", ""),
-		RedisPubSubURL:     GetEnv("REDIS_PUBSUB_URL", ""),
-		EncryptionKey:      os.Getenv("ENCRYPTION_KEY"),
-		ResendAPIKey:       os.Getenv("RESEND_API_KEY"),
-		EmailFrom:          os.Getenv("EMAIL_FROM"),
-		AdminPassword:      os.Getenv("ADMIN_PASSWORD"),
-		AuditSecret:        os.Getenv("AUDIT_SECRET"),
-		TrustedProxyCIDRs:  os.Getenv("TRUSTED_PROXY_CIDRS"),
-		AllowedOrigins:     os.Getenv("ALLOWED_ORIGINS"),
-		Port:               GetEnv("PORT", "8080"),
-		FrontendDir:        os.Getenv("FRONTEND_DIR"),
-		MigrationsDir:      GetEnv("MIGRATIONS_DIR", "migrations"),
-		EnableHSTS:         !strings.EqualFold(os.Getenv("ENABLE_HSTS"), "false"),
-		Environment:        os.Getenv("ENV"),
-		MaxWSConnections:   GetEnvInt("MAX_WS_CONNECTIONS", MaxWSConnections),
-		MaxPlayersPerRoom:  GetEnvInt("MAX_PLAYERS_PER_ROOM", MaxPlayersPerRoom),
-		MetricsUser:        os.Getenv("METRICS_USER"),
-		MetricsPassword:    os.Getenv("METRICS_PASSWORD"),
+		JWTPrivateKey:         os.Getenv("JWT_PRIVATE_KEY"),
+		JWTPublicKey:          os.Getenv("JWT_PUBLIC_KEY"),
+		AdminJWTPrivateKey:    os.Getenv("ADMIN_JWT_PRIVATE_KEY"),
+		AdminJWTPublicKey:     os.Getenv("ADMIN_JWT_PUBLIC_KEY"),
+		DatabaseURL:           os.Getenv("DATABASE_URL"),
+		RedisURL:              GetEnv("REDIS_URL", "localhost:6379"),
+		RedisEphemeralURL:     GetEnv("REDIS_EPHEMERAL_URL", ""),
+		RedisRegionURL:        GetEnv("REDIS_REGIONAL_URL", ""),
+		RedisPubSubURL:        GetEnv("REDIS_PUBSUB_URL", ""),
+		EncryptionKey:         os.Getenv("ENCRYPTION_KEY"),
+		ResendAPIKey:          os.Getenv("RESEND_API_KEY"),
+		EmailFrom:             os.Getenv("EMAIL_FROM"),
+		AdminPassword:         os.Getenv("ADMIN_PASSWORD"),
+		AuditSecret:           os.Getenv("AUDIT_SECRET"),
+		TrustedProxyCIDRs:     os.Getenv("TRUSTED_PROXY_CIDRS"),
+		AllowedOrigins:        os.Getenv("ALLOWED_ORIGINS"),
+		Port:                  GetEnv("PORT", "8080"),
+		FrontendDir:           os.Getenv("FRONTEND_DIR"),
+		MigrationsDir:         GetEnv("MIGRATIONS_DIR", "migrations"),
+		EnableHSTS:            !strings.EqualFold(os.Getenv("ENABLE_HSTS"), "false"),
+		Environment:           os.Getenv("ENV"),
+		MaxWSConnections:      GetEnvInt("MAX_WS_CONNECTIONS", MaxWSConnections),
+		MaxPlayersPerRoom:     GetEnvInt("MAX_PLAYERS_PER_ROOM", MaxPlayersPerRoom),
+		MetricsUser:           os.Getenv("METRICS_USER"),
+		MetricsPassword:       os.Getenv("METRICS_PASSWORD"),
+		OTLPEndpoint:          os.Getenv("OTLP_ENDPOINT"),
+		OTLPInsecure:          strings.EqualFold(os.Getenv("OTLP_INSECURE"), "true"),
+		OTELSampleRatio:       getEnvFloat64("OTEL_SAMPLE_RATIO", 0.1),
+		CloudRegion:           os.Getenv("CLOUD_REGION"),
+		EnableEmbeddedWorkers: !strings.EqualFold(os.Getenv("ENABLE_EMBEDDED_WORKERS"), "false") && os.Getenv("ENABLE_EMBEDDED_WORKERS") != "0",
 	}
 }
 
 // IsProduction returns true when the environment is set to production.
 func (e *Env) IsProduction() bool {
-	return e.Environment == "production"
+	return e.Environment == EnvProduction
 }
 
 // Validate returns an error listing all missing or invalid required fields.
@@ -274,4 +289,14 @@ func validateDatabaseURLSSLModes(dbURL string) error {
 		return fmt.Errorf("DATABASE_URL sslmode=%q rejected in production; use require, verify-ca, or verify-full", finalSSLMode)
 	}
 	return nil
+}
+
+// getEnvFloat64 reads a float64 from an env var, returning defaultVal when unset or invalid.
+func getEnvFloat64(key string, defaultVal float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return defaultVal
 }

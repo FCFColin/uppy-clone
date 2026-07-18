@@ -10,9 +10,3 @@ var ErrNotFound = errors.New("resource not found")
 
 // ErrValidation is returned when input fails validation checks.
 var ErrValidation = errors.New("validation failed")
-
-// ErrConflict is returned when a request conflicts with the current resource state.
-var ErrConflict = errors.New("resource conflict")
-
-// ErrUnauthorized is returned when the caller lacks required credentials.
-var ErrUnauthorized = errors.New("unauthorized")

@@ -21,6 +21,10 @@ import (
 	"github.com/uppy-clone/backend/internal/worker"
 )
 
+// defaultMigrationsDir is the on-disk directory used to locate SQL migration
+// files when the environment does not override MigrationsDir.
+const defaultMigrationsDir = "migrations"
+
 // newStoreDeps builds production Deps with real resilience, tracing, metrics,
 // and audit logging. Passed to store constructors via variadic parameter.
 func newStoreDeps() store.Deps {
@@ -66,7 +70,7 @@ func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig, deps store.De
 		slog.Error("failed to connect to PostgreSQL", "error", err)
 		return nil, err
 	}
-	migrationsPath := "migrations"
+	migrationsPath := defaultMigrationsDir
 	if serverEnv != nil && serverEnv.MigrationsDir != "" {
 		migrationsPath = serverEnv.MigrationsDir
 	}
@@ -132,6 +136,13 @@ func startWorkers(ctx context.Context, wg *sync.WaitGroup, cfg *handler.Config, 
 		startWorker(ctx, wg, "email worker", worker.NewEmailWorker(statefulClient, cfg.ResendAPIKey, cfg.EmailFrom, timeouts).Start)
 	}
 
+	// ENABLE_EMBEDDED_WORKERS=false (opt-out): GameResult/Outbox/GDPR
+	// workers are skipped. Default is true (in-process; standalone game-worker
+	if !cfg.EnableEmbeddedWorkers {
+		slog.Info("embedded workers disabled (ENABLE_EMBEDDED_WORKERS=false, opt-out)")
+		return
+	}
+
 	startWorker(ctx, wg, "game result worker", worker.NewGameResultWorker(statefulClient, db.Pool()).Start)
 	startWorker(ctx, wg, "outbox publisher", outbox.NewPublisher(db.Pool(), statefulClient).Start)
 
@@ -143,9 +154,9 @@ func startWorkers(ctx context.Context, wg *sync.WaitGroup, cfg *handler.Config, 
 
 // initHandlers creates the auth, lobby, and admin handlers.
 func initHandlers(jwtMgr *auth.JWTManager, adminJwtMgr *auth.JWTManager, pg *store.PostgresStore, redis *store.RedisStore, cfg *handler.Config, _ appConfig.TimeoutConfig, hub *game.Hub, deps store.Deps) (*handler.AuthHandler, *handler.LobbyHandler, *handler.AdminHandler, *handler.StatsHandler) {
-	var users handler.UserStore
-	var configs handler.ConfigStore
-	var results handler.LeaderboardStore
+	var users auth.UserDB
+	var configs *store.ConfigRepository
+	var results *store.ResultRepository
 	if pg != nil {
 		users = store.NewUserRepository(pg.Pool(), deps)
 		configs = store.NewConfigRepository(pg.Pool(), deps)

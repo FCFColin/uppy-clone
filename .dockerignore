@@ -17,11 +17,9 @@ docs/
 
 # Test files
 **/*_test.go
-playwright/
 playwright-report/
 test-results/
 coverage/
-vitest.config.ts
 playwright.config.ts
 
 # IDE
@@ -39,7 +37,6 @@ playwright.config.ts
 
 # Build artifacts (rebuilt in Dockerfile)
 frontend/dist/
-public/
 
 # Scripts
 scripts/
@@ -55,4 +52,3 @@ infra/
 *.log
 tmp/
 .superpowers/
-audit-report.md

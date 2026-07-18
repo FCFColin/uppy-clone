@@ -17,15 +17,12 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func newQuickPlayPostgresStore(t *testing.T) (*store.UserRepository, pgxmock.PgxPoolIface) {
 	t.Helper()
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	return store.NewUserRepository(mock), mock
 }
 

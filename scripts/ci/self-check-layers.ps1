@@ -31,6 +31,6 @@ Run-Step 'ratelimit' { Set-Location backend; go test ./internal/middleware/... -
 
 Write-Host 'Layer 6: Contracts'
 Run-Step 'cooldown contract (Go)' { Set-Location backend; go test ./internal/game/... -run CooldownContract -count=1 }
-Run-Step 'cooldown contract (TS)' { Set-Location frontend; npx vitest run src/game/cooldown_contract.test.ts }
+Run-Step 'cooldown contract (TS)' { Set-Location frontend; npx vitest run src/game/message_codec.test.ts }
 
 Write-Host 'All automated layer checks passed.'

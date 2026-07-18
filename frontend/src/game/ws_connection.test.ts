@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getOutboundQueueLength, clearOutboundQueue } from './ws_connection.js';
 import { MockWebSocket } from '../shared/test/mocks/websocket.js';
 
-vi.mock('./local_constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./local_constants.js')>();
+vi.mock('./constants.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./constants.js')>();
   return {
     ...actual,
     HEARTBEAT_INTERVAL_MS: 1000,
@@ -16,22 +16,53 @@ import {
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_TIMEOUT_MS,
   MAX_RECONNECT_ATTEMPTS,
-} from './local_constants.js';
+} from './constants.js';
 
-vi.mock('./ws_connect.js', () => ({ connectWebSocket: vi.fn() }));
-vi.mock('./connection_ui.js', () => ({
+vi.mock('./ui_common.js', () => ({
   hideReconnectBanner: vi.fn(),
   showReconnectBanner: vi.fn(),
   updatePingDisplay: vi.fn(),
   showConnectionError: vi.fn(),
 }));
+vi.mock('../shared/network/session.js', () => ({
+  establishGameSession: vi.fn().mockRejectedValue(new Error('test-network')),
+  sessionErrorMessage: () => 'network error',
+}));
+
+vi.mock('./lobby_match.js', () => ({
+  ROOM_CODE_RE: /^[A-Z2-9]{5}$/,
+  getLobbyCodeFromUrl: () => null,
+  validateRoomCode: vi.fn(),
+  roomErrorMessage: () => 'bad room',
+  resolveLobbyCode: vi.fn().mockRejectedValue(new Error('test-match')),
+}));
+
+vi.mock('./entry_flow.js', () => ({
+  onLobbyCodeReady: vi.fn(),
+  onWebSocketOpen: vi.fn(),
+  onWebSocketClosed: vi.fn(),
+  getEntryStep: vi.fn(() => 'waiting'),
+}));
+
+vi.mock('./entry_flow_ui.js', () => ({
+  clearWaitingInlineError: vi.fn(),
+}));
+
+vi.mock('./state_interp.js', () => ({
+  resetInterpolation: vi.fn(),
+}));
+
+vi.mock('./seen_seqs.js', () => ({
+  clearSeenSeqs: vi.fn(),
+}));
+
 
 import { getWs, setWs, stopHeartbeat, startHeartbeat, handlePong, sendOrQueue, flushPendingQueue, resetReconnectAttempts, scheduleReconnect, waitForWebSocket, showConnectionError, setRoomPreChecked, wasRoomPreChecked, setReconnectTimer, clearReconnectTimer, getWsEverOpened, setWsEverOpened } from './ws_connection.js';
 import {
   showConnectionError as showConnectionErrorUI,
   showReconnectBanner,
   updatePingDisplay,
-} from './connection_ui.js';
+} from './ui_common.js';
 
 describe('ws_connection', () => {
   beforeEach(() => {

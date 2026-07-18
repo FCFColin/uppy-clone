@@ -65,3 +65,18 @@ func SetupMiniredisStore(t *testing.T) *store.RedisStore {
 	t.Cleanup(func() { _ = rdb.Close() })
 	return rdb
 }
+
+// NewTestMiniredis starts a miniredis instance and returns it with a connected
+// go-redis client. Lightweight alternative to SetupRedisClient for unit tests
+// that need a raw *redis.Client (not a full *store.RedisStore).
+func NewTestMiniredis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
+	t.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	return mr, rdb
+}

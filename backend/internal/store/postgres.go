@@ -11,31 +11,25 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sony/gobreaker/v2"
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/migrateutil"
+	"github.com/uppy-clone/backend/internal/store/base"
 )
-
-// pgPool abstracts pgxpool for store operations (enables pgxmock in unit tests).
-type pgPool interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Close()
-	Ping(ctx context.Context) error
-}
 
 // ErrDuplicateUser indicates a unique constraint violation on user creation.
 var ErrDuplicateUser = domain.ErrDuplicateUser
 
+// pgPool is an alias for base.PGPool kept for backward compatibility with
+// existing repository constructors. The canonical interface lives in base.
+type pgPool = base.PGPool
+
 // PostgresStore provides PostgreSQL-backed persistence.
 type PostgresStore struct {
-	pool pgPool
+	pool base.PGPool
 	cb   *gobreaker.CircuitBreaker[any]
 	deps Deps
 
@@ -44,7 +38,7 @@ type PostgresStore struct {
 }
 
 // pgxNewWithConfigFn is replaceable in unit tests to avoid a live PostgreSQL instance.
-var pgxNewWithConfigFn = func(ctx context.Context, cfg *pgxpool.Config) (pgPool, error) {
+var pgxNewWithConfigFn = func(ctx context.Context, cfg *pgxpool.Config) (base.PGPool, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("nil pool config")
 	}
@@ -95,7 +89,7 @@ func NewPostgresStore(connString string, timeouts config.TimeoutConfig, deps ...
 }
 
 // NewPostgresStoreWithPool wraps an existing pool (pgxmock-backed unit tests).
-func NewPostgresStoreWithPool(pool pgPool, deps ...Deps) *PostgresStore {
+func NewPostgresStoreWithPool(pool base.PGPool, deps ...Deps) *PostgresStore {
 	d := depsOrZero(deps...)
 	return &PostgresStore{
 		pool: pool,

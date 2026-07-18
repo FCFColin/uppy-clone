@@ -13,9 +13,8 @@ type mockGDPRDeleter struct {
 	calls   int
 }
 
-func (m *mockGDPRDeleter) HardDeleteExpiredUsers(_ context.Context, retentionDays int) (int64, error) {
+func (m *mockGDPRDeleter) HardDeleteExpiredUsers(_ context.Context, _ int) (int64, error) {
 	m.calls++
-	_ = retentionDays
 	return m.deleted, m.err
 }
 

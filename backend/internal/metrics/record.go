@@ -40,24 +40,6 @@ func RecordAuth(endpoint string, statusCode int, start time.Time) {
 	AuthRequestDuration.WithLabelValues(endpoint).Observe(time.Since(start).Seconds())
 }
 
-// AuthRecorder wraps a ResponseWriter and records metrics on End().
-type AuthRecorder struct {
-	sw       *statusWriter
-	endpoint string
-	start    time.Time
-}
-
-// BeginAuth wraps the response writer and starts auth latency measurement.
-func BeginAuth(endpoint string, w http.ResponseWriter) (*AuthRecorder, *statusWriter) {
-	sw := NewStatusWriter(w)
-	return &AuthRecorder{sw: sw, endpoint: endpoint, start: time.Now()}, sw
-}
-
-// End records auth metrics for the wrapped request.
-func (r *AuthRecorder) End() {
-	RecordAuth(r.endpoint, r.sw.Status(), r.start)
-}
-
 // RecordRoomCreation records room creation outcomes.
 func RecordRoomCreation(status string, start time.Time) {
 	RoomCreationTotal.WithLabelValues(status).Inc()

@@ -1,18 +1,17 @@
 import { encodeSetNickname } from './message_codec.js';
-import { dispatch } from './store.js';
+import { dispatch } from './state.js';
 import { normalizeAuthHost } from '../shared/network/session.js';
-import { showToast } from '../shared/ui/toast.js';
+import { showToast } from '../shared/ui/utils.js';
 import { resizeCanvas, startGameLoop, renderOnce } from './renderer.js';
 import { updateUI } from './ui_update.js';
-import { generateRandomNickname } from './ui_utils.js';
+import { generateRandomNickname, initWaitingTips, bindReconnectRetry } from './ui_common.js';
 import { $setupNicknameInput } from './ui_elements.js';
-import { connectWebSocket, showConnectionError } from './ws_connect.js';
+import { connectWebSocket, showConnectionError } from './ws_connection.js';
 import { sendOrQueue } from './ws_connection.js';
-import { initWaitingTips } from './waiting_tips.js';
-import { bindReconnectRetry } from './connection_ui.js';
 import {
   initEntryFlow, bindEntryUI, onNicknameSubmit, onWebSocketOpen, getEntryStep,
 } from './entry_flow.js';
+import { safeGetItem, safeSetItem } from '../shared/ui/utils.js';
 
 function submitSetupNickname(): void {
   const input: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
@@ -20,11 +19,7 @@ function submitSetupNickname(): void {
   if (!nickname) {
     nickname = generateRandomNickname();
   }
-  try {
-    localStorage.setItem('uppy-nickname', nickname);
-  } catch {
-    // localStorage may be unavailable (private browsing, quota)
-  }
+  safeSetItem('uppy-nickname', nickname);
   dispatch({ type: 'SET_STATE', partial: { pendingNickname: nickname } });
   onNicknameSubmit();
 
@@ -36,12 +31,7 @@ function submitSetupNickname(): void {
 }
 
 function initNickname(): void {
-  let savedNickname: string | null = null;
-  try {
-    savedNickname = localStorage.getItem('uppy-nickname');
-  } catch {
-    // localStorage may be unavailable
-  }
+  const savedNickname: string | null = safeGetItem('uppy-nickname');
   if (savedNickname && $setupNicknameInput) {
     $setupNicknameInput.value = savedNickname;
   } else if ($setupNicknameInput) {
@@ -69,11 +59,7 @@ export function boot(): void {
   bootBound = true;
 
   normalizeAuthHost();
-  try {
-    localStorage.setItem('uppy-game-url', window.location.href);
-  } catch {
-    // localStorage may be unavailable (private browsing, quota)
-  }
+  safeSetItem('uppy-game-url', window.location.href);
   initNickname();
 
   initEntryFlow();

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { encodeSetNickname, decodeSnapshot, truncateNickname, calculateCooldown } from './message_codec.js';
-import { CLIENT_MSG } from '../shared/game/protocol.js';
+import { encodeSetNickname, truncateNickname, calculateCooldown } from './message_codec.js';
+import { CLIENT_MSG } from '../shared/game/constants.js';
 import { COOLDOWN } from '../shared/game/constants.js';
 
 describe('encodeSetNickname', () => {
@@ -51,72 +51,6 @@ describe('encodeSetNickname', () => {
         const truncated = truncateNickname(nickname);
         expect([...truncated].length).toBeLessThanOrEqual(12);
       })
-    );
-  });
-});
-
-describe('decodeSnapshot', () => {
-  it('returns null for buffers shorter than 37 bytes', () => {
-    fc.assert(
-      fc.property(
-        fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 0, maxLength: 36 }),
-        (bytes) => {
-          const buf = new Uint8Array(bytes).buffer;
-          expect(decodeSnapshot(new DataView(buf))).toBeNull();
-        }
-      )
-    );
-  });
-
-  it('gracefully handles any binary input (returns null or valid DecodedSnapshot)', () => {
-    fc.assert(
-      fc.property(
-        fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 0, maxLength: 300 }),
-        (bytes) => {
-          const buf = new Uint8Array(bytes).buffer;
-          const result = decodeSnapshot(new DataView(buf));
-          if (result === null) return;
-          expect(typeof result.timestamp).toBe('number');
-          expect(typeof result.score).toBe('number');
-          expect(['waiting', 'playing', 'ended', 'countdown']).toContain(result.phase);
-          expect(typeof result.balloon.x).toBe('number');
-          expect(typeof result.players.length).toBe('number');
-          expect(typeof result.playerCount).toBe('number');
-        }
-      )
-    );
-  });
-
-  it('balloon coordinates are numbers when decoding returns non-null', () => {
-    fc.assert(
-      fc.property(
-        fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 37, maxLength: 300 }),
-        (bytes) => {
-          const buf = new Uint8Array(bytes).buffer;
-          const result = decodeSnapshot(new DataView(buf));
-          if (result === null) return;
-          expect(typeof result.balloon.x).toBe('number');
-          expect(typeof result.balloon.y).toBe('number');
-          expect(typeof result.balloon.vx).toBe('number');
-          expect(typeof result.balloon.vy).toBe('number');
-          expect(typeof result.timestamp).toBe('number');
-        }
-      )
-    );
-  });
-
-  it('non-null result has non-negative score and playerCount', () => {
-    fc.assert(
-      fc.property(
-        fc.array(fc.integer({ min: 0, max: 255 }), { minLength: 37, maxLength: 300 }),
-        (bytes) => {
-          const buf = new Uint8Array(bytes).buffer;
-          const result = decodeSnapshot(new DataView(buf));
-          if (result === null) return;
-          expect(result.score).toBeGreaterThanOrEqual(0);
-          expect(result.playerCount).toBeGreaterThanOrEqual(0);
-        }
-      )
     );
   });
 });

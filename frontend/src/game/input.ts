@@ -1,8 +1,8 @@
-import { CLIENT_MSG } from '../shared/game/protocol.js';
+﻿import { CLIENT_MSG } from '../shared/game/constants.js';
 import { calculateCooldown } from './message_codec.js';
-import { dispatch, getState } from './store.js';
+import { dispatch, getState } from './state.js';
 import { sendOrQueue, getWs } from './ws_connection.js';
-import { $canvas, clientToNormalized } from './renderer_canvas.js';
+import { $canvas, clientToNormalized } from './renderer.js';
 import { playTapSound } from '../shared/ui/audio.js';
 import { updateUI } from './ui_update.js';
 

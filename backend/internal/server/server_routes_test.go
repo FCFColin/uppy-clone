@@ -49,7 +49,7 @@ func newTestRouter(t *testing.T) *chi.Mux {
 	statsHandler := handler.NewStatsHandler(nil)
 	rbacEnforcer := rbac.NewEnforcer()
 	redisStore := testutil.SetupMiniredisStore(t)
-	cluster := store.NewRedisClusterFromStores(redisStore, nil)
+	cluster := &store.RedisCluster{Stateful: redisStore, Ephemeral: redisStore}
 
 	r := chi.NewRouter()
 	setupRoutes(r, authHandler, lobbyHandler, adminHandler, statsHandler, jwtMgr, nil, cluster, rbacEnforcer, cfg, hub)
@@ -157,11 +157,7 @@ func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
 	jwtSecret := testsecrets.TestJWTPrivateKeyPEM
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	password := "secret"
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -177,7 +173,7 @@ func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
 
 	db := store.NewConfigRepository(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
-	cluster := store.NewRedisClusterFromStores(redisStore, nil)
+	cluster := &store.RedisCluster{Stateful: redisStore, Ephemeral: redisStore}
 	adminHandler := handler.NewAdminHandler(db, jwtMgr, redisStore)
 
 	r := chi.NewRouter()

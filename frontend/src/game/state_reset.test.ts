@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { state } from './state_types.js';
+import { state } from './state.js';
 import { isDuplicateSeq, getSeenSeqsSize } from './seen_seqs.js';
 
 vi.mock('./ws_connection.js', () => ({

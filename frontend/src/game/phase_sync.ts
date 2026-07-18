@@ -1,12 +1,11 @@
-import type { GamePhase } from '../shared/game/types.js';
-import { dispatch, getState } from './store.js';
+import type { GamePhase } from './state.js';
+import { dispatch, getState } from './state.js';
 import { resetInterpolation, freezeInterpolation } from './state_interp.js';
 import { clearSeenSeqs } from './seen_seqs.js';
 import { resetRoundClientState } from './state_interp.js';
 import { updateUI } from './ui_update.js';
-import { startCountdownTimer, hideCountdownOverlay, showCountdownOverlay } from './ui_utils.js';
+import { startCountdownTimer, hideCountdownOverlay, showCountdownOverlay, startCooldownUpdater, stopCooldownUpdater } from './ui_common.js';
 import { clearRestartCountdownTimer as clearVoteCountdownTimer } from './restart_vote_ui.js';
-import { startCooldownUpdater, stopCooldownUpdater } from './ui_cooldown.js';
 import { tryEntryHandoff } from './entry_flow.js';
 import { END_REASON } from '../shared/game/constants.js';
 

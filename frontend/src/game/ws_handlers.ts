@@ -1,19 +1,17 @@
-import { MSG_TYPE } from '../shared/game/protocol.js';
+import { MSG_TYPE } from '../shared/game/constants.js';
 import { handlePong } from './ws_connection.js';
-import { dispatch, getState } from './store.js';
+import { dispatch, getState } from './state.js';
 import { pushFloatingText } from './visual_helpers.js';
 import { codeToPhase, applySnapshot, decodeSnapshot } from './message_codec.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateUI, updateScoresOnly } from './ui_update.js';
-import { updateWindIndicator } from './ui_wind.js';
+import { updateWindIndicator } from './ui_common.js';
 import { runTutorialIfNeeded } from './tutorial.js';
 import { playGameOverSound, vibrate } from '../shared/ui/audio.js';
-import { updateBestScore, fetchUserBestScore } from '../shared/data/best_score_cookie.js';
+import { updateBestScore, fetchUserBestScore } from '../shared/data/cookies.js';
 import { syncRestartVoteUI } from './restart_vote_ui.js';
 import { updateInterpolation, freezeInterpolation } from './state_interp.js';
 import { isDuplicateSeq } from './seen_seqs.js';
-
-export { shouldApplySnapshotPhase } from './phase_sync.js';
 
 // ─── Binary Message Dispatcher ───────────────────────────────────────
 

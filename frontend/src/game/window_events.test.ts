@@ -30,7 +30,7 @@ vi.mock('./input.js', () => ({
   requestRestart: mockRequestRestart,
   tapAtBalloonCenter: mockTapAtBalloonCenter,
 }));
-vi.mock('./store.js', () => ({ getState: mockGetState, dispatch: mockDispatch }));
+vi.mock('./state.js', () => ({ getState: mockGetState, dispatch: mockDispatch }));
 vi.mock('./renderer.js', () => ({
   resizeCanvas: mockResizeCanvas,
   gameLoop: mockGameLoop,
@@ -38,8 +38,7 @@ vi.mock('./renderer.js', () => ({
   renderOnce: mockRenderOnce,
   $canvas: mockCanvas,
 }));
-vi.mock('./ws_connect.js', () => ({ connectWebSocket: mockConnectWebSocket }));
-vi.mock('./ws_connection.js', () => ({ stopHeartbeat: mockStopHeartbeat, getWs: mockGetWs }));
+vi.mock('./ws_connection.js', () => ({ stopHeartbeat: mockStopHeartbeat, getWs: mockGetWs, connectWebSocket: mockConnectWebSocket }));
 
 import { bindWindowEvents } from './window_events.js';
 

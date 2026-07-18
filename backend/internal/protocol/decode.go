@@ -20,7 +20,7 @@ func WSMessageTypeName(msgType byte) string {
 	case MsgTap:
 		return "tap"
 	case MsgSetNickname:
-		return "set_nickname"
+		return "set_nickname" //nolint:goconst // protocol message-type label
 	case MsgRestartVote:
 		return "restart_vote"
 	case MsgPing:
@@ -57,28 +57,4 @@ func DecodeNicknamePayload(data []byte) (nickname string, ok bool) {
 		return "", false
 	}
 	return string(data[1 : 1+nickLen]), true
-}
-
-// DecodeSetNickname decodes a set-nickname message from the client.
-//
-// Expected layout: msgType(1) + nickLen(uint8) + nickname(bytes) = 2+ bytes.
-func DecodeSetNickname(data []byte) (nickname string, ok bool) {
-	if len(data) < 2 || data[0] != MsgSetNickname {
-		return "", false
-	}
-	return DecodeNicknamePayload(data[1:])
-}
-
-// DecodeRestartVote decodes a restart-vote message from the client.
-//
-// Expected layout: msgType(1) = 1 byte.
-func DecodeRestartVote(data []byte) bool {
-	return len(data) >= 1 && data[0] == MsgRestartVote
-}
-
-// DecodePing decodes a ping heartbeat message from the client.
-//
-// Expected layout: msgType(1) = 1 byte.
-func DecodePing(data []byte) bool {
-	return len(data) >= 1 && data[0] == MsgPing
 }

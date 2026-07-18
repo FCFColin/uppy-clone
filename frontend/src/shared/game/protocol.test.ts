@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MSG_TYPE, CLIENT_MSG, PHASE_CODE } from './protocol.js';
+import { MSG_TYPE, CLIENT_MSG, PHASE_CODE } from './constants.js';
 
 /** Must match backend/internal/protocol/constants.go and docs/api/ws-protocol.md */
 describe('protocol constants', () => {

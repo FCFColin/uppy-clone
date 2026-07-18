@@ -1,3 +1,10 @@
+// check-repo-layout verifies the physical file/directory layout matches ADR-021
+// (monorepo structure). It asserts legacy flat paths do not exist and required
+// canonical paths do exist. This is the "physical layout" check.
+//
+// Responsibility boundary: this script checks FILE SYSTEM layout only.
+// Go import dependency layering is checked by check-arch-rules.go.
+// The two scripts have no overlapping check logic.
 package main
 
 import (
@@ -109,7 +116,7 @@ func main() {
 		"backend/internal/server",
 		"infra/k8s/base", "infra/terraform",
 		"deploy/local",
-		"scripts/ci", "scripts/load",
+		"scripts/ci",
 		"docker/postgres/init",
 		"docs/operations/runbook.md",
 		"docs/development/benchmarks-go-microbench.md",

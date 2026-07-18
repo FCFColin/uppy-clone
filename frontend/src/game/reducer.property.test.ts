@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { gameReducer, createDefaultState } from './reducer.js';
+import { gameReducer, createDefaultState } from './state.js';
 
 const VALID_PHASES = ['waiting', 'countdown', 'playing', 'ended'] as const;
 

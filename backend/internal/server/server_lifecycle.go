@@ -19,11 +19,18 @@ import (
 	"github.com/uppy-clone/backend/internal/handler"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/telemetry"
 )
 
 func runServer(logger *slog.Logger) error {
 	ctx := context.Background()
-	shutdown, err := initTracerFn(ctx, "balloon-game", "1.0.0")
+	shutdown, err := initTracerFn(ctx, "balloon-game", "1.0.0", telemetry.TracerConfig{
+		Endpoint:    serverEnv.OTLPEndpoint,
+		Insecure:    serverEnv.OTLPInsecure,
+		SampleRatio: serverEnv.OTELSampleRatio,
+		Environment: serverEnv.Environment,
+		Region:      serverEnv.CloudRegion,
+	})
 	if err != nil {
 		return fmt.Errorf("init tracer: %w", err)
 	}

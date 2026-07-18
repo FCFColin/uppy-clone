@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getCookieBestScore, setCookieBestScore, fetchUserBestScore, updateBestScore } from './best_score_cookie.js';
+import { getCookieBestScore, setCookieBestScore, fetchUserBestScore, updateBestScore } from './cookies.js';
 
 describe('bestScoreCookie', () => {
   beforeEach(() => {

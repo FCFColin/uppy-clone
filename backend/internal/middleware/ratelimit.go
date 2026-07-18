@@ -131,7 +131,7 @@ func RateLimit(redisStore RateLimiterStore, config RateLimitConfig) func(http.Ha
 //
 // When FailClosed is true, Redis errors cause request rejection instead of admission.
 // Security-sensitive endpoints (auth:quickplay, admin:login) use fail-closed.
-func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr JWTManager) func(http.Handler) http.Handler {
+func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr *auth.JWTManager) func(http.Handler) http.Handler {
 	rateLimitMu.RLock()
 	cfg, ok := DefaultEndpointRateLimits[endpoint]
 	if !ok {
@@ -172,7 +172,7 @@ func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr JWTM
 // Rate limit key with user identity hierarchy: auth context → session/quickplay cookie → IP.
 // Historical note: previously read a "token" cookie that didn't exist, making user-level
 // rate limiting completely ineffective.
-func rateLimitKey(r *http.Request, endpoint string, jwtMgr JWTManager) string {
+func rateLimitKey(r *http.Request, endpoint string, jwtMgr *auth.JWTManager) string {
 	ip := extractClientIP(r)
 
 	// 1. Try auth context (set by AuthMiddleware)
@@ -182,7 +182,7 @@ func rateLimitKey(r *http.Request, endpoint string, jwtMgr JWTManager) string {
 
 	// 2. Fallback: try "session" cookie, then "quickplay" cookie
 	if jwtMgr != nil {
-		for _, cookieName := range []string{"session", "quickplay"} {
+		for _, cookieName := range []string{sessionCookie, quickplayCookie} {
 			if uid, _, _, _, err := parseAuthCookie(r, cookieName, jwtMgr); err == nil && uid != "" {
 				return fmt.Sprintf("%s:%s:%s", endpoint, uid, ip)
 			}

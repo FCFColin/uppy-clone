@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -36,107 +35,6 @@ func TestInsertSeedGameResult_Error(t *testing.T) {
 	err := repo.InsertSeedGameResult(ctx, &domain.GameResult{ID: "r1", SessionID: "s1", UserID: "u1"})
 	if err == nil {
 		t.Fatal("expected error")
-	}
-}
-
-func TestEndGameAndRecordResults_NoResults(t *testing.T) {
-	repo, mock := newMockRepo(t, NewResultRepository)
-	ctx := context.Background()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE game_sessions SET status = 'ended'").
-		WithArgs(int64(200), 100, "sess-1").
-		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
-	mock.ExpectCommit()
-
-	if err := repo.EndGameAndRecordResults(ctx, "sess-1", 200, 100, nil); err != nil {
-		t.Fatalf("EndGameAndRecordResults: %v", err)
-	}
-}
-
-func TestEndGameAndRecordResults_WithResults(t *testing.T) {
-	repo, mock := newMockRepo(t, NewResultRepository)
-	ctx := context.Background()
-
-	results := []domain.GameResult{
-		{ID: "r1", SessionID: "sess-1", UserID: "u1", ScoreContribution: 50, TapsCount: 5, CreatedAt: 200},
-		{ID: "r2", SessionID: "sess-1", UserID: "u2", ScoreContribution: 30, TapsCount: 3, CreatedAt: 200},
-	}
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE game_sessions").
-		WithArgs(int64(200), 100, "sess-1").
-		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
-	mock.ExpectExec("INSERT INTO game_results").
-		WithArgs("r1", "sess-1", "u1", 50, 5, int64(200), "r2", "sess-1", "u2", 30, 3, int64(200)).
-		WillReturnResult(pgconn.NewCommandTag("INSERT 2"))
-	mock.ExpectCommit()
-
-	if err := repo.EndGameAndRecordResults(ctx, "sess-1", 200, 100, results); err != nil {
-		t.Fatalf("EndGameAndRecordResults: %v", err)
-	}
-}
-
-func TestEndGameAndRecordResults_BeginError(t *testing.T) {
-	repo, mock := newMockRepo(t, NewResultRepository)
-	ctx := context.Background()
-
-	mock.ExpectBegin().WillReturnError(errors.New("begin failed"))
-
-	err := repo.EndGameAndRecordResults(ctx, "sess-1", 200, 100, nil)
-	if err == nil || !strings.Contains(err.Error(), "begin tx") {
-		t.Fatalf("EndGameAndRecordResults = %v, want begin error", err)
-	}
-}
-
-func TestEndGameAndRecordResults_UpdateError(t *testing.T) {
-	repo, mock := newMockRepo(t, NewResultRepository)
-	ctx := context.Background()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE game_sessions").
-		WillReturnError(errors.New("update failed"))
-
-	err := repo.EndGameAndRecordResults(ctx, "sess-1", 200, 100, nil)
-	if err == nil || !strings.Contains(err.Error(), "end game session") {
-		t.Fatalf("EndGameAndRecordResults = %v, want end game session error", err)
-	}
-}
-
-func TestEndGameAndRecordResults_InsertBatchError(t *testing.T) {
-	repo, mock := newMockRepo(t, NewResultRepository)
-	ctx := context.Background()
-
-	results := []domain.GameResult{
-		{ID: "r1", SessionID: "sess-1", UserID: "u1", ScoreContribution: 50, TapsCount: 5, CreatedAt: 200},
-	}
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE game_sessions").
-		WithArgs(int64(200), 100, "sess-1").
-		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
-	mock.ExpectExec("INSERT INTO game_results").
-		WillReturnError(errors.New("batch insert failed"))
-
-	err := repo.EndGameAndRecordResults(ctx, "sess-1", 200, 100, results)
-	if err == nil || !strings.Contains(err.Error(), "insert game results") {
-		t.Fatalf("EndGameAndRecordResults = %v, want batch insert error", err)
-	}
-}
-
-func TestEndGameAndRecordResults_CommitError(t *testing.T) {
-	repo, mock := newMockRepo(t, NewResultRepository)
-	ctx := context.Background()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE game_sessions").
-		WithArgs(int64(200), 100, "sess-1").
-		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
-	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
-
-	err := repo.EndGameAndRecordResults(ctx, "sess-1", 200, 100, nil)
-	if err == nil || !strings.Contains(err.Error(), "commit end game and results") {
-		t.Fatalf("EndGameAndRecordResults = %v, want commit error", err)
 	}
 }
 

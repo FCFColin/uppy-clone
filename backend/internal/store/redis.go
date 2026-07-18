@@ -121,40 +121,6 @@ func (s *RedisStore) CircuitBreaker() *gobreaker.CircuitBreaker[any] { return s.
 // Client exposes the underlying go-redis client for advanced use cases.
 func (s *RedisStore) Client() *redis.Client { return s.rdb }
 
-// The following methods implement redis.Scripter so that *RedisStore can be
-// used directly for Lua script execution (e.g. multi-IP anomaly detection in
-// auth) without exposing the raw *redis.Client (RO-051).
-
-// EvalSha executes a cached Lua script by SHA1 hash on the underlying Redis client.
-func (s *RedisStore) EvalSha(ctx context.Context, sha1 string, keys []string, args ...interface{}) *redis.Cmd {
-	return s.rdb.EvalSha(ctx, sha1, keys, args...)
-}
-
-// Eval executes a Lua script on the underlying Redis client.
-func (s *RedisStore) Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
-	return s.rdb.Eval(ctx, script, keys, args...)
-}
-
-// EvalRO executes a read-only Lua script on the underlying Redis client.
-func (s *RedisStore) EvalRO(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
-	return s.rdb.EvalRO(ctx, script, keys, args...)
-}
-
-// EvalShaRO executes a cached read-only Lua script by SHA1 hash.
-func (s *RedisStore) EvalShaRO(ctx context.Context, sha1 string, keys []string, args ...interface{}) *redis.Cmd {
-	return s.rdb.EvalShaRO(ctx, sha1, keys, args...)
-}
-
-// ScriptExists checks whether the given script hashes exist in the Redis script cache.
-func (s *RedisStore) ScriptExists(ctx context.Context, hashes ...string) *redis.BoolSliceCmd {
-	return s.rdb.ScriptExists(ctx, hashes...)
-}
-
-// ScriptLoad loads a Lua script into the Redis script cache and returns its SHA1 hash.
-func (s *RedisStore) ScriptLoad(ctx context.Context, script string) *redis.StringCmd {
-	return s.rdb.ScriptLoad(ctx, script)
-}
-
 // Close shuts down the Redis client and its connection pool.
 func (s *RedisStore) Close() error { return s.rdb.Close() }
 
@@ -167,7 +133,7 @@ func (s *RedisStore) Close() error { return s.rdb.Close() }
 //	email queue, game results, outbox, Pub/Sub.
 //	Requires persistence (AOF/RDB), low-latency, HA (Sentinel).
 //
-// Ephemeral: rate limiting, idempotency cache.
+// Ephemeral: rate limiting.
 //
 //	Tolerant of data loss, can fail-open, no persistence needed.
 //
@@ -201,17 +167,6 @@ func NewRedisCluster(statefulURL, ephemeralURL string, timeouts config.TimeoutCo
 		Stateful:  stateful,
 		Ephemeral: ephemeral,
 	}, nil
-}
-
-// NewRedisClusterFromStores wraps existing RedisStore instances (for tests).
-func NewRedisClusterFromStores(stateful, ephemeral *RedisStore) *RedisCluster {
-	if ephemeral == nil {
-		ephemeral = stateful
-	}
-	return &RedisCluster{
-		Stateful:  stateful,
-		Ephemeral: ephemeral,
-	}
 }
 
 // IsSeparated returns true when Stateful and Ephemeral are distinct instances.

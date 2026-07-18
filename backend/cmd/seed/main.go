@@ -22,7 +22,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println(status)
+	log.Printf("status: %q", status) //nolint:gosec // G706: status is internally generated
 }
 
 // newPostgresStoreFn is replaceable in unit tests.

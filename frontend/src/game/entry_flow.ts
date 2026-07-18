@@ -1,5 +1,5 @@
-import type { GamePhase } from '../shared/game/types.js';
-import { dispatch, getState } from './store.js';
+import type { GamePhase } from './state.js';
+import { dispatch, getState } from './state.js';
 import type { EntryStep, EntryOverlayContext, EntryFullScreenErrorOptions } from './entry_flow_ui.js';
 import {
   syncEntryOverlays, setLobbyCodeDisplay, renderStartCountdownTitle,
@@ -7,7 +7,7 @@ import {
   setWaitingInlineError, updateWaitingStatusLine, resetEntryDomState,
 } from './entry_flow_ui.js';
 
-export type { EntryStep, EntryOverlayContext, EntryFullScreenErrorOptions };
+export type { EntryOverlayContext, EntryFullScreenErrorOptions };
 
 let entryUiBound = false;
 

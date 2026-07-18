@@ -475,18 +475,10 @@ paths:
       description: |
         创建新的游戏房间并返回房间代码。需要认证。
         限速 5 次/分钟。
-        支持幂等性：提供 Idempotency-Key 请求头可在网络重试时防止重复创建房间。
       tags: [Registry]
       security:
         - cookieAuth: []
       parameters:
-        - name: Idempotency-Key
-          in: header
-          description: |
-            幂等性键。相同的键在 24 小时内只会创建一次房间，
-            后续请求返回缓存的响应（带 X-Idempotent-Replayed: true 头）。
-          schema:
-            type: string
       responses:
         "200":
           description: 房间创建成功

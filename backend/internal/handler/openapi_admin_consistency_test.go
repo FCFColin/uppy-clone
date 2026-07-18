@@ -24,11 +24,7 @@ func TestAdminLoginResponseSchema(t *testing.T) {
 	resilience.ResetBreakersForTesting()
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	password := "secret"
 	hashed, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -74,11 +70,7 @@ func TestAdminLoginBadPasswordResponseSchema(t *testing.T) {
 	resilience.ResetBreakersForTesting()
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	hashed, _ := bcrypt.GenerateFromPassword([]byte("correct"), bcrypt.DefaultCost)
 	loginCfg, _ := json.Marshal(map[string]string{"admin_password": string(hashed)})
@@ -116,11 +108,7 @@ func TestAdminConfigResponseSchema(t *testing.T) {
 	resilience.ResetBreakersForTesting()
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	cfgJSON, _ := json.Marshal(map[string]interface{}{
 		"email_enabled": true,

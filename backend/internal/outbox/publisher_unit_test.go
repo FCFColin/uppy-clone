@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/redis/go-redis/v9"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestNewPublisher_EnvConfig(t *testing.T) {
@@ -84,11 +85,7 @@ func TestPublisher_Start_CancelledContext(t *testing.T) {
 }
 
 func TestPublisher_Start_RunsPublishCycle(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT id, aggregate_type, aggregate_id, payload, created_at").
@@ -107,11 +104,7 @@ func TestPublisher_Start_RunsPublishCycle(t *testing.T) {
 }
 
 func TestPublisher_publishBatch_BeginError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mock.ExpectBegin().WillReturnError(errors.New("begin failed"))
 
@@ -120,11 +113,7 @@ func TestPublisher_publishBatch_BeginError(t *testing.T) {
 }
 
 func TestPublisher_publishBatch_EmptyBatch(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT id, aggregate_type, aggregate_id, payload, created_at").
@@ -141,11 +130,7 @@ func TestPublisher_publishBatch_EmptyBatch(t *testing.T) {
 }
 
 func TestPublisher_publishBatch_RedisPipelineError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT id, aggregate_type, aggregate_id, payload, created_at").
@@ -172,11 +157,7 @@ func TestPublisher_publishBatch_NilDBPanics(t *testing.T) {
 }
 
 func TestPublisher_publishBatch_Success(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -208,11 +189,7 @@ func TestPublisher_publishBatch_Success(t *testing.T) {
 }
 
 func TestPublisher_publishBatch_QueryError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT id, aggregate_type, aggregate_id, payload, created_at").
@@ -229,11 +206,7 @@ func TestPublisher_publishBatch_QueryError(t *testing.T) {
 }
 
 func TestPublisher_publishBatch_ScanError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT id, aggregate_type, aggregate_id, payload, created_at").
@@ -251,11 +224,7 @@ func TestPublisher_publishBatch_ScanError(t *testing.T) {
 }
 
 func TestPublisher_publishBatch_MarkProcessedError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -284,11 +253,7 @@ func TestPublisher_publishBatch_MarkProcessedError(t *testing.T) {
 }
 
 func TestPublisher_publishBatch_CommitError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock.NewPool: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	mr, err := miniredis.Run()
 	if err != nil {

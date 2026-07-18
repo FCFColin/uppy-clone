@@ -12,13 +12,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func TestLogUserCreateAudit_DoesNotPanic(_ *testing.T) {
-	logUserCreateAudit(context.Background(), &domain.User{
-		ID:       "user-1",
-		Nickname: "TestPlayer",
-	})
-}
-
 func TestCreateUser_Success(t *testing.T) {
 	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()

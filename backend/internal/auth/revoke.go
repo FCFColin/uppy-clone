@@ -17,7 +17,7 @@ func RevokeAllTokens(ctx context.Context, jwtMgr *JWTManager, refreshMgr *Refres
 	}
 	var userID string
 
-	for _, cookieName := range []string{"session", "quickplay"} {
+	for _, cookieName := range []string{sessionCookie, quickplayCookie} {
 		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
 			uid, _, jti, _, err := jwtMgr.VerifyToken(cookie.Value)
 			if err == nil {

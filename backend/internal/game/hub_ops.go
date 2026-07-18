@@ -55,7 +55,7 @@ func (h *Hub) shouldLocalMaterializeRoom(ctx context.Context, code string) bool 
 	}
 	info, err := h.cache.GetRoomRegistry(ctx, code)
 	if err != nil {
-		h.logger.Warn("room registry lookup failed", "code", code, "error", err)
+		h.logger.Warn("room registry lookup failed", codeKey, code, "error", err)
 		// game-026: fail-closed — on Redis/registry error, do NOT materialize room locally.
 		return false
 	}
@@ -202,7 +202,7 @@ func (h *Hub) removeRoomFromMemory(code string, logMsg string) *Room {
 		delete(h.rooms, code)
 		metrics.ActiveRooms.Set(float64(len(h.rooms)))
 		if logMsg != "" {
-			h.logger.Info(logMsg, "code", code)
+			h.logger.Info(logMsg, codeKey, code)
 		}
 	}
 	return room
@@ -231,7 +231,7 @@ func (h *Hub) finalizeRoomRemoval(ctx context.Context, code string, room *Room, 
 			ActorType: audit.ActorTypeSystem,
 			ActorID:   "system",
 			Resource:  "room/" + code,
-			Before:    map[string]interface{}{"code": code},
+			Before:    map[string]interface{}{codeKey: code},
 		})
 	}
 }
@@ -303,13 +303,13 @@ func (h *Hub) RestoreRooms() error {
 			}
 			room, err := h.deserializeAndMaterialize(ls.Code, []byte(ls.State))
 			if err != nil {
-				h.logger.Error("deserialize lobby state on restore", "code", ls.Code, "error", err)
+				h.logger.Error("deserialize lobby state on restore", codeKey, ls.Code, "error", err)
 				continue
 			}
 			h.rooms[ls.Code] = room
 			toFinalize = append(toFinalize, ls.Code)
 			restored++
-			h.logger.Info("restored room", "code", ls.Code, "phase", room.state.Phase)
+			h.logger.Info("restored room", codeKey, ls.Code, "phase", room.state.Phase)
 		}
 		h.mu.Unlock()
 
@@ -374,7 +374,7 @@ func (h *Hub) loadOrMaterializeRoom(code string) *Room {
 
 	room, err := h.deserializeAndMaterialize(code, []byte(ls.State))
 	if err != nil {
-		h.logger.Error("deserialize lobby state", "code", code, "error", err)
+		h.logger.Error("deserialize lobby state", codeKey, code, "error", err)
 		return nil
 	}
 

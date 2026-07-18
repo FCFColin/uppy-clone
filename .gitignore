@@ -28,7 +28,6 @@ backend/*.out
 backend/**/*.out
 backend/*cov*
 backend/coverage*
-backend/unit_verify
 **/*.fail
 
 # Build artifacts
@@ -65,3 +64,8 @@ scripts/dev/
 
 # Logs
 *.log
+
+# Backend temp files
+backend/*.txt
+backend/*.log
+backend/*.ps1

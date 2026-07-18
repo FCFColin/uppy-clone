@@ -1,20 +1,20 @@
 import { PALETTE_COLORS } from '../shared/game/constants.js';
-import { endReasonLabel } from './local_constants.js';
+import { endReasonLabel } from './constants.js';
 import { truncateNickname } from './message_codec.js';
-import type { GamePhase } from '../shared/game/types.js';
-import { dispatch, getState } from './store.js';
+import type { GamePhase } from './state.js';
+import { dispatch, getState } from './state.js';
 import {
   $waitingScreen, $endedScreen, $gameHud, $cooldownIndicator,
   $hudScore, $hudPlayers, $finalScore, $hudPlayerList,
   $endPlayerList, $playerListWaiting,
   $nicknameSetupScreen,
 } from './ui_elements.js';
-import { updateWindIndicator, hideWindIndicator } from './ui_wind.js';
-import { refreshLayout } from './ui_utils.js';
+import { updateWindIndicator, hideWindIndicator, refreshLayout } from './ui_common.js';
 import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff } from './entry_flow.js';
 import { getWaitingTitleText } from './entry_flow_ui.js';
-import { syncRestartVoteProgress } from './restart_vote_ui.js';
+import { syncRestartVoteProgress, syncRestartVoteUI } from './restart_vote_ui.js';
+import { safeGetItem } from '../shared/ui/utils.js';
 
 let lastPhase: GamePhase | null = null;
 let lastPlayerListKey = '';
@@ -34,12 +34,7 @@ function endListKey(): string {
 }
 
 function isCurrentPlayer(p: { nickname: string }): boolean {
-  let savedNickname: string | null = null;
-  try {
-    savedNickname = localStorage.getItem('uppy-nickname');
-  } catch {
-    // localStorage may be unavailable
-  }
+  const savedNickname: string | null = safeGetItem('uppy-nickname');
   const self = savedNickname || getState().pendingNickname || '';
   return self !== '' && p.nickname === self;
 }

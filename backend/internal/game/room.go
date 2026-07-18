@@ -42,6 +42,7 @@ type RoomConnections struct {
 	connections map[string]*PlayerConn
 }
 
+// GetConnection returns the PlayerConn associated with the given player ID, or nil if not found.
 func (rc *RoomConnections) GetConnection(playerID string) *PlayerConn {
 	rc.connMu.RLock()
 	defer rc.connMu.RUnlock()
@@ -73,6 +74,7 @@ func (rc *RoomConnections) sendToPlayer(playerID string, data []byte) {
 	}
 }
 
+// SnapshotTargets returns a snapshot of all connection targets except the excluded player.
 func (rc *RoomConnections) SnapshotTargets(excludePlayerID string) []connTarget {
 	rc.connMu.RLock()
 	defer rc.connMu.RUnlock()
@@ -423,3 +425,12 @@ func (r *Room) LobbyCode() string { return r.lobbyCode }
 
 // Timeouts returns the room's timeout configuration.
 func (r *Room) Timeouts() config.TimeoutConfig { return r.timeouts }
+
+// Observer returns the GameObserver from the owning Hub.
+// Satisfies the OutboundSource interface.
+func (r *Room) Observer() GameObserver {
+	if r.hub != nil {
+		return r.hub.Observer()
+	}
+	return NoopGameObserver{}
+}

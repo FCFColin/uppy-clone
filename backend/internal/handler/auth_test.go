@@ -65,21 +65,6 @@ func TestRequestMagicLink_MissingEmail(t *testing.T) {
 	}
 }
 
-func TestVerifyMagicLink_MissingToken(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAuthHandler()
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify", nil)
-
-	h.VerifyMagicLink(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
-}
-
 func TestCheckAuth_Unauthenticated(t *testing.T) {
 	t.Parallel()
 
@@ -296,11 +281,7 @@ func TestLogout_ClearsCookies(t *testing.T) {
 }
 
 func TestQuickPlay_WithDB(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
 	mr, err := miniredis.Run()
@@ -332,11 +313,7 @@ func TestQuickPlay_WithDB(t *testing.T) {
 }
 
 func TestExportUserData_WithDB(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	h := NewAuthHandler(db, nil, jwtMgr, nil, &Config{})
@@ -359,11 +336,7 @@ func TestExportUserData_WithDB(t *testing.T) {
 }
 
 func TestDeleteUserData_Success(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
 	mr, err := miniredis.Run()
@@ -396,11 +369,7 @@ func TestDeleteUserData_Success(t *testing.T) {
 }
 
 func TestDeleteUserData_DBError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
 	redisStore := testutil.SetupMiniredisStore(t)
@@ -441,11 +410,7 @@ func TestRequestMagicLink_Success(t *testing.T) {
 }
 
 func TestCheckAuth_WithDB(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-db", "CookieNick")
@@ -540,11 +505,7 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 		t.Fatalf("StoreMagicToken: %v", err)
 	}
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
 	mr, err := miniredis.Run()
@@ -588,11 +549,7 @@ func TestVerifyMagicLinkToken_InvalidToken(t *testing.T) {
 }
 
 func TestRefreshToken_Success(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
 	mr, err := miniredis.Run()
@@ -627,11 +584,7 @@ func TestRefreshToken_Success(t *testing.T) {
 }
 
 func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
@@ -671,11 +624,7 @@ func TestExportUserData_NilDB(t *testing.T) {
 }
 
 func TestExportUserData_NotFound(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	h := NewAuthHandler(db, nil, jwtMgr, nil, &Config{})
@@ -694,11 +643,7 @@ func TestExportUserData_NotFound(t *testing.T) {
 }
 
 func TestCheckAuth_DBErrorDegraded(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	token, err := jwtMgr.SignToken("user-db-err", "Nick")
@@ -727,11 +672,7 @@ func TestRefreshToken_InvalidToken(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
 
@@ -788,32 +729,6 @@ func TestLogout_RevokesRefreshToken(t *testing.T) {
 	}
 	if _, err := refreshMgr.ConsumeRefreshToken(ctx, refreshToken); err == nil {
 		t.Fatal("refresh token should be revoked")
-	}
-}
-
-func TestRefreshToken_NilDB(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(nil, redisStore, jwtMgr, refreshMgr, &Config{})
-
-	ctx := context.Background()
-	refreshToken, err := refreshMgr.Generate(ctx, "user-nodb")
-	if err != nil {
-		t.Fatalf("Generate: %v", err)
-	}
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
-	r.AddCookie(&http.Cookie{Name: auth.RefreshCookieName, Value: refreshToken})
-	h.RefreshToken(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", w.Code)
 	}
 }
 

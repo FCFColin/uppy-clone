@@ -10,6 +10,14 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
+const (
+	gdprFieldEmail     = "email"
+	gdprFieldNickname  = "nickname"
+	gdprFieldPalette   = "palette"
+	gdprFieldCreatedAt = "created_at"
+	gdprFieldLastLogin = "last_login"
+)
+
 // UserDataStore abstracts GDPR user data operations.
 type UserDataStore interface {
 	GetUserByID(ctx context.Context, id string) (*domain.User, error)
@@ -30,12 +38,12 @@ func ExportUserData(ctx context.Context, dataStore UserDataStore, userID string)
 
 	exportData := map[string]interface{}{
 		"user": map[string]interface{}{
-			"id":         user.ID,
-			"email":      user.Email,
-			"nickname":   user.Nickname,
-			"palette":    user.Palette,
-			"created_at": user.CreatedAt,
-			"last_login": user.LastLogin,
+			"id":               user.ID,
+			gdprFieldEmail:     user.Email,
+			gdprFieldNickname:  user.Nickname,
+			gdprFieldPalette:   user.Palette,
+			gdprFieldCreatedAt: user.CreatedAt,
+			gdprFieldLastLogin: user.LastLogin,
 		},
 	}
 	// auth-013: Return game results error to caller instead of silently warning.

@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MockWebSocket } from '../shared/test/mocks/websocket.js';
 
-vi.mock('./ws_connect.js', () => ({ connectWebSocket: vi.fn() }));
-vi.mock('./connection_ui.js', () => ({
-  hideReconnectBanner: vi.fn(),
-  showReconnectBanner: vi.fn(),
-  updatePingDisplay: vi.fn(),
-  showConnectionError: vi.fn(),
-}));
+vi.mock('./ui_common.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ui_common.js')>();
+  return {
+    ...actual,
+    hideReconnectBanner: vi.fn(),
+    showReconnectBanner: vi.fn(),
+    updatePingDisplay: vi.fn(),
+    showConnectionError: vi.fn(),
+  };
+});
 
-vi.mock('./local_constants.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./local_constants.js')>();
+vi.mock('./constants.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./constants.js')>();
   return {
     ...actual,
     HEARTBEAT_INTERVAL_MS: 1000,
@@ -18,7 +21,7 @@ vi.mock('./local_constants.js', async (importOriginal) => {
   };
 });
 
-import { HEARTBEAT_INTERVAL_MS } from './local_constants.js';
+import { HEARTBEAT_INTERVAL_MS } from './constants.js';
 import { startHeartbeat, setWs, stopHeartbeat } from './ws_connection.js';
 
 describe('ws_connection heartbeat reset', () => {

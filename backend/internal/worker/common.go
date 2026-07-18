@@ -16,6 +16,14 @@ type claimLoopConfig struct {
 	workerName string // log prefix (e.g. "email worker")
 }
 
+// Redis stream and consumer-group names used by the workers.
+const (
+	emailQueueStream   = "email:queue"
+	emailWorkersGroup  = "email-workers"
+	gameEventsStream   = "game.events"
+	resultWorkersGroup = "result-workers"
+)
+
 // runClaimPendingMessages periodically runs XAUTOCLAIM to reclaim messages
 // stuck in the PEL (Pending Entries List) of consumers that crashed or became
 // unresponsive, ensuring at-least-once delivery as required by ADR-007/009/010.

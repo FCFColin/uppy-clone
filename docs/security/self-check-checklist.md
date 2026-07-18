@@ -99,26 +99,3 @@
 | 每次发布 | Phase 0 + 第一层 + 部署 checklist（镜像 SHA、cosign verify、`TRUSTED_PROXY_CIDRS` secret） |
 | 每月 | 第二至六层勾选 + E2E + CodeQL/npm audit 回顾 |
 | 每季度 | 手动 CSWSH/CORS 探测；更新 threat model |
-
-### 子 agent 结论（2026-06-27，对比 HEAD `265ce1a`）
-
-| 审查 | 结论 | 工作区状态 |
-|------|------|------------|
-| [R2 game/WS](ecdf89ac-db25-4ac5-bf80-2f4bb777ab66) | 无 Critical；Important：WS cap TOCTOU、room lock 阻塞、cooldown 漂移 | **已修复**（TryReserveWSConnection、outbound 非阻塞、cooldown/TAP_REJECTED） |
-| [R3 CI/infra](a6573164-4fe9-4658-b6d5-0e52e40ae3f8) | HEAD Phase 0/L1 失败 | 工作区已含 TRUSTED_PROXY、cosign verify、E2E 启动、digest pin（未提交） |
-| [R1 auth/store](35af503f-48a7-4cf8-8255-a85e801f5c4a) | HEAD 未就绪（refresh/localStorage 等） | 工作区已改 HttpOnly + POST verify；CheckAuth 撤销检查 + GDPR 500 已验证 |
-| [Security Review](63ac5b5b-f794-465b-96d4-beaf5b5d7450) | 2× Medium：无效 CIDR 静默忽略；admin lockout Redis 读失败 fail-open | **已修复**（`validateTrustedProxyCIDRs`、lockout 503 fail-closed + 单测） |
-| [Bugbot](2421addc-b042-4e50-ba3f-9a2d68f687ff) | 2× High restore/registry split-brain；Medium cooldown + outbound | **已修复**（restore 过滤 + Redis 注册、cooldown roster、outbound 超时） |
-
-**下一步：** 已 push main；监控 GitHub Actions CI。
-
-## 审查记录
-
-| 日期 | 分支 / PR | Medium+ 发现 | Remediation | 状态 |
-|------|-----------|--------------|-------------|------|
-| 2026-06-27 | branch changes | GKE 未 wire `TRUSTED_PROXY_CIDRS` → admin lockout DoS | K8s ConfigMap + deploy sed + `env.Validate()` | 已修复 |
-| 2026-06-27 | branch changes | Dockerfile Go builder digest pin 回归 | 已恢复 `@sha256:` pin；CI `docker-pin-check` | 已验证 |
-| 2026-06-27 | main 全库自检完成 | 后端 unit 覆盖率 73.4% < 100% 门禁；Windows 本地未跑 race/e2e | auth 测试编译、entry_flow 倒计时、index_leaderboard XSS 已修复；覆盖率债务 backlog | 已完成 |
-| 2026-06-27 | 子 agent 审查 (07c34ac→265ce1a) | **HEAD 未就绪**；工作区已含多数修复 | 见下方「子 agent 结论」 | 已 commit main |
-| 2026-06-27 | [Security Review](63ac5b5b-f794-465b-96d4-beaf5b5d7450) | 无效 `TRUSTED_PROXY_CIDRS` 启动成功 → 全员 lockout；Redis 读锁失败 bypass lockout | `validateTrustedProxyCIDRs`；admin lockout 503 fail-closed | 已修复 |
-| 2026-06-27 | [Bugbot](2421addc-b042-4e50-ba3f-9a2d68f687ff) | restore 缺 Redis 注册；全 Pod PG restore；cooldown 计数；outbound 死锁 | restore 过滤+register；len(Players) cooldown；outbound 100ms 超时 | 已修复 |

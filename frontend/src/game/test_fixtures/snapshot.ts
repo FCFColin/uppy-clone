@@ -1,4 +1,4 @@
-import { MSG_TYPE } from '../../shared/game/protocol.js';
+import { MSG_TYPE } from '../../shared/game/constants.js';
 
 /**
  * Minimal binary snapshot frame for WS handler integration tests.

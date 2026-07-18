@@ -1,14 +1,13 @@
 package game
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestRoom_enqueueOutbound_CriticalDoesNotBlockIndefinitely(t *testing.T) {
@@ -126,15 +125,6 @@ func TestRoom_deliverOutbound_RemovesPendingDisconnect(t *testing.T) {
 	}
 }
 
-func TestRoom_enqueueOutbound_SyncPath(_ *testing.T) {
-	r := NewRoom("SYNC", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	addConnectedPlayer(r, "p1")
-	r.mu.Lock()
-	r.enqueueOutbound([]byte("sync-msg"), broadcastOpts{})
-	r.mu.Unlock()
-}
-
 func TestRoom_enqueueOutbound_CriticalTimeout(t *testing.T) {
 	r := NewRoom("CRIT", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = false
@@ -154,13 +144,6 @@ func TestRoom_enqueueOutbound_CriticalTimeout(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 		t.Fatal("critical enqueue should return after timeout when queue blocked")
 	}
-}
-
-func TestRoom_stopOutbound(_ *testing.T) {
-	r := NewRoom("STOP", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = false
-	r.outbound.startLoop()
-	r.stopOutbound()
 }
 
 func TestRoom_enqueueOutbound_AsyncSuccess(t *testing.T) {
@@ -229,11 +212,6 @@ func TestRoom_snapshotConnTargetsLocked_SkipsNilAndExcluded(t *testing.T) {
 	}
 }
 
-func TestRoom_stopOutbound_NoLoopStarted(_ *testing.T) {
-	r := NewRoom("NS", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.stopOutbound()
-}
-
 // --- coverage gap 补充用例 ---
 
 func TestRoom_snapshotConnTargetsLocked_IncludesValidTarget(t *testing.T) {
@@ -249,11 +227,7 @@ func TestRoom_snapshotConnTargetsLocked_IncludesValidTarget(t *testing.T) {
 }
 
 func TestRoom_snapshotConnTargetsLocked_ConnCloseCallback(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		up := websocket.Upgrader{}
-		_, _ = up.Upgrade(w, req, nil)
-	}))
-	defer server.Close()
+	server := testutil.NewWSTestUpgraderServer(t)
 	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
 	if resp != nil {
 		_ = resp.Body.Close()

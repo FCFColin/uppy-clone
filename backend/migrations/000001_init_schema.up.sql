@@ -27,9 +27,9 @@ CREATE TABLE game_results (
   created_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)
 );
 
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_sessions_lobby ON game_sessions(lobby_code);
-CREATE INDEX idx_results_session ON game_results(session_id);
+-- Redundant single-column indexes (idx_users_email, idx_sessions_lobby, idx_results_session)
+-- removed via reverse-fold of 000008 (spec deep-arch-slim-v2 Task 27):
+-- covered by UNIQUE constraint / composite indexes in migration 000004.
 
 -- New tables for Durable Objects replacement
 CREATE TABLE lobby_states (

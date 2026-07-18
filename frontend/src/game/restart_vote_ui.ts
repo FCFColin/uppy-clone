@@ -1,4 +1,4 @@
-import { getState } from './store.js';
+import { getState } from './state.js';
 
 export function syncRestartVoteProgress(): void {
   const s = getState();

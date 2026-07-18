@@ -104,35 +104,10 @@ func (p *PlayerState) RecordTap(now int64, cooldown int64) {
 	p.ScoreContribution++
 }
 
-// IsRateLimited 检查玩家在当前消息窗口内是否已被速率限制（纯谓词，无副作用）。
-// windowMs 为窗口长度（毫秒），maxMessages 为窗口内最大消息数。
-// store-019: 已将窗口重置的副作用拆分到 ResetMessageWindow 方法。
-func (p *PlayerState) IsRateLimited(now int64, windowMs int64, maxMessages int) bool {
-	if now-p.MessageWindowStart > windowMs {
-		return false // window expired, not limited
-	}
-	return p.MessageCount > maxMessages
-}
-
-// ResetMessageWindow resets the player's message window when it has expired.
-// store-019: Side effect extracted from IsRateLimited to keep it a pure predicate.
-func (p *PlayerState) ResetMessageWindow(now int64, windowMs int64) {
-	if now-p.MessageWindowStart > windowMs {
-		p.MessageCount = 0
-		p.MessageWindowStart = now
-	}
-}
-
 // MarkDisconnected 标记玩家为断连并记录断连时间戳（进入优雅期）。
 func (p *PlayerState) MarkDisconnected(now int64) {
 	p.Disconnected = true
 	p.DisconnectedAt = &now
-}
-
-// Reconnect 清除断连状态（重连时调用）。
-func (p *PlayerState) Reconnect() {
-	p.Disconnected = false
-	p.DisconnectedAt = nil
 }
 
 // GameState represents the complete game state for a room (aggregate).
@@ -156,30 +131,6 @@ type GameState struct {
 	RestartVotes        map[string]bool         `json:"restartVotes"`
 	RestartTimerStart   *int64                  `json:"restartTimerStart"`
 	RNGSeed             int64                   `json:"rngSeed"`
-}
-
-// AddPlayer adds a player to the game state.
-func (g *GameState) AddPlayer(p *PlayerState) error {
-	if g.Players == nil {
-		g.Players = make(map[string]*PlayerState)
-	}
-	if _, exists := g.Players[p.ID]; exists {
-		return ErrDuplicateUser
-	}
-	g.Players[p.ID] = p
-	return nil
-}
-
-// RemovePlayer 从游戏状态移除指定玩家。
-func (g *GameState) RemovePlayer(userID string) {
-	delete(g.Players, userID)
-}
-
-// UpdatePlayerState applies an update function to the specified player.
-func (g *GameState) UpdatePlayerState(userID string, fn func(p *PlayerState)) {
-	if p, ok := g.Players[userID]; ok {
-		fn(p)
-	}
 }
 
 // IsGameOver 检查游戏是否已结束。

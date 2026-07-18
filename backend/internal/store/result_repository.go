@@ -101,57 +101,6 @@ func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, room
 	return nil
 }
 
-// EndGameAndRecordResults ends a game session and records all player results transactionally.
-func (r *ResultRepository) EndGameAndRecordResults(ctx context.Context, sessionID string, endedAt int64, finalScore int, results []domain.GameResult) error {
-	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.EndGameAndRecordResults",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("db.session_id", sessionID),
-			attribute.Int("db.results_count", len(results)),
-		),
-	)
-	defer span.End()
-
-	err := r.withRetryWrite(ctx, func(ctx context.Context) error {
-		tx, txErr := r.pool.Begin(ctx)
-		if txErr != nil {
-			return fmt.Errorf("begin tx: %w", txErr)
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-
-		if _, execErr := tx.Exec(ctx,
-			`UPDATE game_sessions SET status = 'ended', ended_at = $1, final_score = $2 WHERE id = $3`,
-			endedAt, finalScore, sessionID); execErr != nil {
-			return fmt.Errorf("end game session: %w", execErr)
-		}
-
-		if len(results) > 0 {
-			var placeholders []string
-			var values []interface{}
-			for i, r := range results {
-				base := i * 6
-				placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d)", base+1, base+2, base+3, base+4, base+5, base+6))
-				values = append(values, r.ID, r.SessionID, r.UserID, r.ScoreContribution, r.TapsCount, r.CreatedAt)
-			}
-			query := fmt.Sprintf("INSERT INTO game_results (id, session_id, user_id, score_contribution, taps_count, created_at) VALUES %s ON CONFLICT (id) DO NOTHING", strings.Join(placeholders, ","))
-			if _, execErr := tx.Exec(ctx, query, values...); execErr != nil {
-				return fmt.Errorf("insert game results: %w", execErr)
-			}
-		}
-
-		if commitErr := tx.Commit(ctx); commitErr != nil {
-			return fmt.Errorf("commit end game and results: %w", commitErr)
-		}
-		return nil
-	})
-	if err != nil {
-		slogctx.LoggerFromContext(ctx).Error("end game and record results failed",
-			"error", err, "session_id", sessionID)
-		return err
-	}
-	return nil
-}
-
 // InsertSeedGameResult inserts a seed game result with retry logic.
 // store-025: Use withRetryWrite (consistent with RecordGameResult and
 // EndGameAndRecordResults) instead of calling cb.Execute directly, so retry

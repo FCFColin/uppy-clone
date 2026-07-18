@@ -1,10 +1,10 @@
 import { resumeAudioContext } from '../shared/ui/audio.js';
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
-import { getState, dispatch } from './store.js';
+import { getState, dispatch } from './state.js';
 import { resizeCanvas, startGameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
-import { generateRandomNickname, copyCode, refreshLayout, showFallbackErrorScreen } from './ui_utils.js';
+import { generateRandomNickname, copyCode, refreshLayout, showFallbackErrorScreen } from './ui_common.js';
 import { $copyCodeBtn, $hudCopyBtn, $setupNicknameInput } from './ui_elements.js';
-import { connectWebSocket } from './ws_connect.js';
+import { connectWebSocket } from './ws_connection.js';
 import { stopHeartbeat, getWs } from './ws_connection.js';
 import { registerResetFn } from './reset_registry.js';
 

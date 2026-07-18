@@ -3,6 +3,7 @@ package audit
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -214,6 +215,10 @@ func (f *fakeAuditPool) Exec(_ context.Context, _ string, _ ...any) (pgconn.Comm
 	return pgconn.NewCommandTag("INSERT 1"), nil
 }
 
+func (f *fakeAuditPool) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return nil, fmt.Errorf("fakeAuditPool: Query not implemented")
+}
+
 func TestDBAuditLogger_loadLastHash_SuccessMocked(t *testing.T) {
 	l := &dbAuditLogger{pool: &fakeAuditPool{queryHash: "chain-hash"}, secret: []byte("audit-secret-key-for-hmac-chain!!")}
 	l.loadLastHash()
@@ -252,6 +257,10 @@ func (f *flakyAuditPool) Exec(_ context.Context, _ string, _ ...any) (pgconn.Com
 		return pgconn.CommandTag{}, f.failErr
 	}
 	return pgconn.NewCommandTag("INSERT 1"), nil
+}
+
+func (f *flakyAuditPool) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return nil, fmt.Errorf("flakyAuditPool: Query not implemented")
 }
 
 // TestDBAuditLogger_writeToDB_RetriesAndSucceeds verifies that writeToDB retries

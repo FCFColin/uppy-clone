@@ -96,7 +96,7 @@ func (w *EmailWorker) Start(ctx context.Context) {
 	logger := slogctx.LoggerFromContext(ctx).With("worker", emailWorkerName, "consumer", w.consumerID)
 	ctx = slogctx.WithLogger(ctx, logger)
 
-	if err := w.rdb.XGroupCreateMkStream(ctx, "email:queue", "email-workers", "$").Err(); err != nil {
+	if err := w.rdb.XGroupCreateMkStream(ctx, emailQueueStream, emailWorkersGroup, "$").Err(); err != nil {
 		// audit-023: Upgrade from Debug to Warn — a failure here (other than "BUSYGROUP")
 		// means the worker cannot consume messages, which is operationally significant.
 		// XGroupCreateMkStream creates the stream if it doesn't exist, so most errors
@@ -122,9 +122,9 @@ func (w *EmailWorker) Start(ctx context.Context) {
 		}
 
 		streams, err := w.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-			Group:    "email-workers",
+			Group:    emailWorkersGroup,
 			Consumer: w.consumerID,
-			Streams:  []string{"email:queue", ">"},
+			Streams:  []string{emailQueueStream, ">"},
 			Count:    10,
 			Block:    5 * time.Second,
 		}).Result()
@@ -161,8 +161,8 @@ func (w *EmailWorker) Start(ctx context.Context) {
 // This ensures at-least-once delivery as required by ADR-007/009/010.
 func (w *EmailWorker) claimPendingMessages(ctx context.Context) {
 	runClaimPendingMessages(ctx, w.rdb, w.consumerID, claimLoopConfig{
-		stream:     "email:queue",
-		group:      "email-workers",
+		stream:     emailQueueStream,
+		group:      emailWorkersGroup,
 		workerName: "email worker",
 	}, w.processMessage)
 }
@@ -171,10 +171,10 @@ func (w *EmailWorker) processMessage(ctx context.Context, msg redis.XMessage) {
 	start := time.Now()
 	logger := slogctx.LoggerFromContext(ctx)
 
-	payloadStr, ok := msg.Values["payload"].(string)
+	payloadStr, ok := msg.Values["payload"].(string) //nolint:goconst // Redis stream field name
 	if !ok {
 		logger.Error("email worker: invalid payload", "id", msg.ID)
-		if ackErr := w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID).Err(); ackErr != nil {
+		if ackErr := w.rdb.XAck(ctx, emailQueueStream, emailWorkersGroup, msg.ID).Err(); ackErr != nil {
 			logger.Error("failed to ack invalid payload", "error", ackErr, "id", msg.ID)
 			metrics.WorkerAckErrors.WithLabelValues(emailWorkerName).Inc()
 		}
@@ -186,7 +186,7 @@ func (w *EmailWorker) processMessage(ctx context.Context, msg redis.XMessage) {
 	var payload EmailPayload
 	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
 		logger.Error("email worker: unmarshal payload", "error", err, "id", msg.ID)
-		if ackErr := w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID).Err(); ackErr != nil {
+		if ackErr := w.rdb.XAck(ctx, emailQueueStream, emailWorkersGroup, msg.ID).Err(); ackErr != nil {
 			logger.Error("failed to ack unmarshal error", "error", ackErr, "id", msg.ID)
 			metrics.WorkerAckErrors.WithLabelValues(emailWorkerName).Inc()
 		}
@@ -213,7 +213,7 @@ func (w *EmailWorker) processMessage(ctx context.Context, msg redis.XMessage) {
 		return
 	}
 
-	if ackErr := w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID).Err(); ackErr != nil {
+	if ackErr := w.rdb.XAck(ctx, emailQueueStream, emailWorkersGroup, msg.ID).Err(); ackErr != nil {
 		logger.Error("failed to ack sent message", "error", ackErr, "id", msg.ID)
 		metrics.WorkerAckErrors.WithLabelValues(emailWorkerName).Inc()
 	}
@@ -235,7 +235,7 @@ func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage,
 			MaxLen: 10000,
 			Approx: true,
 			Values: map[string]interface{}{
-				"payload":         msg.Values["payload"],
+				"payload":         msg.Values["payload"], //nolint:goconst // Redis stream field name
 				"error":           sendErr.Error(),
 				"reason":          "permanent_error",
 				"orig_id":         msg.ID,
@@ -245,7 +245,7 @@ func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage,
 		}).Err(); dlErr != nil {
 			logger.Error("failed to add to dead-letter stream", "error", dlErr, "id", msg.ID)
 		}
-		if ackErr := w.rdb.XAck(ctx, "email:queue", "email-workers", msg.ID).Err(); ackErr != nil {
+		if ackErr := w.rdb.XAck(ctx, emailQueueStream, emailWorkersGroup, msg.ID).Err(); ackErr != nil {
 			logger.Error("failed to ack permanent-error message", "error", ackErr, "id", msg.ID)
 			metrics.WorkerAckErrors.WithLabelValues(emailWorkerName).Inc()
 		}
@@ -254,7 +254,7 @@ func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage,
 	}
 
 	// Transient errors (5xx, 429, network): retry with exponential backoff.
-	deadLettered := handleRetry(ctx, w.rdb, msg, "email:queue", "email-workers", "email:dead-letter", w.maxRetries, "worker", "email", "to", redactEmail(payload.To))
+	deadLettered := handleRetry(ctx, w.rdb, msg, emailQueueStream, emailWorkersGroup, "email:dead-letter", w.maxRetries, "worker", "email", "to", redactEmail(payload.To))
 	if deadLettered {
 		metrics.WorkerMessagesProcessed.WithLabelValues(emailWorkerName, "deadletter").Inc()
 	}

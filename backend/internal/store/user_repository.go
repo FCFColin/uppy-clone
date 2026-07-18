@@ -53,10 +53,10 @@ func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error {
 	}
 	outboxPayload, err := json.Marshal(map[string]interface{}{
 		"event_type": "user.created",
-		"user_id":    u.ID,
-		"email":      outboxEmail,
-		"nickname":   outboxNickname,
-		"created_at": u.CreatedAt,
+		"user_id":    u.ID,           //nolint:goconst // outbox payload JSON schema field name
+		"email":      outboxEmail,    //nolint:goconst // outbox payload JSON schema field name
+		"nickname":   outboxNickname, //nolint:goconst // outbox payload JSON schema field name
+		"created_at": u.CreatedAt,    //nolint:goconst // outbox payload JSON schema field name
 	})
 	if err != nil {
 		return fmt.Errorf("marshal outbox payload: %w", err)

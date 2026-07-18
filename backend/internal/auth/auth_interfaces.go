@@ -29,6 +29,12 @@ type TokenStore interface {
 	EnqueueEmail(ctx context.Context, payload []byte) error
 }
 
+// TokenVerifier abstracts JWT token verification. *JWTManager satisfies this
+// interface; middleware uses it to avoid depending on the concrete type.
+type TokenVerifier interface {
+	VerifyToken(tokenStr string) (userID, nickname, jti, role string, err error)
+}
+
 // JWTRevocationChecker checks if a JWT has been revoked by its jti.
 // Used by middleware for read-only revocation checks.
 type JWTRevocationChecker interface {

@@ -1,4 +1,4 @@
-import { MAX_SEEN_SEQS } from './local_constants.js';
+import { MAX_SEEN_SEQS } from './constants.js';
 
 let seenSeqs: Set<number> = new Set();
 // game-013: Track the highest seq seen to detect uint32 wrap-around.

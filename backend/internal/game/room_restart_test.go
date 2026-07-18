@@ -354,38 +354,6 @@ func TestCheckRestartConsensus_FirstVoteStartsTimer(t *testing.T) {
 
 // --- coverage gap 补充用例 ---
 
-func TestHandleRestartVote_DuplicateWhenEnded(_ *testing.T) {
-	r := NewRoom("DUP", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.syncOutbound = true
-	r.mu.Lock()
-	r.state.Phase = domain.PhaseEnded
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
-	r.state.Players["p2"] = &domain.PlayerState{ID: "p2"}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 4)}
-	r.state.RestartVotes = map[string]bool{"p1": true}
-	now := time.Now().UnixMilli()
-	r.state.RestartTimerStart = &now
-	_ = HandleRestartVote(r, r.state.Players["p1"])
-	r.mu.Unlock()
-}
-
-func TestCheckRestartConsensus_WithExistingTimer(t *testing.T) {
-	r := NewRoom("RST", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.syncOutbound = true
-	r.mu.Lock()
-	r.state.Phase = domain.PhaseEnded
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
-	r.state.Players["p2"] = &domain.PlayerState{ID: "p2"}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 4)}
-	now := time.Now().UnixMilli()
-	r.state.RestartTimerStart = &now
-	r.state.RestartVotes = map[string]bool{"p1": true}
-	_ = CheckRestartConsensus(r)
-	r.mu.Unlock()
-}
-
 func TestCheckRestartConsensus_PhaseNotEnded(t *testing.T) {
 	r := NewRoom("PNE", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = true
@@ -420,22 +388,6 @@ func TestCheckRestartConsensus_NotEndedAfterBroadcast(t *testing.T) {
 	if err := CheckRestartConsensus(r); err != nil {
 		t.Fatalf("CheckRestartConsensus: %v", err)
 	}
-}
-
-func TestCheckRestartConsensus_NegativeRemainingTimer(t *testing.T) {
-	r := NewRoom("NEG", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	r.mu.Lock()
-	r.state.Phase = domain.PhaseEnded
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
-	r.state.Players["p2"] = &domain.PlayerState{ID: "p2"}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 4)}
-	past := time.Now().UnixMilli() - int64(domain.RestartTimeoutMs) - 1000
-	r.state.RestartTimerStart = &past
-	r.state.RestartVotes = map[string]bool{"p1": true}
-	_ = CheckRestartConsensus(r)
-	r.mu.Unlock()
 }
 
 const (

@@ -40,12 +40,6 @@ const MaxWSConnections = 1000
 // It is lower than protocol.MaxPlayers (100) to ensure playability and performance.
 const MaxPlayersPerRoom = 50
 
-// MaxFailedLogins is the number of failed attempts before a login lockout.
-const MaxFailedLogins = 5
-
-// LoginLockoutTTL is how long an account stays locked after too many failures.
-const LoginLockoutTTL = 15 * time.Minute
-
 // RoomCodeLen is the length of generated room codes.
 const RoomCodeLen = 5
 
@@ -54,21 +48,6 @@ const MagicLinkTokenLen = 64
 
 // BcryptMaxLen is the maximum password length accepted by bcrypt.
 const BcryptMaxLen = 72
-
-// IdempotencyKeyMaxLen is the maximum length of an idempotency key.
-const IdempotencyKeyMaxLen = 255
-
-// AuthRateLimitMax is the maximum auth requests allowed per window.
-const AuthRateLimitMax = 5
-
-// AuthRateLimitWindow is the duration of the auth rate-limit window.
-const AuthRateLimitWindow = 1 * time.Minute
-
-// AdminRateLimitMax is the maximum admin requests allowed per window.
-const AdminRateLimitMax = 10
-
-// AdminRateLimitWindow is the duration of the admin rate-limit window.
-const AdminRateLimitWindow = 5 * time.Minute
 
 // DefaultPort is the default HTTP server port.
 const DefaultPort = "8080"
@@ -100,6 +79,5 @@ const JWTIssuer = "balloon-game"
 // JWTAudience is the audience claim set on JWTs (auth-002).
 const JWTAudience = "balloon-game-users"
 
-// DefaultOTLPInsecure controls whether OTLP uses TLS by default (audit-011).
-// Production deployments must set OTLP_INSECURE=true explicitly for dev.
-const DefaultOTLPInsecure = false
+// EnvProduction is the environment value indicating a production deployment.
+const EnvProduction = "production"

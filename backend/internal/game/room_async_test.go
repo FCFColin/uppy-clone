@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -31,16 +30,19 @@ func (t *trackingRoomRepo) CreateGameSession(_ context.Context, _ *domain.GameSe
 	return t.createSessionErr
 }
 
-func TestRoom_EnqueueGameResultAsync_NoHub(_ *testing.T) {
-	r := &Room{state: NewGameState("TEST", 42, testRNG()), logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
-	r.state.SessionID = "sess-1"
-	r.enqueueGameResultAsync()
-}
-
 func TestRoom_EnqueueGameResultAsync_NoSessionID(_ *testing.T) {
 	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
 	r := NewRoom("TEST1", h, nil, config.DefaultTimeoutConfig(), 0)
 	r.enqueueGameResultAsync()
+}
+
+func TestRoom_CreateGameSessionAsync_NilSession(t *testing.T) {
+	repo := &trackingRoomRepo{mockRoomRepository: *newMockRoomRepository()}
+	r := NewRoom("TEST1", nil, repo, config.DefaultTimeoutConfig(), 0)
+	r.createGameSessionAsync(nil)
+	if repo.createSessionCount != 0 {
+		t.Fatal("nil session should not call store")
+	}
 }
 
 func TestRoom_CreateGameSessionAsync(t *testing.T) {
@@ -52,15 +54,6 @@ func TestRoom_CreateGameSessionAsync(t *testing.T) {
 
 	if repo.createSessionCount != 1 {
 		t.Fatalf("createSessionCount = %d, want 1", repo.createSessionCount)
-	}
-}
-
-func TestRoom_CreateGameSessionAsync_NilSession(t *testing.T) {
-	repo := &trackingRoomRepo{mockRoomRepository: *newMockRoomRepository()}
-	r := NewRoom("TEST1", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.createGameSessionAsync(nil)
-	if repo.createSessionCount != 0 {
-		t.Fatal("nil session should not call store")
 	}
 }
 
@@ -117,33 +110,6 @@ func TestRoom_WritePersistJob_StoreError(_ *testing.T) {
 	repo.saveErr = errors.New("save failed")
 	r := NewRoom("ERR", nil, repo, config.DefaultTimeoutConfig(), 0)
 	r.writePersistJob(persistJob{code: "ERR", stateJSON: []byte("{}")})
-}
-
-func TestRoom_RequestPersist_NilStore(_ *testing.T) {
-	r := NewRoom("TEST1", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.mu.Lock()
-	r.requestPersist()
-	r.mu.Unlock()
-}
-
-func TestRoom_RequestPersist_QueueCoalesce(_ *testing.T) {
-	repo := newMockRoomRepository()
-	r := NewRoom("TEST1", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.startPersistLoop()
-
-	var wg sync.WaitGroup
-	for i := 0; i < persistQueueSize+2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			r.mu.Lock()
-			r.requestPersist()
-			r.mu.Unlock()
-		}()
-	}
-	wg.Wait()
-	time.Sleep(200 * time.Millisecond)
-	r.stopPersist()
 }
 
 func TestRoom_EnqueueGameResultAsync_OutboxPath(t *testing.T) {

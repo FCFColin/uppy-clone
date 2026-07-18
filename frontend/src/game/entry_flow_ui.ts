@@ -1,8 +1,8 @@
-import type { GamePhase } from '../shared/game/types.js';
-import { getState } from './store.js';
-import { $canvas } from './renderer_canvas.js';
+import type { GamePhase } from './state.js';
+import { getState } from './state.js';
+import { $canvas } from './renderer.js';
 import { $lobbyCode, $hudCode } from './ui_elements.js';
-import { matchNewRoomCode } from './room_validate.js';
+import { matchNewRoomCode } from './lobby_match.js';
 
 export type EntryStep = 'connecting' | 'nickname' | 'waiting' | 'handoff' | 'error';
 

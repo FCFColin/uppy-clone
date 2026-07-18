@@ -7,6 +7,7 @@ import (
 	"github.com/sony/gobreaker/v2"
 
 	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/game"
 )
 
 // DegradedResponse 非关键依赖不可用时的部分可用响应（见 ADR-004）。
@@ -55,7 +56,7 @@ func RequireHub(hub interface{ RoomCount() int }, w http.ResponseWriter) bool {
 }
 
 // RequireHubDegraded returns false and writes a degraded JSON response when hub is nil.
-func RequireHubDegraded(hub GameService, w http.ResponseWriter, status int, payload interface{}, message string) bool {
+func RequireHubDegraded(hub *game.Hub, w http.ResponseWriter, status int, payload interface{}, message string) bool {
 	if hub != nil {
 		return true
 	}
@@ -81,6 +82,6 @@ func IsDegraded(cbs ...*gobreaker.CircuitBreaker[any]) bool {
 func DegradedHandler(cbs ...*gobreaker.CircuitBreaker[any]) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]bool{"degraded": IsDegraded(cbs...)})
+		_ = json.NewEncoder(w).Encode(map[string]bool{degradedKey: IsDegraded(cbs...)})
 	}
 }

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { getEntryMocks, createStateJsMockModule, resetEntryMocks } from './entry_flow_test_setup';
 
 vi.hoisted(() => {
   document.body.innerHTML = `
@@ -25,19 +26,11 @@ vi.hoisted(() => {
   `;
 });
 
-const mockState = vi.hoisted(() => ({
-  phase: 'waiting',
-  lobbyCode: 'ABC12',
-  players: [] as Array<{ playerIndex: number; nickname: string; palette: number; cooldownEndTime: number; scoreContribution: number }>,
-}));
+const mockState = getEntryMocks().state;
 
-vi.mock('./state_types.js', () => ({
-  state: mockState,
-  getState: () => mockState,
-  resetStateForTest: vi.fn(),
-}));
+vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as any));
 
-vi.mock('./renderer_canvas.js', () => ({
+vi.mock('./renderer.js', () => ({
   $canvas: document.getElementById('game-canvas')! as HTMLCanvasElement,
 }));
 
@@ -46,7 +39,7 @@ vi.mock('./ui_elements.js', () => ({
   $hudCode: document.getElementById('hud-code')!,
 }));
 
-vi.mock('./room_validate.js', () => ({
+vi.mock('./lobby_match.js', () => ({
   matchNewRoomCode: vi.fn().mockResolvedValue(null),
 }));
 
@@ -68,8 +61,8 @@ import type { EntryOverlayContext } from './entry_flow.js';
 
 describe('entry_flow_dom', () => {
   beforeEach(() => {
+    resetEntryMocks();
     mockState.lobbyCode = 'ABC12';
-    mockState.phase = 'waiting';
     resetEntryFlowForTest();
   });
 
@@ -274,7 +267,7 @@ describe('entry_flow_dom', () => {
     });
 
     it('clicking match button shows failure text when match returns null', async () => {
-      const { matchNewRoomCode } = await import('./room_validate.js');
+      const { matchNewRoomCode } = await import('./lobby_match.js');
       vi.mocked(matchNewRoomCode).mockResolvedValue(null);
       renderEntryFullScreenError('匹配失败');
       const matchBtn = document.getElementById('loading-match-btn')!;
@@ -284,7 +277,7 @@ describe('entry_flow_dom', () => {
     });
 
     it('clicking match button navigates when match returns code', async () => {
-      const { matchNewRoomCode } = await import('./room_validate.js');
+      const { matchNewRoomCode } = await import('./lobby_match.js');
       vi.mocked(matchNewRoomCode).mockResolvedValue('NEW12');
       const originalHref = window.location.href;
       Object.defineProperty(window, 'location', { value: { href: '' }, writable: true });

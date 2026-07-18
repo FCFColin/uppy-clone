@@ -19,24 +19,6 @@ func TestRecordRoomCreation(t *testing.T) {
 	}
 }
 
-func TestRecordWSMessage(_ *testing.T) {
-	metrics.WSMessageDuration.Reset()
-	metrics.RecordWSMessage("tap", 100*time.Millisecond)
-	// Observe increments histogram; just verify no panic and metric exists.
-}
-
-func TestRecordRoomLockHold(_ *testing.T) {
-	metrics.RecordRoomLockHold("tick", 5*time.Millisecond)
-}
-
-func TestSetRoomOutboundQueueDepth(_ *testing.T) {
-	metrics.SetRoomOutboundQueueDepth("ROOM1", 3)
-}
-
-func TestSetRoomPersistLag(_ *testing.T) {
-	metrics.SetRoomPersistLag("ROOM1", 250*time.Millisecond)
-}
-
 func TestStatusWriter_DefaultStatusOK(t *testing.T) {
 	rec := httptest.NewRecorder()
 	sw := metrics.NewStatusWriter(rec)
@@ -45,14 +27,4 @@ func TestStatusWriter_DefaultStatusOK(t *testing.T) {
 	}
 }
 
-func TestAuthRecorder_EndRecordsMetrics(t *testing.T) {
-	metrics.AuthRequestTotal.Reset()
-	rec := httptest.NewRecorder()
-	authRec, sw := metrics.BeginAuth("logout", rec)
-	sw.WriteHeader(http.StatusNoContent)
-	authRec.End()
 
-	if got := testutil.ToFloat64(metrics.AuthRequestTotal.WithLabelValues("logout", "204")); got != 1 {
-		t.Fatalf("count = %v", got)
-	}
-}

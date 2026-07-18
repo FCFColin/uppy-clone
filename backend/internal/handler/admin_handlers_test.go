@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/pashagolub/pgxmock/v4"
-	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
@@ -21,25 +20,6 @@ import (
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
-
-type failLoginLockHook struct{}
-
-func (failLoginLockHook) DialHook(next redis.DialHook) redis.DialHook { return next }
-
-func (failLoginLockHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
-	return func(ctx context.Context, cmd redis.Cmder) error {
-		if cmd.Name() == "set" && len(cmd.Args()) > 1 {
-			if key, ok := cmd.Args()[1].(string); ok && strings.Contains(key, "admin:login:lock:") {
-				return errors.New("set lock failed")
-			}
-		}
-		return next(ctx, cmd)
-	}
-}
-
-func (failLoginLockHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
-	return next
-}
 
 func TestAdminHandler_Logout(t *testing.T) {
 	t.Parallel()
@@ -158,11 +138,7 @@ func TestAdminHandler_UpdateConfig_InvalidBody(t *testing.T) {
 
 func newAdminHandlerWithDB(t *testing.T) (*AdminHandler, pgxmock.PgxPoolIface, *store.RedisStore) {
 	t.Helper()
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewConfigRepository(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
 	h := NewAdminHandler(db, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), redisStore)
@@ -438,10 +414,6 @@ func TestAdminHandler_applyConfigUpdates_ChangePassword(t *testing.T) {
 	}
 }
 
-func TestAuditPasswordChange(_ *testing.T) {
-	AuditPasswordChange(context.Background(), "127.0.0.1")
-}
-
 func TestAdminHandler_GetConfig_InvalidStoredJSON(t *testing.T) {
 	h, mock, _ := newAdminHandlerWithDB(t)
 	expectAdminConfigQuery(mock, `{invalid`)
@@ -500,11 +472,7 @@ func TestAdminHandler_Login_NilRedis(t *testing.T) {
 	hashed, _ := hashAdminPassword(password)
 	cfgJSON, _ := json.Marshal(map[string]string{"admin_password": hashed})
 
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewConfigRepository(mock)
 	h := NewAdminHandler(db, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), nil)
 	expectAdminConfigQuery(mock, string(cfgJSON))
@@ -744,11 +712,6 @@ func TestAdminHandler_completeAdminLogin_SecureCookie(t *testing.T) {
 			t.Fatal("expected secure admin_token cookie for HTTPS request")
 		}
 	}
-}
-
-func TestAdminHandler_handleFailedLogin_NilRedis(_ *testing.T) {
-	h := newTestAdminHandler()
-	h.handleFailedLogin(context.Background(), "127.0.0.1", "admin")
 }
 
 func TestAdminHandler_applyConfigUpdates_HashError(t *testing.T) {

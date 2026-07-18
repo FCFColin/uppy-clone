@@ -14,7 +14,7 @@
 
 ## 单实例估算
 
-> 基于微基准（2026-07-06, i5-12450H）和理论推算。完整负载测试需部署后用 k6 执行。
+> 基于微基准（2026-07-06, i5-12450H）和理论推算。完整负载测试需部署后执行（压测工具按需选型）。
 
 | 维度 | 估算 | 依据 |
 |------|------|------|
@@ -55,13 +55,13 @@
 
 > ⚠️ 以下压测需部署到 staging/生产环境后执行。微基准数据见 [benchmarks-go-microbench.md](../development/benchmarks-go-microbench.md)。
 
-- **REST**：`k6 run scripts/load/k6-smoke.js -e BASE_URL=...`，记录 `http_req_duration` P95。
-- **WebSocket/房间**：`k6 run scripts/load/k6-ws-soak.js -e BASE_URL=... -e WS_URL=ws://... -e VUS=2000`
+- **REST**：用 HTTP 压测工具向 `BASE_URL` 发请求，记录 `http_req_duration` P95。
+- **WebSocket/房间**：用 WS 压测工具建立并发连接（`BASE_URL`、`WS_URL=ws://...`、`VUS=2000`）
   - 阈值：`ws_connect_time` p95<1s、`ws_first_snapshot_ms` p99<500ms、checks>95%。
-- **单房间高密度**：`k6 run scripts/load/k6-single-room.js -e BASE_URL=... -e PLAYERS=50`
+- **单房间高密度**：用 WS 压测工具向单房间注入并发玩家（`BASE_URL`、`PLAYERS=50`）
   - 阈值：`ws_unexpected_disconnects` count<1、checks>95%。
   - 扩容判据：实例数翻倍时，达到上述阈值前的"最大稳定并发 WS / 活跃房间"应近似线性增长
-    （受单房间 tick 不可分片限制，扩展维度是"房间总数"而非"单房间算力"，见 ADR-016）。
+    （受单房间 tick 不可分片限制，扩展维度是"房间总数"而非"单房间算力"，见 ADR-014）。
 - 每季度运行并回填下表（示例结构，数据由实际压测填充）：
 
 | 实例数 | 稳定并发 WS | 活跃房间 | message p99 | 瓶颈 |
@@ -70,28 +70,4 @@
 | 3 | 待部署后压测 | 待部署后压测 | 待部署后压测 | 预期：PG 池或 CPU |
 | 10 | 待部署后压测 | 待部署后压测 | 待部署后压测 | 预期：跨实例路由开销 |
 
-> 上述数据需在 staging/生产环境部署后由 `make load-smoke`、`make load-ws-soak`、`make load-single-room` 回填。
-
-
-
-### 多区域分布式高并发压测（P4）
-
-跨区域真实并发用分布式 k6（多区域 runner 或 k6 Cloud）驱动，验证「就近接入 + 区域内
-对局」在全局规模下的表现：
-
-```bash
-# 每区域各起一组 runner，指向该区域 ws_endpoint，避免跨区客户端污染区域内延迟
-k6 run scripts/load/k6-ws-soak.js -e BASE_URL=https://us.balloon.example   -e WS_URL=wss://us.balloon.example   -e VUS=5000
-k6 run scripts/load/k6-ws-soak.js -e BASE_URL=https://eu.balloon.example   -e WS_URL=wss://eu.balloon.example   -e VUS=5000
-k6 run scripts/load/k6-ws-soak.js -e BASE_URL=https://asia.balloon.example -e WS_URL=wss://asia.balloon.example -e VUS=5000
-```
-
-观测（Thanos 按 `region` 切分）：各区域 `ws_connections`、`ws_first_snapshot_ms` p99、
-HPA 实例数随 VUS 线性增长；跨区域重定向率应接近 0（就近接入正常）。回填下表：
-
-| 区域 | 峰值并发 WS | 活跃房间 | first-snapshot p99 | HPA 实例数 |
-|------|-------------|----------|--------------------|-----------|
-| us-east1 | 待多区域部署后压测 | 待多区域部署后压测 | 待多区域部署后压测 | 待多区域部署后压测 |
-| europe-west1 | 待多区域部署后压测 | 待多区域部署后压测 | 待多区域部署后压测 | 待多区域部署后压测 |
-| asia-southeast1 | 待多区域部署后压测 | 待多区域部署后压测 | 待多区域部署后压测 | 待多区域部署后压测 |
-| **全局** | 待多区域部署后压测 | 待多区域部署后压测 | 待多区域部署后压测 | 待多区域部署后压测 |
+> 上述数据需在 staging/生产环境部署后由压测脚本回填。

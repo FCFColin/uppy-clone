@@ -1,15 +1,20 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
+	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
 func newTestLobbyHandler() *LobbyHandler {
@@ -85,4 +90,33 @@ func waitForConnCount(h *LobbyHandler, target int64, timeout time.Duration) bool
 func withPathParam(r *http.Request, key, val string) *http.Request {
 	r.SetPathValue(key, val)
 	return r
+}
+
+// failLoginLockHook is a redis.Hook that makes any SET on a
+// "admin:login:lock:*" key return an error. Tests use it to simulate
+// redis failures during admin login lock acquisition.
+type failLoginLockHook struct{}
+
+func (failLoginLockHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (failLoginLockHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if cmd.Name() == "set" && len(cmd.Args()) > 1 {
+			if key, ok := cmd.Args()[1].(string); ok && strings.Contains(key, "admin:login:lock:") {
+				return errors.New("set lock failed")
+			}
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (failLoginLockHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+// newTestAdminHandler builds an AdminHandler with a test JWT manager and no
+// dependencies. Tests use it as a starting point and inject stores as needed.
+func newTestAdminHandler() *AdminHandler {
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	return NewAdminHandler(nil, jwtMgr, nil)
 }

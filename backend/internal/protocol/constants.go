@@ -111,23 +111,6 @@ func PhaseToCode(phase GamePhase) uint8 {
 	}
 }
 
-// CodeToPhase 将二进制编码值转换为游戏阶段
-func CodeToPhase(code uint8) GamePhase {
-	switch code {
-	case PhaseCodeWaiting:
-		return PhaseWaiting
-	case PhaseCodePlaying:
-		return PhasePlaying
-	case PhaseCodeEnded:
-		return PhaseEnded
-	case PhaseCodeCountdown:
-		return PhaseCountdown
-	default:
-		slog.Warn("CodeToPhase: unknown phase code", "code", code)
-		return PhaseWaiting
-	}
-}
-
 // ─── 协议数据结构 ────────────────────────────────────────────────────
 
 // BalloonState 气球状态（仅包含二进制协议传输的字段）

@@ -72,6 +72,7 @@ export async function apiFetch(url: string, options: ApiFetchOptions = {}): Prom
     init.credentials = 'include';
   }
 
+
   let hasRefreshed = false;
 
   for (let attempt = 0; attempt <= retries; attempt++) {

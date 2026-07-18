@@ -1,4 +1,4 @@
-﻿// Package health provides liveness and readiness HTTP handlers.
+// Package health provides liveness and readiness HTTP handlers.
 package health
 
 import (
@@ -15,24 +15,17 @@ import (
 const healthCheckTimeout = 500 * time.Millisecond
 const unavailableStatus = "unavailable"
 
-// RedisPinger is the narrow subset of *redis.Client methods needed for
-// readiness checks (RO-051). *redis.Client satisfies this interface
-// automatically, so no adapter is needed.
-type RedisPinger interface {
-	Ping(ctx context.Context) *redis.StatusCmd
-}
-
 // Checker runs PostgreSQL, Redis, WebSocket, and circuit-breaker health checks.
 type Checker struct {
 	pool            *pgxpool.Pool
-	redis           RedisPinger
+	redis           *redis.Client
 	canAcceptWS     func() bool
 	circuitBreakers []*gobreaker.CircuitBreaker[any]
 	poolPing        func(context.Context) error
 }
 
 // NewChecker creates a Checker for the given PostgreSQL pool and Redis client.
-func NewChecker(pool *pgxpool.Pool, rdb RedisPinger) *Checker {
+func NewChecker(pool *pgxpool.Pool, rdb *redis.Client) *Checker {
 	return &Checker{pool: pool, redis: rdb}
 }
 

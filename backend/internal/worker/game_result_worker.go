@@ -18,6 +18,8 @@ import (
 const gameResultWorkerName = "game_result"
 
 // gameResultDB begins transactions for persisting game results.
+// Kept as an interface to enable unit testing with pgxmock.PgxPoolIface
+// and beginFailDB (Chesterton's Fence: 2 test mocks).
 type gameResultDB interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
@@ -90,7 +92,7 @@ func (w *GameResultWorker) Start(ctx context.Context) {
 	logger := slogctx.LoggerFromContext(ctx).With("worker", gameResultWorkerName, "consumer", w.consumerID)
 	ctx = slogctx.WithLogger(ctx, logger)
 
-	if err := w.rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "$").Err(); err != nil {
+	if err := w.rdb.XGroupCreateMkStream(ctx, gameEventsStream, resultWorkersGroup, "$").Err(); err != nil {
 		// audit-023: Upgrade from Debug to Warn — see email_worker.go for rationale.
 		logger.Warn("game result worker: XGroupCreate failed (may already exist)", "error", err)
 	}
@@ -154,9 +156,9 @@ func (w *GameResultWorker) readBatch(ctx context.Context, backoff *time.Duration
 		maxBackoff     = 10 * time.Second
 	)
 	streams, err := w.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-		Group:    "result-workers",
+		Group:    resultWorkersGroup,
 		Consumer: w.consumerID,
-		Streams:  []string{"game.events", ">"},
+		Streams:  []string{gameEventsStream, ">"},
 		Count:    100,
 		Block:    100 * time.Millisecond,
 	}).Result()
@@ -178,8 +180,8 @@ func (w *GameResultWorker) readBatch(ctx context.Context, backoff *time.Duration
 // in the PEL forever, violating at-least-once delivery (ADR-007/009/010).
 func (w *GameResultWorker) claimPendingMessages(ctx context.Context) {
 	runClaimPendingMessages(ctx, w.rdb, w.consumerID, claimLoopConfig{
-		stream:     "game.events",
-		group:      "result-workers",
+		stream:     gameEventsStream,
+		group:      resultWorkersGroup,
 		workerName: "game result worker",
 	}, w.processMessage)
 }
@@ -203,7 +205,7 @@ func (w *GameResultWorker) ackMessage(ctx context.Context, id string) {
 	if w.rdb != nil {
 		// audit-018: Handle XAck errors — previously the return value was
 		// completely ignored, leaving messages in PEL without any metric/log.
-		if err := w.rdb.XAck(ctx, "game.events", "result-workers", id).Err(); err != nil {
+		if err := w.rdb.XAck(ctx, gameEventsStream, resultWorkersGroup, id).Err(); err != nil {
 			slogctx.LoggerFromContext(ctx).Error("game result worker: XAck error", "error", err, "id", id)
 			metrics.WorkerAckErrors.WithLabelValues(gameResultWorkerName).Inc()
 		}
@@ -233,7 +235,7 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 // and records the invalid_payload metric. Returns ok=false on failure.
 func (w *GameResultWorker) parseGameResultPayload(ctx context.Context, msg redis.XMessage, start time.Time) (GameResultPayload, bool) {
 	logger := slogctx.LoggerFromContext(ctx)
-	payloadStr, ok := msg.Values["payload"].(string)
+	payloadStr, ok := msg.Values["payload"].(string) //nolint:goconst // Redis stream field name
 	if !ok {
 		logger.Error("game result worker: invalid payload", "id", msg.ID)
 		w.recordInvalidPayload(ctx, msg, start)
@@ -332,7 +334,7 @@ func (w *GameResultWorker) persistGameResult(ctx context.Context, payload GameRe
 }
 
 func (w *GameResultWorker) handleTransientFailure(ctx context.Context, msg redis.XMessage) {
-	deadLettered := handleRetry(ctx, w.rdb, msg, "game.events", "result-workers", "game-result:dead-letter", w.maxRetries, "worker", "game-result")
+	deadLettered := handleRetry(ctx, w.rdb, msg, gameEventsStream, resultWorkersGroup, "game-result:dead-letter", w.maxRetries, "worker", "game-result")
 	if deadLettered {
 		metrics.WorkerMessagesProcessed.WithLabelValues(gameResultWorkerName, "deadletter").Inc()
 	}

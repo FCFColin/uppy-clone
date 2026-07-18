@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/redis/go-redis/v9"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 const testGameID = "11111111-1111-4111-8111-111111111111"
@@ -248,11 +249,7 @@ func TestGameResultWorker_processMessage_BeginFailure(t *testing.T) {
 
 func newGameResultWorkerWithMockDB(t *testing.T, rdb *redis.Client) (*GameResultWorker, pgxmock.PgxPoolIface) {
 	t.Helper()
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	return &GameResultWorker{rdb: rdb, db: mock}, mock
 }
 
@@ -661,11 +658,7 @@ func TestGameResultWorker_Start_ReadsAndFlushes(t *testing.T) {
 }
 
 func TestGameResultWorker_processMessage_NilRedisAck(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 
 	payload := GameResultPayload{
 		GameID:     "550e8400-e29b-41d4-a716-446655440000",

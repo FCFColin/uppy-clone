@@ -54,14 +54,6 @@ func InitFromEnv() error {
 	return Init(keyHex)
 }
 
-// MustInitFromEnv 从环境变量初始化密钥，失败时 panic。
-// 供需要在初始化时 fail-fast 的场景使用。
-func MustInitFromEnv() {
-	if err := InitFromEnv(); err != nil {
-		panic(err)
-	}
-}
-
 // ResetKeyForTest clears the module encryption key. For tests only.
 func ResetKeyForTest() {
 	encKeyMu.Lock()
@@ -144,81 +136,4 @@ func Decrypt(encoded string) (string, error) {
 	}
 
 	return string(plaintext), nil
-}
-
-// ReEncryptWithKey decrypts ciphertext using oldKey and re-encrypts with newKey.
-// This is the building block for batch key rotation: callers iterate over encrypted
-// database fields, calling this function on each value, then call RotateKey to
-// switch the active encryption key.
-//
-// 企业为何需要：密钥轮换要求将存量密文用新密钥重新加密。此函数提供逐字段轮换能力，
-// 调用方（如 admin handler / migration script）遍历加密列，对每条记录调用此函数。
-func ReEncryptWithKey(oldKey, newKey []byte, ciphertext string) (string, error) {
-	if len(oldKey) != 32 {
-		return "", fmt.Errorf("old key must be 32 bytes for AES-256, got %d", len(oldKey))
-	}
-	if len(newKey) != 32 {
-		return "", fmt.Errorf("new key must be 32 bytes for AES-256, got %d", len(newKey))
-	}
-
-	// Strip version prefix if present.
-	raw := strings.TrimPrefix(ciphertext, "v1:")
-	cipherBytes, err := hex.DecodeString(raw)
-	if err != nil {
-		return "", fmt.Errorf("decode hex: %w", err)
-	}
-
-	// Decrypt with old key.
-	oldBlock, err := aes.NewCipher(oldKey)
-	if err != nil {
-		return "", fmt.Errorf("create old cipher: %w", err)
-	}
-	oldGCM, err := aesNewGCM(oldBlock)
-	if err != nil {
-		return "", fmt.Errorf("create old GCM: %w", err)
-	}
-	nonceSize := oldGCM.NonceSize()
-	if len(cipherBytes) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-	nonce, ct := cipherBytes[:nonceSize], cipherBytes[nonceSize:]
-	plaintext, err := oldGCM.Open(nil, nonce, ct, nil)
-	if err != nil {
-		return "", fmt.Errorf("decrypt with old key: %w", err)
-	}
-
-	// Re-encrypt with new key.
-	newBlock, err := aes.NewCipher(newKey)
-	if err != nil {
-		return "", fmt.Errorf("create new cipher: %w", err)
-	}
-	newGCM, err := aesNewGCM(newBlock)
-	if err != nil {
-		return "", fmt.Errorf("create new GCM: %w", err)
-	}
-	newNonce := make([]byte, newGCM.NonceSize())
-	if _, err := aesRandRead(newNonce); err != nil {
-		return "", fmt.Errorf("generate nonce: %w", err)
-	}
-	newCipher := newGCM.Seal(newNonce, newNonce, plaintext, nil)
-	return "v1:" + hex.EncodeToString(newCipher), nil
-}
-
-// RotateKey activates a new encryption key for all subsequent Encrypt calls.
-// The oldKey parameter is accepted for API symmetry but not stored — callers
-// must use ReEncryptWithKey to migrate existing ciphertexts BEFORE calling
-// this function, as prior ciphertexts will no longer be decryptable after
-// the switch.
-//
-// 企业为何需要：密钥轮换流程为 (1) ReEncryptWithKey 遍历加密列，(2) RotateKey
-// 切换活跃密钥。两步分离确保轮换过程中新写入的密文用新密钥，且可回滚。
-func RotateKey(oldKey, newKey []byte) error {
-	_ = oldKey // accepted for API symmetry; not stored
-	if len(newKey) != 32 {
-		return fmt.Errorf("new key must be 32 bytes for AES-256, got %d", len(newKey))
-	}
-	encKeyMu.Lock()
-	encKey = newKey
-	encKeyMu.Unlock()
-	return nil
 }

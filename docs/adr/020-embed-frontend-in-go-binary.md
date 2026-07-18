@@ -4,7 +4,7 @@
 
 ## 上下文
 
-部署目标为 GKE 多区域 StatefulSet（ADR-013），需要：
+部署目标为 GKE 多区域 StatefulSet（ADR-014），需要：
 - 最小化 K8s 部署单元数量
 - 不可变容器镜像（SLSA L2，Dockerfile digest 锁定）
 - 非 root 运行时（distroless nonroot）

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const inputMockState = vi.hoisted(() => ({
   phase: 'playing',
@@ -11,15 +11,23 @@ const inputMockState = vi.hoisted(() => ({
   restartClicked: false,
   balloon: { x: 0.5, y: 0.5 },
 }));
-vi.mock('./state_types.js', () => ({
-  state: inputMockState,
-  getState: () => inputMockState,
-}));
+vi.mock('./state.js', async (importActual) => {
+  const actual = await importActual() as any;
+  return {
+    ...actual,
+    state: inputMockState,
+    getState: () => inputMockState,
+    dispatch: (action: any) => {
+      const next = actual.gameReducer(inputMockState, action);
+      if (next !== inputMockState) Object.assign(inputMockState, next);
+    },
+  };
+});
 vi.mock('./ws_connection.js', () => ({
   sendOrQueue: vi.fn(),
   getWs: vi.fn(() => ({ readyState: 1 })),
 }));
-vi.mock('./renderer_canvas.js', () => ({
+vi.mock('./renderer.js', () => ({
   $canvas: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 300 }) },
   clientToNormalized: (x: number, y: number) => ({ x: x / 100, y: y / 100 }),
 }));
@@ -33,7 +41,7 @@ vi.mock('../shared/ui/audio.js', () => ({
 vi.mock('./ui_update.js', () => ({ updateUI: vi.fn() }));
 
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
-import { state } from './state_types.js';
+import { state } from './state.js';
 import { sendOrQueue, getWs } from './ws_connection.js';
 
 describe('input', () => {

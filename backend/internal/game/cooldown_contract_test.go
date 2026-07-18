@@ -1,3 +1,4 @@
+// Package game implements multiplayer room state and connection orchestration.
 package game
 
 import (

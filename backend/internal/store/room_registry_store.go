@@ -22,35 +22,6 @@ func NewRoomRegistryStore(rdb *redis.Client, deps ...Deps) *RoomRegistryStore {
 	return &RoomRegistryStore{baseRedisStore: newBaseRedisStore(rdb, d)}
 }
 
-// TryClaimRoomRegistry atomically claims a room registry entry using SETNX.
-func (s *RoomRegistryStore) TryClaimRoomRegistry(ctx context.Context, code string, data []byte, _ string, ttl time.Duration) (bool, error) {
-	ctx, span := s.deps.Tracer.Start(ctx, "room_registry.TryClaimRoomRegistry",
-		trace.WithAttributes(
-			attribute.String("db.system", "redis"),
-			attribute.String("db.operation", "SETNX"),
-		),
-	)
-	defer span.End()
-
-	key := roomInfoKey(code)
-	var claimed bool
-	_, err := s.cb.Execute(func() (any, error) {
-		ok, setErr := s.rdb.SetNX(ctx, key, data, ttl).Result()
-		if setErr != nil {
-			return nil, fmt.Errorf("try claim room registry: %w", setErr)
-		}
-		claimed = ok
-		if ok {
-			// Maintain SET index for O(1) listing (store-015).
-			if sAddErr := s.rdb.SAdd(ctx, roomIndexKey(), code).Err(); sAddErr != nil {
-				return nil, fmt.Errorf("try claim room index: %w", sAddErr)
-			}
-		}
-		return nil, nil
-	})
-	return claimed, err
-}
-
 // RegisterRoom stores room info in Redis with a TTL and adds it to the room index.
 func (s *RoomRegistryStore) RegisterRoom(ctx context.Context, code string, data []byte, ttl time.Duration) error {
 	ctx, span := s.deps.Tracer.Start(ctx, "room_registry.RegisterRoom",
@@ -91,31 +62,6 @@ func (s *RoomRegistryStore) UnregisterRoom(ctx context.Context, code string) err
 	return err
 }
 
-// ListActiveRooms returns all room codes in the room index set.
-func (s *RoomRegistryStore) ListActiveRooms(ctx context.Context) ([]string, error) {
-	ctx, span := s.deps.Tracer.Start(ctx, "room_registry.ListActiveRooms",
-		trace.WithAttributes(
-			attribute.String("db.system", "redis"),
-			attribute.String("db.operation", "SMEMBERS"),
-		),
-	)
-	defer span.End()
-
-	var keys []string
-	_, err := s.cb.Execute(func() (any, error) {
-		members, sErr := s.rdb.SMembers(ctx, roomIndexKey()).Result()
-		if sErr != nil {
-			return nil, fmt.Errorf("list active rooms: %w", sErr)
-		}
-		keys = members
-		return nil, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return keys, nil
-}
-
 // GetRoomRegistry retrieves room registry info by code.
 func (s *RoomRegistryStore) GetRoomRegistry(ctx context.Context, code string) (*domain.RoomRegistryInfo, error) {
 	ctx, span := s.deps.Tracer.Start(ctx, "room_registry.GetRoomRegistry",
@@ -138,24 +84,4 @@ func (s *RoomRegistryStore) GetRoomRegistry(ctx context.Context, code string) (*
 		return nil, unmarshalErr
 	}
 	return info, nil
-}
-
-// RenewRoomRegistry extends the TTL of an existing room registry entry.
-func (s *RoomRegistryStore) RenewRoomRegistry(ctx context.Context, code string, ttl time.Duration) error {
-	key := roomInfoKey(code)
-	_, err := s.cb.Execute(func() (any, error) {
-		// store-030: Check the boolean return value of Expire. If the key doesn't
-		// exist (already expired or was deleted), Expire returns false with no error.
-		// Treating this as success would silently lose the renewal — callers expect
-		// RenewRoomRegistry to extend the TTL of an existing room.
-		ok, expireErr := s.rdb.Expire(ctx, key, ttl).Result()
-		if expireErr != nil {
-			return nil, fmt.Errorf("renew room registry: %w", expireErr)
-		}
-		if !ok {
-			return nil, fmt.Errorf("renew room registry: room %s not found (key expired or deleted)", code)
-		}
-		return nil, nil
-	})
-	return err
 }

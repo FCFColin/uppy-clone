@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { dispatch, getState } from './store.js';
+import { dispatch, getState } from './state.js';
 
 beforeEach(() => {
   dispatch({ type: 'RESET_ALL' });

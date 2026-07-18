@@ -22,21 +22,16 @@ import "github.com/uppy-clone/backend/internal/domain"
 //nolint:gochecknoglobals // intentional immutable-by-convention policy table
 var permissions = map[string]map[string][]string{
 	domain.RoleAdmin: {
-		"config":    {"read", "write"},
-		"users":     {"read", "write"},
-		"lobby":     {"create", "join", "read"},
-		"user_data": {"read", "delete"},
-	},
-	RoleModerator: {
-		"config": {"read"},
-		"users":  {"read"},
-		"lobby":  {"read"},
+		ResourceConfig:   {ActionRead, ActionWrite},
+		ResourceUsers:    {ActionRead, ActionWrite},
+		ResourceLobby:    {ActionCreate, ActionJoin, ActionRead},
+		ResourceUserData: {ActionRead, ActionDelete},
 	},
 	domain.RoleUser: {
-		"lobby":     {"create", "join", "read"},
-		"user_data": {"read", "delete"},
+		ResourceLobby:    {ActionCreate, ActionJoin, ActionRead},
+		ResourceUserData: {ActionRead, ActionDelete},
 	},
 	RoleGuest: {
-		"lobby": {"read"},
+		ResourceLobby: {ActionRead},
 	},
 }

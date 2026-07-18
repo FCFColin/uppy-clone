@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker/v2"
 
 	"github.com/uppy-clone/backend/internal/auth"
@@ -32,7 +33,7 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *s
 	if db != nil {
 		pool = db.Pool()
 	}
-	var redisPinger health.RedisPinger
+	var redisPinger *redis.Client
 	if cluster != nil {
 		redisPinger = cluster.Stateful.Client()
 	}
@@ -62,7 +63,6 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *s
 // Rate limiting uses the ephemeral Redis (ADR-029); auth/session uses stateful Redis.
 func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.Use(appMiddleware.AuthBulkhead.Middleware)
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:quickplay", jwtMgr), appMiddleware.RecordAuthMetrics("quickplay")).Post("/quickplay", authHandler.QuickPlay)
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:request", jwtMgr), appMiddleware.RecordAuthMetrics("request")).Post("/request", authHandler.RequestMagicLink)
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Get("/verify", authHandler.VerifyMagicLink)
@@ -93,13 +93,11 @@ func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, cluster *s
 }
 
 // setupLobbyRoutes registers registry (room create/check/list) and lobby WebSocket routes.
-// Rate limiting + idempotency use ephemeral Redis; auth/session uses stateful Redis (ADR-029).
+// Rate limiting uses ephemeral Redis; auth/session uses stateful Redis (ADR-029).
 func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/registry", func(r chi.Router) {
-		r.Use(appMiddleware.LobbyBulkhead.Middleware)
 		r.With(
 			appMiddleware.EndpointRateLimit(cluster.Ephemeral, "registry:create", jwtMgr),
-			appMiddleware.IdempotencyMiddleware(cluster.Ephemeral.Client()),
 			authMiddlewareWrapper(jwtMgr, cluster.Stateful),
 			rbacEnforcer.Middleware("lobby", "create"),
 		).Post("/create", lobbyHandler.CreateRoom)
@@ -121,7 +119,6 @@ func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, cluster *s
 	})
 
 	r.Route("/api/v1/lobby", func(r chi.Router) {
-		r.Use(appMiddleware.WebSocketBulkhead.Middleware)
 		r.With(authMiddlewareWrapper(jwtMgr, cluster.Stateful), rbacEnforcer.Middleware("lobby", "join")).Get("/{code}/ws", lobbyHandler.WebSocket)
 	})
 }

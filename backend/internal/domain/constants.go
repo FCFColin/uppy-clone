@@ -1,8 +1,6 @@
 package domain
 
 const (
-	// ScoreToWin is the team score required to win a game.
-	ScoreToWin = 100
 	// MaxScore is the hard cap on any player's score contribution.
 	MaxScore = 9999
 	// ReconnectGraceMs is the grace period (ms) before a disconnected player is removed.

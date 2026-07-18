@@ -1,19 +1,13 @@
-﻿package game
+package game
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/uppy-clone/backend/internal/domain"
 )
-
-func TestRoomRepository_InterfaceSatisfaction(_ *testing.T) {
-	var _ RoomRepository = (*mockRoomRepository)(nil)
-	var _ RoomRepository = newMockRoomRepository()
-}
 
 // --- RoomRepository Mock Tests ---
 
@@ -219,39 +213,6 @@ func TestMockRoomRepository_CallCounts(t *testing.T) {
 // TestMockRoomRepository_ConcurrentAccess verifies the mock is safe for
 // concurrent use. Run with -race.
 
-func TestMockRoomRepository_ConcurrentAccess(_ *testing.T) {
-	repo := newMockRoomRepository()
-	ctx := context.Background()
-
-	var wg sync.WaitGroup
-	// Concurrent writers
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			code := fmt.Sprintf("CON%02d", n)
-			_ = repo.SaveLobbyState(ctx, &domain.LobbyState{Code: code})
-		}(i)
-	}
-	// Concurrent readers
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			_, _ = repo.LoadLobbyState(ctx, fmt.Sprintf("CON%02d", n%20))
-		}(i)
-	}
-	// Concurrent deleters
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			_ = repo.DeleteLobbyState(ctx, fmt.Sprintf("CON%02d", n))
-		}(i)
-	}
-	wg.Wait()
-}
-
 // TestMockRoomRepository_CancelledContext verifies that the mock respects
 // the context (currently it doesn't check ctx, but this documents the behavior).
 
@@ -300,13 +261,5 @@ func TestRoomRepository_InterfaceContract(t *testing.T) {
 
 // TestRoomRepository_MethodCount verifies the interface has exactly 3 methods.
 // This is adversarial: catches accidental addition/removal of methods.
-
-func TestRoomRepository_MethodCount(t *testing.T) {
-	// We can't easily count interface methods at runtime in Go,
-	// but we can verify all expected methods exist by calling them.
-	// If a method is missing, the code won't compile.
-	var _ = RoomRepository(nil)
-	// The fact that this compiles verifies the interface exists.
-}
 
 // ─── GenerateRandomNickname ──────────────────────────────────────────

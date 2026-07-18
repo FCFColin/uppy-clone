@@ -142,7 +142,7 @@ func (m *PersistManager) enqueuePersist(data []byte, code string) {
 	default:
 		// game-018: Log and metric when persist queue is full — previously
 		// silently dropped, making state persistence gaps invisible.
-		m.logger.Warn("persist queue full, dropping state save", "code", code)
+		m.logger.Warn("persist queue full, dropping state save", codeKey, code)
 		metrics.RoomPersistDropped.Inc()
 	}
 	m.mu.RLock()
@@ -166,10 +166,10 @@ func (m *PersistManager) flushSync(data []byte, code string) {
 		select {
 		case <-done:
 		case <-time.After(10 * time.Second):
-			m.logger.Warn("flushSync timed out waiting for persist", "code", code)
+			m.logger.Warn("flushSync timed out waiting for persist", codeKey, code)
 		}
 	case <-time.After(5 * time.Second):
-		m.logger.Warn("flushSync timed out enqueueing persist", "code", code)
+		m.logger.Warn("flushSync timed out enqueueing persist", codeKey, code)
 	}
 }
 

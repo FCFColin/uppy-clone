@@ -90,7 +90,7 @@
 
 ### Burn Rate（燃烧速率）
 
-Error Budget 的消耗速率用于多窗口告警（见 `deploy/alertmanager/rules.yml`）：
+Error Budget 的消耗速率用于多窗口告警（见 `deploy/prometheus/alerts.yml`）：
 
 | 窗口 | 倍率 | 含义 |
 |------|------|------|
@@ -119,24 +119,6 @@ Error Budget 的消耗速率用于多窗口告警（见 `deploy/alertmanager/rul
 > **注意**：WebSocket SLO（99.5%）已与 SLA（99.5%）对齐。
 
 ---
-
-## 4b. 多区域 SLO（ADR-014/016）
-
-多区域部署下，SLO 在**每区域**与**全局聚合**两个维度衡量（Thanos 按 `region` 标签切分）：
-
-| 维度 | 指标 | 目标 | 说明 |
-|------|------|------|------|
-| 每区域 | 区域 WS 成功率 | ≥ 99.5% | 单区域可用性，独立 Error Budget |
-| 每区域 | 区域内对局 p99 | < 100ms（稳态） | 区域内 owner 反向代理，无跨区 RTT |
-| 全局 | 全局可用性 | ≥ 99.95% | 任一区域故障时其余区域吸收流量 |
-| 路由 | 跨区域重定向率 | 监控项 | `resolve` 返回异区域占比，过高说明就近接入异常 |
-| 数据 | CRDB 跨区写 p99 | < 该区域 SLO 预算内 | REGIONAL BY ROW 行驻留降低跨区写 |
-
-**关键不变量**：跨区域**绝不**转发游戏帧（ADR-016）。因此「区域内对局延迟」与
-「全局可用性」解耦——单区域故障降低全局可用性预算，但不会拉高健康区域的对局延迟。
-
-高并发验证见 [`capacity-planning.md`](./capacity-planning.md)（`k6-ws-soak.js` 区域内、分布式 k6 跨区域），
-真实并发/房间/p99 由多区域 staging 压测回填。
 
 ## 5. SLO 评审与调整
 

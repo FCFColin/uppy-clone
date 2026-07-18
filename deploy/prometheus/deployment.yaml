@@ -24,9 +24,6 @@ spec:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus
             - --web.enable-lifecycle
-            # Thanos sidecar 需要的块时长设置（保持小块以便 sidecar 上传/暴露）。
-            - --storage.tsdb.max-block-duration=2h
-            - --storage.tsdb.min-block-duration=2h
           ports:
             - containerPort: 9090
           volumeMounts:
@@ -43,39 +40,6 @@ spec:
             limits:
               cpu: "1"
               memory: 2Gi
-        # Thanos sidecar：把本区域 Prometheus 暴露为 Thanos Store API（gRPC 10901），
-        # 供全局 Thanos Query 跨区域聚合查询（ADR-014）。
-        - name: thanos-sidecar
-          image: quay.io/thanos/thanos:v0.36.1
-          args:
-            - sidecar
-            - --prometheus.url=http://localhost:9090
-            - --tsdb.path=/prometheus
-            - --grpc-address=0.0.0.0:10901
-            - --http-address=0.0.0.0:10902
-            # infra-017: Server-side mTLS to match the Thanos Query client TLS.
-            # The CA cert must be the same as the querier's --grpc-client-tls-ca.
-            - --grpc-server-tls-cert=/etc/thanos/tls/server.crt
-            - --grpc-server-tls-key=/etc/thanos/tls/server.key
-            - --grpc-server-tls-ca=/etc/thanos/tls/ca.crt
-          ports:
-            - name: grpc
-              containerPort: 10901
-            - name: http
-              containerPort: 10902
-          volumeMounts:
-            - name: prometheus-tsdb
-              mountPath: /prometheus
-            - name: thanos-tls-server
-              mountPath: /etc/thanos/tls
-              readOnly: true
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 250m
-              memory: 512Mi
       volumes:
         - name: config
           configMap:
@@ -83,13 +47,6 @@ spec:
         - name: rules
           configMap:
             name: alertmanager-rules
-        # infra-017: TLS certificates for Thanos sidecar server-side mTLS.
-        # Create via cert-manager or manually:
-        #   kubectl create secret generic thanos-tls-server \
-        #     --from-file=server.crt --from-file=server.key --from-file=ca.crt
-        - name: thanos-tls-server
-          secret:
-            secretName: thanos-tls-server
   volumeClaimTemplates:
     - metadata:
         name: prometheus-tsdb
@@ -114,21 +71,3 @@ spec:
   ports:
     - port: 9090
       targetPort: 9090
----
-# Thanos sidecar gRPC Store API, exposed so the global Thanos Query can reach
-# this region's metrics (ADR-014). Cross-region traffic must be mTLS-protected
-# (service mesh / Thanos gRPC TLS), see docs/architecture/multi-region-topology.md.
-apiVersion: v1
-kind: Service
-metadata:
-  name: thanos-store-gateway
-  labels:
-    app: prometheus
-    thanos-store-api: "true"
-spec:
-  selector:
-    app: prometheus
-  ports:
-    - name: grpc
-      port: 10901
-      targetPort: 10901

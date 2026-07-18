@@ -1,26 +1,78 @@
 import { apiFetch } from '../shared/network/api_fetch.js';
 
-export async function resolveLobbyCode(): Promise<string | null> {
-  const params: URLSearchParams = new URLSearchParams(window.location.search);
-  const fromUrl: string | null = params.get('code');
-  if (fromUrl) return fromUrl;
+export type RoomValidateResult =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' | 'ended' }
+  | { ok: true; degraded: true };
 
-  // RO-042: apiFetch replaces fetchWithRefresh + createFetchTimeout.
-  // timeoutMs=8000 aligns with lifecycle.ts connection timeout (v2-R-14/46/50).
-  // retries=0 preserves fetchWithRefresh behavior (no network-error retry).
+interface RoomCheckResponse {
+  phase?: string;
+  degraded?: boolean;
+}
+
+export const ROOM_CODE_RE = /^[A-Z2-9]{5}$/;
+
+export function getLobbyCodeFromUrl(): string | null {
+  const code = new URLSearchParams(window.location.search).get('code');
+  return code && ROOM_CODE_RE.test(code) ? code : null;
+}
+
+// RO-042: apiFetch wraps fetchWithRefresh + createFetchTimeout.
+// 401 refresh+retry is internal to apiFetch; retries=0 + timeoutMs=8000 preserved.
+export async function matchNewRoomCode(): Promise<string | null> {
   try {
-    const res: Response = await apiFetch('/api/v1/registry/match', {
+    const res = await apiFetch('/api/v1/registry/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       timeoutMs: 8000,
       retries: 0,
     });
-    if (res.ok) {
-      const data: { lobbyCode: string } = await res.json() as { lobbyCode: string };
-      return data.lobbyCode;
-    }
+    if (!res.ok) return null;
+    const data = (await res.json()) as { lobbyCode: string };
+    return data.lobbyCode ?? null;
   } catch (e: unknown) {
     console.error('Failed to match room:', e);
+    return null;
   }
-  return null;
+}
+
+// Delegates to matchNewRoomCode so /registry/match has one call site.
+export async function resolveLobbyCode(): Promise<string | null> {
+  const fromUrl = new URLSearchParams(window.location.search).get('code');
+  if (fromUrl) return fromUrl;
+  return matchNewRoomCode();
+}
+
+export async function validateRoomCode(code: string): Promise<RoomValidateResult> {
+  if (!ROOM_CODE_RE.test(code)) {
+    return { ok: false, reason: 'not_found' };
+  }
+  try {
+    const encoded = encodeURIComponent(code);
+    const res = await apiFetch(`/api/v1/registry/check/${encoded}`, {
+      timeoutMs: 8000,
+      retries: 0,
+      autoRefresh: false,
+    });
+    if (res.status === 404) {
+      return { ok: false, reason: 'not_found' };
+    }
+    if (!res.ok) {
+      return { ok: true, degraded: true };
+    }
+    const data = (await res.json()) as RoomCheckResponse;
+    if (data.degraded) {
+      return { ok: true, degraded: true };
+    }
+    if (data.phase === 'ended') {
+      return { ok: false, reason: 'ended' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: true, degraded: true };
+  }
+}
+
+export function roomErrorMessage(reason: 'not_found' | 'ended'): string {
+  return reason === 'ended' ? '房间已结束' : '房间不存在或已关闭';
 }

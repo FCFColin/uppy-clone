@@ -5,8 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"strconv"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -42,10 +40,20 @@ func Tracer() trace.Tracer {
 	return tracer
 }
 
+// TracerConfig holds OpenTelemetry tracing pipeline configuration,
+// passed explicitly by callers instead of read from environment variables.
+type TracerConfig struct {
+	Endpoint    string
+	Insecure    bool
+	SampleRatio float64
+	Environment string
+	Region      string
+}
+
 // InitTracer initializes the OpenTelemetry tracing pipeline.
-// If OTEL_EXPORTER_OTLP_ENDPOINT is not set, returns a no-op provider.
-func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(context.Context) error, error) {
-	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+// If cfg.Endpoint is empty, returns a no-op provider.
+func InitTracer(ctx context.Context, serviceName, serviceVersion string, cfg TracerConfig) (func(context.Context) error, error) {
+	endpoint := cfg.Endpoint
 	if endpoint == "" {
 		slog.Info("OpenTelemetry disabled: OTEL_EXPORTER_OTLP_ENDPOINT not set")
 		return func(_ context.Context) error { return nil }, nil
@@ -53,7 +61,7 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 
 	exporter, err := func() (sdktrace.SpanExporter, error) {
 		opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
-		if isOTLPInsecure() {
+		if cfg.Insecure {
 			opts = append(opts, otlptracegrpc.WithInsecure())
 		}
 		return otlpExporterFactory(ctx, opts...)
@@ -62,14 +70,11 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 		return nil, fmt.Errorf("create OTLP exporter: %w", err)
 	}
 
-	env := os.Getenv("ENV")
+	env := cfg.Environment
 	if env == "" {
 		env = "development"
 	}
-	region := os.Getenv("CLOUD_REGION")
-	if region == "" {
-		region = os.Getenv("REGION")
-	}
+	region := cfg.Region
 
 	res, err := resourceFactory(ctx,
 		sdkresource.WithAttributes(
@@ -89,7 +94,10 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 	// and storage. ParentBased(TraceIDRatioBased(ratio)) honors upstream
 	// sampling decisions while applying a head-based ratio for root spans.
 	// OTEL_SAMPLE_RATIO controls the ratio (0.0-1.0), default 0.1 (10%).
-	sampleRatio := getSampleRatio()
+	sampleRatio := cfg.SampleRatio
+	if sampleRatio == 0 {
+		sampleRatio = 0.1
+	}
 	provider := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
 		sdktrace.WithSpanProcessor(bsp),
@@ -106,22 +114,4 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion string) (func(c
 
 	slog.Info("OpenTelemetry enabled", "endpoint", endpoint, "sample_ratio", sampleRatio)
 	return provider.Shutdown, nil
-}
-
-// isOTLPInsecure checks whether OTLP should use an insecure gRPC connection.
-// audit-011: Default to secure (false). Dev environments must explicitly
-// set OTLP_INSECURE=true to use plaintext gRPC.
-func isOTLPInsecure() bool {
-	v := os.Getenv("OTLP_INSECURE")
-	return v == "true" || v == "1"
-}
-
-// getSampleRatio reads OTEL_SAMPLE_RATIO from env (0.0-1.0), default 0.1.
-func getSampleRatio() float64 {
-	if v := os.Getenv("OTEL_SAMPLE_RATIO"); v != "" {
-		if r, err := strconv.ParseFloat(v, 64); err == nil && r >= 0 && r <= 1 {
-			return r
-		}
-	}
-	return 0.1
 }

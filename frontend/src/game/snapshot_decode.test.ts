@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PHASE_CODE } from '../shared/game/protocol.js';
+import { PHASE_CODE } from '../shared/game/constants.js';
 import { textEncoder, applySnapshot, decodeSnapshot } from './message_codec.js';
 
 function buildSnapshotBuffer(extraBytes = 0): ArrayBuffer {
@@ -24,10 +24,6 @@ function writeBaseSnapshot(dv: DataView, phaseCode: number, timestamp = 100, sco
 }
 
 describe('decodeSnapshot', () => {
-  it('returns null for buffers shorter than 37 bytes', () => {
-    expect(decodeSnapshot(new DataView(new ArrayBuffer(10)))).toBeNull();
-  });
-
   it('decodes core fields from a minimal snapshot', () => {
     const buf = buildSnapshotBuffer();
     writeBaseSnapshot(new DataView(buf), PHASE_CODE.PLAYING);

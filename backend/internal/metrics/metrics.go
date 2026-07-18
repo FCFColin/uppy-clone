@@ -37,6 +37,13 @@ func init() {
 // granularity in the sub-second range and remove the 10s bucket.
 var SLOBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0}
 
+// Prometheus label names shared across multiple collectors.
+const (
+	labelStatus   = "status"
+	labelRoomCode = "room_code"
+	labelWorker   = "worker"
+)
+
 var (
 	// HTTPRequestsTotal counts HTTP requests by method, path, and status.
 	HTTPRequestsTotal = promauto.NewCounterVec(
@@ -44,7 +51,7 @@ var (
 			Name: "http_requests_total",
 			Help: "Total number of HTTP requests",
 		},
-		[]string{"method", "path", "status"},
+		[]string{"method", "path", labelStatus},
 	)
 	// HTTPRequestDuration records HTTP request latency in seconds.
 	HTTPRequestDuration = promauto.NewHistogramVec(
@@ -112,7 +119,7 @@ var (
 	WSMessagesDroppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_messages_dropped_total",
 		Help: "Total WebSocket messages dropped due to full channel buffer",
-	}, []string{"room_code"})
+	}, []string{labelRoomCode})
 
 	// CircuitBreakerState tracks the state of each circuit breaker.
 	// 企业为何需要：熔断器状态变更必须可观测。否则运维无法知道下游依赖是否被熔断，也无法设置告警。
@@ -157,7 +164,7 @@ var (
 	AuthRequestTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "auth_requests_total",
 		Help: "Total auth requests by endpoint and status",
-	}, []string{"endpoint", "status"})
+	}, []string{"endpoint", labelStatus})
 
 	// AuthRequestDuration records auth endpoint latency in seconds.
 	AuthRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -170,7 +177,7 @@ var (
 	RoomCreationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "room_creation_total",
 		Help: "Total room creation attempts by status",
-	}, []string{"status"})
+	}, []string{labelStatus})
 
 	// RoomCreationDuration records room creation latency in seconds.
 	// audit-022: Changed from NewHistogramVec with empty labels to NewHistogram
@@ -195,7 +202,7 @@ var (
 	WSConnectionTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ws_connection_total",
 		Help: "Total WebSocket connection attempts by status",
-	}, []string{"status"})
+	}, []string{labelStatus})
 
 	// WSMessageDuration records WebSocket message processing latency in seconds.
 	WSMessageDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -238,13 +245,13 @@ var (
 	RoomOutboundQueueDepth = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "room_outbound_queue_depth",
 		Help: "Pending outbound broadcast messages awaiting delivery",
-	}, []string{"room_code"})
+	}, []string{labelRoomCode})
 
 	// RoomPersistLagSeconds is time since the last successful persist for a room.
 	RoomPersistLagSeconds = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "room_persist_lag_seconds",
 		Help: "Seconds since last successful lobby state persist",
-	}, []string{"room_code"})
+	}, []string{labelRoomCode})
 
 	// RoomPersistDropped counts persist jobs dropped due to queue full.
 	RoomPersistDropped = promauto.NewCounter(prometheus.CounterOpts{
@@ -294,7 +301,7 @@ var (
 			Name: "worker_messages_processed_total",
 			Help: "Total worker messages processed by worker and result",
 		},
-		[]string{"worker", "result"},
+		[]string{labelWorker, "result"},
 	)
 
 	// WorkerProcessingDuration records per-message worker processing latency in seconds (v2-R-43).
@@ -304,7 +311,7 @@ var (
 			Help:    "Worker per-message processing duration in seconds",
 			Buckets: SLOBuckets,
 		},
-		[]string{"worker"},
+		[]string{labelWorker},
 	)
 
 	// WorkerReadErrors counts transient XReadGroup errors per worker (v2-R-43).
@@ -314,7 +321,7 @@ var (
 			Name: "worker_read_errors_total",
 			Help: "Total worker XReadGroup errors by worker",
 		},
-		[]string{"worker"},
+		[]string{labelWorker},
 	)
 
 	// WorkerAckErrors counts XAck failures per worker.
@@ -324,7 +331,7 @@ var (
 			Name: "worker_ack_errors_total",
 			Help: "Total worker XAck errors by worker",
 		},
-		[]string{"worker"},
+		[]string{labelWorker},
 	)
 )
 

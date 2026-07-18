@@ -27,15 +27,6 @@ func TestDefaultRedisRetry(t *testing.T) {
 	}
 }
 
-// ─── ExternalAPIRetry ────────────────────────────────────────────────
-
-func TestExternalAPIRetry(t *testing.T) {
-	b := ExternalAPIRetry()
-	if b == nil {
-		t.Fatal("ExternalAPIRetry returned nil")
-	}
-}
-
 // ─── JitteredBackoff ─────────────────────────────────────────────────
 
 func TestJitteredBackoff(t *testing.T) {

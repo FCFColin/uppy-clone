@@ -1,4 +1,4 @@
-﻿package middleware
+package middleware
 
 import (
 	"bufio"
@@ -94,8 +94,8 @@ func testCORSPreflightAllowed(t *testing.T, mw func(http.Handler) http.Handler, 
 	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, POST, PUT, PATCH, DELETE, OPTIONS" {
 		t.Errorf("Access-Control-Allow-Methods = %q, want %q", got, "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Authorization, Idempotency-Key" {
-		t.Errorf("Access-Control-Allow-Headers = %q, want %q", got, "Content-Type, Authorization, Idempotency-Key")
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Authorization" {
+		t.Errorf("Access-Control-Allow-Headers = %q, want %q", got, "Content-Type, Authorization")
 	}
 }
 
@@ -571,7 +571,7 @@ func TestPrometheusMiddleware_FallbackToRawPath(t *testing.T) {
 	metrics.HTTPRequestsTotal.Reset()
 
 	// Without chi router, route pattern will be empty, so it falls back to URL path
-	handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -617,7 +617,7 @@ func TestSecurityHeaders(t *testing.T) {
 
 // makeSecurityRequest runs a request through SecurityHeaders and returns the recorder.
 func makeSecurityRequest() *httptest.ResponseRecorder {
-	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -663,7 +663,7 @@ func testHSTSBehavior(t *testing.T) {
 // testSecurityCallsNext verifies the middleware calls the next handler in the chain.
 func testSecurityCallsNext(t *testing.T) {
 	called := false
-	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -855,7 +855,7 @@ func TestGetRequestID_FromContext(t *testing.T) {
 func TestTracingMiddleware_SetsErrorStatusOn4xx(t *testing.T) {
 	r := chi.NewRouter()
 	r.Use(TracingMiddleware)
-	r.Get("/fail", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/fail", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	})
 
@@ -869,7 +869,7 @@ func TestTracingMiddleware_SetsErrorStatusOn4xx(t *testing.T) {
 func TestTracingMiddleware_SetsEndUserID(t *testing.T) {
 	r := chi.NewRouter()
 	r.Use(TracingMiddleware)
-	r.Get("/me", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/me", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -885,7 +885,7 @@ func TestTracingMiddleware_SetsEndUserID(t *testing.T) {
 func TestSecurityHeaders_DevConnectSrc(t *testing.T) {
 	t.Setenv("ENABLE_HSTS", "false")
 	reinitSecurityConfig()
-	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	rec := httptest.NewRecorder()
@@ -970,7 +970,7 @@ func TestParseTrustedCIDRs_BareIP(t *testing.T) {
 }
 
 func TestTracingMiddleware_NoRoutePattern(t *testing.T) {
-	handler := TracingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TracingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	rec := httptest.NewRecorder()
@@ -984,7 +984,7 @@ func TestTracingMiddleware_RoutePattern(t *testing.T) {
 	r := chi.NewRouter()
 	r.Route("/", func(r chi.Router) {
 		r.Use(TracingMiddleware)
-		r.Get("/items/{id}", func(w http.ResponseWriter, r *http.Request) {
+		r.Get("/items/{id}", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
 	})
@@ -996,7 +996,7 @@ func TestTracingMiddleware_RoutePattern(t *testing.T) {
 }
 
 func TestTracingMiddleware_EmptyUserID(t *testing.T) {
-	handler := TracingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TracingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

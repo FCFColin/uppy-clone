@@ -103,14 +103,6 @@ func TestRoom_SendToPlayer(t *testing.T) {
 	}
 }
 
-func TestRoom_SendToPlayer_Nonexistent(_ *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	// Should not panic
-	r.sendToPlayer("nonexistent", []byte{0x01})
-}
-
 // ─── GetConnection ───────────────────────────────────────────────────
 
 func TestRoom_GetConnection(t *testing.T) {

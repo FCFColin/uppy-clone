@@ -1,3 +1,10 @@
+// check-arch-rules verifies Go import dependency layering (logical architecture).
+// It enforces which internal packages may import which others (e.g. handler must
+// not import store). This is the "logical architecture" check.
+//
+// Responsibility boundary: this script checks IMPORT dependencies only.
+// Physical file/directory layout is checked by check-repo-layout.go.
+// The two scripts have no overlapping check logic.
 package main
 
 import (

@@ -63,33 +63,6 @@ func TestEmailHMAC_TrailingSpace(t *testing.T) {
 	}
 }
 
-func TestEncryptEmailForStorage_WithoutKey(t *testing.T) {
-	encKey = nil
-	result, err := EncryptEmailForStorage("user@example.com")
-	if err != nil {
-		t.Fatalf("EncryptEmailForStorage without key: %v", err)
-	}
-	if result != "user@example.com" {
-		t.Errorf("EncryptEmailForStorage = %q, want original email", result)
-	}
-}
-
-func TestEncryptEmailForStorage_WithKey(t *testing.T) {
-	if err := Init(testKeyHex); err != nil {
-		t.Fatal(err)
-	}
-	result, err := EncryptEmailForStorage("secure@example.com")
-	if err != nil {
-		t.Fatalf("EncryptEmailForStorage with key: %v", err)
-	}
-	if result == "secure@example.com" {
-		t.Error("EncryptEmailForStorage should encrypt when key is set")
-	}
-	if len(result) < 10 {
-		t.Errorf("EncryptEmailForStorage result too short: %q", result)
-	}
-}
-
 func TestDecryptEmailFromStorage_Empty(t *testing.T) {
 	result, err := DecryptEmailFromStorage("")
 	if err != nil || result != "" {
@@ -101,23 +74,6 @@ func TestDecryptEmailFromStorage_LegacyPlaintext(t *testing.T) {
 	result, err := DecryptEmailFromStorage("legacy@example.com")
 	if err != nil || result != "legacy@example.com" {
 		t.Errorf("DecryptEmailFromStorage(legacy) = (%q, %v), want ('legacy@example.com', nil)", result, err)
-	}
-}
-
-func TestDecryptEmailFromStorage_Encrypted(t *testing.T) {
-	if err := Init(testKeyHex); err != nil {
-		t.Fatal(err)
-	}
-	enc, err := EncryptEmailForStorage("encrypted@example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := DecryptEmailFromStorage(enc)
-	if err != nil {
-		t.Fatalf("DecryptEmailFromStorage: %v", err)
-	}
-	if got != "encrypted@example.com" {
-		t.Errorf("DecryptEmailFromStorage = %q, want original email", got)
 	}
 }
 

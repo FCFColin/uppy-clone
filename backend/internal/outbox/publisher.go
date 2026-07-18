@@ -11,24 +11,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/store/base"
 )
-
-type pgPool interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
-}
-
-// RedisStreamer is the subset of *redis.Client methods the Publisher uses.
-// Abstracting behind an interface completes ADR-029's consumer-side interface
-// pattern: both db and rdb are now interfaces, decoupling the Publisher from
-// concrete types and making it testable with fakes/mocks.
-type RedisStreamer interface {
-	Pipeline() redis.Pipeliner
-}
 
 // Publisher polls outbox_events and publishes to Redis Streams.
 type Publisher struct {
-	db        pgPool
-	rdb       RedisStreamer
+	db        base.PGPool
+	rdb       *redis.Client
 	batchSize int
 	interval  time.Duration
 }
@@ -42,7 +31,7 @@ type outboxRow struct {
 }
 
 // NewPublisher creates a new Outbox Publisher.
-func NewPublisher(db pgPool, streamer RedisStreamer) *Publisher {
+func NewPublisher(db base.PGPool, streamer *redis.Client) *Publisher {
 	batch := 100
 	if v := os.Getenv("OUTBOX_BATCH_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -133,9 +122,9 @@ func (p *Publisher) publishBatch(ctx context.Context) {
 			MaxLen: 100_000,
 			Approx: true,
 			Values: map[string]interface{}{
-				"aggregate_id": item.aggID,
+				"aggregate_id": item.aggID, //nolint:goconst // Redis stream field name (schema identifier)
 				"event_id":     strconv.FormatInt(item.id, 10),
-				"payload":      string(item.payload),
+				"payload":      string(item.payload), //nolint:goconst // Redis stream field name (schema identifier)
 			},
 		})
 	}

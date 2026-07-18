@@ -10,6 +10,7 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestNewStatsHandler(t *testing.T) {
@@ -110,11 +111,7 @@ func TestGetLeaderboard_ResponseShape(t *testing.T) {
 }
 
 func TestGetLeaderboard_WithDB(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
@@ -132,11 +129,7 @@ func TestGetLeaderboard_WithDB(t *testing.T) {
 }
 
 func TestGetLeaderboard_WeeklyWithDB(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
@@ -153,11 +146,7 @@ func TestGetLeaderboard_WeeklyWithDB(t *testing.T) {
 }
 
 func TestGetLeaderboard_DBError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
@@ -173,11 +162,7 @@ func TestGetLeaderboard_DBError(t *testing.T) {
 }
 
 func TestGetUserStats_DBError(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 
@@ -195,11 +180,7 @@ func TestGetUserStats_DBError(t *testing.T) {
 }
 
 func TestGetUserStats_WithDB(t *testing.T) {
-	mock, err := pgxmock.NewPool()
-	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
-	}
-	t.Cleanup(func() { mock.Close() })
+	mock := testutil.NewPgxMock(t)
 	db := store.NewResultRepository(mock)
 	h := NewStatsHandler(db)
 

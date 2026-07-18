@@ -13,8 +13,7 @@
   justify-content: center;
   pointer-events: none;
 }
-#loading-overlay[data-error="true"],
-#loading-overlay.connecting-blocking {
+#loading-overlay[data-error="true"] {
   pointer-events: auto;
 }
 #loading-overlay .loading-spinner {

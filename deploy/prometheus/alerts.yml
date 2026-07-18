@@ -1,3 +1,10 @@
+# Prometheus Alerting Rules — single source of truth.
+# Merged from former deploy/alertmanager/rules.yml (SLO + game-health) and
+# deploy/prometheus/alerts.yml (infra alerts). cAdvisor-dependent alerts
+# (MemoryUsageHigh/Critical) removed: prometheus.yml has no cAdvisor scrape,
+# so those alerts would never fire.
+# Labels match backend/internal/metrics/record.go instrumentation.
+
 groups:
   - name: balloon-game
     interval: 30s
@@ -34,26 +41,86 @@ groups:
         annotations:
           summary: "Database connection pool near exhaustion (>80% in use)"
 
-      # infra-031: 删除"DiskUsageHigh removed"注释块——这是描述已删除代码的死注释，
-      # 既非告警规则也无运行时作用。如需恢复 node_exporter 监控，应在单独 PR 中带
-      # scrape config + 规则一起加，而非保留空注释占位。
+  - name: slo-burn-rate
+    rules:
+      - alert: AuthSLOBurnRateFast
+        expr: |
+          (
+            sum(rate(auth_requests_total{status=~"4..|5.."}[1h]))
+            /
+            sum(rate(auth_requests_total[1h]))
+          ) > 0.0144
+        for: 2m
+        labels:
+          severity: critical
+          slo: auth
+        annotations:
+          summary: "Auth SLO fast burn rate"
+          description: "Auth 4xx/5xx rate is burning error budget quickly"
+          runbook: "docs/operations/runbook.md"
 
-      # infra-033: MemoryUsage 阈值对齐——原 expr `process_resident_memory_bytes /
-      # 1073741824 > 0.9` 实际是"RSS > 0.9 GiB"绝对值，summary 却写"90%"，语义错配。
-      # 改为按 container_spec_memory_limit_bytes 比率，分 warning(85%) / critical(95%) 两档。
-      # 依赖 cAdvisor 指标（kubelet /metrics/cadvisor），需在 prometheus.yml 增加 scrape。
-      - alert: MemoryUsageHigh
-        expr: container_memory_working_set_bytes{container="balloon-game"} / container_spec_memory_limit_bytes{container="balloon-game"} > 0.85
+      - alert: AuthSLOBurnRateSlow
+        expr: |
+          (
+            sum(rate(auth_requests_total{status=~"4..|5.."}[6h]))
+            /
+            sum(rate(auth_requests_total[6h]))
+          ) > 0.006
+        for: 15m
+        labels:
+          severity: warning
+          slo: auth
+        annotations:
+          summary: "Auth SLO slow burn rate"
+          runbook: "docs/operations/runbook.md"
+
+      - alert: WSSLOBurnRateFast
+        expr: |
+          (
+            sum(rate(ws_connection_total{status="rejected"}[1h]))
+            /
+            sum(rate(ws_connection_total[1h]))
+          ) > 0.0144
+        for: 2m
+        labels:
+          severity: critical
+          slo: websocket
+        annotations:
+          summary: "WebSocket SLO fast burn rate"
+          runbook: "docs/operations/runbook.md#websocket-连接洪水"
+
+      - alert: WSSLOBurnRateSlow
+        expr: |
+          (
+            sum(rate(ws_connection_total{status="rejected"}[6h]))
+            /
+            sum(rate(ws_connection_total[6h]))
+          ) > 0.006
+        for: 15m
+        labels:
+          severity: warning
+          slo: websocket
+        annotations:
+          summary: "WebSocket SLO slow burn rate"
+          runbook: "docs/operations/runbook.md#websocket-连接洪水"
+
+  - name: game-health
+    rules:
+      - alert: NicknameConfirmRejectedSpike
+        expr: rate(nickname_confirm_total{result="rejected"}[5m]) > 0.1
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Container memory usage > 85% of limit"
+          summary: "SET_NICKNAME messages being rejected"
+          description: "Players may be stuck on nickname screen — check UTF-8 vs rune validation"
+          runbook: "docs/operations/runbook.md"
 
-      - alert: MemoryUsageCritical
-        expr: container_memory_working_set_bytes{container="balloon-game"} / container_spec_memory_limit_bytes{container="balloon-game"} > 0.95
-        for: 2m
+      - alert: RoomsStuckWaiting
+        expr: rooms_by_phase{phase="waiting"} > 0 and rate(game_sessions_total[30m]) == 0
+        for: 10m
         labels:
-          severity: critical
+          severity: warning
         annotations:
-          summary: "Container memory usage > 95% of limit (OOM imminent)"
+          summary: "Rooms in waiting phase with no recent game starts"
+          description: "Possible nickname gate or matchmaking stall"

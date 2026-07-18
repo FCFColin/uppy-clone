@@ -21,8 +21,8 @@ import (
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	db         UserStore
-	redis      TokenStore
+	db         auth.UserDB
+	redis      auth.TokenStore
 	config     *Config
 	jwtMgr     *auth.JWTManager
 	refreshMgr *auth.RefreshTokenManager
@@ -30,7 +30,7 @@ type AuthHandler struct {
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(db UserStore, redis TokenStore, jwtMgr *auth.JWTManager, refreshMgr *auth.RefreshTokenManager, config *Config) *AuthHandler {
+func NewAuthHandler(db auth.UserDB, redis auth.TokenStore, jwtMgr *auth.JWTManager, refreshMgr *auth.RefreshTokenManager, config *Config) *AuthHandler {
 	return &AuthHandler{
 		db:         db,
 		redis:      redis,
@@ -73,8 +73,8 @@ func getJTI(r *http.Request) string {
 }
 
 func clearAuthCookies(w http.ResponseWriter, secure bool) {
-	http.SetCookie(w, auth.BuildAuthCookie("quickplay", "", -1, secure))
-	http.SetCookie(w, auth.BuildAuthCookie("session", "", -1, secure))
+	http.SetCookie(w, auth.BuildAuthCookie(quickplayCookie, "", -1, secure))
+	http.SetCookie(w, auth.BuildAuthCookie(sessionCookie, "", -1, secure))
 	http.SetCookie(w, buildRefreshCookie("", secure))
 }
 
@@ -115,11 +115,11 @@ func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email strin
 	w.WriteHeader(http.StatusOK)
 	body := map[string]interface{}{
 		"authenticated": true,
-		"userId":        userId,
-		"nickname":      nickname,
+		jsonUserID:      userId,
+		jsonNickname:    nickname,
 	}
 	if degraded {
-		body["degraded"] = true
+		body[degradedKey] = true
 	}
 	if email != "" {
 		body["email"] = email
@@ -188,9 +188,9 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookieName := "session"
-	if _, err := r.Cookie("quickplay"); err == nil {
-		cookieName = "quickplay"
+	cookieName := sessionCookie
+	if _, err := r.Cookie(quickplayCookie); err == nil {
+		cookieName = quickplayCookie
 	}
 
 	secure := isSecure(r)
@@ -227,11 +227,11 @@ func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
 		accessToken = cookie.Value
 	}
 	secure := isSecure(r)
-	writeAuthCookies(w, r, auth.BuildAuthCookie("quickplay", accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
+	writeAuthCookies(w, r, auth.BuildAuthCookie(quickplayCookie, accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"userId": resp.UserID})
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonUserID: resp.UserID})
 }
 
 // ─── Logout ──────────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Logged out"})
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessage: "Logged out"})
 }
 
 // ─── Magic Link ──────────────────────────────────────────────────────
@@ -302,7 +302,7 @@ func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": "Magic link sent"})
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessage: "Magic link sent"})
 }
 
 // VerifyMagicLink handles GET /api/v1/auth/verify?token=...
@@ -354,11 +354,11 @@ func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Reques
 		accessToken = cookie.Value
 	}
 	secure := isSecure(r)
-	writeAuthCookies(w, r, auth.BuildAuthCookie("session", accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
+	writeAuthCookies(w, r, auth.BuildAuthCookie(sessionCookie, accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"userId": resp.UserID})
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonUserID: resp.UserID})
 }
 
 // ─── GDPR Data Export & Delete ───────────────────────────────────────
@@ -423,6 +423,6 @@ func (h *AuthHandler) DeleteUserData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"message": "User data deletion scheduled. All sessions have been revoked.",
+		jsonMessage: "User data deletion scheduled. All sessions have been revoked.",
 	})
 }

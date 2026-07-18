@@ -11,9 +11,6 @@ data:
       evaluation_interval: 15s
       external_labels:
         cluster: balloon-game
-        # Thanos dedup key: this MUST be per-region. Overlays patch this value.
-        # The `region` external_label is what Thanos querier uses with
-        # --query.replica-label=region to deduplicate cross-region metrics.
         # See infra-018 audit finding.
         region: __REGION__
     rule_files:

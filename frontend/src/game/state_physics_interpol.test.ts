@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { state } from './state_types.js';
+import { state } from './state.js';
 import {
   updateInterpolation,
   resetInterpolation,
@@ -12,7 +12,7 @@ import {
 } from './state_interp.js';
 import { isDuplicateSeq, clearSeenSeqs, getSeenSeqsSize } from './seen_seqs.js';
 import { resetClientState } from './state_interp.js';
-import { MAX_SEEN_SEQS } from './local_constants.js';
+import { MAX_SEEN_SEQS } from './constants.js';
 import { PHYSICS } from '../shared/game/constants.js';
 
 const TICK_MS = PHYSICS.TICK_INTERVAL;

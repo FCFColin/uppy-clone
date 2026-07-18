@@ -19,6 +19,10 @@ import (
 // lookup fails or when a WebSocket message type is unrecognized.
 const unknownPlayerID = "unknown"
 
+// codeKey is the JSON map key and structured-logging key used to identify a
+// room code in audit entries, log records, and HTTP responses.
+const codeKey = "code"
+
 // defaultInstanceID returns the instance identifier: prefers the INSTANCE_ID
 // environment variable, otherwise falls back to hostnameFunc(). Hub uses this
 // for the Redis room registry (registerRoomInRedis) to record which instance
@@ -52,9 +56,11 @@ type Hub struct {
 	logger            *slog.Logger
 	maxPlayersPerRoom int
 	instanceID        string
-	codeGen           *RoomCodeGenerator
+	observer          GameObserver // defaults to NoopGameObserver; set via SetObserver
+	codeGen           *domain.RoomCodeGenerator
 	wsLimiter         *WSLimiter
 	cleanupInterval   time.Duration // 0 = use config.CleanupInterval; >0 for tests
+
 }
 
 // SetGenerateRoomCodeHook overrides room code generation for this Hub and returns a restore func.
@@ -78,7 +84,7 @@ func NewHub(pgStore RoomRepository, cacheStore CacheStore, timeouts config.Timeo
 		logger:            slog.Default().With("component", "hub"),
 		maxPlayersPerRoom: maxPlayersPerRoom,
 		instanceID:        defaultInstanceID(os.Hostname),
-		codeGen:           NewRoomCodeGenerator(time.Now().UnixNano()),
+		codeGen:           domain.NewRoomCodeGenerator(time.Now().UnixNano()),
 		wsLimiter:         NewWSLimiter(maxWSConnections),
 	}
 	return h
@@ -90,7 +96,7 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 
 	var code string
 	for i := 0; i < 10; i++ {
-		code = h.codeGen.generateRoomCode()
+		code = h.codeGen.GenerateRoomCode()
 		if _, exists := h.rooms[code]; !exists {
 			break
 		}
@@ -103,7 +109,7 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 
 	if _, err := domain.NewRoomCode(code); err != nil {
 		h.mu.Unlock()
-		h.logger.Error("generated invalid room code", "code", code, "error", err)
+		h.logger.Error("generated invalid room code", codeKey, code, "error", err)
 		return "", fmt.Errorf("invalid room code: %w", err)
 	}
 
@@ -120,10 +126,10 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 		ActorType: audit.ActorTypeSystem,
 		ActorID:   "system",
 		Resource:  "room/" + code,
-		After:     map[string]interface{}{"code": code, "max_players": h.maxPlayersPerRoom},
+		After:     map[string]interface{}{codeKey: code, "max_players": h.maxPlayersPerRoom},
 	})
 
-	h.logger.Info("room created", "code", code)
+	h.logger.Info("room created", codeKey, code)
 	return code, nil
 }
 
@@ -171,7 +177,7 @@ func (h *Hub) CloseAllRooms() {
 	for code, room := range h.rooms {
 		room.Close()
 		delete(h.rooms, code)
-		h.logger.Info("room closed on shutdown", "code", code)
+		h.logger.Info("room closed on shutdown", codeKey, code)
 	}
 	metrics.ActiveRooms.Set(0)
 }
@@ -287,46 +293,6 @@ func (h *Hub) joinableRoomCodes() []string {
 		}
 	}
 	return results
-}
-
-// ─── Room Code Generator ──────────────────────────────────────────────
-
-// RoomCodeGenerator generates unique room codes. Extracted from Hub to
-// isolate the RNG state and hook-override logic from the room registry.
-type RoomCodeGenerator struct {
-	rng   RNGSource
-	mu    sync.Mutex
-	genFn func() string
-}
-
-// NewRoomCodeGenerator creates a RoomCodeGenerator seeded with the given value.
-func NewRoomCodeGenerator(seed int64) *RoomCodeGenerator {
-	g := &RoomCodeGenerator{
-		rng: newSeededRNG(seed),
-	}
-	g.genFn = func() string {
-		return GenerateRoomCode(g.rng)
-	}
-	return g
-}
-
-// SetGenerateRoomCodeHook overrides room code generation and returns a
-// restore func. Tests use this to force deterministic room codes.
-func (g *RoomCodeGenerator) SetGenerateRoomCodeHook(fn func() string) (restore func()) {
-	prev := g.genFn
-	g.genFn = fn
-	return func() { g.genFn = prev }
-}
-
-// generateRoomCode returns a room code, using the hook if set, otherwise
-// the default RNG-based generator.
-func (g *RoomCodeGenerator) generateRoomCode() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.genFn != nil {
-		return g.genFn()
-	}
-	return GenerateRoomCode(g.rng)
 }
 
 // ─── WebSocket Connection Limiter ────────────────────────────────────

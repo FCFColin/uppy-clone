@@ -2,21 +2,43 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/audit"
+	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/requestctx"
+	"github.com/uppy-clone/backend/internal/store"
 )
 
 const adminRole = "admin"
 
 const maskedKey = "••••••••"
+
+const (
+	adminPasswordKey     = "admin_password"
+	resendAPIKey         = "resend_api_key" //nolint:gosec // false positive: JSON config field name, not a credential
+	adminSessionResource = "admin/session"
+	jsonMessage          = "message"
+	jsonUserID           = "userId"
+	jsonNickname         = "nickname"
+	sessionCookie        = "session"
+	quickplayCookie      = "quickplay"
+	degradedKey          = "degraded"
+	globalScope          = "global"
+	codeKey              = "code"
+	jwtRoleClaim         = "role"
+	jwtSubClaim          = "sub"
+	jwtIatClaim          = "iat"
+	jwtExpClaim          = "exp"
+)
 
 // TokenSigner creates admin JWTs. Replaceable in tests.
 type TokenSigner interface {
@@ -25,15 +47,15 @@ type TokenSigner interface {
 
 // AdminHandler handles admin endpoints.
 type AdminHandler struct {
-	db          ConfigStore
-	adminJwtMgr JWTManager
-	redis       AdminCache
+	db          *store.ConfigRepository
+	adminJwtMgr *auth.JWTManager
+	redis       *store.RedisStore
 	tokenSigner TokenSigner
 }
 
 // NewAdminHandler creates a new AdminHandler.
 // redis is used for failed-login lockout tracking; may be nil in tests.
-func NewAdminHandler(db ConfigStore, adminJwtMgr JWTManager, redis AdminCache) *AdminHandler {
+func NewAdminHandler(db *store.ConfigRepository, adminJwtMgr *auth.JWTManager, redis *store.RedisStore) *AdminHandler {
 	return &AdminHandler{
 		db:          db,
 		adminJwtMgr: adminJwtMgr,
@@ -85,7 +107,7 @@ func maskSensitiveFields(cfg map[string]interface{}) map[string]interface{} {
 	masked := make(map[string]interface{})
 	for k, v := range cfg {
 		masked[k] = v
-		if k == "admin_password" || k == "resend_api_key" {
+		if k == adminPasswordKey || k == resendAPIKey {
 			masked[k] = maskedKey
 		}
 	}
@@ -105,11 +127,11 @@ func (h *AdminHandler) signAdminTokenDefault() (string, string, error) {
 	now := time.Now()
 	jti := uuid.NewString()
 	claims := map[string]any{
-		"role": adminRole,
-		"jti":  jti,
-		"sub":  adminRole,
-		"iat":  now.Unix(),
-		"exp":  now.Add(config.AdminTokenTTL).Unix(),
+		jwtRoleClaim: adminRole,
+		"jti":        jti,
+		jwtSubClaim:  adminRole,
+		jwtIatClaim:  now.Unix(),
+		jwtExpClaim:  now.Add(config.AdminTokenTTL).Unix(),
 	}
 	signed, err := h.adminJwtMgr.SignWithClaims(claims)
 	if err != nil {
@@ -180,4 +202,59 @@ func (h *AdminHandler) VerifyAdminTokenClaims(r *http.Request) (*adminClaims, bo
 	}
 
 	return claims, true
+}
+
+// ─── Admin Auth: Password Retrieval & Logout ───────────────────────
+
+// getStoredAdminPassword retrieves the admin password from the app_config DB row.
+func (h *AdminHandler) getStoredAdminPassword(ctx context.Context, w http.ResponseWriter) (string, bool) {
+	dbConfig, err := h.db.GetConfig(ctx, globalScope)
+	if err != nil || dbConfig == nil {
+		apierror.Forbidden("Admin not configured").Write(w)
+		return "", false
+	}
+
+	var storedConfig struct {
+		AdminPassword string `json:"admin_password"`
+	}
+	if err := json.Unmarshal([]byte(dbConfig.Config), &storedConfig); err != nil {
+		apierror.InternalError("Internal server error").Write(w)
+		return "", false
+	}
+
+	if storedConfig.AdminPassword == "" {
+		apierror.Forbidden("Admin password not configured").Write(w)
+		return "", false
+	}
+	return storedConfig.AdminPassword, true
+}
+
+// Logout handles POST /api/v1/admin/logout.
+func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	jti := getJTI(r)
+	if jti != "" && h.redis != nil {
+		if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
+			slog.Warn("failed to revoke admin jwt on logout", "jti", jti, "error", err)
+		}
+		if err := h.redis.RemoveAdminJTI(ctx, jti); err != nil {
+			slog.Warn("failed to remove admin jti from active set", "jti", jti, "error", err)
+		}
+	}
+
+	secure := isSecure(r)
+	http.SetCookie(w, auth.BuildAuthCookie("admin_token", "", -1, secure))
+
+	audit.Log(ctx, audit.AuditEntry{
+		Action:    "admin.logout",
+		ActorType: audit.ActorTypeAdmin,
+		ActorID:   adminRole,
+		ActorIP:   requestctx.ExtractClientIP(r),
+		Resource:  adminSessionResource,
+		RequestID: middleware.GetRequestID(ctx),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessage: "Logged out"})
 }

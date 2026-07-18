@@ -28,7 +28,7 @@ func newMockRepo[T any](t *testing.T, newFn func(pgPool, ...Deps) T) (T, pgxmock
 func TestNewPostgresStoreWithPool(t *testing.T) {
 	mock, err := pgxmock.NewPool()
 	if err != nil {
-		t.Fatalf("pgxmock: %v", err)
+		t.Fatalf("pgxmock.NewPool: %v", err)
 	}
 	t.Cleanup(func() { mock.Close() })
 

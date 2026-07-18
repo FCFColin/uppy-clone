@@ -878,7 +878,7 @@ func TestVerifyWithKey_UnexpectedSigningMethod(t *testing.T) {
 
 func TestVerifyWithKey_ExpiredToken(t *testing.T) {
 	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, err := mgr.SignToken("user-1", "Nick")
+	_, err := mgr.SignToken("user-1", "Nick")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -896,7 +896,6 @@ func TestVerifyWithKey_ExpiredToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = token
 	if _, _, _, _, err := mgr.VerifyToken(s); err == nil {
 		t.Fatal("expected expired token error")
 	}

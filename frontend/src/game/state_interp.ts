@@ -11,15 +11,14 @@ import {
   tryBalloonFromDelayBuffer,
   tryEntityFromDelayBuffer,
 } from './interp_buffers.js';
-import { dispatch, getState } from './store.js';
+import { dispatch, getState } from './state.js';
 import { clearOutboundQueue, resetReconnectAttempts } from './ws_connection.js';
 import { clearSeenSeqs } from './seen_seqs.js';
 import { resetTutorial } from './tutorial.js';
-import { resetWindHint } from './ui_wind.js';
+import { resetWindHint, stopCooldownUpdater } from './ui_common.js';
 import { resetUIUpdateCache } from './ui_update.js';
 import { resetEntryFlowState } from './entry_flow.js';
 import { runRegisteredResets } from './reset_registry.js';
-import { stopCooldownUpdater } from './ui_cooldown.js';
 import { clearRestartCountdownTimer } from './restart_vote_ui.js';
 
 type ActivePoint = InterpGhostPoint;

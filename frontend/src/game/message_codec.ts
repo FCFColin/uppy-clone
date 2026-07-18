@@ -1,7 +1,7 @@
-import type { GamePhase } from '../shared/game/types.js';
-import { PHASE_CODE } from '../shared/game/protocol.js';
+import type { GamePhase } from './state.js';
+import { PHASE_CODE } from '../shared/game/constants.js';
 import { COOLDOWN } from '../shared/game/constants.js';
-import { CLIENT_MSG } from '../shared/game/protocol.js';
+import { CLIENT_MSG } from '../shared/game/constants.js';
 
 const _textEncoder = new TextEncoder();
 const _textDecoder = new TextDecoder();

@@ -35,11 +35,11 @@
 
 ## 后果
 
-- Handler 直接访问 `auth` / `game` 与 `store`（ADR-024 方案 A）
+- Handler 直接访问 `auth` / `game` 与 `store`
 - ~~Handler 通过 Service 层跨上下文~~ — `internal/service` 已删除
 - 领域事件经 Outbox 发布，不直接跨上下文改状态
 - 游戏热路径不依赖 PG 同步写入
 
 ## 关联
 
-- ADR-024
+- ADR-028（Clean Architecture 接口驱动解耦）

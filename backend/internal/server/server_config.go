@@ -16,19 +16,20 @@ var serverEnv *appConfig.Env
 func loadConfig() *handler.Config {
 	serverEnv = appConfig.Load()
 	return &handler.Config{
-		ResendAPIKey:       serverEnv.ResendAPIKey,
-		EmailFrom:          serverEnv.EmailFrom,
-		AdminPassword:      serverEnv.AdminPassword,
-		JWTPrivateKey:      serverEnv.JWTPrivateKey,
-		JWTPublicKey:       serverEnv.JWTPublicKey,
-		AdminJWTPrivateKey: serverEnv.GetAdminJWTPrivateKey(),
-		AdminJWTPublicKey:  serverEnv.AdminJWTPublicKey,
-		DatabaseURL:        serverEnv.DatabaseURL,
-		RedisURL:           serverEnv.GetRedisStatefulURL(),
-		RedisEphemeralURL:  serverEnv.GetRedisEphemeralURL(),
-		RedisPubSubURL:     serverEnv.GetRedisPubSubURL(),
-		Port:               serverEnv.Port,
-		FrontendDir:        serverEnv.FrontendDir,
+		ResendAPIKey:          serverEnv.ResendAPIKey,
+		EmailFrom:             serverEnv.EmailFrom,
+		AdminPassword:         serverEnv.AdminPassword,
+		JWTPrivateKey:         serverEnv.JWTPrivateKey,
+		JWTPublicKey:          serverEnv.JWTPublicKey,
+		AdminJWTPrivateKey:    serverEnv.GetAdminJWTPrivateKey(),
+		AdminJWTPublicKey:     serverEnv.AdminJWTPublicKey,
+		DatabaseURL:           serverEnv.DatabaseURL,
+		RedisURL:              serverEnv.GetRedisStatefulURL(),
+		RedisEphemeralURL:     serverEnv.GetRedisEphemeralURL(),
+		RedisPubSubURL:        serverEnv.GetRedisPubSubURL(),
+		Port:                  serverEnv.Port,
+		FrontendDir:           serverEnv.FrontendDir,
+		EnableEmbeddedWorkers: serverEnv.EnableEmbeddedWorkers,
 	}
 }
 

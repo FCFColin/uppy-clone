@@ -19,7 +19,7 @@ func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	code := URLParam(r, "code")
+	code := URLParam(r, codeKey)
 	if code == "" {
 		apierror.BadRequest("Room code is required").Write(w)
 		return

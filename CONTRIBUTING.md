@@ -56,7 +56,7 @@ make lint-all
 - **前端**：wire 常量在 `frontend/src/shared/game/protocol.ts`；客户端编解码在 `frontend/src/game/message_codec.ts`
 - **文档**：仅 `docs/{adr,architecture,operations,development,security,data,api,templates}/`
 - **基础设施**：应用清单 `infra/k8s/`，GCP `infra/terraform/`；可观测性 `deploy/`（见各目录 `README.md`）
-- **脚本**：CI `scripts/ci/`，负载 `scripts/load/`；布局校验 `make check-repo-layout`
+- **脚本**：CI `scripts/ci/`；布局校验 `make check-repo-layout`
 - **E2E**：`make e2e` 或 `npm run test:e2e`（Playwright，`tests/e2e/`）
 
 ## 测试约定
@@ -80,7 +80,7 @@ make lint-all
 4. **保持平衡** — 不过度内联或合并无关逻辑
 5. **范围可控** — 每 PR 一个主题；`refactor` 与 `feat`/`fix` 分 PR
 
-每步运行 `make check`；阶段末 `make ci`。章程约束见 [ADR-000](docs/adr/000-project-charter.md)（不得裁剪刻意保留的企业级组件）。
+每步运行 `make check`；阶段末 `make ci`。章程约束见 [ADR-000](docs/adr/000-project-charter.md)（不得裁剪刻意保留的企业级组件，除非按 [ADR-032 瘦身例外条款豁免](docs/adr/032-slim-exception-waiver.md) 开具定向豁免）。
 
 Install [air](https://github.com/air-verse/air) for live reload during development:
 
@@ -170,24 +170,3 @@ This will:
 - Validate commit message format (Conventional Commits)
 - Run short tests
 - Detect accidentally committed private keys
-
-## API Deprecation Policy
-
-When deprecating an API endpoint:
-
-1. **Add Deprecation header**: Return `Deprecation: true` header
-2. **Add Sunset header**: Return `Sunset: <date>` with planned removal date (min 6 months)
-3. **Add Link header**: Return `Link: <successor-url>; rel="successor-version"`
-4. **Update OpenAPI**: Mark the endpoint as `deprecated: true`
-5. **Notify consumers**: Update CHANGELOG.md and notify known API consumers
-6. **Maintain for 6 months**: Deprecated endpoints must remain functional for at least 6 months
-7. **Remove**: After sunset date, remove the endpoint and return 410 Gone
-
-Example:
-```
-Deprecation: true
-Sunset: Sat, 01 Jan 2027 00:00:00 GMT
-Link: </api/v1/admin/config>; rel="successor-version"
-```
-
-## Postmortems

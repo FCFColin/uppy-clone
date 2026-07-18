@@ -108,7 +108,7 @@ func (m *JWTManager) PublicKey() *ecdsa.PublicKey {
 // BuildAuthCookie creates an HttpOnly, SameSite=Lax, Secure cookie
 // matching the TypeScript buildAuthCookie behavior.
 func BuildAuthCookie(name, value string, maxAge int, secure bool) *http.Cookie {
-	return &http.Cookie{
+	return &http.Cookie{ //nolint:gosec // G124: Secure flag is conditional to support local dev without TLS
 		Name:     name,
 		Value:    value,
 		Path:     "/",

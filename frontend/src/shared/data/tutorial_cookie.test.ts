@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { isTutorialDone, markTutorialDone, shouldShowTutorial } from './tutorial_cookie.js';
+import { isTutorialDone, markTutorialDone, shouldShowTutorial } from './cookies.js';
 
 describe('tutorialCookie', () => {
   beforeEach(() => {

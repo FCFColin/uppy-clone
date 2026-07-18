@@ -61,7 +61,7 @@ test-cover:
 	bash scripts/ci/check-coverage.sh frontend
 
 lint:
-	@command -v golangci-lint >/dev/null 2>&1 || go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+	@command -v golangci-lint >/dev/null 2>&1 || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	cd backend && golangci-lint run --allow-parallel-runners=false
 
 lint-all: lint
@@ -113,15 +113,6 @@ seed:
 bench:
 	cd backend && go test -bench=. -benchmem -run=^$$ ./internal/protocol/ ./internal/game/ -count=1 | tee ../docs/development/benchmarks-go-microbench.md
 
-load-smoke:
-	k6 run scripts/load/k6-smoke.js
-
-load-ws-soak:
-	k6 run scripts/load/k6-ws-soak.js
-
-load-single-room:
-	k6 run scripts/load/k6-single-room.js
-
 audit:
 	$(TOOL_BUILD)/govulncheck golang.org/x/vuln/cmd/govulncheck
 	cd backend && ./bin/govulncheck ./...
@@ -149,11 +140,10 @@ simplify:
 clean:
 	rm -rf backend/bin frontend/dist bin
 	rm -f backend/*.out backend/*cov* backend/*cover*
-	rm -f backend/migrate backend/seed backend/server backend/store backend/unit backend/handler backend/unit_focus 'backend/$$out'
 	docker compose down -v
 
 # sync-alert-rules: 生成 deploy/alertmanager/rules-configmap.yaml（v2-C-30/C-31/C-33）。
-# 单一真相源 deploy/alertmanager/rules.yml → ConfigMap YAML，供 Prometheus StatefulSet
+# 单一真相源 deploy/prometheus/alerts.yml → ConfigMap YAML，供 Prometheus StatefulSet
 # 通过 configMap `alertmanager-rules` 挂载到 /etc/prometheus/rules/。
 # 见 deploy/prometheus/deployment.yaml volume `rules` 与 deploy/kustomization.yaml configMapGenerator。
 sync-alert-rules:

@@ -11,9 +11,9 @@
 > 架构。目标、非目标与"刻意保留清单"见 [ADR-000 项目章程](../adr/000-project-charter.md)。
 
 > **目标架构（部分已落地）**：统一 GKE 多区域（每区域 StatefulSet + HPA + 区域本地
-> Redis），全局 Anycast 入口就近接入，CockroachDB 多区域强一致持久化，跨区域绝不转发
-> 游戏帧。多区域拓扑图见 [multi-region-topology.md](./multi-region-topology.md)
-> （ADR-014/015/016；ADR-013 已废弃）。**注意**：多区域 / CockroachDB 为**目标态（提议/进行中）**，
+> Redis），全局 Anycast 入口就近接入，PostgreSQL 持久化（`room_directory` 跨区域共享），
+> 跨区域绝不转发游戏帧。多区域拓扑决策见 [ADR-014](../adr/014-multi-region-deployment.md)
+> 。**注意**：多区域为**目标态（部分已实现，待激活）**，
 > 当前实际运行为单区域单库 PostgreSQL，详见下方"提议 vs 已实现"状态。下图为**单区域内**
 > 的组件视图。
 
@@ -35,8 +35,8 @@
 
 ## 应用分层（当前实际架构）
 
-ADR-024（2026-06-26）裁决删除未接线的 `internal/service` CQRS 脚手架。ADR-028（2026-07-03）
-进一步采用 Clean Architecture 接口驱动解耦：接口定义在消费者（handler/middleware/rbac），
+ADR-028（2026-07-03）
+采用 Clean Architecture 接口驱动解耦：接口定义在消费者（handler/middleware/rbac），
 实现在基础设施（store/auth），`server` 为唯一组合根。运行时分层为：
 
 ```
@@ -46,12 +46,6 @@ HTTP Handler → auth / game (domain logic) → store (PostgreSQL / Redis)
 - **Handler**（`internal/handler`）：REST / WebSocket 入口，鉴权与协议转换
 - **auth / game**（`internal/auth`、`internal/game`）：认证与会话、房间 tick 与物理模拟
 - **store**（`internal/store`）：持久化与缓存；Outbox 经 Worker 异步消费
-
-**目标态 / 提议中（尚未实际多区域运行）**
-
-- 多区域拓扑与全局就近路由（ADR-014，已接受；多区域部署待激活）
-- CockroachDB 多区域强一致持久化（ADR-015，提议中；`DB_DIALECT=postgres` 为默认回退）
-- 区域本地房间 + 跨区域重定向（ADR-016，提议中）
 
 ## 架构图（单区域组件视图）
 
@@ -184,7 +178,7 @@ Room 结束
 1. **Hub 已可水平扩展（区域内 owner 反向代理 + 租约）**: 多实例下，连接落到非 owner
    实例时透明反向代理到 owner（ADR-005）；owner 失效且**同区域租约过期**时由同区域实例
    接管（取代无作用域 last-writer-wins）。要求实例间可寻址，故统一部署在 GKE
-   （ADR-014/016 多区域拓扑）。跨区域由全局目录路由、就近重定向，绝不转发游戏帧（ADR-016）。
+   （ADR-014 多区域拓扑）。跨区域由全局目录路由、就近重定向，绝不转发游戏帧。
 2. **单点 tick 循环**: 单个房间的物理模拟仍在单个 goroutine（单 owner 实例）中执行，
    受限于单核——这是实时权威模拟的固有限制；扩展靠"房间分散到多实例"而非"单房间并行"。
 3. **消息队列已引入**: 游戏结果通过三写并行持久化（direct write + Redis Stream + Outbox，

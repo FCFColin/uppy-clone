@@ -1,4 +1,4 @@
-﻿package game
+package game
 
 import (
 	"math"
@@ -735,17 +735,6 @@ func BenchmarkGenerateRoomCode(b *testing.B) {
 
 // ─── coverage gap 补充用例 ──────────────────────────────────────────
 
-func TestUpdateGhostAI_RepelZeroDistance(_ *testing.T) {
-	state := createTestState()
-	state.Ghost.Active = true
-	state.Ghost.X = state.Balloon.X
-	state.Ghost.Y = state.Balloon.Y
-	state.Ghost.RepelTimer = 5
-	state.Ghost.VX = 0
-	state.Ghost.VY = 0
-	UpdateGhostAI(state, testRNG())
-}
-
 func TestApplyTapForce_InRangeForce(t *testing.T) {
 	balloon := domain.BalloonState{X: 0.5, Y: 0.5, VX: 0, VY: 0}
 	if !ApplyTapForce(&balloon, 0.52, 0.48) {
@@ -831,11 +820,3 @@ func TestUpdateWind_RightEdgeSoftZone(t *testing.T) {
 	}
 }
 
-func TestUpdateBirdAI_RecalibrateZeroDistance(_ *testing.T) {
-	state := createTestState()
-	state.Bird.Active = true
-	state.Bird.X = state.Balloon.X
-	state.Bird.Y = state.Balloon.Y
-	state.Bird.VX = 0.01
-	UpdateBirdAI(&state.Bird, &state.Balloon, 30, testRNG())
-}

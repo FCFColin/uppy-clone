@@ -18,9 +18,9 @@ ws-protocol/AsyncAPI 契约与 Markdown 链接。
 - [ ] 若改了 **WebSocket 协议**（`backend/internal/protocol/**`）：已同步 `docs/api/ws-protocol.md` 与 `docs/api/asyncapi.yaml`
 - [ ] 若改了 **REST API**：已同步 `docs/api/openapi.yaml`
 - [ ] 若引入/变更 **架构决策**：已新增或更新对应 ADR，并更新 `docs/adr/README.md` 索引
-- [ ] 若改了 **部署/基础设施**（`infra/**`、`deploy/**`）：已同步相关文档（架构图 / runbook / capacity-planning / topology）
-- [ ] 若改了 **多区域路由/容量/SLO** 相关行为：已更新 `docs/architecture/multi-region-topology.md` / `docs/operations/slo.md` / `docs/operations/capacity-planning.md`
-- [ ] 数据库 schema 变更：已提供 up/down 迁移，且 PG/CRDB 兼容（必要时更新 `docs/data/cockroachdb-migration.md`）
+- [ ] 若改了 **部署/基础设施**（`infra/**`、`deploy/**`）：已同步相关文档（架构图 / runbook / capacity-planning）
+- [ ] 若改了 **多区域路由/容量/SLO** 相关行为：已更新 `docs/operations/slo.md` / `docs/operations/capacity-planning.md`
+- [ ] 数据库 schema 变更：已提供 up/down 迁移，且 PG/CRDB 兼容
 
 ## 测试
 

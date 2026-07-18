@@ -306,10 +306,6 @@ resource "google_service_account_iam_member" "workload_identity_migrator" {
   member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game-migrator]"
 }
 
-# infra-025: 全局 Anycast 静态 IP + Google-managed 证书纳入 Terraform 管理。
-# 此前 multicluster-ingress.yaml 通过注解引用 balloon-game-global-ip /
-# balloon-game-cert 的名字，但资源本身未在 IaC 中声明，导致环境重建时遗漏。
-# 这里以 google_compute_global_address + google_compute_managed_ssl_certificate 显式声明。
 resource "google_compute_global_address" "balloon_game_global_ip" {
   name         = "balloon-game-global-ip"
   description  = "Global Anycast IP for balloon-game MultiClusterIngress (ADR-014)"

@@ -5,7 +5,7 @@ vi.mock('./ws_handlers.js', () => ({
 }));
 
 import { handleBinaryMessage } from './ws_handlers.js';
-import { enqueueBinaryMessage, drainPendingMessages } from './ws_message_queue.js';
+import { enqueueBinaryMessage, drainPendingMessages } from './ws_connection.js';
 
 describe('ws_message_queue', () => {
   beforeEach(() => {
