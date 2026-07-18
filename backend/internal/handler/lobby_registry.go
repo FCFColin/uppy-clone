@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
@@ -44,7 +43,7 @@ func (h *LobbyHandler) handleRegistryRoom(w http.ResponseWriter, r *http.Request
 	code, err := op(r.Context())
 	if err == game.ErrRoomCodeConflict {
 		metrics.RecordRoomCreation("failed", start)
-		apierror.Conflict("Room code conflict, please retry").Write(w)
+		domain.Conflict("Room code conflict, please retry").Write(w)
 		return
 	}
 	if err != nil {
@@ -79,15 +78,15 @@ func (h *LobbyHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 	code := URLParam(r, codeKey)
 	if code == "" {
-		apierror.BadRequest("Room code is required").Write(w)
+		domain.BadRequest("Room code is required").Write(w)
 		return
 	}
 
 	if _, err := domain.NewRoomCode(code); err != nil {
 		if len(code) != config.RoomCodeLen {
-			apierror.BadRequest("invalid room code").Write(w)
+			domain.BadRequest("invalid room code").Write(w)
 		} else {
-			apierror.BadRequest("invalid room code charset").Write(w)
+			domain.BadRequest("invalid room code charset").Write(w)
 		}
 		return
 	}
@@ -119,7 +118,7 @@ func (h *LobbyHandler) CheckRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if info == nil {
-		apierror.NotFound("Room not found").Write(w)
+		domain.NotFound("Room not found").Write(w)
 		return
 	}
 

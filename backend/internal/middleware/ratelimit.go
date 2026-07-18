@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/requestctx"
 )
@@ -103,7 +103,7 @@ func RateLimit(redisStore RateLimiterStore, config RateLimitConfig) func(http.Ha
 			if err != nil {
 				if config.FailClosed {
 					setRateLimitHeaders(w, int(config.MaxRequests), config.Window)
-					apierror.TooManyRequests("Service temporarily unavailable. Please try again later.").Write(w)
+					domain.TooManyRequests("Service temporarily unavailable. Please try again later.").Write(w)
 					return
 				}
 				// Fail-open: allow the request through on Redis error
@@ -113,7 +113,7 @@ func RateLimit(redisStore RateLimiterStore, config RateLimitConfig) func(http.Ha
 
 			if !allowed {
 				setRateLimitHeaders(w, int(config.MaxRequests), config.Window)
-				apierror.TooManyRequests("Too many requests. Please try again later.").Write(w)
+				domain.TooManyRequests("Too many requests. Please try again later.").Write(w)
 				return
 			}
 
@@ -148,7 +148,7 @@ func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr *aut
 				if cfg.FailClosed {
 					// Security-critical endpoint: reject on Redis failure
 					setRateLimitHeaders(w, cfg.Requests, cfg.Window)
-					apierror.TooManyRequests("Service temporarily unavailable. Please try again later.").Write(w)
+					domain.TooManyRequests("Service temporarily unavailable. Please try again later.").Write(w)
 					return
 				}
 				// Non-critical endpoint: allow on Redis failure (fail-open)
@@ -158,7 +158,7 @@ func EndpointRateLimit(redisStore RateLimiterStore, endpoint string, jwtMgr *aut
 
 			if !allowed {
 				setRateLimitHeaders(w, cfg.Requests, cfg.Window)
-				apierror.TooManyRequests("Too many requests. Please try again later.").Write(w)
+				domain.TooManyRequests("Too many requests. Please try again later.").Write(w)
 				return
 			}
 

@@ -6,7 +6,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/protocol"
 )
@@ -247,7 +246,7 @@ func (r *Room) StartGame() error {
 	r.state.RestartVotes = make(map[string]bool)
 	r.state.RestartTimerStart = nil
 	r.state.StartedAt = time.Now().UnixMilli()
-	r.state.SessionID = idgen.UUID()
+	r.state.SessionID = domain.UUID()
 
 	ResetGameEntities(r.state, RandomSpawnTimer(r.rng), r.rng)
 

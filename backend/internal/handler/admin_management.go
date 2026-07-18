@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
@@ -33,12 +32,12 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		apierror.BadRequest("Invalid request body").Write(w)
+		domain.BadRequest("Invalid request body").Write(w)
 		return
 	}
 
 	if len(body.Password) > config.BcryptMaxLen {
-		apierror.BadRequest("password too long (max 72 bytes)").Write(w)
+		domain.BadRequest("password too long (max 72 bytes)").Write(w)
 		return
 	}
 
@@ -59,7 +58,7 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	if !compareAdminPassword(body.Password, storedPassword) {
 		h.handleFailedLogin(ctx, clientIP, adminAccount)
-		apierror.Unauthorized("Wrong password").Write(w)
+		domain.Unauthorized("Wrong password").Write(w)
 		return
 	}
 
@@ -69,14 +68,14 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AdminHandler) isLoginLocked(ctx context.Context, w http.ResponseWriter, clientIP, account string) bool {
 	if h.redis == nil {
 		slog.Error("admin login: redis not available, denying login")
-		apierror.New(http.StatusServiceUnavailable, "Service Unavailable",
+		domain.New(http.StatusServiceUnavailable, "Service Unavailable",
 			"Login temporarily unavailable, please retry later").Write(w)
 		return true
 	}
 	locked, err := h.redis.IsLoginLocked(ctx, clientIP, account)
 	if err != nil {
 		slog.Warn("failed to check login lock", "ip", clientIP, "account", account, "error", err)
-		apierror.New(http.StatusServiceUnavailable, "Service Unavailable",
+		domain.New(http.StatusServiceUnavailable, "Service Unavailable",
 			"Login temporarily unavailable, please retry later").Write(w)
 		return true
 	}
@@ -84,7 +83,7 @@ func (h *AdminHandler) isLoginLocked(ctx context.Context, w http.ResponseWriter,
 		return false
 	}
 	metrics.AdminLoginLockedTotal.Inc()
-	apierror.TooManyRequests("too many failed login attempts, try again later").Write(w)
+	domain.TooManyRequests("too many failed login attempts, try again later").Write(w)
 	return true
 }
 
@@ -106,7 +105,7 @@ func (h *AdminHandler) completeAdminLogin(w http.ResponseWriter, r *http.Request
 
 	token, jti, err := h.signAdminToken()
 	if err != nil {
-		apierror.InternalError("Internal server error").Write(w)
+		domain.InternalError("Internal server error").Write(w)
 		return
 	}
 
@@ -202,11 +201,11 @@ func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	cfg, err := h.db.GetConfig(ctx, globalScope)
 	if err != nil {
-		apierror.InternalError("Failed to load config").Write(w)
+		domain.InternalError("Failed to load config").Write(w)
 		return
 	}
 	if cfg == nil {
-		apierror.NotFound("Config not found").Write(w)
+		domain.NotFound("Config not found").Write(w)
 		return
 	}
 
@@ -217,7 +216,7 @@ func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		AdminPassword string `json:"admin_password"`
 	}
 	if err := json.Unmarshal([]byte(cfg.Config), &storedConfig); err != nil {
-		apierror.InternalError("Internal server error").Write(w)
+		domain.InternalError("Internal server error").Write(w)
 		return
 	}
 
@@ -238,7 +237,7 @@ func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 func (h *AdminHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	updates, err := h.parseConfigUpdates(w, r)
 	if err != nil {
-		apierror.BadRequest("Invalid request body").Write(w)
+		domain.BadRequest("Invalid request body").Write(w)
 		return
 	}
 
@@ -246,11 +245,11 @@ func (h *AdminHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	cfg, err := h.db.GetConfig(ctx, globalScope)
 	if err != nil {
-		apierror.InternalError("Failed to load config").Write(w)
+		domain.InternalError("Failed to load config").Write(w)
 		return
 	}
 	if cfg == nil {
-		apierror.NotFound("Config not found").Write(w)
+		domain.NotFound("Config not found").Write(w)
 		return
 	}
 
@@ -266,7 +265,7 @@ func (h *AdminHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.saveConfig(ctx, cfg, storedConfig); err != nil {
-		apierror.InternalError("Failed to save config").Write(w)
+		domain.InternalError("Failed to save config").Write(w)
 		return
 	}
 
@@ -284,7 +283,7 @@ func (h *AdminHandler) applyConfigUpdates(ctx context.Context, w http.ResponseWr
 	if updates.ResendApiKey != nil && *updates.ResendApiKey != maskedKey {
 		encrypted, err := crypto.Encrypt(*updates.ResendApiKey)
 		if err != nil {
-			apierror.InternalError("Failed to encrypt API key").Write(w)
+			domain.InternalError("Failed to encrypt API key").Write(w)
 			return false
 		}
 		storedConfig[resendAPIKey] = encrypted
@@ -294,17 +293,17 @@ func (h *AdminHandler) applyConfigUpdates(ctx context.Context, w http.ResponseWr
 	}
 	if updates.AdminPassword != nil {
 		if updates.OldPassword == nil {
-			apierror.BadRequest("oldPassword required to change adminPassword").Write(w)
+			domain.BadRequest("oldPassword required to change adminPassword").Write(w)
 			return false
 		}
 		currentPwd, _ := storedConfig["admin_password"].(string)
 		if !compareAdminPassword(*updates.OldPassword, currentPwd) {
-			apierror.Unauthorized("wrong old password").Write(w)
+			domain.Unauthorized("wrong old password").Write(w)
 			return false
 		}
 		hashed, err := hashAdminPassword(*updates.AdminPassword)
 		if err != nil {
-			apierror.InternalError("Failed to hash password").Write(w)
+			domain.InternalError("Failed to hash password").Write(w)
 			return false
 		}
 		storedConfig["admin_password"] = hashed

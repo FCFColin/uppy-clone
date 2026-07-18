@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
@@ -133,9 +132,9 @@ func isDuplicateError(err error) bool {
 // incremented only on successful inserts.
 func seedUsers(ctx context.Context, userRepo *store.UserRepository, now int64, stats *seedStats) ([]*domain.User, error) {
 	users := []*domain.User{
-		{ID: idgen.UUID(), Email: "alice@test.com", Nickname: "Alice", Palette: 0, CreatedAt: now},
-		{ID: idgen.UUID(), Email: "bob@test.com", Nickname: "Bob", Palette: 1, CreatedAt: now},
-		{ID: idgen.UUID(), Email: "charlie@test.com", Nickname: "Charlie", Palette: 2, CreatedAt: now},
+		{ID: domain.UUID(), Email: "alice@test.com", Nickname: "Alice", Palette: 0, CreatedAt: now},
+		{ID: domain.UUID(), Email: "bob@test.com", Nickname: "Bob", Palette: 1, CreatedAt: now},
+		{ID: domain.UUID(), Email: "charlie@test.com", Nickname: "Charlie", Palette: 2, CreatedAt: now},
 	}
 	for _, u := range users {
 		if err := userRepo.CreateUser(ctx, u); err != nil {
@@ -167,7 +166,7 @@ func seedSessions(ctx context.Context, resultRepo *store.ResultRepository, now i
 		endedAt := now - int64(i*3600)
 		startedAt := endedAt - 600
 		session := &domain.GameSession{
-			ID:         idgen.UUID(),
+			ID:         domain.UUID(),
 			LobbyCode:  code,
 			Status:     "completed",
 			StartedAt:  &startedAt,
@@ -201,7 +200,7 @@ func seedResults(ctx context.Context, resultRepo *store.ResultRepository, now in
 			userIdx = 0
 		}
 		result := &domain.GameResult{
-			ID:                idgen.UUID(),
+			ID:                domain.UUID(),
 			SessionID:         sessionIDs[sessionIdx],
 			UserID:            users[userIdx].ID,
 			ScoreContribution: 500 - i*30,

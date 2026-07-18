@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/metrics"
 )
 
@@ -185,7 +184,7 @@ func (m *PersistManager) stop() {
 func newLobbyState(code string, stateJSON []byte) *domain.LobbyState {
 	now := time.Now().UnixMilli()
 	return &domain.LobbyState{
-		ID:        idgen.UUID(),
+		ID:        domain.UUID(),
 		Code:      code,
 		State:     string(stateJSON),
 		UpdatedAt: now,

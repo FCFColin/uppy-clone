@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/slogctx"
@@ -87,7 +86,7 @@ func (e *Enforcer) Middleware(resource, action string) func(http.Handler) http.H
 					Resource:  resource,
 					Before:    map[string]interface{}{"role": role, "action": action},
 				})
-				apierror.Forbidden("insufficient permissions").Write(w)
+				domain.Forbidden("insufficient permissions").Write(w)
 				return
 			}
 			next.ServeHTTP(w, r)

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/idgen"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/nicknames"
 	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/testsecrets"
@@ -235,21 +235,21 @@ func TestQuickPlayRandomNickname(t *testing.T) {
 
 func TestGenerateUUID(t *testing.T) {
 	t.Run("produces valid format", func(t *testing.T) {
-		id := idgen.UUID()
+		id := domain.UUID()
 		if len(id) != 36 {
-			t.Errorf("idgen.UUID length = %d, want 36", len(id))
+			t.Errorf("domain.UUID length = %d, want 36", len(id))
 		}
 		parts := strings.Split(id, "-")
 		if len(parts) != 5 {
-			t.Errorf("idgen.UUID should have 5 dash-separated parts, got %d", len(parts))
+			t.Errorf("domain.UUID should have 5 dash-separated parts, got %d", len(parts))
 		}
 	})
 
 	t.Run("produces unique IDs", func(t *testing.T) {
-		id1 := idgen.UUID()
-		id2 := idgen.UUID()
+		id1 := domain.UUID()
+		id2 := domain.UUID()
 		if id1 == id2 {
-			t.Error("idgen.UUID should produce unique IDs")
+			t.Error("domain.UUID should produce unique IDs")
 		}
 	})
 }

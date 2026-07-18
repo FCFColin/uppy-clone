@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/store"
@@ -284,7 +284,7 @@ func TestRequireHub_ReturnsTrueWhenNotNil(t *testing.T) {
 			t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
 		}
 
-		var resp apierror.ProblemDetails
+		var resp domain.ProblemDetails
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatalf("failed to decode error response: %v", err)
 		}

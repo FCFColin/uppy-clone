@@ -9,7 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
@@ -210,7 +210,7 @@ func (h *AdminHandler) VerifyAdminTokenClaims(r *http.Request) (*adminClaims, bo
 func (h *AdminHandler) getStoredAdminPassword(ctx context.Context, w http.ResponseWriter) (string, bool) {
 	dbConfig, err := h.db.GetConfig(ctx, globalScope)
 	if err != nil || dbConfig == nil {
-		apierror.Forbidden("Admin not configured").Write(w)
+		domain.Forbidden("Admin not configured").Write(w)
 		return "", false
 	}
 
@@ -218,12 +218,12 @@ func (h *AdminHandler) getStoredAdminPassword(ctx context.Context, w http.Respon
 		AdminPassword string `json:"admin_password"`
 	}
 	if err := json.Unmarshal([]byte(dbConfig.Config), &storedConfig); err != nil {
-		apierror.InternalError("Internal server error").Write(w)
+		domain.InternalError("Internal server error").Write(w)
 		return "", false
 	}
 
 	if storedConfig.AdminPassword == "" {
-		apierror.Forbidden("Admin password not configured").Write(w)
+		domain.Forbidden("Admin password not configured").Write(w)
 		return "", false
 	}
 	return storedConfig.AdminPassword, true

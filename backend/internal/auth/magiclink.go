@@ -14,7 +14,6 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
@@ -263,7 +262,7 @@ func findOrCreateUserByEmail(ctx context.Context, db UserDB, email string) (*dom
 		}
 		now := time.Now().Unix()
 		user = &domain.User{
-			ID:        idgen.UUID(),
+			ID:        domain.UUID(),
 			Email:     email,
 			Nickname:  nickname,
 			CreatedAt: now,

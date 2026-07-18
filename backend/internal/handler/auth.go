@@ -11,7 +11,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
@@ -85,12 +84,12 @@ func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessCookie *http
 	}
 }
 
-func parseQuickPlayRequest(w http.ResponseWriter, r *http.Request) (string, *apierror.ProblemDetails) {
+func parseQuickPlayRequest(w http.ResponseWriter, r *http.Request) (string, *domain.ProblemDetails) {
 	var body struct {
 		Nickname string `json:"nickname"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		return "", apierror.BadRequest("invalid request body")
+		return "", domain.BadRequest("invalid request body")
 	}
 	nickname := strings.TrimSpace(body.Nickname)
 	if nickname == "" {
@@ -98,11 +97,11 @@ func parseQuickPlayRequest(w http.ResponseWriter, r *http.Request) (string, *api
 	}
 	nickRunes := utf8.RuneCountInString(nickname)
 	if nickRunes < 2 || nickRunes > 20 {
-		return "", apierror.New(http.StatusBadRequest, "Invalid nickname", "nickname must be 2-20 characters")
+		return "", domain.New(http.StatusBadRequest, "Invalid nickname", "nickname must be 2-20 characters")
 	}
 	for _, r := range nickname {
 		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
-			return "", apierror.New(http.StatusBadRequest, "Invalid nickname", "nickname contains invalid characters")
+			return "", domain.New(http.StatusBadRequest, "Invalid nickname", "nickname contains invalid characters")
 		}
 	}
 	return nickname, nil
@@ -131,7 +130,7 @@ func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email strin
 func (h *AuthHandler) CheckAuth(w http.ResponseWriter, r *http.Request) {
 	userId, nickname, ok := auth.AuthenticatedUserFromRequestWithRevocation(r, h.jwtMgr, h.redis)
 	if !ok || userId == "" {
-		apierror.Unauthorized("").Write(w)
+		domain.Unauthorized("").Write(w)
 		return
 	}
 
@@ -156,7 +155,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil && err != io.EOF {
-		apierror.BadRequest("Invalid request body").Write(w)
+		domain.BadRequest("Invalid request body").Write(w)
 		return
 	}
 
@@ -165,7 +164,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		refreshToken = body.RefreshToken
 	}
 	if refreshToken == "" {
-		apierror.BadRequest("refresh token is required").Write(w)
+		domain.BadRequest("refresh token is required").Write(w)
 		return
 	}
 
@@ -184,7 +183,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	result, err := auth.RefreshSession(ctx, h.refreshMgr, h.jwtMgr, h.db, refreshToken)
 	if err != nil {
-		apierror.Unauthorized("Invalid or expired refresh token").Write(w)
+		domain.Unauthorized("Invalid or expired refresh token").Write(w)
 		return
 	}
 
@@ -212,13 +211,13 @@ func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.db == nil || h.jwtMgr == nil || h.refreshMgr == nil {
-		apierror.InternalError("Internal server error").Write(w)
+		domain.InternalError("Internal server error").Write(w)
 		return
 	}
 
 	cookie, resp, err := auth.QuickPlay(h.db, h.jwtMgr, h.refreshMgr, h.redis, nickname, r)
 	if err != nil {
-		apierror.InternalError("Internal server error").Write(w)
+		domain.InternalError("Internal server error").Write(w)
 		return
 	}
 
@@ -242,7 +241,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil && err != io.EOF {
-		apierror.BadRequest("Invalid request body").Write(w)
+		domain.BadRequest("Invalid request body").Write(w)
 		return
 	}
 
@@ -277,12 +276,12 @@ func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		apierror.BadRequest("Invalid request body").Write(w)
+		domain.BadRequest("Invalid request body").Write(w)
 		return
 	}
 
 	if body.Email == "" {
-		apierror.BadRequest("Email is required").Write(w)
+		domain.BadRequest("Email is required").Write(w)
 		return
 	}
 
@@ -290,12 +289,12 @@ func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrTooManyRequests):
-			apierror.TooManyRequests(err.Error()).Write(w)
+			domain.TooManyRequests(err.Error()).Write(w)
 		case errors.Is(err, auth.ErrInvalidEmail):
-			apierror.UnprocessableEntity(err.Error()).Write(w)
+			domain.UnprocessableEntity(err.Error()).Write(w)
 		default:
 			slog.Error("magic link request failed", "error", err)
-			apierror.InternalError("Internal server error").Write(w)
+			domain.InternalError("Internal server error").Write(w)
 		}
 		return
 	}
@@ -317,7 +316,7 @@ func (h *AuthHandler) VerifyMagicLinkPost(w http.ResponseWriter, r *http.Request
 		Token string `json:"token"`
 	}
 	if err := decodeJSONBody(w, r, &body); err != nil {
-		apierror.BadRequest("Invalid request body").Write(w)
+		domain.BadRequest("Invalid request body").Write(w)
 		return
 	}
 	h.verifyMagicLinkToken(w, r, body.Token)
@@ -325,12 +324,12 @@ func (h *AuthHandler) VerifyMagicLinkPost(w http.ResponseWriter, r *http.Request
 
 func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Request, token string) {
 	if token == "" {
-		apierror.BadRequest("Token is required").Write(w)
+		domain.BadRequest("Token is required").Write(w)
 		return
 	}
 
 	if len(token) != config.MagicLinkTokenLen {
-		apierror.BadRequest("invalid token").Write(w)
+		domain.BadRequest("invalid token").Write(w)
 		return
 	}
 
@@ -345,7 +344,7 @@ func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Reques
 	cookie, resp, err := auth.VerifyMagicLink(h.redis, h.db, h.jwtMgr, h.refreshMgr, token, r)
 	if err != nil {
 		slog.Error("magic link verification failed", "error", err)
-		apierror.Unauthorized("Invalid or expired token").Write(w)
+		domain.Unauthorized("Invalid or expired token").Write(w)
 		return
 	}
 
@@ -367,21 +366,21 @@ func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Reques
 func (h *AuthHandler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 	userId, _, ok := auth.AuthenticatedUserFromRequestWithRevocation(r, h.jwtMgr, h.redis)
 	if !ok || userId == "" {
-		apierror.Unauthorized("").Write(w)
+		domain.Unauthorized("").Write(w)
 		return
 	}
 
 	if h.db == nil {
-		apierror.InternalError("Failed to export user data").Write(w)
+		domain.InternalError("Failed to export user data").Write(w)
 		return
 	}
 
 	user, err := h.db.GetUserByID(r.Context(), userId)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			apierror.NotFound("User not found").Write(w)
+			domain.NotFound("User not found").Write(w)
 		} else {
-			apierror.InternalError("Failed to export user data").Write(w)
+			domain.InternalError("Failed to export user data").Write(w)
 		}
 		return
 	}
@@ -407,14 +406,14 @@ func (h *AuthHandler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) DeleteUserData(w http.ResponseWriter, r *http.Request) {
 	userId, _, ok := auth.AuthenticatedUserFromRequestWithRevocation(r, h.jwtMgr, h.redis)
 	if !ok || userId == "" {
-		apierror.Unauthorized("").Write(w)
+		domain.Unauthorized("").Write(w)
 		return
 	}
 
 	ctx := r.Context()
 	if err := auth.DeleteUserData(ctx, h.jwtMgr, h.refreshMgr, h.redis, h.db, userId, r); err != nil {
 		slog.Error("failed to delete user data", "userId", userId, "error", err)
-		apierror.InternalError("Failed to delete user data").Write(w)
+		domain.InternalError("Failed to delete user data").Write(w)
 		return
 	}
 

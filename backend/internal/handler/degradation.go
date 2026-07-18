@@ -6,7 +6,7 @@ import (
 
 	"github.com/sony/gobreaker/v2"
 
-	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
 )
 
@@ -51,7 +51,7 @@ func RequireHub(hub interface{ RoomCount() int }, w http.ResponseWriter) bool {
 	if hub != nil {
 		return true
 	}
-	apierror.New(http.StatusServiceUnavailable, "Service Unavailable", "Room service temporarily unavailable").Write(w)
+	domain.New(http.StatusServiceUnavailable, "Service Unavailable", "Room service temporarily unavailable").Write(w)
 	return false
 }
 

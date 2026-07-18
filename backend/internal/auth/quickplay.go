@@ -10,7 +10,6 @@ import (
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/idgen"
 	"github.com/uppy-clone/backend/internal/nicknames"
 )
 
@@ -44,7 +43,7 @@ func QuickPlay(db UserDB, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, r
 	nickname = prepareQuickPlayNickname(nickname)
 
 	// Generate UUID for new user
-	userId := idgen.UUID()
+	userId := domain.UUID()
 
 	// Create temporary user (email = userId@quickplay)
 	now := time.Now().Unix()

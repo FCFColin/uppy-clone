@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
-	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/metrics"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
@@ -21,7 +21,7 @@ func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 
 	code := URLParam(r, codeKey)
 	if code == "" {
-		apierror.BadRequest("Room code is required").Write(w)
+		domain.BadRequest("Room code is required").Write(w)
 		return
 	}
 
@@ -36,7 +36,7 @@ func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 
 	room := h.hub.GetRoom(code)
 	if room == nil {
-		apierror.NotFound("Room not found").Write(w)
+		domain.NotFound("Room not found").Write(w)
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *LobbyHandler) validateWSOrigin(w http.ResponseWriter, r *http.Request) 
 		if origin != "" {
 			h.logger.Warn("CSWSH blocked", "origin", origin)
 		}
-		apierror.Forbidden("origin not allowed").Write(w)
+		domain.Forbidden("origin not allowed").Write(w)
 		return false
 	}
 	return true
@@ -86,7 +86,7 @@ func (h *LobbyHandler) validateWSOrigin(w http.ResponseWriter, r *http.Request) 
 
 func (h *LobbyHandler) reserveWSConnection(w http.ResponseWriter) bool {
 	if !h.hub.TryReserveWSConnection() {
-		apierror.New(http.StatusServiceUnavailable, "Service Unavailable",
+		domain.New(http.StatusServiceUnavailable, "Service Unavailable",
 			"WebSocket connection limit reached, please try again later").Write(w)
 		return false
 	}
@@ -96,7 +96,7 @@ func (h *LobbyHandler) reserveWSConnection(w http.ResponseWriter) bool {
 func (h *LobbyHandler) authenticateWSRequest(w http.ResponseWriter, r *http.Request) (string, bool) {
 	userId, _, ok := auth.GetAuthenticatedUser(r)
 	if !ok || userId == "" {
-		apierror.Unauthorized("Unauthorized").Write(w)
+		domain.Unauthorized("Unauthorized").Write(w)
 		return "", false
 	}
 	return userId, true

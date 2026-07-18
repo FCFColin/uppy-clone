@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/uppy-clone/backend/internal/apierror"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/store"
@@ -25,7 +25,7 @@ func NewStatsHandler(db *store.ResultRepository) *StatsHandler {
 // GetLeaderboard handles GET /api/v1/leaderboard?scope=global|weekly&limit=50
 func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 	if h.db == nil {
-		apierror.New(http.StatusServiceUnavailable, "Service Unavailable", "service unavailable").Write(w)
+		domain.New(http.StatusServiceUnavailable, "Service Unavailable", "service unavailable").Write(w)
 		return
 	}
 
@@ -34,7 +34,7 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 		scope = globalScope
 	}
 	if scope != globalScope && scope != "weekly" {
-		apierror.BadRequest("invalid scope").Write(w)
+		domain.BadRequest("invalid scope").Write(w)
 		return
 	}
 
@@ -53,7 +53,7 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// handler-023: Log the actual error for debugging.
 		slog.Error("failed to load leaderboard", "error", err, "scope", scope)
-		apierror.InternalError("failed to load leaderboard").Write(w)
+		domain.InternalError("failed to load leaderboard").Write(w)
 		return
 	}
 
@@ -67,13 +67,13 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 // GetUserStats handles GET /api/v1/user/stats (authenticated).
 func (h *StatsHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
 	if h.db == nil {
-		apierror.New(http.StatusServiceUnavailable, "Service Unavailable", "service unavailable").Write(w)
+		domain.New(http.StatusServiceUnavailable, "Service Unavailable", "service unavailable").Write(w)
 		return
 	}
 
 	userID, _, ok := auth.GetAuthenticatedUser(r)
 	if !ok || userID == "" {
-		apierror.Unauthorized("").Write(w)
+		domain.Unauthorized("").Write(w)
 		return
 	}
 
@@ -81,7 +81,7 @@ func (h *StatsHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// handler-023: Log the actual error for debugging.
 		slog.Error("failed to load user stats", "error", err, "user_id", userID)
-		apierror.InternalError("failed to load stats").Write(w)
+		domain.InternalError("failed to load stats").Write(w)
 		return
 	}
 

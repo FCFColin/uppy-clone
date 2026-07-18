@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
@@ -69,14 +68,14 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, next http.HandlerFunc, revoker ...a
 				if revErr != nil {
 					slog.Error("jwt revocation check failed", "error", revErr)
 					revSpan.End()
-					apierror.Unauthorized("Unauthorized").Write(w)
+					domain.Unauthorized("Unauthorized").Write(w)
 					return
 				}
 				if revoked {
 					slog.Info("revoked jwt used", "jti", jti)
 					revSpan.SetAttributes(attribute.Bool("revoked", true))
 					revSpan.End()
-					apierror.Unauthorized("Unauthorized").Write(w)
+					domain.Unauthorized("Unauthorized").Write(w)
 					return
 				}
 				revSpan.End()
@@ -103,7 +102,7 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, next http.HandlerFunc, revoker ...a
 
 		// Neither cookie is valid
 		span.SetAttributes(attribute.Bool("authenticated", false))
-		apierror.Unauthorized("Unauthorized").Write(w)
+		domain.Unauthorized("Unauthorized").Write(w)
 	}
 }
 

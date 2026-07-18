@@ -7,7 +7,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/uppy-clone/backend/internal/apierror"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/handler"
@@ -77,7 +76,7 @@ func adminAuthMiddleware(adminHandler *handler.AdminHandler) func(http.Handler) 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := adminHandler.VerifyAdminTokenClaims(r)
 			if !ok {
-				apierror.Unauthorized("Unauthorized").Write(w)
+				domain.Unauthorized("Unauthorized").Write(w)
 				return
 			}
 			ctx := domain.WithRole(r.Context(), domain.RoleAdmin)
