@@ -20,9 +20,7 @@ export default defineConfig({
         'src/game/main.ts',
         // Security-sensitive files are intentionally NOT excluded from coverage
         // to ensure they are measured. See audit project-10-002.
-        'src/game/connection_ui.ts',
         'src/game/tutorial.ts',
-        'src/game/waiting_tips.ts',
         'src/game/visual_helpers.ts',
         'src/game/restart_vote_ui.ts',
         '**/game/window_events.ts',
