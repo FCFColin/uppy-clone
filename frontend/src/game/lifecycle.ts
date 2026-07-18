@@ -4,8 +4,8 @@ import { normalizeAuthHost } from '../shared/network/session.js';
 import { showToast } from '../shared/ui/utils.js';
 import { resizeCanvas, startGameLoop, renderOnce } from './renderer.js';
 import { updateUI } from './ui_update.js';
-import { generateRandomNickname, initWaitingTips, bindReconnectRetry } from './ui_common.js';
-import { $setupNicknameInput } from './ui_elements.js';
+import { pickRandomNickname, $setupNicknameInput } from './ui_elements.js';
+import { initWaitingTips, bindReconnectRetry } from './ui_common.js';
 import { connectWebSocket, showConnectionError } from './ws_connection.js';
 import { sendOrQueue } from './ws_connection.js';
 import {
@@ -17,7 +17,7 @@ function submitSetupNickname(): void {
   const input: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
   let nickname: string = input ? input.value.trim() : '';
   if (!nickname) {
-    nickname = generateRandomNickname();
+    nickname = pickRandomNickname();
   }
   safeSetItem('uppy-nickname', nickname);
   dispatch({ type: 'SET_STATE', partial: { pendingNickname: nickname } });
@@ -35,7 +35,7 @@ function initNickname(): void {
   if (savedNickname && $setupNicknameInput) {
     $setupNicknameInput.value = savedNickname;
   } else if ($setupNicknameInput) {
-    $setupNicknameInput.value = generateRandomNickname();
+    $setupNicknameInput.value = pickRandomNickname();
   }
 }
 

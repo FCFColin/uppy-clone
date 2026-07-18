@@ -1,13 +1,11 @@
 export {};
 
 import { apiFetch } from './shared/network/api_fetch.js';
+import { renderLeaderboardEntry, type LeaderboardEntry } from './shared/ui/leaderboard_utils.js';
 
 type Scope = 'global' | 'weekly';
 
-interface Entry {
-  rank: number;
-  score: number;
-  lobbyCode: string;
+interface Entry extends LeaderboardEntry {
   endedAt: number;
 }
 
@@ -19,26 +17,6 @@ const tabWeekly = document.getElementById('tab-weekly')!;
 let scope: Scope = 'global';
 
 const EMPTY_TEXT = '暂无记录，快去开一局吧！';
-
-function appendLeaderboardItem(parent: HTMLElement, e: Entry): void {
-  const li = document.createElement('li');
-  li.className = 'leaderboard-item';
-
-  const rank = document.createElement('span');
-  rank.className = 'lb-rank';
-  rank.textContent = `#${e.rank}`;
-
-  const score = document.createElement('span');
-  score.className = 'lb-score';
-  score.textContent = String(e.score);
-
-  const code = document.createElement('span');
-  code.className = 'lb-code';
-  code.textContent = e.lobbyCode;
-
-  li.append(rank, score, code);
-  parent.appendChild(li);
-}
 
 async function load(): Promise<void> {
   listEl.textContent = '';
@@ -53,7 +31,7 @@ async function load(): Promise<void> {
     }
     emptyEl.classList.add('hidden');
     for (const e of data.entries) {
-      appendLeaderboardItem(listEl, e);
+      renderLeaderboardEntry(listEl, e);
     }
   } catch {
     emptyEl.textContent = '加载失败，请确认后端已启动并刷新页面';

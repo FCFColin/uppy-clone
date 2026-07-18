@@ -9,7 +9,8 @@ import {
   $endPlayerList, $playerListWaiting,
   $nicknameSetupScreen,
 } from './ui_elements.js';
-import { updateWindIndicator, hideWindIndicator, refreshLayout } from './ui_common.js';
+import { updateWindIndicator, hideWindIndicator } from './ui_common.js';
+import { resizeCanvas } from './renderer.js';
 import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff } from './entry_flow.js';
 import { getWaitingTitleText } from './entry_flow_ui.js';
@@ -55,7 +56,7 @@ function setOverlayVisibility(): void {
   $endedScreen.classList.toggle('hidden', phase !== 'ended');
   $gameHud.classList.toggle('hidden', !playing);
   $cooldownIndicator.classList.toggle('hidden', !playing);
-  refreshLayout();
+  resizeCanvas();
 
   if (playing) {
     updateWindIndicator(getState().wind);

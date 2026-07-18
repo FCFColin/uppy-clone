@@ -2,8 +2,8 @@ import { resumeAudioContext } from '../shared/ui/audio.js';
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
 import { getState, dispatch } from './state.js';
 import { resizeCanvas, startGameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
-import { generateRandomNickname, copyCode, refreshLayout, showFallbackErrorScreen } from './ui_common.js';
-import { $copyCodeBtn, $hudCopyBtn, $setupNicknameInput } from './ui_elements.js';
+import { pickRandomNickname, $copyCodeBtn, $hudCopyBtn, $setupNicknameInput } from './ui_elements.js';
+import { copyCode, showFallbackErrorScreen } from './ui_common.js';
 import { connectWebSocket } from './ws_connection.js';
 import { stopHeartbeat, getWs } from './ws_connection.js';
 import { registerResetFn } from './reset_registry.js';
@@ -21,7 +21,6 @@ function handleResize(): void {
   if (resizeTimer !== null) clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
     resizeCanvas();
-    refreshLayout();
     renderOnce();
     resizeTimer = null;
   }, 100);
@@ -48,7 +47,7 @@ export function bindWindowEvents(): void {
   if ($hudCopyBtn) $hudCopyBtn.addEventListener('click', () => { void copyCode(); });
 
   document.getElementById('random-nickname-btn')?.addEventListener('click', () => {
-    if ($setupNicknameInput) $setupNicknameInput.value = generateRandomNickname();
+    if ($setupNicknameInput) $setupNicknameInput.value = pickRandomNickname();
   });
   document.getElementById('restart-btn')?.addEventListener('click', requestRestart);
 

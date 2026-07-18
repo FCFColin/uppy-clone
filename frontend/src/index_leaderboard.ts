@@ -1,12 +1,9 @@
 import { apiFetch } from './shared/network/api_fetch.js';
-
-interface Entry {
-  rank: number;
-  score: number;
-  lobbyCode: string;
-}
+import { renderLeaderboardEntry, type LeaderboardEntry } from './shared/ui/leaderboard_utils.js';
 
 type Scope = 'global' | 'weekly';
+
+type Entry = LeaderboardEntry;
 
 let scope: Scope = 'global';
 let expanded = false;
@@ -29,23 +26,7 @@ function setActiveTab(next: Scope): void {
 function renderEntries(listEl: HTMLElement, entries: Entry[]): void {
   listEl.textContent = '';
   for (const e of entries) {
-    const li = document.createElement('li');
-    li.className = 'leaderboard-item';
-
-    const rank = document.createElement('span');
-    rank.className = 'lb-rank';
-    rank.textContent = `#${e.rank}`;
-
-    const score = document.createElement('span');
-    score.className = 'lb-score';
-    score.textContent = String(e.score);
-
-    const code = document.createElement('span');
-    code.className = 'lb-code';
-    code.textContent = e.lobbyCode;
-
-    li.append(rank, score, code);
-    listEl.appendChild(li);
+    renderLeaderboardEntry(listEl, e);
   }
 }
 

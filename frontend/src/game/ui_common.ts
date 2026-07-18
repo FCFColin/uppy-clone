@@ -1,8 +1,7 @@
 import { dispatch, getState } from './state.js';
-import { pickRandomNickname, $cooldownBar, $cooldownText } from './ui_elements.js';
+import { $cooldownBar, $cooldownText } from './ui_elements.js';
 import { showToast } from '../shared/ui/utils.js';
 import { playCountdownTick, playReadySound, vibrate } from '../shared/ui/audio.js';
-import { resizeCanvas } from './renderer.js';
 import { calculateCooldown } from './message_codec.js';
 import { isTutorialDone } from '../shared/data/cookies.js';
 import { PHYSICS } from '../shared/game/constants.js';
@@ -63,10 +62,6 @@ export function showCountdownOverlay(): void {
 
 // ===== Nickname / copy / layout / fallback (from ui_utils) =====
 
-export function generateRandomNickname(): string {
-  return pickRandomNickname();
-}
-
 export async function copyCode(): Promise<void> {
   const url: string = `${window.location.origin}/play.html?code=${getState().lobbyCode}`;
   try {
@@ -75,10 +70,6 @@ export async function copyCode(): Promise<void> {
   } catch {
     showToast('复制失败，请手动复制房间码');
   }
-}
-
-export function refreshLayout(): void {
-  resizeCanvas();
 }
 
 export function showFallbackErrorScreen(message: string): void {
