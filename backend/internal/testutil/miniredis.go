@@ -1,3 +1,4 @@
+// Package testutil provides shared test helpers for backend tests.
 package testutil
 
 import (

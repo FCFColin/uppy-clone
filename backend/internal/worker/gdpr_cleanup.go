@@ -8,8 +8,8 @@ import (
 	"github.com/sethvargo/go-retry"
 
 	"github.com/uppy-clone/backend/internal/audit"
-	"github.com/uppy-clone/backend/internal/resilience"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 var (
@@ -62,8 +62,8 @@ func NewGDPRCleanupWorker(db userHardDeleter, retentionDays int, interval time.D
 func (w *GDPRCleanupWorker) Start(ctx context.Context) {
 	// v2-R-84: inject a worker-scoped logger so all downstream log lines carry
 	// the worker tag without each call site repeating it.
-	logger := slogctx.LoggerFromContext(ctx).With("worker", "gdpr_cleanup")
-	ctx = slogctx.WithLogger(ctx, logger)
+	logger := util.LoggerFromContext(ctx).With("worker", "gdpr_cleanup")
+	ctx = util.WithLogger(ctx, logger)
 
 	w.runOnce(ctx)
 
@@ -81,17 +81,17 @@ func (w *GDPRCleanupWorker) Start(ctx context.Context) {
 }
 
 func (w *GDPRCleanupWorker) runOnce(ctx context.Context) {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	gdprCleanupRuns.Inc()
 
 	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	var deleted int64
-	if err := retry.Do(runCtx, resilience.DefaultDBRetry(), func(ctx context.Context) error {
+	if err := retry.Do(runCtx, store.DefaultDBRetry(), func(ctx context.Context) error {
 		var err error
 		deleted, err = w.db.HardDeleteExpiredUsers(ctx, w.retentionDays)
-		return resilience.MaybeRetryable(err)
+		return store.MaybeRetryable(err)
 	}); err != nil {
 		logger.Error("gdpr cleanup failed after retries", "error", err)
 		return

@@ -14,7 +14,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/middleware"
-	"github.com/uppy-clone/backend/internal/requestctx"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -42,7 +41,7 @@ func (h *AdminHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	clientIP := requestctx.ExtractClientIP(r)
+	clientIP := middleware.ExtractClientIP(r)
 	// handler-025: account-dimension lockout key — the lockout uses BOTH the
 	// client IP and the admin account identifier so that a distributed brute
 	// force (many IPs, one account) triggers the account-dimension lock.
@@ -307,7 +306,7 @@ func (h *AdminHandler) applyConfigUpdates(ctx context.Context, w http.ResponseWr
 			return false
 		}
 		storedConfig["admin_password"] = hashed
-		AuditPasswordChange(ctx, requestctx.ExtractClientIP(r))
+		AuditPasswordChange(ctx, middleware.ExtractClientIP(r))
 
 		// Revoke ALL admin sessions, not just the current one (H5).
 		if h.redis != nil {

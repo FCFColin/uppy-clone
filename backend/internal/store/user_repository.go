@@ -12,7 +12,7 @@ import (
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -92,7 +92,7 @@ func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error {
 	})
 	if err != nil {
 		if !errors.Is(err, domain.ErrDuplicateUser) {
-			slogctx.LoggerFromContext(ctx).Error("create user failed",
+			util.LoggerFromContext(ctx).Error("create user failed",
 				"error", err, "user_id", u.ID)
 		}
 		return err
@@ -135,7 +135,7 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 		return nil
 	})
 	if err != nil {
-		slogctx.LoggerFromContext(ctx).Error("get user by email failed", "error", err)
+		util.LoggerFromContext(ctx).Error("get user by email failed", "error", err)
 		return nil, err
 	}
 	return u, nil
@@ -172,7 +172,7 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 		return nil
 	})
 	if err != nil {
-		slogctx.LoggerFromContext(ctx).Error("get user by id failed",
+		util.LoggerFromContext(ctx).Error("get user by id failed",
 			"error", err, "user_id", id)
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func (r *UserRepository) UpdateUserLastLogin(ctx context.Context, id string) err
 		_, execErr := r.pool.Exec(ctx,
 			`UPDATE users SET last_login = (EXTRACT(EPOCH FROM NOW()) * 1000)::bigint WHERE id = $1`, id)
 		if execErr != nil {
-			slogctx.LoggerFromContext(ctx).Error("update user last_login failed",
+			util.LoggerFromContext(ctx).Error("update user last_login failed",
 				"error", execErr, "user_id", id)
 			return fmt.Errorf("update user last_login: %w", execErr)
 		}
@@ -234,7 +234,7 @@ func (r *UserRepository) AnonymizeUser(ctx context.Context, userID string) error
 		return nil
 	})
 	if err != nil {
-		slogctx.LoggerFromContext(ctx).Error("anonymize user failed",
+		util.LoggerFromContext(ctx).Error("anonymize user failed",
 			"error", err, "user_id", userID)
 		return err
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sethvargo/go-retry"
 )
 
 func unreachableAuditPool(t *testing.T) *pgxpool.Pool {
@@ -36,7 +37,7 @@ func TestInitDBLogger_EmptySecretNoOp(t *testing.T) {
 	old := dbLogger
 	defer func() { dbLogger = old }()
 
-	InitDBLogger(nil, "")
+	InitDBLogger(nil, "", RetryPolicy{})
 	if dbLogger != nil {
 		t.Fatal("InitDBLogger with empty secret should not initialize dbLogger")
 	}
@@ -65,6 +66,7 @@ func TestLog_SyncFallbackWhenChannelFull(t *testing.T) {
 	dbLogger = &dbAuditLogger{
 		pool:   pool,
 		secret: []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:  testRetryPolicy(),
 		ch:     make(chan dbEntry, 1),
 		done:   make(chan struct{}),
 	}
@@ -77,7 +79,7 @@ func TestCloseDBLogger_DrainsQueue(t *testing.T) {
 	defer func() { dbLogger = old }()
 
 	pool := unreachableAuditPool(t)
-	InitDBLogger(pool, "audit-secret-key-for-hmac-chain!!")
+	InitDBLogger(pool, "audit-secret-key-for-hmac-chain!!", testRetryPolicy())
 	Log(context.Background(), AuditEntry{Action: "queued", ActorID: "u1"})
 	CloseDBLogger()
 }
@@ -96,6 +98,7 @@ func TestDBAuditLogger_writeToDB_ExecError(t *testing.T) {
 	l := &dbAuditLogger{
 		pool:     pool,
 		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:    testRetryPolicy(),
 		lastHash: "prev-hash",
 	}
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.write", ActorID: "u1"})
@@ -112,6 +115,7 @@ func TestLog_AsyncChannelWrite(t *testing.T) {
 	dbLogger = &dbAuditLogger{
 		pool:   pool,
 		secret: []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:  testRetryPolicy(),
 		ch:     make(chan dbEntry, 4),
 		done:   make(chan struct{}),
 	}
@@ -136,8 +140,8 @@ func TestInitDBLogger_ReplacesExisting(t *testing.T) {
 	}()
 
 	pool := unreachableAuditPool(t)
-	InitDBLogger(pool, "audit-secret-key-for-hmac-chain!!")
-	InitDBLogger(pool, "audit-secret-key-for-hmac-chain!!")
+	InitDBLogger(pool, "audit-secret-key-for-hmac-chain!!", testRetryPolicy())
+	InitDBLogger(pool, "audit-secret-key-for-hmac-chain!!", testRetryPolicy())
 	if dbLogger == nil {
 		t.Fatal("expected dbLogger after replace init")
 	}
@@ -154,7 +158,7 @@ func TestAuditDBIntegration(t *testing.T) {
 		dbLogger = old
 	}()
 
-	InitDBLogger(pool, "audit-secret-key-for-hmac-chain!!")
+	InitDBLogger(pool, "audit-secret-key-for-hmac-chain!!", testRetryPolicy())
 	Log(context.Background(), AuditEntry{
 		Action:   "test.integration",
 		ActorID:  "u1",
@@ -231,6 +235,7 @@ func TestDBAuditLogger_writeToDB_SuccessMocked(t *testing.T) {
 	l := &dbAuditLogger{
 		pool:     &fakeAuditPool{},
 		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:    testRetryPolicy(),
 		lastHash: "prev-hash",
 	}
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.success", ActorID: "u1", Resource: "r"})
@@ -266,10 +271,11 @@ func (f *flakyAuditPool) Query(_ context.Context, _ string, _ ...any) (pgx.Rows,
 // TestDBAuditLogger_writeToDB_RetriesAndSucceeds verifies that writeToDB retries
 // transient failures and updates the hash chain on eventual success (v2-R-37).
 func TestDBAuditLogger_writeToDB_RetriesAndSucceeds(t *testing.T) {
-	pool := &flakyAuditPool{failN: 2, failErr: io.EOF} // fail twice, succeed on 3rd
+	pool := &flakyAuditPool{failN: 2, failErr: io.EOF}
 	l := &dbAuditLogger{
 		pool:     pool,
 		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:    testRetryPolicy(),
 		lastHash: "prev-hash",
 	}
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.retry", ActorID: "u1"})
@@ -286,10 +292,11 @@ func TestDBAuditLogger_writeToDB_RetriesAndSucceeds(t *testing.T) {
 // TestDBAuditLogger_writeToDB_RetriesExhaustedChainIntact verifies that when all
 // retries are exhausted, the audit chain is preserved (lastHash unchanged) (v2-R-37).
 func TestDBAuditLogger_writeToDB_RetriesExhaustedChainIntact(t *testing.T) {
-	pool := &flakyAuditPool{failN: 100, failErr: io.EOF} // always fail
+	pool := &flakyAuditPool{failN: 100, failErr: io.EOF}
 	l := &dbAuditLogger{
 		pool:     pool,
 		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:    testRetryPolicy(),
 		lastHash: "prev-hash",
 	}
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.exhaust", ActorID: "u1"})
@@ -302,4 +309,23 @@ func TestDBAuditLogger_writeToDB_RetriesExhaustedChainIntact(t *testing.T) {
 	if l.lastHash != "prev-hash" {
 		t.Fatalf("lastHash must remain unchanged when all retries fail, got %q", l.lastHash)
 	}
+}
+
+func testRetryPolicy() RetryPolicy {
+	return RetryPolicy{
+		DBRetry:        testDBRetry(),
+		MaybeRetryable: testMaybeRetryable,
+	}
+}
+
+func testDBRetry() retry.Backoff {
+	b := retry.NewExponential(100 * time.Millisecond)
+	return retry.WithMaxRetries(3, retry.WithJitter(50*time.Millisecond, b))
+}
+
+func testMaybeRetryable(err error) error {
+	if err == nil {
+		return nil
+	}
+	return retry.RetryableError(err)
 }

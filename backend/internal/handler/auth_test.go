@@ -618,8 +618,8 @@ func TestExportUserData_NilDB(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil)
 	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "Nick"))
 	h.ExportUserData(w, r)
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
 	}
 }
 

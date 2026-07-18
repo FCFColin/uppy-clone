@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // Recovery 中间件是安全关键路径：任何 panic 必须被捕获并转为 500，
@@ -83,7 +83,7 @@ func TestRecovery_UsesLoggerFromContext(t *testing.T) {
 	injected := slog.New(slog.NewTextHandler(&testBuffer{}, &slog.HandlerOptions{
 		Level: slog.LevelError,
 	}))
-	ctx := slogctx.WithLogger(context.Background(), injected)
+	ctx := util.WithLogger(context.Background(), injected)
 	ctx = context.WithValue(ctx, middleware.RequestIDKey, "req-recovery-1")
 
 	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {

@@ -3,58 +3,7 @@
 > **输入**: `mine-all-slim-opportunities/slim-plan.md` 章节 3-4（Batch 1-3 详细 5 元组）+ 章节 6.3（Path C 候选区域）
 > **执行原则**: 每阶段完成后必须通过验证协议方可进入下一阶段。
 
-## 阶段一: Batch 1 零风险独立删除 (2,426 行, 可全部并行)
-
-- [ ] Task 1.1: 删除 A1 测试冗余 (12 条, 871 行)
-  - [ ] 删除 A1-Z01 metrics/record_test.go 整文件 (47 行)
-  - [ ] 删除 A1-Z02~Z04 hub_test.go 重复测试段 (44 行)
-  - [ ] 删除 A1-Z05~Z07 auth_test.go/admin_test.go 跨文件同名测试 (50 行)
-  - [ ] 删除 A1-Z08 ws_handler_test.go smoke 测试 (15 行)
-  - [ ] 删除 A1-Z09 metrics_test.go 测 prometheus 库 API (200 行)
-  - [ ] 删除 A1-Z10 telemetry_test.go 测 otel SDK (125 行)
-  - [ ] 删除 A1-Z11 39 个无断言 smoke 测试 (350 行)
-  - [ ] 删除 A1-Z12 redis_test.go TestRedisKeyHelpers (40 行)
-  - [ ] 验证: `go test ./... -count=1` 全绿
-
-- [ ] Task 1.2: 删除 A2 基础设施 (6 条, 266 行)
-  - [ ] 删除 A2-Z1 infra/k8s/base/worker.yaml 整文件 (226 行)
-  - [ ] 删除 A2-Z2/Z3 infra/terraform/outputs.tf (26 行)
-  - [ ] 删除 A2-Z4 deploy/prometheus/prometheus.yml Thanos 残留 (3 行)
-  - [ ] 删除 A2-Z5 infra/terraform/main.tf MCI 注释 (5 行)
-  - [ ] 修复 A2-Z6 infra/README.md 死链接 (10->2 行)
-
-- [ ] Task 1.3: 删除 A3 文档膨胀 (16 条, 62 行)
-  - [ ] 删除 A3-Z1 lint-current.txt 整文件
-  - [ ] 修复 A3-Z2~Z16 各文档死引用 (ADR-014/architecture/slo/capacity/runbook/PR 模板等)
-
-- [ ] Task 1.4: 删除 A4 前端死代码 (16 条, 73 行)
-  - [ ] 删除 A4-Z1~Z5 死文件 + shim (9 行)
-  - [ ] 删除 A4-Z6~Z9 死导出 (4 行)
-  - [ ] 删除 A4-Z10~Z14 state.ts/tutorial.ts/constants.ts 死代码 (46 行)
-  - [ ] 删除 A4-Z15~Z17 死 CSS 规则 (11 行)
-
-- [ ] Task 1.5: 删除 A5 后端死代码 (27 条, 725 行)
-  - [ ] 删除 A5-001 store/room_cache_service.go 整文件 (190 行)
-  - [ ] 删除 A5-002 store/base/base.go 死代码段 (100 行, 保留 PGPool/PoolMetricsRecorder)
-  - [ ] 删除 A5-005~A5-029 其他死后端代码 (435 行: crypto/store/domain/game/apierror/protocol/resilience/telemetry/metrics等)
-
-- [ ] Task 1.6: 删除 A6 死重复代码 (2 条, 210 行)
-  - [ ] 删除 A6#1 domain/uuid_test.go (101 行, 与 idgen/uuid_test.go 完全重复)
-  - [ ] 删除 A6#4 resilience/ws_limiter.go + test (109 行, 零调用)
-
-- [ ] Task 1.7: 删除 A7 死配置 (16 条, 223 行)
-  - [ ] 执行 `go mod tidy` 清理 go.sum 孤立依赖 (191 行)
-  - [ ] 删除 go.mod 死依赖 + package.json commitlint/husky (4 行)
-  - [ ] 删除 .golangci.errcheck-scan.yml 整文件 (15 行)
-  - [ ] 修复 .gitignore/.dockerignore/Makefile 死规则 (13 行)
-
-- [ ] Task 1.8: Batch 1 完整验证
-  - [ ] `go build ./...` + `go vet ./...` 通过
-  - [ ] `go test ./... -count=1 -cover` 通过, 覆盖率 >= 81.9%
-  - [ ] `npm run build` + `npm test` 通过
-  - [ ] `golangci-lint run ./...` 0 issues
-  - [ ] 测量行数, 记录 Batch 1 实际减幅
-## 阶段二: Batch 2 低风险合并/重构 (1,050 行, 按文件串行)
+ param($m) $m.Groups[1].Value -replace '- \[ \]', '- [x]' : Batch 2 低风险合并/重构 (1,050 行, 按文件串行)
 
 - [ ] Task 2.1: A1 测试 mock 替换 (6 条, 252 行)
   - [ ] A1-L01: postgres_test.go 3 处 pgxmock.NewPool() -> testutil.NewPgxMock(t)

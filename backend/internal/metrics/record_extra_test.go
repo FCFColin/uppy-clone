@@ -26,5 +26,3 @@ func TestStatusWriter_DefaultStatusOK(t *testing.T) {
 		t.Fatalf("default status = %d", sw.Status())
 	}
 }
-
-

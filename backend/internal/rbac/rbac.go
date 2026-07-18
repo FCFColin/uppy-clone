@@ -6,7 +6,7 @@ import (
 
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // Roles
@@ -66,9 +66,9 @@ func (e *Enforcer) Middleware(resource, action string) func(http.Handler) http.H
 				role = RoleGuest
 			}
 			{
-				logger := slogctx.LoggerFromContext(r.Context())
+				logger := util.LoggerFromContext(r.Context())
 				logger = logger.With("role", role)
-				ctx := slogctx.WithLogger(r.Context(), logger)
+				ctx := util.WithLogger(r.Context(), logger)
 				r = r.WithContext(ctx)
 			}
 			if !e.CheckPermission(role, resource, action) {

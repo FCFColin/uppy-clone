@@ -106,16 +106,22 @@ export function resetWsHandlersMocks() {
 
 // Factory for the state.js mock module. Used as:
 //   vi.mock('./state.js', (importActual) => createStateJsMockModule(importActual as any));
-export async function createStateJsMockModule(importActual: () => Promise<any>) {
+// An optional `stateOverride` may be supplied when the caller maintains its own
+// mock state (e.g. entry_flow_test_setup.ts uses a different state shape).
+export async function createStateJsMockModule(
+  importActual: () => Promise<any>,
+  stateOverride?: any,
+) {
   const actual = await importActual();
   const m = getMocks();
+  const state = stateOverride ?? m.state;
   return {
     ...actual,
-    state: m.state,
-    getState: () => m.state,
+    state,
+    getState: () => state,
     dispatch: (action: any) => {
-      const next = actual.gameReducer(m.state, action);
-      if (next !== m.state) Object.assign(m.state, next);
+      const next = actual.gameReducer(state, action);
+      if (next !== state) Object.assign(state, next);
     },
   };
 }

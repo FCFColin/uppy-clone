@@ -20,7 +20,7 @@ import (
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/resilience"
+	"github.com/uppy-clone/backend/internal/store"
 )
 
 // ─── Test helpers ────────────────────────────────────────────────────
@@ -388,7 +388,7 @@ func TestProcessMessage_DeadLetterQueue(t *testing.T) {
 // (ConsecutiveFailures > 3), the circuit breaker opens and subsequent calls
 // return ErrOpenState without hitting the API.
 func TestSendEmail_CircuitBreakerOpens(t *testing.T) {
-	t.Cleanup(func() { resilience.ResetBreakersForTesting() })
+	t.Cleanup(func() { store.ResetBreakersForTesting() })
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requestCount, 1)

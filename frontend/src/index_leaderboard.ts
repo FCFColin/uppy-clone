@@ -1,7 +1,9 @@
-import { apiFetch } from './shared/network/api_fetch.js';
-import { renderLeaderboardEntry, type LeaderboardEntry } from './shared/ui/leaderboard_utils.js';
-
-type Scope = 'global' | 'weekly';
+import {
+  renderLeaderboardEntries,
+  fetchLeaderboard,
+  type Scope,
+  type LeaderboardEntry,
+} from './shared/ui/leaderboard_utils.js';
 
 type Entry = LeaderboardEntry;
 
@@ -23,13 +25,6 @@ function setActiveTab(next: Scope): void {
   document.getElementById('lb-preview-weekly')?.classList.toggle('active', next === 'weekly');
 }
 
-function renderEntries(listEl: HTMLElement, entries: Entry[]): void {
-  listEl.textContent = '';
-  for (const e of entries) {
-    renderLeaderboardEntry(listEl, e);
-  }
-}
-
 function formatCollapsedSummary(entries: Entry[]): string {
   if (!entries.length) return '暂无记录';
   return entries
@@ -43,17 +38,10 @@ function updateCollapsedSummary(text: string): void {
   if (el) el.textContent = text;
 }
 
-async function fetchLeaderboard(limit: number): Promise<Entry[]> {
-  const res = await apiFetch(`/api/v1/leaderboard?scope=${scope}&limit=${limit}`, { autoRefresh: false });
-  if (!res.ok) throw new Error(`load failed (${res.status})`);
-  const data: { entries: Entry[] } = await res.json();
-  return data.entries ?? [];
-}
-
 async function loadCollapsedPreview(): Promise<void> {
   updateCollapsedSummary('加载中…');
   try {
-    collapsedEntries = await fetchLeaderboard(COLLAPSED_LIMIT);
+    collapsedEntries = await fetchLeaderboard(scope, COLLAPSED_LIMIT);
     updateCollapsedSummary(formatCollapsedSummary(collapsedEntries));
   } catch {
     updateCollapsedSummary('加载失败');
@@ -72,13 +60,13 @@ async function loadExpandedPreview(): Promise<void> {
   listEl.textContent = '';
 
   try {
-    const entries = await fetchLeaderboard(PREVIEW_LIMIT);
+    const entries = await fetchLeaderboard(scope, PREVIEW_LIMIT);
     fullLoaded = true;
     if (!entries.length) {
       emptyEl?.classList.remove('hidden');
       return;
     }
-    renderEntries(listEl, entries);
+    renderLeaderboardEntries(listEl, entries);
   } catch {
     if (errorEl) {
       errorEl.textContent = '排行榜加载失败，请确认后端已启动';

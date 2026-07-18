@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
-	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 )

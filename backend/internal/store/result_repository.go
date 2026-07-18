@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -94,7 +94,7 @@ func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, room
 		return nil
 	})
 	if err != nil {
-		slogctx.LoggerFromContext(ctx).Error("record game result failed",
+		util.LoggerFromContext(ctx).Error("record game result failed",
 			"error", err, "session_id", sessionID)
 		return err
 	}

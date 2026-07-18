@@ -1,0 +1,13 @@
+# Alertmanager config (K8s + local dev 共用). group_by 含 region 适配多区域 K8s
+# (本地无 region 标签时退化为按 alertname 分组). Slack/PagerDuty 需通过 K8s Secret 注入.
+global:
+  resolve_timeout: 5m
+route:
+  receiver: default
+  group_by: ['alertname', 'region']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: default
+    # No notification integration configured. Alerts visible in Alertmanager UI.

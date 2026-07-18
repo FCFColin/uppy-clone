@@ -20,7 +20,7 @@ import (
 	"github.com/uppy-clone/backend/internal/handler"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/rbac"
-	"github.com/uppy-clone/backend/internal/resilience"
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
@@ -152,7 +152,7 @@ func TestSetupRoutes_AdminPutConfigUnauthorized(t *testing.T) {
 func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
 	// Reset singleton circuit breakers so earlier tests that tripped them
 	// don't cause GetConfig to fail with "circuit breaker is open".
-	resilience.ResetBreakersForTesting()
+	store.ResetBreakersForTesting()
 
 	jwtSecret := testsecrets.TestJWTPrivateKeyPEM
 	jwtMgr := auth.NewJWTManager(jwtSecret)

@@ -18,9 +18,9 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/requestctx"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
@@ -237,7 +237,7 @@ func TestLoggerFromContext_Fallback(t *testing.T) {
 
 func TestLoggerFromContext_WithInjectedLogger(t *testing.T) {
 	testLogger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	ctx := context.WithValue(context.Background(), slogctx.CtxKey{}, testLogger)
+	ctx := context.WithValue(context.Background(), util.CtxKey{}, testLogger)
 
 	logger := LoggerFromContext(ctx)
 	if logger != testLogger {
@@ -269,7 +269,7 @@ func TestTracingMiddleware_InjectsTraceID(t *testing.T) {
 
 	var gotTraceID string
 	r.Get("/test", func(w http.ResponseWriter, r *http.Request) {
-		ctxLogger, ok := r.Context().Value(slogctx.CtxKey{}).(*slog.Logger)
+		ctxLogger, ok := r.Context().Value(util.CtxKey{}).(*slog.Logger)
 		if !ok {
 			t.Error("no logger found in context")
 			w.WriteHeader(500)
@@ -1012,7 +1012,7 @@ func TestExtractClientIP_TrustedEmptyXFFInvalidRemoteAddr(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "invalid-no-port"
 	req.Header.Set("X-Forwarded-For", "")
-	req = req.WithContext(requestctx.WithTrustedProxy(req.Context(), true))
+	req = req.WithContext(domain.WithTrustedProxy(req.Context(), true))
 	if got := ExtractClientIP(req); got != "invalid-no-port" {
 		t.Fatalf("ExtractClientIP() = %q, want RemoteAddr fallback", got)
 	}
@@ -1022,7 +1022,7 @@ func TestExtractClientIP_TrustedBlankXFFInvalidRemoteAddr(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "invalid-no-port"
 	req.Header.Set("X-Forwarded-For", "  ")
-	req = req.WithContext(requestctx.WithTrustedProxy(req.Context(), true))
+	req = req.WithContext(domain.WithTrustedProxy(req.Context(), true))
 	if got := ExtractClientIP(req); got != "invalid-no-port" {
 		t.Fatalf("ExtractClientIP() = %q, want RemoteAddr fallback", got)
 	}

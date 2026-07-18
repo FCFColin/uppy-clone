@@ -8,7 +8,6 @@ resources:
   - namespace.yaml
   - service.yaml
   - redis.yaml
-  - redis-ephemeral.yaml
   - hpa.yaml
   - prometheus-adapter.yaml
   - pod-disruption-budget.yaml

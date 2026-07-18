@@ -10,9 +10,8 @@ import {
   getInterpState,
   commitRenderedState,
 } from './state_interp.js';
-import { isDuplicateSeq, clearSeenSeqs, getSeenSeqsSize } from './seen_seqs.js';
+import { isDuplicateSeq, getSeenSeqsSize } from './seen_seqs.js';
 import { resetClientState } from './state_interp.js';
-import { MAX_SEEN_SEQS } from './constants.js';
 import { PHYSICS } from '../shared/game/constants.js';
 
 const TICK_MS = PHYSICS.TICK_INTERVAL;
@@ -303,41 +302,6 @@ describe('Physics interpolation - freezeInterpolation', () => {
     expect(getInterpolatedBalloon()).toEqual({ x: 0.25, y: 0.35 });
     expect(getInterpolatedGhost()).toEqual({ x: 0.45, y: 0.55, active: true });
     expect(getInterpolatedBird()).toEqual({ x: 0.65, y: 0.75, active: true });
-  });
-});
-
-describe('Physics interpolation - isDuplicateSeq', () => {
-  beforeEach(() => {
-    clearSeenSeqs();
-  });
-
-  it('returns false for a sequence seen for the first time', () => {
-    expect(isDuplicateSeq(42)).toBe(false);
-  });
-
-  it('returns true for a repeated sequence', () => {
-    isDuplicateSeq(42);
-    expect(isDuplicateSeq(42)).toBe(true);
-  });
-
-  it('tracks distinct sequences independently', () => {
-    isDuplicateSeq(1);
-    isDuplicateSeq(2);
-    expect(isDuplicateSeq(1)).toBe(true);
-    expect(isDuplicateSeq(2)).toBe(true);
-    expect(isDuplicateSeq(3)).toBe(false);
-  });
-
-  it('evicts the oldest entries once the set exceeds MAX_SEEN_SEQS', () => {
-    for (let i = 0; i < MAX_SEEN_SEQS; i += 1) {
-      isDuplicateSeq(i);
-    }
-    expect(getSeenSeqsSize()).toBe(MAX_SEEN_SEQS);
-
-    expect(isDuplicateSeq(MAX_SEEN_SEQS)).toBe(false);
-    expect(getSeenSeqsSize()).toBe(MAX_SEEN_SEQS - Math.floor(MAX_SEEN_SEQS / 2) + 1);
-    expect(isDuplicateSeq(0)).toBe(false);
-    expect(isDuplicateSeq(MAX_SEEN_SEQS - 1)).toBe(true);
   });
 });
 

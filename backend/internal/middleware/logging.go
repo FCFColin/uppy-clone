@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // LoggerFromContext retrieves the request-scoped logger from context.
 // Falls back to slog.Default() if no logger is found.
 func LoggerFromContext(ctx context.Context) *slog.Logger {
-	return slogctx.LoggerFromContext(ctx)
+	return util.LoggerFromContext(ctx)
 }
 
 // RequestIDLogger injects the chi request_id into the slog context,
@@ -30,7 +30,7 @@ func RequestIDLogger(next http.Handler) http.Handler {
 
 		if reqID := middleware.GetReqID(r.Context()); reqID != "" {
 			logger := slog.Default().With("request_id", reqID)
-			ctx := slogctx.WithLogger(r.Context(), logger)
+			ctx := util.WithLogger(r.Context(), logger)
 			r = r.WithContext(ctx)
 		}
 
@@ -38,7 +38,7 @@ func RequestIDLogger(next http.Handler) http.Handler {
 
 		// Log request duration with latency_ms field
 		latency := time.Since(start)
-		slogctx.LoggerFromContext(r.Context()).Info("request completed",
+		util.LoggerFromContext(r.Context()).Info("request completed",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"latency_ms", latency.Milliseconds(),

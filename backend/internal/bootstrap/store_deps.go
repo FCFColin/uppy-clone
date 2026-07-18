@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/uppy-clone/backend/internal/audit"
-	"github.com/uppy-clone/backend/internal/resilience"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/telemetry"
 )
@@ -17,25 +16,15 @@ import (
 // (30+ lines of byte-level identical code).
 func NewStoreDeps() store.Deps {
 	return store.Deps{
-		PostgresBreakerFactory: resilience.NewPostgresBreaker,
-		RedisBreakerFactory:    resilience.NewRedisBreaker,
-		DBRetryPolicy:          resilience.DefaultDBRetry(),
-		RedisRetryPolicy:       resilience.DefaultRedisRetry(),
-		MaybeRetryableFn:       resilience.MaybeRetryable,
+		PostgresBreakerFactory: store.NewPostgresBreaker,
+		RedisBreakerFactory:    store.NewRedisBreaker,
+		DBRetryPolicy:          store.DefaultDBRetry(),
+		RedisRetryPolicy:       store.DefaultRedisRetry(),
+		MaybeRetryableFn:       store.MaybeRetryable,
 		Tracer:                 telemetry.Tracer(),
 		PoolMetrics:            PoolMetricsAdapter{},
 		AuditLogFn: func(ctx context.Context, entry store.AuditEntry) {
-			audit.Log(ctx, audit.AuditEntry{
-				Action:    entry.Action,
-				ActorType: entry.ActorType,
-				ActorID:   entry.ActorID,
-				ActorIP:   entry.ActorIP,
-				Resource:  entry.Resource,
-				Before:    entry.Before,
-				After:     entry.After,
-				RequestID: entry.RequestID,
-				TraceID:   entry.TraceID,
-			})
+			audit.Log(ctx, entry)
 		},
 	}
 }

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/store"
 )

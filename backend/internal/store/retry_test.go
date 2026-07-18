@@ -1,4 +1,4 @@
-package resilience
+package store
 
 import (
 	"context"
@@ -9,8 +9,6 @@ import (
 	"github.com/sethvargo/go-retry"
 )
 
-// ─── DefaultDBRetry ──────────────────────────────────────────────────
-
 func TestDefaultDBRetry(t *testing.T) {
 	b := DefaultDBRetry()
 	if b == nil {
@@ -18,16 +16,12 @@ func TestDefaultDBRetry(t *testing.T) {
 	}
 }
 
-// ─── DefaultRedisRetry ───────────────────────────────────────────────
-
 func TestDefaultRedisRetry(t *testing.T) {
 	b := DefaultRedisRetry()
 	if b == nil {
 		t.Fatal("DefaultRedisRetry returned nil")
 	}
 }
-
-// ─── JitteredBackoff ─────────────────────────────────────────────────
 
 func TestJitteredBackoff(t *testing.T) {
 	base := 100 * time.Millisecond
@@ -49,7 +43,6 @@ func TestJitteredBackoff(t *testing.T) {
 			if d < minExpected {
 				t.Fatalf("backoff too small: got %v, minimum expected %v for attempt %d", d, minExpected, tt.attempt)
 			}
-			// Upper bound: base * 2^attempt * 1.5 (base + jitter up to base/2)
 			maxExpected := minExpected + minExpected/2
 			if d > maxExpected {
 				t.Fatalf("backoff too large: got %v, maximum expected %v for attempt %d", d, maxExpected, tt.attempt)
@@ -59,8 +52,6 @@ func TestJitteredBackoff(t *testing.T) {
 }
 
 func TestJitteredBackoff_ZeroBase(t *testing.T) {
-	// JitteredBackoff with base=0 will panic because rand.Int64N(0) is invalid.
-	// This is expected behavior — the function is designed for positive base values.
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("expected panic for zero base, but JitteredBackoff did not panic")
@@ -68,8 +59,6 @@ func TestJitteredBackoff_ZeroBase(t *testing.T) {
 	}()
 	JitteredBackoff(0, 3)
 }
-
-// ─── RetryWithBackoff (integration) ──────────────────────────────────
 
 func TestRetryWithBackoff_SucceedsImmediately(t *testing.T) {
 	ctx := context.Background()
@@ -114,7 +103,6 @@ func TestRetryWithBackoff_ExhaustsRetries(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error after exhausting retries")
 	}
-	// DefaultDBRetry has max 3 retries, so total attempts = 1 + 3 = 4
 	if attempts != 4 {
 		t.Fatalf("expected 4 attempts (1 initial + 3 retries), got %d", attempts)
 	}
@@ -122,7 +110,7 @@ func TestRetryWithBackoff_ExhaustsRetries(t *testing.T) {
 
 func TestRetryWithBackoff_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
 	err := retry.Do(ctx, DefaultDBRetry(), func(_ context.Context) error {
 		return errors.New("should not execute")
@@ -131,8 +119,6 @@ func TestRetryWithBackoff_ContextCancellation(t *testing.T) {
 		t.Fatal("expected error with cancelled context")
 	}
 }
-
-// ─── Benchmarks ──────────────────────────────────────────────────────
 
 func BenchmarkJitteredBackoff(b *testing.B) {
 	base := 100 * time.Millisecond

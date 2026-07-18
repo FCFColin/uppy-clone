@@ -20,7 +20,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/resilience"
 )
 
 // auditDBPool is the subset of pgxpool.Pool used by the audit logger (mockable in tests).
@@ -28,6 +27,12 @@ type auditDBPool interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+// RetryPolicy holds the retry backoff and error classifier for audit DB writes.
+type RetryPolicy struct {
+	DBRetry       retry.Backoff
+	MaybeRetryable func(error) error
 }
 
 // Audit logs are tamper-proof immutable records for SOC2/ISO27001 compliance.
@@ -42,6 +47,7 @@ var (
 type dbAuditLogger struct {
 	pool     auditDBPool
 	secret   []byte
+	retry    RetryPolicy
 	ch       chan dbEntry
 	done     chan struct{}
 	mu       sync.Mutex
@@ -87,7 +93,7 @@ type AuditEntry struct {
 
 // InitDBLogger 初始化数据库审计日志。必须在 DB 连接建立后调用。
 // secret 用于 HMAC 链哈希。
-func InitDBLogger(pool auditDBPool, secret string) {
+func InitDBLogger(pool auditDBPool, secret string, retryPolicy RetryPolicy) {
 	if pool == nil || secret == "" {
 		return
 	}
@@ -99,7 +105,8 @@ func InitDBLogger(pool auditDBPool, secret string) {
 	dbLogger = &dbAuditLogger{
 		pool:   pool,
 		secret: []byte(secret),
-		ch:     make(chan dbEntry, 1024), // buffered channel for non-blocking writes
+		retry:  retryPolicy,
+		ch:     make(chan dbEntry, 1024),
 		done:   make(chan struct{}),
 	}
 	// Load the last hash from DB to continue the chain
@@ -173,7 +180,7 @@ func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
 	// Retry happens inside the lock to preserve audit chain integrity:
 	// prevHash/thisHash are captured before the loop, and lastHash is only
 	// updated on success, so concurrent writers cannot break the HMAC chain.
-	err = retry.Do(ctx, resilience.DefaultDBRetry(), func(ctx context.Context) error {
+	err = retry.Do(ctx, l.retry.DBRetry, func(ctx context.Context) error {
 		_, execErr := l.pool.Exec(ctx,
 			`INSERT INTO audit_logs (action, actor_type, actor_id, actor_ip, resource, before, after, request_id, trace_id, prev_hash, this_hash)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -181,7 +188,7 @@ func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
 			entry.Before, entry.After, entry.RequestID, entry.TraceID,
 			prevHash, thisHash)
 		if execErr != nil {
-			return resilience.MaybeRetryable(fmt.Errorf("write audit log: %w", execErr))
+			return l.retry.MaybeRetryable(fmt.Errorf("write audit log: %w", execErr))
 		}
 		return nil
 	})

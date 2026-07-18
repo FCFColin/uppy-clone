@@ -1,12 +1,9 @@
-// Package validate provides input validation utilities.
-package validate
+package domain
 
 import (
 	"regexp"
 	"strings"
 )
-
-const maxNicknameLen = 12
 
 var (
 	controlCharsRegex   = regexp.MustCompile(`[\x00-\x1F\x7F-\x9F]`)
@@ -24,10 +21,10 @@ func NicknameInputRejected(raw string) bool {
 
 var nicknameInputRejectedRegex = regexp.MustCompile(`[\x00-\x1f\x7f-\x9f<>"'&]`)
 
-// Nickname sanitizes a player nickname.
+// SanitizeNickname sanitizes a player nickname.
 // Removes control characters, zero-width chars, HTML special chars,
-// trims whitespace, limits length to maxNicknameLen runes, and collapses whitespace.
-func Nickname(raw string) string {
+// trims whitespace, limits length to MaxNicknameLen runes, and collapses whitespace.
+func SanitizeNickname(raw string) string {
 	if raw == "" {
 		return ""
 	}
@@ -38,8 +35,8 @@ func Nickname(raw string) string {
 	raw = strings.TrimSpace(raw)
 	raw = whitespaceRegex.ReplaceAllString(raw, " ")
 	runeSlice := []rune(raw)
-	if len(runeSlice) > maxNicknameLen {
-		raw = string(runeSlice[:maxNicknameLen])
+	if len(runeSlice) > MaxNicknameLen {
+		raw = string(runeSlice[:MaxNicknameLen])
 	}
 	return raw
 }

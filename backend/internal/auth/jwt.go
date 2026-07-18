@@ -16,7 +16,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/validate"
 )
 
 // JWTManager handles JWT signing and verification using ECDSA P-256 (ES256).
@@ -170,9 +169,9 @@ func isValidEmail(email string) bool {
 // sanitizePlayerName cleans a player name: removes control chars,
 // zero-width chars, trims, limits length, strips dangerous HTML chars,
 // and collapses whitespace. Matches the TypeScript version.
-// 委托给 validate.Nickname 统一实现，消除重复代码。
+// 委托给 domain.SanitizeNickname 统一实现，消除重复代码。
 func sanitizePlayerName(raw string) string {
-	return validate.Nickname(raw)
+	return domain.SanitizeNickname(raw)
 }
 
 // generateJTI creates a cryptographically random JWT ID (jti) using 16 bytes

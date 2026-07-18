@@ -60,7 +60,10 @@ func runServer(logger *slog.Logger) error {
 		return err
 	}
 	defer db.Close()
-	audit.InitDBLogger(db.Pool(), serverEnv.AuditSecretOrJWT())
+	audit.InitDBLogger(db.Pool(), serverEnv.AuditSecretOrJWT(), audit.RetryPolicy{
+		DBRetry:        store.DefaultDBRetry(),
+		MaybeRetryable: store.MaybeRetryable,
+	})
 	defer audit.CloseDBLogger()
 
 	redis, err := initRedisCluster(cfg, timeouts, deps)

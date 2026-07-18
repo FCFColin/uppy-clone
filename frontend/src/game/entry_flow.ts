@@ -5,6 +5,7 @@ import {
   syncEntryOverlays, setLobbyCodeDisplay, renderStartCountdownTitle,
   renderEntryFullScreenError, setNicknameStatus, nicknameReadyStatus,
   setWaitingInlineError, updateWaitingStatusLine, resetEntryDomState,
+  getWaitingTitleText,
 } from './entry_flow_ui.js';
 
 export type { EntryOverlayContext, EntryFullScreenErrorOptions };
@@ -30,19 +31,12 @@ function overlayContext(): EntryOverlayContext {
     wsConnected: s.wsConnected,
     lobbyCode: s.lobbyCode,
     phase: s.phase,
-    getWaitingTitleText: getWaitingTitleTextImpl,
+    getWaitingTitleText,
   };
 }
 
 function syncOverlays(): void {
   syncEntryOverlays(overlayContext());
-}
-
-function getWaitingTitleTextImpl(): string {
-  if (getState().players.length > 1) {
-    return '等待其他玩家确认昵称…';
-  }
-  return '即将开始…';
 }
 
 /** Full-screen loading overlay error panel (connecting / error / mid-game disconnect). */

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getEntryMocks, createStateJsMockModule, resetEntryMocks } from './entry_flow_test_setup';
+import { getEntryMocks, resetEntryMocks } from './entry_flow_test_setup';
+import { createStateJsMockModule } from './ws_handlers_test_setup.js';
 
 vi.hoisted(() => {
   document.body.innerHTML = `
@@ -28,7 +29,7 @@ vi.hoisted(() => {
 
 const mockState = getEntryMocks().state;
 
-vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as any));
+vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as any, getEntryMocks().state));
 
 vi.mock('./renderer.js', () => ({
   $canvas: document.getElementById('game-canvas')! as HTMLCanvasElement,

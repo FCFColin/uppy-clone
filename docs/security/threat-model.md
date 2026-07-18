@@ -50,19 +50,7 @@
 
 ### 限流配额表（按端点）
 
-> 数据来源：`backend/internal/middleware/ratelimit.go` 的 `DefaultEndpointRateLimits`。
-> 限流维度为 `endpoint:user_id:ip` 复合键（认证用户）或 `endpoint:ip`（匿名用户）。
-> `FailClosed=true` 表示 Redis 故障时拒绝请求（安全敏感端点），否则放行（fail-open）。
-
-| 端点标识 | 路径 | 配额 | 窗口 | FailClosed |
-|---------|------|------|------|------------|
-| auth:quickplay | POST /api/v1/auth/quickplay | 10 | 1 分钟 | 是 |
-| auth:request | POST /api/v1/auth/request | 5 | 1 分钟 | 否 |
-| auth:verify | GET /api/v1/auth/verify | 10 | 1 分钟 | 否 |
-| registry:create | POST /api/v1/registry/create | 5 | 1 分钟 | 否 |
-| registry:match | POST /api/v1/registry/match | 10 | 1 分钟 | 否 |
-| admin:login | POST /api/v1/admin/login | 5 | 1 分钟 | 是 |
-| default | 其他端点 | 60 | 1 分钟 | 否 |
+按端点的限流配额、窗口与 FailClosed 设置参见 `backend/internal/middleware/ratelimit.go` 中的 `DefaultEndpointRateLimits`。限流维度为 `endpoint:user_id:ip` 复合键（认证用户）或 `endpoint:ip`（匿名用户）；`FailClosed=true` 表示 Redis 故障时拒绝请求（安全敏感端点），否则放行（fail-open）。
 
 ## E — Elevation of Privilege (权限提升)
 
@@ -95,30 +83,4 @@
 
 ## 数据保留策略
 
-> 本章节描述 GDPR Article 17（删除权）的数据保留与删除流程。
-
-### 用户数据删除流程
-
-1. **用户发起删除请求**: 用户调用 `DELETE /api/v1/user/data` 端点
-2. **立即匿名化 PII**: 系统将用户邮箱替换为 `deleted_<id>@anonymized`，昵称替换为 `Deleted User`，并设置 `deleted_at` 时间戳和 `email_anonymized = true` 标志
-3. **会话撤销**: 所有 refresh token 和当前 access token 的 jti 被加入 Redis 撤销列表，Cookie 被清除
-4. **硬删除（延迟）**: 标记为 `deleted_at` 的用户行在 30 天保留期后由定时任务硬删除（CASCADE 自动清理关联的游戏结果数据）
-
-### 保留期说明
-
-- **立即删除**: 会话 token（Redis TTL 自动过期）、Cookie
-- **立即匿名化**: email、nickname（PII）
-- **30 天后硬删除**: 用户行及其关联数据（game_sessions、game_results）
-- **保留期目的**: 保留 30 天用于反作弊审计、争议处理和数据分析；超过保留期的数据无业务价值且增加合规风险
-
-### 数据库 Schema 支持
-
-- `users.deleted_at BIGINT DEFAULT NULL`: 标记用户软删除时间
-- `users.email_anonymized BOOLEAN DEFAULT false`: 标记邮箱是否已匿名化
-- `idx_users_deleted_at`: 部分索引，加速定时任务查找待硬删除的用户
-
-### 合规验证
-
-- 调用 `DELETE /api/v1/user/data` 后，`GET /api/v1/user/data` 返回匿名化后的数据
-- 30 天后用户行从数据库中物理删除
-- 审计日志记录删除操作（不记录被删除的 PII 内容）
+GDPR Article 17 删除权流程（立即匿名化 PII → 30 天保留期 → CASCADE 硬删除）的设计约束见 [ADR-022](../adr/022-field-level-pii-encryption.md)（PII 加密与 `email_hash` 查找）与 [ADR-000](../adr/000-project-charter.md)（合规作为一等公民）；实现细节见 `DELETE /api/v1/user/data` 端点与 `users.deleted_at` / `email_anonymized` 字段。

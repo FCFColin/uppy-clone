@@ -9,12 +9,11 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/middleware"
-	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
@@ -94,7 +93,7 @@ func (h *AdminHandler) auditConfigChange(ctx context.Context, r *http.Request, b
 		Action:    "admin.config.update",
 		ActorType: audit.ActorTypeAdmin,
 		ActorID:   adminRole,
-		ActorIP:   requestctx.ExtractClientIP(r),
+		ActorIP:   middleware.ExtractClientIP(r),
 		Resource:  "admin/config/global",
 		Before:    beforeConfig,
 		After:     afterConfig,
@@ -249,7 +248,7 @@ func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		Action:    "admin.logout",
 		ActorType: audit.ActorTypeAdmin,
 		ActorID:   adminRole,
-		ActorIP:   requestctx.ExtractClientIP(r),
+		ActorIP:   middleware.ExtractClientIP(r),
 		Resource:  adminSessionResource,
 		RequestID: middleware.GetRequestID(ctx),
 	})

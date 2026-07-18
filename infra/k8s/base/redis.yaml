@@ -1,10 +1,8 @@
-# Region-local Redis for the room registry / state cache / rate limiting (ADR-014).
+# Region-local Redis for the room registry / state cache / rate limiting (ADR-014/029).
+# 生产可替换为 Memorystore（GCP 托管 Redis）以获得 HA/备份；此处给出自托管最小形态。
 #
-# 每区域一套 Redis：房间注册表与状态缓存是区域内热路径（owner 反向代理、租约），
-# 必须低延迟且不跨区。跨区域只通过 CRDB GLOBAL room_directory 共享路由信息，
-# Redis 不做跨区复制（避免跨洋写放大）。
-#
-# 注：生产可替换为 Memorystore（GCP 托管 Redis）以获得 HA/备份；此处给出自托管最小形态。
+# Ephemeral 模式（限流/幂等缓存，可容忍数据丢失）：将 maxmemory 改为 64mb、resources
+# 降至 50m/64Mi → 200m/128Mi、移除 securityContext，并将 REDIS_EPHEMERAL_URL 指向此 Service。
 ---
 apiVersion: v1
 kind: Service
@@ -39,8 +37,7 @@ spec:
         app: redis
     spec:
       terminationGracePeriodSeconds: 30
-      # infra-022: Pod 级 securityContext——Redis 镜像默认 UID 为 999（redis 用户），
-      # 显式声明 runAsNonRoot/runAsUser/fsGroup 锁定非 root，符合 PSG/PSS-restricted。
+      # infra-022: Pod 级 securityContext——Redis 镜像默认 UID 为 999（redis 用户）。
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
@@ -65,9 +62,7 @@ spec:
                   key: redis-password
           ports:
             - containerPort: 6379
-          # infra-023: maxmemory 用百分比（50%）而非绝对值，自动适配节点内存大小；
-          # allkeys-lru 保证内存压力下淘汰最久未访问的 key。
-          # 注意：Redis 7+ 的百分比语义为"系统内存的 N%"，与 container limit 解耦。
+          # infra-023: maxmemory 用百分比（50%）自动适配节点内存；allkeys-lru 保证淘汰最久未访问的 key。
           resources:
             requests:
               cpu: "100m"

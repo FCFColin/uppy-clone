@@ -1,5 +1,3 @@
-import { vi } from 'vitest';
-
 export interface EntryMockState {
   phase: string;
   lobbyCode: string;
@@ -28,21 +26,6 @@ export function createEntryMockState(): EntryMockState {
     lobbyCode: '',
     players: [],
     nicknameSubmitted: false,
-  };
-}
-
-export async function createStateJsMockModule(importActual: () => Promise<any>) {
-  const actual = await importActual();
-  const m = getEntryMocks();
-  return {
-    ...actual,
-    state: m.state,
-    getState: () => m.state,
-    resetStateForTest: vi.fn(),
-    dispatch: (action: any) => {
-      const next = actual.gameReducer(m.state, action);
-      if (next !== m.state) Object.assign(m.state, next);
-    },
   };
 }
 

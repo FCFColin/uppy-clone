@@ -1,3 +1,4 @@
+// Package nicknames provides random nickname generation for game players.
 package nicknames
 
 import (

@@ -10,7 +10,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/protocol"
-	"github.com/uppy-clone/backend/internal/validate"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -312,7 +311,7 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 	nickname, ok := protocol.DecodeNicknamePayload(payload)
 	sanitized := ""
 	if ok {
-		sanitized = validate.Nickname(nickname)
+		sanitized = domain.SanitizeNickname(nickname)
 	}
 	if sanitized == "" {
 		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()

@@ -1,12 +1,10 @@
-package resilience
+package store
 
 import (
 	"testing"
 
 	"github.com/sony/gobreaker/v2"
 )
-
-// ─── NewPostgresBreaker ──────────────────────────────────────────────
 
 func TestNewPostgresBreaker(t *testing.T) {
 	cb := NewPostgresBreaker()
@@ -25,7 +23,6 @@ func TestNewPostgresBreaker_InitialState(t *testing.T) {
 
 func TestNewPostgresBreaker_Name(t *testing.T) {
 	cb := NewPostgresBreaker()
-	// gobreaker doesn't expose name directly, but we can verify it executes
 	_, err := cb.Execute(func() (any, error) {
 		return "ok", nil
 	})
@@ -50,14 +47,12 @@ func TestNewPostgresBreaker_SuccessfulExecution(t *testing.T) {
 func TestNewPostgresBreaker_FailedExecution(t *testing.T) {
 	cb := NewPostgresBreaker()
 	_, err := cb.Execute(func() (any, error) {
-		return nil, errTest
+		return nil, errCBTest
 	})
 	if err == nil {
 		t.Fatal("expected error from failed execution")
 	}
 }
-
-// ─── NewRedisBreaker ─────────────────────────────────────────────────
 
 func TestNewRedisBreaker(t *testing.T) {
 	cb := NewRedisBreaker()
@@ -87,8 +82,6 @@ func TestNewRedisBreaker_SuccessfulExecution(t *testing.T) {
 	}
 }
 
-// ─── NewResendBreaker ────────────────────────────────────────────────
-
 func TestNewResendBreaker(t *testing.T) {
 	cb := NewResendBreaker()
 	if cb == nil {
@@ -117,16 +110,13 @@ func TestNewResendBreaker_SuccessfulExecution(t *testing.T) {
 	}
 }
 
-// ─── Breaker opens after consecutive failures ────────────────────────
-
 func TestPostgresBreaker_OpensAfterFailures(t *testing.T) {
 	ResetBreakersForTesting()
 	cb := NewPostgresBreaker()
 
-	// Trip the breaker with 6 consecutive failures (threshold is 5)
 	for i := 0; i < 6; i++ {
 		_, _ = cb.Execute(func() (any, error) {
-			return nil, errTest
+			return nil, errCBTest
 		})
 	}
 
@@ -141,7 +131,7 @@ func TestRedisBreaker_OpensAfterFailures(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		_, _ = cb.Execute(func() (any, error) {
-			return nil, errTest
+			return nil, errCBTest
 		})
 	}
 
@@ -154,10 +144,9 @@ func TestResendBreaker_OpensAfterFailures(t *testing.T) {
 	ResetBreakersForTesting()
 	cb := NewResendBreaker()
 
-	// ResendBreaker trips after 3 consecutive failures
 	for i := 0; i < 4; i++ {
 		_, _ = cb.Execute(func() (any, error) {
-			return nil, errTest
+			return nil, errCBTest
 		})
 	}
 
@@ -172,10 +161,8 @@ func TestCircuitBreakerStateValue_UnknownState(t *testing.T) {
 	}
 }
 
-// ─── test error ──────────────────────────────────────────────────────
+var errCBTest = &cbTestError{}
 
-var errTest = &testError{}
+type cbTestError struct{}
 
-type testError struct{}
-
-func (e *testError) Error() string { return "test error" }
+func (e *cbTestError) Error() string { return "test error" }

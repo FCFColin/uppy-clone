@@ -5,14 +5,16 @@ kind: Kustomization
 
 resources:
   - prometheus/deployment.yaml
-  - alertmanager/config.yaml
   - alertmanager/deployment.yaml
-  - grafana/datasource.yaml
+  - grafana/provisioning/datasources/local.yaml
 
 configMapGenerator:
   - name: prometheus-config
     files:
       - prometheus.yml=deploy/prometheus/prometheus.yml
+  - name: alertmanager-config
+    files:
+      - alertmanager.yml=deploy/alertmanager/alertmanager.yml
   - name: alertmanager-rules
     files:
       - rules.yml=deploy/prometheus/alerts.yml

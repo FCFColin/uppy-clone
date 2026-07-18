@@ -111,7 +111,7 @@ services:
     ports:
       - "9093:9093"
     volumes:
-      - ./deploy/local/alertmanager.local.yaml:/etc/alertmanager/alertmanager.yml:ro
+      - ./deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
   grafana:

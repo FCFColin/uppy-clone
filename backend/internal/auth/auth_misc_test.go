@@ -13,7 +13,6 @@ import (
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 )
@@ -223,7 +222,7 @@ func TestIsSecure(t *testing.T) {
 			name: "trusted X-Forwarded-Proto: https returns true",
 			setupReq: func() *http.Request {
 				req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
-				req = req.WithContext(requestctx.WithTrustedProxy(req.Context(), true))
+				req = req.WithContext(domain.WithTrustedProxy(req.Context(), true))
 				req.Header.Set("X-Forwarded-Proto", "https")
 				return req
 			},
@@ -233,7 +232,7 @@ func TestIsSecure(t *testing.T) {
 			name: "trusted X-Forwarded-Proto: http returns false",
 			setupReq: func() *http.Request {
 				req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
-				req = req.WithContext(requestctx.WithTrustedProxy(req.Context(), true))
+				req = req.WithContext(domain.WithTrustedProxy(req.Context(), true))
 				req.Header.Set("X-Forwarded-Proto", "http")
 				return req
 			},

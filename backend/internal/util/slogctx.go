@@ -1,5 +1,5 @@
-// Package slogctx provides context-aware structured logging.
-package slogctx
+// Package util provides shared utilities.
+package util
 
 import (
 	"context"

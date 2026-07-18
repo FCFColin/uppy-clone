@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // Recovery returns middleware that recovers from panics in the next handler.
@@ -14,7 +14,7 @@ func Recovery(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				// handler-018: Include request_id in panic recovery log for traceability.
-				logger := slogctx.LoggerFromContext(r.Context())
+				logger := util.LoggerFromContext(r.Context())
 				if logger == nil {
 					logger = slog.Default()
 				}

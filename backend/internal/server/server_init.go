@@ -15,7 +15,6 @@ import (
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/outbox"
 	"github.com/uppy-clone/backend/internal/rbac"
-	"github.com/uppy-clone/backend/internal/resilience"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"github.com/uppy-clone/backend/internal/worker"
@@ -29,25 +28,15 @@ const defaultMigrationsDir = "migrations"
 // and audit logging. Passed to store constructors via variadic parameter.
 func newStoreDeps() store.Deps {
 	return store.Deps{
-		RedisBreakerFactory:    resilience.NewRedisBreaker,
-		PostgresBreakerFactory: resilience.NewPostgresBreaker,
-		DBRetryPolicy:          resilience.DefaultDBRetry(),
-		RedisRetryPolicy:       resilience.DefaultRedisRetry(),
-		MaybeRetryableFn:       resilience.MaybeRetryable,
+		RedisBreakerFactory:    store.NewRedisBreaker,
+		PostgresBreakerFactory: store.NewPostgresBreaker,
+		DBRetryPolicy:          store.DefaultDBRetry(),
+		RedisRetryPolicy:       store.DefaultRedisRetry(),
+		MaybeRetryableFn:       store.MaybeRetryable,
 		Tracer:                 telemetry.Tracer(),
 		PoolMetrics:            poolMetricsAdapter{},
 		AuditLogFn: func(ctx context.Context, e store.AuditEntry) {
-			audit.Log(ctx, audit.AuditEntry{
-				Action:    e.Action,
-				ActorType: e.ActorType,
-				ActorID:   e.ActorID,
-				ActorIP:   e.ActorIP,
-				Resource:  e.Resource,
-				Before:    e.Before,
-				After:     e.After,
-				RequestID: e.RequestID,
-				TraceID:   e.TraceID,
-			})
+			audit.Log(ctx, e)
 		},
 	}
 }

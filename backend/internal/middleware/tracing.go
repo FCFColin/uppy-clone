@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 	"github.com/uppy-clone/backend/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -33,8 +33,8 @@ func TracingMiddleware(next http.Handler) http.Handler {
 
 		// Inject trace_id into slog context for log-trace correlation
 		traceID := span.SpanContext().TraceID().String()
-		logger := slogctx.LoggerFromContext(r.Context()).With("trace_id", traceID)
-		ctx = slogctx.WithLogger(ctx, logger)
+		logger := util.LoggerFromContext(r.Context()).With("trace_id", traceID)
+		ctx = util.WithLogger(ctx, logger)
 
 		// Add enduser.id if user_id is in context
 		if userID, _, ok := auth.GetAuthenticatedUser(r); ok && userID != "" {

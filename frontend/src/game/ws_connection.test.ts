@@ -18,12 +18,10 @@ import {
   MAX_RECONNECT_ATTEMPTS,
 } from './constants.js';
 
-vi.mock('./ui_common.js', () => ({
-  hideReconnectBanner: vi.fn(),
-  showReconnectBanner: vi.fn(),
-  updatePingDisplay: vi.fn(),
-  showConnectionError: vi.fn(),
-}));
+vi.mock('./ui_common.js', async () => {
+  const { createUiCommonMock } = await import('./ws_connection_test_setup.js');
+  return createUiCommonMock();
+});
 vi.mock('../shared/network/session.js', () => ({
   establishGameSession: vi.fn().mockRejectedValue(new Error('test-network')),
   sessionErrorMessage: () => 'network error',

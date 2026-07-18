@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 	"github.com/uppy-clone/backend/internal/store/base"
 )
 
@@ -49,8 +49,8 @@ func NewPublisher(db base.PGPool, streamer *redis.Client) *Publisher {
 
 // Start begins polling outbox_events. Blocks until ctx is canceled.
 func (p *Publisher) Start(ctx context.Context) {
-	logger := slogctx.LoggerFromContext(ctx).With("component", "outbox_publisher")
-	ctx = slogctx.WithLogger(ctx, logger)
+	logger := util.LoggerFromContext(ctx).With("component", "outbox_publisher")
+	ctx = util.WithLogger(ctx, logger)
 
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
@@ -66,7 +66,7 @@ func (p *Publisher) Start(ctx context.Context) {
 }
 
 func (p *Publisher) readPendingBatch(ctx context.Context, tx pgx.Tx) ([]outboxRow, int64) {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	rows, err := tx.Query(ctx,
 		`SELECT id, aggregate_type, aggregate_id, payload, created_at
 		 FROM outbox_events
@@ -101,7 +101,7 @@ func (p *Publisher) readPendingBatch(ctx context.Context, tx pgx.Tx) ([]outboxRo
 }
 
 func (p *Publisher) publishBatch(ctx context.Context) {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	tx, err := p.db.Begin(ctx)
 	if err != nil {
 		logger.Error("outbox publisher: begin tx", "error", err)

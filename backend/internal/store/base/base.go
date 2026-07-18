@@ -28,10 +28,3 @@ type PoolMetricsRecorder interface {
 	SetInUseConns(val float64)
 	ObserveAcquireDuration(val float64)
 }
-
-type noopPoolMetrics struct{}
-
-func (noopPoolMetrics) IncAcquireCount()               {}
-func (noopPoolMetrics) SetIdleConns(float64)           {}
-func (noopPoolMetrics) SetInUseConns(float64)          {}
-func (noopPoolMetrics) ObserveAcquireDuration(float64) {}

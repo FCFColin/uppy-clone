@@ -8,9 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/requestctx"
+	"github.com/uppy-clone/backend/internal/domain"
 )
 
 // InitRateLimits overrides default rate limit config from environment variables.
@@ -196,14 +195,4 @@ func rateLimitKey(r *http.Request, endpoint string, jwtMgr *auth.JWTManager) str
 // extractClientIP returns the client IP from X-Forwarded-For or RemoteAddr.
 func extractClientIP(r *http.Request) string {
 	return ExtractClientIP(r)
-}
-
-// ExtractClientIP returns the client IP from X-Forwarded-For or RemoteAddr.
-// handler-020: Delegates to requestctx.ExtractClientIP to eliminate duplication.
-// The canonical implementation lives in requestctx; this wrapper exists for
-// backward compatibility with callers that import middleware.
-//
-// Deprecated: use requestctx.ExtractClientIP directly in new code.
-func ExtractClientIP(r *http.Request) string {
-	return requestctx.ExtractClientIP(r)
 }

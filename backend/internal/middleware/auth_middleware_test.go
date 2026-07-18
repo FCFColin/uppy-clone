@@ -14,7 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
@@ -289,14 +289,14 @@ func TestAuthMiddleware_InjectsRequestLogger(t *testing.T) {
 	token, _ := jwtMgr.SignToken("user-log", "Logger")
 
 	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if logger := slogctx.LoggerFromContext(r.Context()); logger == nil {
+		if logger := util.LoggerFromContext(r.Context()); logger == nil {
 			t.Fatal("expected logger in context")
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req = req.WithContext(slogctx.WithLogger(req.Context(), slog.New(slog.DiscardHandler)))
+	req = req.WithContext(util.WithLogger(req.Context(), slog.New(slog.DiscardHandler)))
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
 	rec := httptest.NewRecorder()
 	handler(rec, req)

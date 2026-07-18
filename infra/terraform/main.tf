@@ -191,16 +191,6 @@ resource "google_service_account" "balloon_game_server" {
   display_name = "Balloon Game WebSocket/Game server GSA (ADR-014)"
 }
 
-resource "google_service_account" "balloon_game_worker" {
-  account_id   = "balloon-game-worker"
-  display_name = "Balloon Game async worker GSA (email/outbox/gdpr cleanup)"
-}
-
-resource "google_service_account" "balloon_game_migrator" {
-  account_id   = "balloon-game-migrator"
-  display_name = "Balloon Game DB migrator GSA (DDL-only, ci-cd job)"
-}
-
 # Secret Manager access granted to the GKE Workload Identity GSA (not Cloud Run).
 resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   for_each = toset([
@@ -232,26 +222,11 @@ resource "google_project_iam_member" "cloudsql_client" {
   member  = "serviceAccount:${google_service_account.balloon_game.email}"
 }
 
-# infra-028: 细分 GSA 的 IAM 绑定（最小权限）。
-# - server: 读 Secret（含 JWT/DB URL/Redis URL）；Cloud SQL client（pgx 直连）。
-# - worker: 读 Secret（DB URL/Redis URL/Resend key）；Cloud SQL client。
-# - migrator: Cloud SQL client + Secret Manager Viewer（仅读 database-url）；不授予其它 Secret。
+# infra-028: server GSA IAM 绑定（worker/migrator 已随 Batch 1 worker.yaml 删除）。
 resource "google_project_iam_member" "server_cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.balloon_game_server.email}"
-}
-
-resource "google_project_iam_member" "worker_cloudsql_client" {
-  project = var.project_id
-  role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.balloon_game_worker.email}"
-}
-
-resource "google_project_iam_member" "migrator_cloudsql_client" {
-  project = var.project_id
-  role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.balloon_game_migrator.email}"
 }
 
 # Server GSA 读所有应用 Secret（与遗留 umbrella SA 一致，便于逐步迁移）。
@@ -268,58 +243,11 @@ resource "google_secret_manager_secret_iam_member" "server_secret_accessor" {
   member    = "serviceAccount:${google_service_account.balloon_game_server.email}"
 }
 
-# Worker GSA 仅读 DB/Redis/Resend（不需要 JWT/admin password）。
-resource "google_secret_manager_secret_iam_member" "worker_secret_accessor" {
-  for_each = toset([
-    google_secret_manager_secret.database_url.secret_id,
-    google_secret_manager_secret.redis_url.secret_id,
-    google_secret_manager_secret.resend_api_key.secret_id,
-  ])
-  secret_id = each.value
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.balloon_game_worker.email}"
-}
-
-# Migrator GSA 仅读 database-url（DDL 期需要）。
-resource "google_secret_manager_secret_iam_member" "migrator_secret_accessor" {
-  secret_id = google_secret_manager_secret.database_url.secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.balloon_game_migrator.email}"
-}
-
-# Workload Identity 绑定——K8s SA → GSA。K8s manifest 需相应增加 server/worker SA。
+# Workload Identity 绑定——K8s SA → GSA。
 resource "google_service_account_iam_member" "workload_identity_server" {
   service_account_id = google_service_account.balloon_game_server.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game-server]"
-}
-
-resource "google_service_account_iam_member" "workload_identity_worker" {
-  service_account_id = google_service_account.balloon_game_worker.name
-  role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game-worker]"
-}
-
-resource "google_service_account_iam_member" "workload_identity_migrator" {
-  service_account_id = google_service_account.balloon_game_migrator.name
-  role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game-migrator]"
-}
-
-resource "google_compute_global_address" "balloon_game_global_ip" {
-  name         = "balloon-game-global-ip"
-  description  = "Global Anycast IP for balloon-game MultiClusterIngress (ADR-014)"
-  address_type = "EXTERNAL"
-  ip_version   = "IPV4"
-}
-
-resource "google_compute_managed_ssl_certificate" "balloon_game_cert" {
-  name        = "balloon-game-cert"
-  description = "Managed TLS cert covering multi-region WSS subdomains + apex (ADR-014/016)"
-  managed {
-    # domains 列表应通过 var 配置；此处给出典型域，生产覆盖由 tfvars 注入。
-    domains = ["balloon.example", "*.balloon.example"]
-  }
 }
 
 

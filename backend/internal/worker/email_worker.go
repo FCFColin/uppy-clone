@@ -12,8 +12,8 @@ import (
 	"github.com/sony/gobreaker/v2"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/resilience"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // emailWorkerName is the metrics label value for the email worker.
@@ -47,7 +47,7 @@ func NewEmailWorker(rdb RedisStreamConsumer, apiKey, from string, timeouts confi
 				}).DialContext,
 			},
 		},
-		cb:         resilience.NewResendBreaker(),
+		cb:         store.NewResendBreaker(),
 		consumerID: resolveConsumerID("email-worker"),
 	}
 }
@@ -93,8 +93,8 @@ func redactEmail(email string) string {
 // reclaims messages stuck in the PEL (Pending Entries List) of consumers
 // that crashed or became unresponsive, ensuring at-least-once delivery.
 func (w *EmailWorker) Start(ctx context.Context) {
-	logger := slogctx.LoggerFromContext(ctx).With("worker", emailWorkerName, "consumer", w.consumerID)
-	ctx = slogctx.WithLogger(ctx, logger)
+	logger := util.LoggerFromContext(ctx).With("worker", emailWorkerName, "consumer", w.consumerID)
+	ctx = util.WithLogger(ctx, logger)
 
 	if err := w.rdb.XGroupCreateMkStream(ctx, emailQueueStream, emailWorkersGroup, "$").Err(); err != nil {
 		// audit-023: Upgrade from Debug to Warn — a failure here (other than "BUSYGROUP")
@@ -169,7 +169,7 @@ func (w *EmailWorker) claimPendingMessages(ctx context.Context) {
 
 func (w *EmailWorker) processMessage(ctx context.Context, msg redis.XMessage) {
 	start := time.Now()
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 
 	payloadStr, ok := msg.Values["payload"].(string) //nolint:goconst // Redis stream field name
 	if !ok {
@@ -223,7 +223,7 @@ func (w *EmailWorker) processMessage(ctx context.Context, msg redis.XMessage) {
 }
 
 func (w *EmailWorker) handleSendFailure(ctx context.Context, msg redis.XMessage, payload EmailPayload, sendErr error) {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	logger.Error("email worker: send failed", "error", sendErr, "to", redactEmail(payload.To))
 
 	// audit-008: Permanent errors (4xx except 429) should not be retried.

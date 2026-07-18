@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -48,7 +48,7 @@ func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbySt
 		return r.deps.MaybeRetryableFn(cbErr)
 	})
 	if err != nil {
-		slogctx.LoggerFromContext(ctx).Error("save lobby state failed",
+		util.LoggerFromContext(ctx).Error("save lobby state failed",
 			"error", err, "lobby_code", ls.Code)
 		return err
 	}
@@ -81,7 +81,7 @@ func (r *LobbyRepository) LoadLobbyState(ctx context.Context, code string) (*dom
 		return nil
 	})
 	if err != nil {
-		slogctx.LoggerFromContext(ctx).Error("load lobby state failed",
+		util.LoggerFromContext(ctx).Error("load lobby state failed",
 			"error", err, "lobby_code", code)
 		return nil, err
 	}

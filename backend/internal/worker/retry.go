@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // RedisStreamConsumer is the narrow subset of *redis.Client methods used by
@@ -64,7 +64,7 @@ func moveToDeadLetter(
 	retryCount int,
 	logAttrs []any,
 ) bool {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	err := rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: deadLetterStream,
 		MaxLen: 10_000,
@@ -97,7 +97,7 @@ func reenqueueWithBackoff(
 	retryCount int,
 	_ []any,
 ) bool {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	shift := retryCount
 	if shift > 30 {
 		shift = 30

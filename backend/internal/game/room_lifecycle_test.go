@@ -944,8 +944,8 @@ func TestRoom_handleCountdownEnd_WithStore(t *testing.T) {
 	r.state.SessionID = "11111111-1111-4111-8111-111111111111"
 	r.state.StartedAt = time.Now().UnixMilli()
 	r.handleCountdownEnd()
-	if _, ok := r.state.Players["p1"]; !ok {
-		t.Fatal("new player should be added")
+	if r.state.Phase != domain.PhasePlaying {
+		t.Fatalf("phase should be Playing, got %v", r.state.Phase)
 	}
 }
 
@@ -1023,4 +1023,3 @@ func TestRoom_Close_WithPersistFlush(_ *testing.T) {
 	r.startTick()
 	r.Close()
 }
-

@@ -110,8 +110,6 @@ func parseQuickPlayRequest(w http.ResponseWriter, r *http.Request) (string, *dom
 // ─── Session Check & Refresh ─────────────────────────────────────────
 
 func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email string, degraded bool) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 	body := map[string]interface{}{
 		"authenticated": true,
 		jsonUserID:      userId,
@@ -123,7 +121,7 @@ func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email strin
 	if email != "" {
 		body["email"] = email
 	}
-	_ = json.NewEncoder(w).Encode(body)
+	writeJSON(w, http.StatusOK, body)
 }
 
 // CheckAuth handles GET /api/v1/auth/check
@@ -168,16 +166,8 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.redis == nil {
-		slog.Warn("degraded: Redis not available, cannot refresh token")
-		WriteDegradedJSON(w, http.StatusServiceUnavailable,
-			map[string]interface{}{"refreshed": false},
-			"Token refresh temporarily unavailable, please retry later")
-		return
-	}
-
 	ctx := r.Context()
-	if !RequireDB(h.db, w) || !RequireRedis(h.redis, w) {
+	if !RequireRedis(h.redis, w) || !RequireDB(h.db, w) {
 		return
 	}
 
@@ -195,9 +185,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	secure := isSecure(r)
 	writeAuthCookies(w, r, auth.BuildAuthCookie(cookieName, result.AccessToken, config.CookieMaxAge, secure), result.RefreshToken)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]bool{"refreshed": true})
+	writeJSON(w, http.StatusOK, map[string]bool{"refreshed": true})
 }
 
 // ─── QuickPlay ───────────────────────────────────────────────────────
@@ -299,9 +287,7 @@ func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessage: "Magic link sent"})
+	writeJSON(w, http.StatusAccepted, map[string]string{jsonMessage: "Magic link sent"})
 }
 
 // VerifyMagicLink handles GET /api/v1/auth/verify?token=...
@@ -333,11 +319,7 @@ func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if h.redis == nil {
-		slog.Warn("degraded: Redis not available, cannot verify magic link")
-		WriteDegradedJSON(w, http.StatusServiceUnavailable,
-			map[string]interface{}{"verified": false},
-			"Authentication service temporarily unavailable, please retry later")
+	if !RequireRedis(h.redis, w) {
 		return
 	}
 
@@ -355,9 +337,7 @@ func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Reques
 	secure := isSecure(r)
 	writeAuthCookies(w, r, auth.BuildAuthCookie(sessionCookie, accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonUserID: resp.UserID})
+	writeJSON(w, http.StatusOK, map[string]string{jsonUserID: resp.UserID})
 }
 
 // ─── GDPR Data Export & Delete ───────────────────────────────────────
@@ -370,8 +350,7 @@ func (h *AuthHandler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.db == nil {
-		domain.InternalError("Failed to export user data").Write(w)
+	if !RequireDB(h.db, w) {
 		return
 	}
 
@@ -393,13 +372,10 @@ func (h *AuthHandler) ExportUserData(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	exportData := map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user":         user,
 		"game_results": results,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(exportData)
+	})
 }
 
 // DeleteUserData handles DELETE /api/v1/user/data
@@ -419,9 +395,7 @@ func (h *AuthHandler) DeleteUserData(w http.ResponseWriter, r *http.Request) {
 
 	clearAuthCookies(w, isSecure(r))
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		jsonMessage: "User data deletion scheduled. All sessions have been revoked.",
 	})
 }

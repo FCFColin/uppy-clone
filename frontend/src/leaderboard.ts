@@ -1,13 +1,6 @@
 export {};
 
-import { apiFetch } from './shared/network/api_fetch.js';
-import { renderLeaderboardEntry, type LeaderboardEntry } from './shared/ui/leaderboard_utils.js';
-
-type Scope = 'global' | 'weekly';
-
-interface Entry extends LeaderboardEntry {
-  endedAt: number;
-}
+import { fetchLeaderboard, renderLeaderboardEntries, type Scope } from './shared/ui/leaderboard_utils.js';
 
 const listEl = document.getElementById('leaderboard-list')!;
 const emptyEl = document.getElementById('leaderboard-empty')!;
@@ -22,17 +15,13 @@ async function load(): Promise<void> {
   listEl.textContent = '';
   emptyEl.textContent = EMPTY_TEXT;
   try {
-    const res = await apiFetch(`/api/v1/leaderboard?scope=${scope}&limit=50`, { autoRefresh: false });
-    if (!res.ok) throw new Error(`load failed (${res.status})`);
-    const data: { entries: Entry[] } = await res.json();
-    if (!data.entries?.length) {
+    const entries = await fetchLeaderboard(scope, 50);
+    if (!entries.length) {
       emptyEl.classList.remove('hidden');
       return;
     }
     emptyEl.classList.add('hidden');
-    for (const e of data.entries) {
-      renderLeaderboardEntry(listEl, e);
-    }
+    renderLeaderboardEntries(listEl, entries);
   } catch {
     emptyEl.textContent = '加载失败，请确认后端已启动并刷新页面';
     emptyEl.classList.remove('hidden');

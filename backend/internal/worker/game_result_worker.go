@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // gameResultWorkerName is the metrics label value for the game result worker.
@@ -89,8 +89,8 @@ type outboxEventEnvelope struct {
 // Backoff (v2-R-43): on XReadGroup errors, sleep with exponential backoff
 // (capped at maxReadBackoff) to avoid hammering Redis when it is degraded.
 func (w *GameResultWorker) Start(ctx context.Context) {
-	logger := slogctx.LoggerFromContext(ctx).With("worker", gameResultWorkerName, "consumer", w.consumerID)
-	ctx = slogctx.WithLogger(ctx, logger)
+	logger := util.LoggerFromContext(ctx).With("worker", gameResultWorkerName, "consumer", w.consumerID)
+	ctx = util.WithLogger(ctx, logger)
 
 	if err := w.rdb.XGroupCreateMkStream(ctx, gameEventsStream, resultWorkersGroup, "$").Err(); err != nil {
 		// audit-023: Upgrade from Debug to Warn — see email_worker.go for rationale.
@@ -150,7 +150,7 @@ func (w *GameResultWorker) consumeLoop(ctx context.Context) {
 // and done=true if ctx was canceled during backoff (caller should return).
 // On success or redis.Nil the backoff is reset to its initial value.
 func (w *GameResultWorker) readBatch(ctx context.Context, backoff *time.Duration) (streams []redis.XStream, done bool) {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	const (
 		initialBackoff = 100 * time.Millisecond
 		maxBackoff     = 10 * time.Second
@@ -206,7 +206,7 @@ func (w *GameResultWorker) ackMessage(ctx context.Context, id string) {
 		// audit-018: Handle XAck errors — previously the return value was
 		// completely ignored, leaving messages in PEL without any metric/log.
 		if err := w.rdb.XAck(ctx, gameEventsStream, resultWorkersGroup, id).Err(); err != nil {
-			slogctx.LoggerFromContext(ctx).Error("game result worker: XAck error", "error", err, "id", id)
+			util.LoggerFromContext(ctx).Error("game result worker: XAck error", "error", err, "id", id)
 			metrics.WorkerAckErrors.WithLabelValues(gameResultWorkerName).Inc()
 		}
 	}
@@ -234,7 +234,7 @@ func (w *GameResultWorker) processMessage(ctx context.Context, msg redis.XMessag
 // stream message. On invalid payload it acks the message (so it is not retried)
 // and records the invalid_payload metric. Returns ok=false on failure.
 func (w *GameResultWorker) parseGameResultPayload(ctx context.Context, msg redis.XMessage, start time.Time) (GameResultPayload, bool) {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	payloadStr, ok := msg.Values["payload"].(string) //nolint:goconst // Redis stream field name
 	if !ok {
 		logger.Error("game result worker: invalid payload", "id", msg.ID)
@@ -285,7 +285,7 @@ func (w *GameResultWorker) recordSuccess(ctx context.Context, msg redis.XMessage
 // caller skips the success path. The deferred Rollback is a no-op after a
 // successful Commit.
 func (w *GameResultWorker) persistGameResult(ctx context.Context, payload GameResultPayload, msg redis.XMessage, start time.Time) error {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	tx, err := w.db.Begin(ctx)
 	if err != nil {
 		logger.Error("game result worker: begin tx", "error", err)

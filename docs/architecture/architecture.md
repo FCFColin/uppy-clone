@@ -138,36 +138,9 @@ sequenceDiagram
     S->>R: DEL lobby_state
 ```
 
-### 游戏结果持久化：Outbox 单路径设计
+### 游戏结果持久化：Outbox 单路径
 
-> 实现：`backend/internal/game/room_persist.go`（`enqueueGameResultAsync` / `enqueueGameResultOutbox`）；关联 ADR-009（Outbox）。
-
-游戏结束时，Room 通过 `enqueueGameResultAsync()` 在独立 goroutine 中触发 Outbox 写入路径，
-以平衡**一致性保证**与**tick 循环性能**：
-
-```
-Room 结束
-  └─ enqueueGameResultAsync() [goroutine, asyncWg 跟踪]
-       └─ enqueueGameResultOutbox()
-             └─ store.InsertOutboxEvent() → outbox_events 表
-                    └─ Publisher → Redis Stream（at-least-once，circuit breaker 包装）
-                           └─ GameResultWorker 消费 → PostgreSQL（at-least-once + 重试 + 死信）
-```
-
-**设计意图**
-
-| 路径 | 目的 | 一致性 | 失败处理 |
-|------|------|--------|---------|
-| Outbox | 跨消费者 at-least-once 传递（ADR-009） | at-least-once（Publisher + circuit breaker） | Publisher 持续轮询重试；Worker 5 次指数退避后转死信 |
-
-**去重机制**：`GameResultWorker.processMessage` 用
-`uuid.NewSHA1(gameID + userID)` 生成确定性 result ID，配合 `INSERT ... ON CONFLICT DO NOTHING`
-保证幂等。
-
-**一致性 vs 性能权衡**：
-- **性能优先**：Outbox 写入在 goroutine 内执行，不阻塞 tick 循环（通过 `asyncWg` 异步化）。
-- **一致性保证**：Outbox Publisher 持续轮询重试，保证最终一致。Worker 消费失败时消息留在
-  Pending 列表，其他 Worker 可 XCLAIM 接管。
+游戏结果通过 Outbox 单路投递（`Room.enqueueGameResultAsync()` → `outbox_events` → Redis Stream → `GameResultWorker` 批量写 PG），at-least-once + 确定性 `uuid.NewSHA1(gameID+userID)` 幂等去重，写入在 goroutine 内异步执行不阻塞 tick 循环。设计决策与实现细节见 [ADR-009](../adr/009-transactional-outbox.md)（Outbox）与 [ADR-005](../adr/005-room-management-and-outbound.md)（Room 出站）。
 
 ## 技术选型 ADR
 
@@ -187,54 +160,7 @@ Room 结束
 
 ## 流量增长瓶颈分析
 
-| 流量倍数 | 最先崩溃的组件 | 原因 | 应对方案 |
-|----------|---------------|------|---------|
-| 10x | Hub 内存 | 房间数增加 10 倍，内存 OOM | 房间状态外置到 Redis |
-| 100x | WebSocket 连接数 | 单机 fd 限制 (~65K) | Hub 分片 + 多实例 |
-| 100x | PostgreSQL 写入 | game_results INSERT 并发 | 读写分离 + 批量写入 |
-| 1000x | 物理模拟 CPU | tick 循环占满单核 | 房间调度到独立 Worker |
-
-### 100x 场景深度分析
-
-当前单实例支持约 100 房间 / 500 并发连接。100x 意味着 10,000 房间 / 50,000 连接，需要以下架构升级：
-
-#### 缓存层方案
-
-ListLobbies、CheckRoom 当前直接查 PG，高 QPS 下成为瓶颈。
-
-- **策略**: Redis 作为读缓存，TTL 30s，写穿透（Write-Through）
-- **实现**: 房间创建/删除时同步更新 Redis 缓存 + PG；读请求优先查 Redis，miss 时回源 PG 并回填
-- **缓存键**: `lobby:list` (列表缓存)、`lobby:check:{code}` (单房间缓存)
-- **一致性窗口**: 30s TTL 内可能读到旧数据，对游戏大厅列表可接受
-- **详见**: [`../adr/006-cache-layer.md`](../adr/006-cache-layer.md)
-
-#### 队列解耦方案
-
-游戏结果通过 Outbox 持久化（详见上方"游戏结果持久化：Outbox 单路径设计"小节），Redis Stream
-为异步批量写入主路径。
-
-- **策略**: 游戏结果写入 Outbox 表 → Publisher 发布到 Redis Stream → Worker 消费批量写入 PG
-- **实现**: Room 结束时 `enqueueGameResultAsync` 触发 Outbox 写入；Worker XREADGROUP 消费，`ON CONFLICT DO NOTHING` 去重
-- **容错**: Worker 消费失败时消息留在 Pending 列表，其他 Worker 可 XCLAIM 接管；5 次重试后转死信
-- **详见**: [`../adr/009-transactional-outbox.md`](../adr/009-transactional-outbox.md)
-
-#### 容量规划
-
-| 资源 | 单实例容量 | 100x 所需 | 方案 |
-|------|-----------|----------|------|
-| WebSocket 连接 | ~500 (1K 上限) | 50,000 | 100 实例 + Hub 分片 |
-| 房间数 | ~100 | 10,000 | 100 实例，按 room_id hash 分片 |
-| PG 写入 QPS | ~500 INSERT/s | ~50,000 | Redis Stream + 批量写入 |
-| PG 读取 QPS | ~2,000 SELECT/s | ~200,000 | Redis 读缓存层 |
-
-#### 降级策略
-
-流量超限时优先保障核心体验（游戏进行中），降级非核心功能：
-
-1. **优先保障**: WebSocket 连接（游戏进行中的房间），已有连接不踢出
-2. **降级 REST API**: 列表/查询接口返回缓存数据或 503，新房间创建限流
-3. **降级指标**: 停止非关键 Prometheus 采集，减少内存开销
-4. **熔断触发**: PG 连接池 > 90% 使用率时，新游戏创建返回 503；Redis 延迟 > 100ms 时切换为只读模式
+瓶颈拐点、单实例容量估算与水平扩展机制（HPA 触发条件、优雅排空、归属租约）详见 [capacity-planning.md](../operations/capacity-planning.md)。缓存层方案见 [ADR-006](../adr/006-redis-strategy.md)，Outbox 队列解耦见 [ADR-009](../adr/009-transactional-outbox.md)，跨区域路由见 [ADR-014](../adr/014-multi-region-deployment.md)。
 
 ## 扩展路线图
 

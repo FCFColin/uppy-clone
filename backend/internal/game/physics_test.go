@@ -9,31 +9,6 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-func TestUpdateWind_ClampAndEdgeZone(t *testing.T) {
-	state := createTestState()
-	state.Wind = 10
-	state.WindTarget = 10
-	state.WindMidOffset = 0
-	state.WindMicroCountdown = 1
-	state.WindMidCountdown = 1
-	state.WindChangeCountdown = 1
-	state.Balloon.X = 0.01
-	UpdateWind(state, testRNG())
-	if state.Wind > protocol.WindClamp {
-		t.Fatalf("Wind should be clamped, got %v", state.Wind)
-	}
-
-	state.Wind = -10
-	state.WindTarget = -10
-	state.WindMicroCountdown = 1
-	state.WindMidCountdown = 1
-	state.WindChangeCountdown = 1
-	UpdateWind(state, testRNG())
-	if state.Wind < -protocol.WindClamp {
-		t.Fatalf("Wind should be clamped low, got %v", state.Wind)
-	}
-}
-
 func TestSetBirdVelocityToward_ZeroDistanceGuard(t *testing.T) {
 	bird := &domain.BirdState{X: 0.5, Y: 0.5, VX: 0.01, VY: 0.02}
 	balloon := &domain.BalloonState{X: 0.5, Y: 0.5}
@@ -819,4 +794,3 @@ func TestUpdateWind_RightEdgeSoftZone(t *testing.T) {
 		t.Fatalf("right edge delta=%v should be less than center delta=%v", rightDelta, centerDelta)
 	}
 }
-

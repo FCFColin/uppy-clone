@@ -11,7 +11,7 @@ import (
 
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/resilience"
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
@@ -21,7 +21,7 @@ import (
 // TestAdminLoginResponseSchema handler-030: verifies the admin login response
 // matches the OpenAPI schema (must contain "message" field as string).
 func TestAdminLoginResponseSchema(t *testing.T) {
-	resilience.ResetBreakersForTesting()
+	store.ResetBreakersForTesting()
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	mock := testutil.NewPgxMock(t)
@@ -67,7 +67,7 @@ func TestAdminLoginResponseSchema(t *testing.T) {
 // TestAdminLoginBadPasswordResponseSchema handler-030: verifies the admin login
 // error response for wrong password matches the OpenAPI error schema.
 func TestAdminLoginBadPasswordResponseSchema(t *testing.T) {
-	resilience.ResetBreakersForTesting()
+	store.ResetBreakersForTesting()
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	mock := testutil.NewPgxMock(t)
@@ -105,7 +105,7 @@ func TestAdminLoginBadPasswordResponseSchema(t *testing.T) {
 // TestAdminConfigResponseSchema handler-030: verifies the admin config GET
 // response matches the OpenAPI schema.
 func TestAdminConfigResponseSchema(t *testing.T) {
-	resilience.ResetBreakersForTesting()
+	store.ResetBreakersForTesting()
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	mock := testutil.NewPgxMock(t)
@@ -156,7 +156,7 @@ func TestAdminConfigResponseSchema(t *testing.T) {
 // TestAdminLogoutResponseSchema handler-030: verifies the admin logout response
 // matches the OpenAPI schema (must contain "message" field).
 func TestAdminLogoutResponseSchema(t *testing.T) {
-	resilience.ResetBreakersForTesting()
+	store.ResetBreakersForTesting()
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	redisStore := testutil.SetupMiniredisStore(t)

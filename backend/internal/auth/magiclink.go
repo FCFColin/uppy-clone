@@ -14,7 +14,6 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/requestctx"
 )
 
 // magiclinkJSONMarshal is injectable for unit tests.
@@ -30,7 +29,7 @@ var (
 // getOrigin 从请求构造对外 origin URL；反向代理后须读 X-Forwarded-Host（见 ADR-003）。
 func getOrigin(r *http.Request) string {
 	scheme := "https"
-	isTrusted := requestctx.IsTrustedProxy(r.Context())
+	isTrusted := domain.IsTrustedProxy(r.Context())
 	if r.TLS == nil && (!isTrusted || r.Header.Get("X-Forwarded-Proto") == "") {
 		scheme = "http"
 	}

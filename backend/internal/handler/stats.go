@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
+	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 )
 
@@ -24,8 +24,7 @@ func NewStatsHandler(db *store.ResultRepository) *StatsHandler {
 
 // GetLeaderboard handles GET /api/v1/leaderboard?scope=global|weekly&limit=50
 func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
-	if h.db == nil {
-		domain.New(http.StatusServiceUnavailable, "Service Unavailable", "service unavailable").Write(w)
+	if !RequireDB(h.db, w) {
 		return
 	}
 
@@ -57,8 +56,7 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"scope":   scope,
 		"entries": entries,
 	})
@@ -66,8 +64,7 @@ func (h *StatsHandler) GetLeaderboard(w http.ResponseWriter, r *http.Request) {
 
 // GetUserStats handles GET /api/v1/user/stats (authenticated).
 func (h *StatsHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
-	if h.db == nil {
-		domain.New(http.StatusServiceUnavailable, "Service Unavailable", "service unavailable").Write(w)
+	if !RequireDB(h.db, w) {
 		return
 	}
 
@@ -85,8 +82,7 @@ func (h *StatsHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"bestScore":   bestScore,
 		"gamesPlayed": gamesPlayed,
 		"hasHistory":  gamesPlayed > 0,

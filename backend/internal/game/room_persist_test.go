@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
-	
+
 	"github.com/uppy-clone/backend/internal/config"
 )
 
@@ -104,4 +104,3 @@ func TestSaveState_StoreErrorDoesNotPanic(t *testing.T) {
 }
 
 // --- coverage gap 补充用例 ---
-

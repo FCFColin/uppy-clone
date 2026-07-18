@@ -11,7 +11,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/nicknames"
 	"github.com/uppy-clone/backend/internal/protocol"
-	"github.com/uppy-clone/backend/internal/validate"
 )
 
 // ─── RNG ──────────────────────────────────────────────────────────────
@@ -87,7 +86,7 @@ func GenerateRandomNickname(usedNames map[string]bool) string {
 // GenerateUniqueNickname 生成不重复的随机昵称
 func GenerateUniqueNickname(clientName string, usedNames map[string]bool) string {
 	if clientName != "" {
-		if validate.NicknameInputRejected(clientName) {
+		if domain.NicknameInputRejected(clientName) {
 			return GenerateRandomNickname(usedNames)
 		}
 		truncated := clientName
@@ -104,7 +103,7 @@ func GenerateUniqueNickname(clientName string, usedNames map[string]bool) string
 
 // SanitizePlayerName 清理玩家名字：去除 XSS 向量、限制长度、折叠空白
 func SanitizePlayerName(raw string) string {
-	return validate.Nickname(raw)
+	return domain.SanitizeNickname(raw)
 }
 
 // HandleSetNickname 处理设置昵称请求
@@ -120,8 +119,8 @@ func HandleSetNickname(_ *domain.GameState, player *domain.PlayerState, nickname
 		return false
 	}
 
-	// 内容过滤与长度限制（domain.Nickname 委托 validate.Nickname）
-	parsed, err := domain.NewNickname(nickname, validate.DefaultValidator)
+	// 内容过滤与长度限制（domain.SanitizeNickname）
+	parsed, err := domain.NewNickname(nickname, domain.DefaultValidator)
 	if err != nil {
 		return false
 	}

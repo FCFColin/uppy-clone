@@ -12,7 +12,6 @@ import (
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/nicknames"
-	"github.com/uppy-clone/backend/internal/requestctx"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
@@ -88,7 +87,7 @@ func TestGetOrigin(t *testing.T) {
 		{
 			name: "X-Forwarded-Proto and X-Forwarded-Host",
 			setup: func(r *http.Request) {
-				*r = *r.WithContext(requestctx.WithTrustedProxy(r.Context(), true))
+				*r = *r.WithContext(domain.WithTrustedProxy(r.Context(), true))
 				r.Host = "internal-host"
 				r.Header.Set("X-Forwarded-Proto", "https")
 				r.Header.Set("X-Forwarded-Host", "public.example.com")
@@ -98,7 +97,7 @@ func TestGetOrigin(t *testing.T) {
 		{
 			name: "X-Forwarded-Proto only",
 			setup: func(r *http.Request) {
-				*r = *r.WithContext(requestctx.WithTrustedProxy(r.Context(), true))
+				*r = *r.WithContext(domain.WithTrustedProxy(r.Context(), true))
 				r.Host = "myhost"
 				r.Header.Set("X-Forwarded-Proto", "https")
 			},

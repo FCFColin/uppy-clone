@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // claimLoopConfig parameterizes the shared XAUTOCLAIM background loop used by
@@ -37,7 +37,7 @@ func runClaimPendingMessages(
 	cfg claimLoopConfig,
 	process func(context.Context, redis.XMessage),
 ) {
-	logger := slogctx.LoggerFromContext(ctx)
+	logger := util.LoggerFromContext(ctx)
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 

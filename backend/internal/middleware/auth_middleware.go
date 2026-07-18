@@ -9,8 +9,7 @@ import (
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/requestctx"
-	"github.com/uppy-clone/backend/internal/slogctx"
+	"github.com/uppy-clone/backend/internal/util"
 	"github.com/uppy-clone/backend/internal/store"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -88,13 +87,13 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, next http.HandlerFunc, revoker ...a
 			if rev != nil {
 				if scripter, ok := rev.(redis.Scripter); ok {
 					_, ipSpan := authTracer.Start(ctx, "middleware.multi_ip_detection")
-					detectMultiIPLogin(ctx, scripter, userId, requestctx.ExtractClientIP(r))
+					detectMultiIPLogin(ctx, scripter, userId, ExtractClientIP(r))
 					ipSpan.End()
 				}
 			}
 			// Inject user_id and role into slog context for structured logging
-			if logger := slogctx.LoggerFromContext(ctx); logger != nil {
-				ctx = slogctx.WithLogger(ctx, logger.With("user_id", userId, "role", role))
+			if logger := util.LoggerFromContext(ctx); logger != nil {
+				ctx = util.WithLogger(ctx, logger.With("user_id", userId, "role", role))
 			}
 			next(w, r.WithContext(ctx))
 			return

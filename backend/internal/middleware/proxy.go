@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/uppy-clone/backend/internal/requestctx"
+	"github.com/uppy-clone/backend/internal/domain"
 )
 
 // TrustedProxy strips or honors X-Forwarded-* headers based on whether the
@@ -20,7 +20,7 @@ func TrustedProxy(trustedCIDRs string) func(http.Handler) http.Handler {
 				r.Header.Del("X-Forwarded-Proto")
 				r.Header.Del("X-Forwarded-Host")
 			}
-			ctx := requestctx.WithTrustedProxy(r.Context(), trusted)
+			ctx := domain.WithTrustedProxy(r.Context(), trusted)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -28,7 +28,33 @@ func TrustedProxy(trustedCIDRs string) func(http.Handler) http.Handler {
 
 // IsTrustedProxy reports whether the request came through a trusted reverse proxy.
 func IsTrustedProxy(r *http.Request) bool {
-	return requestctx.IsTrustedProxy(r.Context())
+	return domain.IsTrustedProxy(r.Context())
+}
+
+// ExtractClientIP returns the client IP from X-Forwarded-For or RemoteAddr.
+func ExtractClientIP(r *http.Request) string {
+	if !domain.IsTrustedProxy(r.Context()) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			return r.RemoteAddr
+		}
+		return ip
+	}
+
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		ips := strings.SplitN(xff, ",", 2)
+		ip := strings.TrimSpace(ips[0])
+		if ip != "" {
+			return ip
+		}
+	}
+
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }
 
 func parseTrustedCIDRs(raw string) []*net.IPNet {

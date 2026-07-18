@@ -535,148 +535,106 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 	return ds, true
 }
 
-func TestEncodeSnapshot_RoundTrip_Full(t *testing.T) {
-	phase := PhasePlaying
-	tickCount := uint32(12345)
-	score := uint32(9999)
-	balloon := BalloonState{X: 0.5, Y: 0.95, Vx: -0.02, Vy: 0.01}
-	bird := BirdState{X: 0.3, Y: 0.4, Active: true}
-	ghost := GhostState{X: 0.6, Y: 0.5, Active: true, RepelTimer: 42}
-	players := []PlayerState{
-		{PlayerIndex: 0, CooldownMs: 1000, Palette: 1, ScoreContribution: 50, Nickname: "Alice"},
-		{PlayerIndex: 1, CooldownMs: 500, Palette: 2, ScoreContribution: 30, Nickname: "Bob"},
-	}
-	ripples := []Ripple{
-		{PlayerIndex: 0, X: 0.5, Y: 0.5},
-		{PlayerIndex: 1, X: 0.3, Y: 0.7},
-	}
-	wind := 0.15
-
-	data := EncodeSnapshot(phase, tickCount, score, balloon, bird, ghost, players, ripples, wind)
-
-	ds, ok := decodeSnapshot(data)
-	if !ok {
-		t.Fatalf("decodeSnapshot failed for data len=%d", len(data))
-	}
-
-	if ds.msgType != MsgSnapshot {
-		t.Errorf("msgType = 0x%02x, want 0x%02x", ds.msgType, MsgSnapshot)
-	}
-	if ds.tickCount != tickCount {
-		t.Errorf("tickCount = %d, want %d", ds.tickCount, tickCount)
-	}
-	if ds.score != score {
-		t.Errorf("score = %d, want %d", ds.score, score)
-	}
-	if ds.phase != phase {
-		t.Errorf("phase = %q, want %q", ds.phase, phase)
-	}
-	if ds.balloon != balloon {
-		t.Errorf("balloon = %+v, want %+v", ds.balloon, balloon)
-	}
-	if ds.bird != bird {
-		t.Errorf("bird = %+v, want %+v", ds.bird, bird)
-	}
-	if ds.ghost != ghost {
-		t.Errorf("ghost = %+v, want %+v", ds.ghost, ghost)
-	}
-	if len(ds.players) != len(players) {
-		t.Fatalf("players len = %d, want %d", len(ds.players), len(players))
-	}
-	for i, p := range players {
-		if ds.players[i] != p {
-			t.Errorf("players[%d] = %+v, want %+v", i, ds.players[i], p)
-		}
-	}
-	if len(ds.ripples) != len(ripples) {
-		t.Fatalf("ripples len = %d, want %d", len(ds.ripples), len(ripples))
-	}
-	for i, r := range ripples {
-		if ds.ripples[i] != r {
-			t.Errorf("ripples[%d] = %+v, want %+v", i, ds.ripples[i], r)
-		}
-	}
-	if ds.wind != float32(wind) {
-		t.Errorf("wind = %v, want %v", ds.wind, float32(wind))
-	}
-}
-
-func TestEncodeSnapshot_RoundTrip_InactiveBirdGhost(t *testing.T) {
-	phase := PhaseWaiting
-	tickCount := uint32(0)
-	score := uint32(0)
-	balloon := BalloonState{X: 0.5, Y: 0.5, Vx: 0, Vy: 0}
-	bird := BirdState{Active: false}
-	ghost := GhostState{Active: false}
-	wind := 0.0
-
-	data := EncodeSnapshot(phase, tickCount, score, balloon, bird, ghost, nil, nil, wind)
-
-	ds, ok := decodeSnapshot(data)
-	if !ok {
-		t.Fatalf("decodeSnapshot failed for data len=%d", len(data))
+func TestEncodeSnapshot_RoundTrip(t *testing.T) {
+	cases := []struct {
+		name      string
+		phase     GamePhase
+		tickCount uint32
+		score     uint32
+		balloon   BalloonState
+		bird      BirdState
+		ghost     GhostState
+		players   []PlayerState
+		ripples   []Ripple
+		wind      float64
+	}{
+		{
+			name:      "Full",
+			phase:     PhasePlaying,
+			tickCount: 12345,
+			score:     9999,
+			balloon:   BalloonState{X: 0.5, Y: 0.95, Vx: -0.02, Vy: 0.01},
+			bird:      BirdState{X: 0.3, Y: 0.4, Active: true},
+			ghost:     GhostState{X: 0.6, Y: 0.5, Active: true, RepelTimer: 42},
+			players: []PlayerState{
+				{PlayerIndex: 0, CooldownMs: 1000, Palette: 1, ScoreContribution: 50, Nickname: "Alice"},
+				{PlayerIndex: 1, CooldownMs: 500, Palette: 2, ScoreContribution: 30, Nickname: "Bob"},
+			},
+			ripples: []Ripple{
+				{PlayerIndex: 0, X: 0.5, Y: 0.5},
+				{PlayerIndex: 1, X: 0.3, Y: 0.7},
+			},
+			wind: 0.15,
+		},
+		{
+			name:     "InactiveBirdGhost",
+			phase:    PhaseWaiting,
+			balloon:  BalloonState{X: 0.5, Y: 0.5},
+		},
+		{
+			name:      "UnicodeNickname",
+			phase:     PhasePlaying,
+			tickCount: 99,
+			score:     500,
+			balloon:   BalloonState{X: 0.1, Y: 0.2, Vx: 0.3, Vy: 0.4},
+			players: []PlayerState{
+				{PlayerIndex: 5, CooldownMs: 2000, Palette: 7, ScoreContribution: 100, Nickname: "快乐气球🎮"},
+			},
+		},
+		{name: "PhaseWaiting", phase: PhaseWaiting, tickCount: 1, score: 1, balloon: BalloonState{X: 0.5, Y: 0.5}},
+		{name: "PhaseCountdown", phase: PhaseCountdown, tickCount: 1, score: 1, balloon: BalloonState{X: 0.5, Y: 0.5}},
+		{name: "PhasePlaying", phase: PhasePlaying, tickCount: 1, score: 1, balloon: BalloonState{X: 0.5, Y: 0.5}},
+		{name: "PhaseEnded", phase: PhaseEnded, tickCount: 1, score: 1, balloon: BalloonState{X: 0.5, Y: 0.5}},
 	}
 
-	if ds.bird.Active {
-		t.Error("bird should be inactive")
-	}
-	if ds.ghost.Active {
-		t.Error("ghost should be inactive")
-	}
-	if ds.balloon != balloon {
-		t.Errorf("balloon = %+v, want %+v", ds.balloon, balloon)
-	}
-	if len(ds.players) != 0 {
-		t.Errorf("players len = %d, want 0", len(ds.players))
-	}
-	if len(ds.ripples) != 0 {
-		t.Errorf("ripples len = %d, want 0", len(ds.ripples))
-	}
-}
-
-func TestEncodeSnapshot_RoundTrip_UnicodeNickname(t *testing.T) {
-	nick := "快乐气球🎮"
-	players := []PlayerState{
-		{PlayerIndex: 5, CooldownMs: 2000, Palette: 7, ScoreContribution: 100, Nickname: nick},
-	}
-
-	data := EncodeSnapshot(PhasePlaying, 99, 500,
-		BalloonState{X: 0.1, Y: 0.2, Vx: 0.3, Vy: 0.4},
-		BirdState{Active: false},
-		GhostState{Active: false},
-		players, nil, 0.0)
-
-	ds, ok := decodeSnapshot(data)
-	if !ok {
-		t.Fatalf("decodeSnapshot failed")
-	}
-	if len(ds.players) != 1 {
-		t.Fatalf("players len = %d, want 1", len(ds.players))
-	}
-	if ds.players[0].Nickname != nick {
-		t.Errorf("nickname = %q, want %q", ds.players[0].Nickname, nick)
-	}
-	if ds.players[0].PlayerIndex != 5 {
-		t.Errorf("playerIndex = %d, want 5", ds.players[0].PlayerIndex)
-	}
-}
-
-func TestEncodeSnapshot_RoundTrip_AllPhases(t *testing.T) {
-	phases := []GamePhase{PhaseWaiting, PhaseCountdown, PhasePlaying, PhaseEnded}
-	balloon := BalloonState{X: 0.5, Y: 0.5, Vx: 0, Vy: 0}
-
-	for _, phase := range phases {
-		data := EncodeSnapshot(phase, 1, 1, balloon,
-			BirdState{Active: false}, GhostState{Active: false}, nil, nil, 0)
-
-		ds, ok := decodeSnapshot(data)
-		if !ok {
-			t.Errorf("decodeSnapshot failed for phase %q", phase)
-			continue
-		}
-		if ds.phase != phase {
-			t.Errorf("phase = %q, want %q", ds.phase, phase)
-		}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			data := EncodeSnapshot(c.phase, c.tickCount, c.score, c.balloon, c.bird, c.ghost, c.players, c.ripples, c.wind)
+			ds, ok := decodeSnapshot(data)
+			if !ok {
+				t.Fatalf("decodeSnapshot failed for data len=%d", len(data))
+			}
+			if ds.msgType != MsgSnapshot {
+				t.Errorf("msgType = 0x%02x, want 0x%02x", ds.msgType, MsgSnapshot)
+			}
+			if ds.tickCount != c.tickCount {
+				t.Errorf("tickCount = %d, want %d", ds.tickCount, c.tickCount)
+			}
+			if ds.score != c.score {
+				t.Errorf("score = %d, want %d", ds.score, c.score)
+			}
+			if ds.phase != c.phase {
+				t.Errorf("phase = %q, want %q", ds.phase, c.phase)
+			}
+			if ds.balloon != c.balloon {
+				t.Errorf("balloon = %+v, want %+v", ds.balloon, c.balloon)
+			}
+			if ds.bird != c.bird {
+				t.Errorf("bird = %+v, want %+v", ds.bird, c.bird)
+			}
+			if ds.ghost != c.ghost {
+				t.Errorf("ghost = %+v, want %+v", ds.ghost, c.ghost)
+			}
+			if len(ds.players) != len(c.players) {
+				t.Fatalf("players len = %d, want %d", len(ds.players), len(c.players))
+			}
+			for i, p := range c.players {
+				if ds.players[i] != p {
+					t.Errorf("players[%d] = %+v, want %+v", i, ds.players[i], p)
+				}
+			}
+			if len(ds.ripples) != len(c.ripples) {
+				t.Fatalf("ripples len = %d, want %d", len(ds.ripples), len(c.ripples))
+			}
+			for i, r := range c.ripples {
+				if ds.ripples[i] != r {
+					t.Errorf("ripples[%d] = %+v, want %+v", i, ds.ripples[i], r)
+				}
+			}
+			if ds.wind != float32(c.wind) {
+				t.Errorf("wind = %v, want %v", ds.wind, float32(c.wind))
+			}
+		})
 	}
 }
 

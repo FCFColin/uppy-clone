@@ -295,9 +295,7 @@ type Room struct {
 	// asyncWg tracks outbound/persist worker goroutines.
 	asyncWg sync.WaitGroup
 
-	persist       *PersistManager
-	persistMu     sync.RWMutex
-	lastPersistAt time.Time
+	persist *PersistManager
 
 	// rng is the per-room deterministic RNG for game ticks.
 	// Seed is stored in GameState for replayability.

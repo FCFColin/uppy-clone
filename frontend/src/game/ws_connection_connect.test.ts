@@ -34,12 +34,10 @@ vi.mock('./entry_flow_ui.js', () => ({
   clearWaitingInlineError: vi.fn(),
 }));
 
-vi.mock('./ui_common.js', () => ({
-  hideReconnectBanner: vi.fn(),
-  showReconnectBanner: vi.fn(),
-  updatePingDisplay: vi.fn(),
-  showConnectionError: vi.fn(),
-}));
+vi.mock('./ui_common.js', async () => {
+  const { createUiCommonMock } = await import('./ws_connection_test_setup.js');
+  return createUiCommonMock();
+});
 
 vi.mock('./state_interp.js', () => ({
   resetInterpolation: vi.fn(),

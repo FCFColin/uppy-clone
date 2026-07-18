@@ -4,13 +4,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/uppy-clone/backend/internal/requestctx"
+	"github.com/uppy-clone/backend/internal/domain"
 )
 
 // IsSecure reports whether the request was made over HTTPS.
 // X-Forwarded-Proto is honored only when the peer is a trusted reverse proxy.
 func IsSecure(r *http.Request) bool {
-	if requestctx.IsTrustedProxy(r.Context()) {
+	if domain.IsTrustedProxy(r.Context()) {
 		if proto := r.Header.Get("X-Forwarded-Proto"); strings.EqualFold(proto, "https") {
 			return true
 		}

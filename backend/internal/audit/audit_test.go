@@ -31,7 +31,7 @@ func TestInitDBLogger_NilPoolNoOp(t *testing.T) {
 	old := dbLogger
 	defer func() { dbLogger = old }()
 
-	InitDBLogger(nil, "secret")
+	InitDBLogger(nil, "secret", RetryPolicy{})
 	if dbLogger != nil {
 		t.Fatal("InitDBLogger with nil pool should not initialize dbLogger")
 	}

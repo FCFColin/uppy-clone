@@ -15,6 +15,9 @@ import (
 // no build tag). For SQL correctness / migration / constraint tests use
 // testutil.SetupPostgres (testcontainers, `//go:build integration`). See the
 // boundary doc at the top of internal/testutil/postgres.go.
+//
+// Note: cannot use testutil.NewPgxMock here because testutil imports store
+// (via miniredis.go/postgres.go/redis.go), which would create an import cycle.
 func newMockRepo[T any](t *testing.T, newFn func(pgPool, ...Deps) T) (T, pgxmock.PgxPoolIface) {
 	t.Helper()
 	mock, err := pgxmock.NewPool()
