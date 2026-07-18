@@ -1,7 +1,6 @@
 ﻿package crypto
 
 import (
-	"crypto/cipher"
 	"errors"
 	"strings"
 	"testing"
@@ -179,6 +178,5 @@ func TestDecrypt_TamperedCiphertext(t *testing.T) {
 	if _, err := Decrypt(tampered); err == nil {
 		t.Fatal("expected decrypt error for tampered ciphertext")
 	}
-}
+	}
 
-}
