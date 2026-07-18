@@ -23,14 +23,23 @@ const mockGetEntryStep = vi.hoisted(() => vi.fn(() => 'connecting'));
 const mockSetupNicknameInput = vi.hoisted(() => ({ value: '' }));
 
 vi.mock('./message_codec.js', () => ({ encodeSetNickname: mockEncodeSetNickname }));
-vi.mock('./store.js', () => ({ dispatch: mockDispatch }));
+vi.mock('./state.js', () => ({ dispatch: mockDispatch }));
 vi.mock('../shared/network/session.js', () => ({ normalizeAuthHost: mockNormalizeAuthHost }));
-vi.mock('../shared/ui/toast.js', () => ({ showToast: mockShowToast }));
+vi.mock('../shared/ui/utils.js', () => ({
+  showToast: mockShowToast,
+  safeGetItem: (k: string) => localStorage.getItem(k),
+  safeSetItem: (k: string, v: string) => localStorage.setItem(k, v),
+}));
 vi.mock('./renderer.js', () => ({ resizeCanvas: mockResizeCanvas, gameLoop: mockGameLoop, startGameLoop: mockStartGameLoop, renderOnce: mockRenderOnce }));
-vi.mock('./ws_connect.js', () => ({ connectWebSocket: mockConnectWebSocket, showConnectionError: mockShowConnectionError }));
-vi.mock('./ws_connection.js', () => ({ sendOrQueue: mockSendOrQueue }));
-vi.mock('./waiting_tips.js', () => ({ initWaitingTips: mockInitWaitingTips }));
-vi.mock('./connection_ui.js', () => ({ bindReconnectRetry: mockBindReconnectRetry }));
+vi.mock('./ws_connection.js', () => ({ sendOrQueue: mockSendOrQueue, connectWebSocket: mockConnectWebSocket, showConnectionError: mockShowConnectionError }));
+vi.mock('./ui_common.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ui_common.js')>();
+  return {
+    ...actual,
+    initWaitingTips: mockInitWaitingTips,
+    bindReconnectRetry: mockBindReconnectRetry,
+  };
+});
 vi.mock('./entry_flow.js', () => ({
   initEntryFlow: mockInitEntryFlow,
   bindEntryUI: mockBindEntryUI,
