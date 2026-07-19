@@ -62,6 +62,9 @@ scripts/dev/
 # Logs
 *.log
 
+# Audit test artifacts
+backend/internal/audit/*.jsonl
+
 # Backend temp files
 backend/*.txt
 backend/*.log
