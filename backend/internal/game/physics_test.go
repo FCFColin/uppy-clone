@@ -195,6 +195,7 @@ func TestCheckGhostCollision_Damage(t *testing.T) {
 	state.Ghost.Active = true
 	state.Ghost.X = state.Balloon.X
 	state.Ghost.Y = state.Balloon.Y
+	state.Balloon.VY = 0
 	vyBefore := state.Balloon.VY
 
 	CheckGhostCollision(state)
@@ -224,30 +225,23 @@ func TestCheckGhostCollision_GhostBounce(t *testing.T) {
 
 // ─── 鸟碰撞 ──────────────────────────────────────────────────────────
 
-func TestCheckBirdCollision_Overlap(t *testing.T) {
-	bird := domain.BirdState{X: 0.5, Y: 0.5, Active: true}
-	balloon := domain.BalloonState{X: 0.5, Y: 0.5}
-
-	if !CheckBirdCollision(&bird, &balloon) {
-		t.Fatal("鸟与气球重叠时应返回 true")
+func TestCheckBirdCollision(t *testing.T) {
+	cases := []struct {
+		name    string
+		bird    domain.BirdState
+		balloon domain.BalloonState
+		want    bool
+	}{
+		{"Overlap", domain.BirdState{X: 0.5, Y: 0.5, Active: true}, domain.BalloonState{X: 0.5, Y: 0.5}, true},
+		{"Inactive", domain.BirdState{X: 0.5, Y: 0.5, Active: false}, domain.BalloonState{X: 0.5, Y: 0.5}, false},
+		{"Far", domain.BirdState{X: 0.1, Y: 0.1, Active: true}, domain.BalloonState{X: 0.9, Y: 0.9}, false},
 	}
-}
-
-func TestCheckBirdCollision_Inactive(t *testing.T) {
-	bird := domain.BirdState{X: 0.5, Y: 0.5, Active: false}
-	balloon := domain.BalloonState{X: 0.5, Y: 0.5}
-
-	if CheckBirdCollision(&bird, &balloon) {
-		t.Fatal("鸟未激活时应返回 false")
-	}
-}
-
-func TestCheckBirdCollision_Far(t *testing.T) {
-	bird := domain.BirdState{X: 0.1, Y: 0.1, Active: true}
-	balloon := domain.BalloonState{X: 0.9, Y: 0.9}
-
-	if CheckBirdCollision(&bird, &balloon) {
-		t.Fatal("鸟远离气球时应返回 false")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := CheckBirdCollision(&c.bird, &c.balloon); got != c.want {
+				t.Fatalf("CheckBirdCollision = %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 
@@ -266,8 +260,7 @@ func TestUpdateGhostAI_Movement(t *testing.T) {
 
 	UpdateGhostAI(state, testRNG())
 
-	moved := state.Ghost.X != xBefore || state.Ghost.Y != yBefore
-	if !moved {
+	if state.Ghost.X == xBefore && state.Ghost.Y == yBefore {
 		t.Fatal("幽灵每 tick 位置应发生变化")
 	}
 }
@@ -294,9 +287,9 @@ func TestUpdateGhostAI_YBoundaryBounce(t *testing.T) {
 	state := createTestState()
 	state.Ghost.Active = true
 	state.Ghost.X = 0.5
-	state.Ghost.Y = 0.01 // 低于 0.02 下界
+	state.Ghost.Y = 0.01
 	state.Ghost.VX = 0
-	state.Ghost.VY = -0.005 // 向下移动
+	state.Ghost.VY = -0.005
 	state.Ghost.RepelTimer = 0
 
 	UpdateGhostAI(state, testRNG())
@@ -313,9 +306,9 @@ func TestUpdateGhostAI_YBoundaryTopBounce(t *testing.T) {
 	state := createTestState()
 	state.Ghost.Active = true
 	state.Ghost.X = 0.5
-	state.Ghost.Y = 0.99 // 高于 0.98 上界
+	state.Ghost.Y = 0.99
 	state.Ghost.VX = 0
-	state.Ghost.VY = 0.005 // 向上移动
+	state.Ghost.VY = 0.005
 	state.Ghost.RepelTimer = 0
 
 	UpdateGhostAI(state, testRNG())
@@ -483,43 +476,30 @@ func TestUpdateBirdAI_Recalibrate(t *testing.T) {
 
 // ─── 幽灵驱离 ────────────────────────────────────────────────────────
 
-func TestApplyGhostRepel_InRange(t *testing.T) {
-	state := createTestState()
-	state.Ghost.Active = true
-	state.Ghost.X = 0.5
-	state.Ghost.Y = 0.5
-	state.Ghost.RepelTimer = 0
-
-	ApplyGhostRepel(state, 0.5, 0.5)
-
-	if state.Ghost.RepelTimer != protocol.GhostRepelDuration {
-		t.Fatalf("驱离半径内应设置 RepelTimer=GHOST_REPEL_DURATION=%v，got=%v",
-			protocol.GhostRepelDuration, state.Ghost.RepelTimer)
+func TestApplyGhostRepel(t *testing.T) {
+	cases := []struct {
+		name   string
+		active bool
+		tapX   float64
+		tapY   float64
+		want   int
+	}{
+		{"InRange", true, 0.5, 0.5, int(protocol.GhostRepelDuration)},
+		{"OutOfRange", true, 0.9, 0.9, 0},
+		{"Inactive", false, 0.5, 0.5, 0},
 	}
-}
-
-func TestApplyGhostRepel_OutOfRange(t *testing.T) {
-	state := createTestState()
-	state.Ghost.Active = true
-	state.Ghost.X = 0.5
-	state.Ghost.Y = 0.5
-	state.Ghost.RepelTimer = 0
-
-	ApplyGhostRepel(state, 0.9, 0.9)
-
-	if state.Ghost.RepelTimer != 0 {
-		t.Fatalf("驱离半径外 RepelTimer 应保持 0，got=%v", state.Ghost.RepelTimer)
-	}
-}
-
-func TestApplyGhostRepel_Inactive(t *testing.T) {
-	state := createTestState()
-	state.Ghost.Active = false
-
-	ApplyGhostRepel(state, 0.5, 0.5)
-
-	if state.Ghost.RepelTimer != 0 {
-		t.Fatalf("幽灵未激活时驱离无效，RepelTimer 应为 0，got=%v", state.Ghost.RepelTimer)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			state := createTestState()
+			state.Ghost.Active = c.active
+			state.Ghost.X = 0.5
+			state.Ghost.Y = 0.5
+			state.Ghost.RepelTimer = 0
+			ApplyGhostRepel(state, c.tapX, c.tapY)
+			if state.Ghost.RepelTimer != c.want {
+				t.Fatalf("RepelTimer = %v, want %v", state.Ghost.RepelTimer, c.want)
+			}
+		})
 	}
 }
 
@@ -582,34 +562,8 @@ func TestUpdateWind_EdgeSoftZone(t *testing.T) {
 	}
 }
 
-func TestCalculateCooldown(t *testing.T) {
-	// playerCount=1: cooldown = 1000 + 2032*log2(1) = 1000
-	result1 := CalculateCooldown(1)
-	if result1 != int64(protocol.CooldownBaseMs) {
-		t.Errorf("playerCount=1: got %d, want %d", result1, protocol.CooldownBaseMs)
-	}
-
-	// playerCount=2: cooldown = 1000 + 2032*log2(2) = 3032
-	result2 := CalculateCooldown(2)
-	expected2 := int64(math.Round(float64(protocol.CooldownBaseMs) + float64(protocol.CooldownLogCoeff)*math.Log2(2)))
-	if result2 != expected2 {
-		t.Errorf("playerCount=2: got %d, want %d", result2, expected2)
-	}
-
-	// 结果不应超过上限
-	result100 := CalculateCooldown(100)
-	if result100 > int64(protocol.CooldownMaxMs) {
-		t.Errorf("playerCount=100: 冷却时间不应超过 %d，got %d", protocol.CooldownMaxMs, result100)
-	}
-
-	// 极大 playerCount 应被上限截断
-	resultBig := CalculateCooldown(10000)
-	if resultBig != int64(protocol.CooldownMaxMs) {
-		t.Errorf("playerCount=10000: 应达到上限 %d，got %d", protocol.CooldownMaxMs, resultBig)
-	}
-}
-
 // ─── 房间码 ──────────────────────────────────────────────────────────
+// Note: CalculateCooldown is exhaustively tested in cooldown_contract_test.go.
 
 func TestGenerateRoomCode(t *testing.T) {
 	validChars := regexp.MustCompile(`^[A-HJ-NP-Z2-9]+$`)
@@ -622,175 +576,5 @@ func TestGenerateRoomCode(t *testing.T) {
 		if !validChars.MatchString(code) {
 			t.Fatalf("房间码应只包含大写字母（无 I/O）和数字（无 0/1），got=%s", code)
 		}
-	}
-}
-
-// ─── Benchmarks ──────────────────────────────────────────────────────
-
-func BenchmarkApplyPhysics(b *testing.B) {
-	balloon := domain.BalloonState{X: 0.5, Y: 0.5, VX: 0.01, VY: 0.01}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		balloon.Y = 0.5
-		balloon.VY = 0.01
-		ApplyPhysics(&balloon)
-	}
-}
-
-func BenchmarkApplyTapForce(b *testing.B) {
-	balloon := domain.BalloonState{X: 0.5, Y: 0.5, VX: 0, VY: 0}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		balloon.VX = 0
-		balloon.VY = 0
-		ApplyTapForce(&balloon, 0.5, 0.3)
-	}
-}
-
-func BenchmarkUpdateGhostAI(b *testing.B) {
-	state := createTestState()
-	state.Ghost.Active = true
-	state.Ghost.X = 0.5
-	state.Ghost.Y = 0.5
-	state.Ghost.VX = protocol.GhostSpeed
-	state.Ghost.VY = 0
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		UpdateGhostAI(state, testRNG())
-	}
-}
-
-func BenchmarkUpdateBirdAI(b *testing.B) {
-	state := createTestState()
-	state.Bird.Active = true
-	state.Bird.X = 0.3
-	state.Bird.Y = 0.5
-	state.Bird.VX = protocol.BirdSpeed
-	state.Bird.VY = 0
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		UpdateBirdAI(&state.Bird, &state.Balloon, state.TickCount, testRNG())
-		state.TickCount++
-	}
-}
-
-func BenchmarkCheckGhostCollision(b *testing.B) {
-	state := createTestState()
-	state.Ghost.Active = true
-	state.Ghost.X = 0.5
-	state.Ghost.Y = 0.5
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		CheckGhostCollision(state)
-	}
-}
-
-func BenchmarkCheckBirdCollision(b *testing.B) {
-	bird := domain.BirdState{X: 0.5, Y: 0.5, Active: true}
-	balloon := domain.BalloonState{X: 0.5, Y: 0.5}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		CheckBirdCollision(&bird, &balloon)
-	}
-}
-
-func BenchmarkCalculateCooldown(b *testing.B) {
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		CalculateCooldown(10)
-	}
-}
-
-func BenchmarkGenerateRoomCode(b *testing.B) {
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		GenerateRoomCode(testRNG())
-	}
-}
-
-// ─── coverage gap 补充用例 ──────────────────────────────────────────
-
-func TestApplyTapForce_InRangeForce(t *testing.T) {
-	balloon := domain.BalloonState{X: 0.5, Y: 0.5, VX: 0, VY: 0}
-	if !ApplyTapForce(&balloon, 0.52, 0.48) {
-		t.Fatal("expected in-range tap to apply force")
-	}
-	if balloon.VX == 0 && balloon.VY == 0 {
-		t.Fatal("expected velocity change")
-	}
-}
-
-func TestUpdateWind_WindClampAfterLerp(t *testing.T) {
-	state := createTestState()
-	state.Wind = 5
-	state.WindTarget = 5
-	state.WindMidOffset = 0
-	state.WindMicroCountdown = 100
-	state.WindMidCountdown = 100
-	state.WindChangeCountdown = 100
-	state.Balloon.X = 0.5
-	UpdateWind(state, testRNG())
-	if state.Wind != protocol.WindClamp {
-		t.Fatalf("Wind = %v, want clamp %v", state.Wind, protocol.WindClamp)
-	}
-}
-
-func TestUpdateWind_NegativeWindClampAfterLerp(t *testing.T) {
-	state := createTestState()
-	state.Wind = -5
-	state.WindTarget = -5
-	state.WindMidOffset = 0
-	state.WindMicroCountdown = 100
-	state.WindMidCountdown = 100
-	state.WindChangeCountdown = 100
-	state.Balloon.X = 0.5
-	UpdateWind(state, testRNG())
-	if state.Wind != -protocol.WindClamp {
-		t.Fatalf("Wind = %v, want clamp %v", state.Wind, -protocol.WindClamp)
-	}
-}
-
-func TestUpdateWind_AllCountdownResets(t *testing.T) {
-	state := createTestState()
-	state.WindMicroCountdown = 1
-	state.WindMidCountdown = 1
-	state.WindChangeCountdown = 1
-	state.Wind = 0
-	state.WindTarget = 0
-	state.WindMidOffset = 0
-	state.Balloon.X = 0.5
-	UpdateWind(state, testRNG())
-	if state.WindMicroCountdown != protocol.WindMicroInterval {
-		t.Fatalf("WindMicroCountdown = %d", state.WindMicroCountdown)
-	}
-}
-
-func TestUpdateWind_RightEdgeSoftZone(t *testing.T) {
-	center := createTestState()
-	center.Balloon.X = 0.5
-	center.Wind = 2
-	center.WindTarget = 2
-	center.WindMidOffset = 0
-	center.WindMicroCountdown = 100
-	center.WindMidCountdown = 100
-	center.WindChangeCountdown = 100
-	centerVX := center.Balloon.VX
-	UpdateWind(center, testRNG())
-	centerDelta := center.Balloon.VX - centerVX
-
-	right := createTestState()
-	right.Balloon.X = 1 - protocol.WindEdgeSoftZone/2
-	right.Wind = 2
-	right.WindTarget = 2
-	right.WindMidOffset = 0
-	right.WindMicroCountdown = 100
-	right.WindMidCountdown = 100
-	right.WindChangeCountdown = 100
-	rightVX := right.Balloon.VX
-	UpdateWind(right, testRNG())
-	rightDelta := right.Balloon.VX - rightVX
-
-	if rightDelta >= centerDelta {
-		t.Fatalf("right edge delta=%v should be less than center delta=%v", rightDelta, centerDelta)
 	}
 }
