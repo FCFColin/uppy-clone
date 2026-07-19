@@ -1,24 +1,23 @@
 import { CLIENT_MSG } from '../shared/game/constants.js';
 import {
-  MAX_RECONNECT_ATTEMPTS, BASE_RECONNECT_DELAY,
-  HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS,
+  MAX_RECONNECT_ATTEMPTS,
+  BASE_RECONNECT_DELAY,
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_TIMEOUT_MS,
   MAX_PENDING_QUEUE,
 } from './constants.js';
 import {
-  showReconnectBanner, updatePingDisplay,
-  showConnectionError as showConnectionErrorUI, hideReconnectBanner,
+  showReconnectBanner,
+  updatePingDisplay,
+  showConnectionError as showConnectionErrorUI,
+  hideReconnectBanner,
   type ConnectionErrorOptions,
 } from './ui_common.js';
 import { getState, dispatch } from './state.js';
 import { resetInterpolation } from './state_interp.js';
 import { clearSeenSeqs } from './seen_seqs.js';
 import { establishGameSession, sessionErrorMessage } from '../shared/network/session.js';
-import {
-  onLobbyCodeReady,
-  onWebSocketOpen,
-  onWebSocketClosed,
-  getEntryStep,
-} from './entry_flow.js';
+import { onLobbyCodeReady, onWebSocketOpen, onWebSocketClosed, getEntryStep } from './entry_flow.js';
 import { clearWaitingInlineError } from './entry_flow.js';
 import {
   resolveLobbyCode,
@@ -29,47 +28,23 @@ import {
 } from './lobby_match.js';
 import { registerResetFn } from './reset_registry.js';
 import { safeGetItem } from '../shared/ui/utils.js';
-import { handleBinaryMessage } from './ws_handlers.js';
+import {
+  clearOutboundQueue,
+  enqueueBinaryMessage,
+  pushToOutbound,
+  shiftOutbound,
+  hasOutboundMessages,
+  requeueOutboundFront,
+} from './ws_message_queue.js';
 
-// --- Outbound Message Queue ---
+// Re-export queue functions for downstream consumers importing from './ws_connection.js'
+export {
+  clearOutboundQueue,
+  getOutboundQueueLength,
+  enqueueBinaryMessage,
+  drainPendingMessages,
+} from './ws_message_queue.js';
 
-const outboundMessageQueue: ArrayBuffer[] = [];
-export function clearOutboundQueue(): void {
-  outboundMessageQueue.length = 0;
-}
-export function getOutboundQueueLength(): number {
-  return outboundMessageQueue.length;
-}
-
-// --- Inbound Binary Message Queue ---
-
-const pendingBinaryMessages: ArrayBuffer[] = [];
-const MAX_PENDING_BINARY = 32;
-
-export function enqueueBinaryMessage(data: ArrayBuffer): void {
-  pendingBinaryMessages.push(data);
-  if (pendingBinaryMessages.length > MAX_PENDING_BINARY) {
-    const dropped = pendingBinaryMessages.shift();
-    if (dropped) {
-      console.warn(`[ws] message queue full (${MAX_PENDING_BINARY}), dropping oldest message`);
-    }
-  }
-}
-
-export function drainPendingMessages(budget: number): void {
-  let processed = 0;
-  while (processed < budget && pendingBinaryMessages.length > 0) {
-    const data = pendingBinaryMessages.shift();
-    if (data) {
-      try {
-        handleBinaryMessage(data);
-      } catch (err: unknown) {
-        console.error('[ws] error processing message:', err);
-      }
-    }
-    processed++;
-  }
-}
 // --- Connection State ---
 /**
  * 单一连接状态对象（v2-R-47）
@@ -149,22 +124,19 @@ export function sendOrQueue(buffer: ArrayBuffer): void {
     connectionState.ws.send(buffer);
     return;
   }
-  outboundMessageQueue.push(buffer);
-  if (outboundMessageQueue.length > MAX_PENDING_QUEUE) {
-    outboundMessageQueue.shift();
-  }
+  pushToOutbound(buffer, MAX_PENDING_QUEUE);
 }
 
 export function flushPendingQueue(): void {
   if (!connectionState.ws || connectionState.ws.readyState !== WebSocket.OPEN) return;
-  while (outboundMessageQueue.length > 0) {
-    const msg: ArrayBuffer | undefined = outboundMessageQueue.shift();
+  while (hasOutboundMessages()) {
+    const msg: ArrayBuffer | undefined = shiftOutbound();
     if (msg) {
       try {
         connectionState.ws.send(msg);
       } catch (e: unknown) {
         console.error('[ws] flush send error, re-queueing message:', e);
-        outboundMessageQueue.unshift(msg);
+        requeueOutboundFront(msg);
         break;
       }
     }
@@ -214,10 +186,10 @@ export function scheduleReconnect(): void {
   clearReconnectTimer();
   if (connectionState.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     const s = getState();
-    showConnectionError(
-      s.wasEverConnected ? '对局连接已中断，请检查网络后重试' : '连接失败，请检查网络后重试',
-      { showActions: true, midGameDisconnect: s.wasEverConnected },
-    );
+    showConnectionError(s.wasEverConnected ? '对局连接已中断，请检查网络后重试' : '连接失败，请检查网络后重试', {
+      showActions: true,
+      midGameDisconnect: s.wasEverConnected,
+    });
     return;
   }
   const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, connectionState.reconnectAttempts), 30000);
@@ -321,9 +293,7 @@ function setupSocketHandlers(socket: WebSocket): void {
     stopHeartbeat();
     onWebSocketClosed();
     if (!getWsEverOpened()) {
-      const message = wasRoomPreChecked()
-        ? '无法连接房间，请稍后重试'
-        : '连接失败，请检查网络后重试';
+      const message = wasRoomPreChecked() ? '无法连接房间，请稍后重试' : '连接失败，请检查网络后重试';
       showConnectionError(message, { showActions: true });
       return;
     }
@@ -373,10 +343,7 @@ export async function connectWebSocket(): Promise<void> {
   dispatch({ type: 'SET_STATE', partial: { wsConnectInFlight: true } });
 
   try {
-    const [session, resolvedCode] = await Promise.all([
-      establishGameSession(),
-      resolveRoomCode(urlCode),
-    ]);
+    const [session, resolvedCode] = await Promise.all([establishGameSession(), resolveRoomCode(urlCode)]);
 
     if (!session.ok) {
       showConnectionError(sessionErrorMessage(session));
