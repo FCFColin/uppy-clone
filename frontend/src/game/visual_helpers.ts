@@ -91,6 +91,43 @@ function pruneFloatingTexts(now: number): void {
   }
 }
 
+// ─── Common drawing primitives ────────────────────────────────────────
+
+/** Fill a circle with a solid color. */
+export function fillCircle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string): void {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+/** Draw an image with the given alpha, restoring globalAlpha to 1 afterwards. */
+export function drawImageAlpha(
+  ctx: CanvasRenderingContext2D,
+  img: CanvasImageSource,
+  x: number, y: number, w: number, h: number,
+  alpha: number,
+): void {
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(img, x, y, w, h);
+  ctx.globalAlpha = 1;
+}
+
+/** Draw a radial-gradient glow circle centered at (x, y). */
+export function drawRadialGlow(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, r: number,
+  innerColor: string, outerColor: string,
+): void {
+  const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+  grad.addColorStop(0, innerColor);
+  grad.addColorStop(1, outerColor);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 export function isLowHeightDanger(): boolean {
   return getState().phase === 'playing' && getState().balloon.y < 0.15;
 }

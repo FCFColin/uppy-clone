@@ -2,6 +2,7 @@ import { dispatch, getState, type ClientPlayer } from './state.js';
 import { commitRenderedState, getInterpolatedBalloon, getInterpolatedBird, getInterpolatedGhost } from './state_interp.js';
 import {
   drawTutorialRangeCircle, drawDangerVignettes, drawFloatingTexts,
+  fillCircle, drawImageAlpha, drawRadialGlow,
 } from './visual_helpers.js';
 import { drainPendingMessages } from './ws_connection.js';
 import { PALETTE_COLORS } from '../shared/game/constants.js';
@@ -295,11 +296,9 @@ function drawProceduralCloud(target: CanvasRenderingContext2D, cx: number, cy: n
 function drawCloudSprite(target: CanvasRenderingContext2D, cloud: Cloud, cx: number, cy: number, cw: number): void {
   const imgEntry = cloudImages[cloud.variant % cloudImages.length];
   if (imgEntry?.loaded) {
-    target.globalAlpha = Math.min(1, cloud.opacity);
     const imgW = cw * 2;
     const imgH = cw * 0.8;
-    target.drawImage(imgEntry.img, cx - imgW / 2, cy - imgH / 2, imgW, imgH);
-    target.globalAlpha = 1;
+    drawImageAlpha(target, imgEntry.img, cx - imgW / 2, cy - imgH / 2, imgW, imgH, Math.min(1, cloud.opacity));
     return;
   }
   drawProceduralCloud(target, cx, cy, cw, cloud.opacity);
@@ -309,9 +308,7 @@ function drawMountainsTo(target: CanvasRenderingContext2D, w: number, h: number)
   if (gameImages['mountains']!.loaded) {
     const img = gameImages['mountains']!.img;
     const drawHeight = Math.min(w * (img.height / img.width), h * 0.4);
-    target.globalAlpha = 0.75;
-    target.drawImage(img, 0, h - drawHeight, w, drawHeight);
-    target.globalAlpha = 1;
+    drawImageAlpha(target, img, 0, h - drawHeight, w, drawHeight, 0.75);
     return;
   }
   target.fillStyle = 'rgba(30, 55, 90, 0.85)';
@@ -352,17 +349,16 @@ function ensureStaticLayer(): void {
 }
 
 function drawStars(time: number): void {
+  const ctx = getCtx();
   for (const star of bgState.stars) {
     if (star.y > 0.62) continue;
     const alpha = 0.55 + Math.sin(time * 1.4 + star.twinkle) * 0.35;
-    getCtx().fillStyle = `rgba(255, 255, 255, ${alpha})`;
-    getCtx().beginPath();
-    getCtx().arc(star.x * $canvas.width, star.y * $canvas.height, star.size, 0, Math.PI * 2);
-    getCtx().fill();
+    fillCircle(ctx, star.x * $canvas.width, star.y * $canvas.height, star.size, `rgba(255, 255, 255, ${alpha})`);
   }
 }
 
 function drawCloudLayer(time: number, windDir: number): void {
+  const ctx = getCtx();
   for (const cloud of bgState.clouds) {
     advanceCloud(cloud, windDir);
     const cx = cloud.x * $canvas.width;
@@ -370,11 +366,12 @@ function drawCloudLayer(time: number, windDir: number): void {
     const yNorm = Math.min(CLOUD_Y_MAX, Math.max(CLOUD_Y_MIN, cloud.y + bob));
     const cy = yNorm * $canvas.height;
     const cw = cloud.width * $canvas.width;
-    drawCloudSprite(getCtx(), cloud, cx, cy, cw);
+    drawCloudSprite(ctx, cloud, cx, cy, cw);
   }
 }
 
 function drawParticles(windDir: number): void {
+  const ctx = getCtx();
   for (const p of bgState.particles) {
     p.x += windDir * 0.0008;
     p.y += 0.0001;
@@ -385,10 +382,7 @@ function drawParticles(windDir: number): void {
       p.life = 1;
     }
     const alpha = p.life * 0.3;
-    getCtx().fillStyle = `rgba(200, 220, 255, ${alpha})`;
-    getCtx().beginPath();
-    getCtx().arc(p.x * $canvas.width, p.y * $canvas.height, p.size, 0, Math.PI * 2);
-    getCtx().fill();
+    fillCircle(ctx, p.x * $canvas.width, p.y * $canvas.height, p.size, `rgba(200, 220, 255, ${alpha})`);
   }
 }
 
@@ -453,8 +447,9 @@ export function gameLoop(timestamp: number): void {
 function render(): void {
   try {
     const now = Date.now();
-    getCtx().fillStyle = '#1a1a2e';
-    getCtx().fillRect(0, 0, $canvas.width, $canvas.height);
+    const ctx = getCtx();
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, $canvas.width, $canvas.height);
     drawBackground(now);
     if (getState().blockGameRender) return;
     if (getState().phase !== 'playing' && getState().phase !== 'ended') return;
@@ -514,36 +509,35 @@ export function drawBalloon(now: number = Date.now()): void {
     const w = radius * 2.5;
     const h = w * (img.height / img.width);
     const tilt = Math.max(-5, Math.min(5, getState().wind * 40)) * (Math.PI / 180);
-    getCtx().save();
-    getCtx().translate(bx, by);
-    getCtx().rotate(tilt);
-    getCtx().drawImage(img, -w / 2, -h / 2, w, h);
-    getCtx().restore();
+    const ctx = getCtx();
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(tilt);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
     return;
   }
 
-  getCtx().beginPath();
-  getCtx().arc(bx, by, radius, 0, Math.PI * 2);
-  const balloonGrad: CanvasGradient = getCtx().createRadialGradient(
+  const ctx = getCtx();
+  ctx.beginPath();
+  ctx.arc(bx, by, radius, 0, Math.PI * 2);
+  const balloonGrad: CanvasGradient = ctx.createRadialGradient(
     bx - radius * 0.3, by - radius * 0.3, radius * 0.1,
     bx, by, radius
   );
   balloonGrad.addColorStop(0, '#ff6b6b');
   balloonGrad.addColorStop(1, '#e94560');
-  getCtx().fillStyle = balloonGrad;
-  getCtx().fill();
+  ctx.fillStyle = balloonGrad;
+  ctx.fill();
 
-  getCtx().beginPath();
-  getCtx().arc(bx - radius * 0.25, by - radius * 0.25, radius * 0.2, 0, Math.PI * 2);
-  getCtx().fillStyle = 'rgba(255,255,255,0.3)';
-  getCtx().fill();
+  fillCircle(ctx, bx - radius * 0.25, by - radius * 0.25, radius * 0.2, 'rgba(255,255,255,0.3)');
 
-  getCtx().beginPath();
-  getCtx().moveTo(bx, by + radius);
-  getCtx().lineTo(bx, by + radius + radius * 0.8);
-  getCtx().strokeStyle = '#aaa';
-  getCtx().lineWidth = 2;
-  getCtx().stroke();
+  ctx.beginPath();
+  ctx.moveTo(bx, by + radius);
+  ctx.lineTo(bx, by + radius + radius * 0.8);
+  ctx.strokeStyle = '#aaa';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 function drawBirdTail(ctx: CanvasRenderingContext2D, size: number): void {
@@ -568,14 +562,8 @@ function drawBirdBeak(ctx: CanvasRenderingContext2D, size: number): void {
 }
 
 function drawBirdEyes(ctx: CanvasRenderingContext2D, size: number): void {
-  ctx.beginPath();
-  ctx.arc(size * 0.32, -size * 0.12, size * 0.1, 0, Math.PI * 2);
-  ctx.fillStyle = '#fff';
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(size * 0.35, -size * 0.12, size * 0.05, 0, Math.PI * 2);
-  ctx.fillStyle = '#000';
-  ctx.fill();
+  fillCircle(ctx, size * 0.32, -size * 0.12, size * 0.1, '#fff');
+  fillCircle(ctx, size * 0.35, -size * 0.12, size * 0.05, '#000');
 }
 
 export function drawBird(now: number): void {
@@ -591,32 +579,33 @@ export function drawBird(now: number): void {
   const flapPhase = Math.sin(now * 0.012);
   const wingOffset = flapPhase * size * 0.5;
 
-  _ensureBirdGradients(getCtx(), size);
+  const ctx = getCtx();
+  _ensureBirdGradients(ctx, size);
 
-  getCtx().save();
-  getCtx().translate(bx, by);
-  getCtx().scale(dir, 1);
+  ctx.save();
+  ctx.translate(bx, by);
+  ctx.scale(dir, 1);
 
-  getCtx().beginPath();
-  getCtx().ellipse(-size * 0.15, -wingOffset, size * 0.55, size * 0.28, -0.35, 0, Math.PI * 2);
-  getCtx().fillStyle = _wingGrad!;
-  getCtx().fill();
+  ctx.beginPath();
+  ctx.ellipse(-size * 0.15, -wingOffset, size * 0.55, size * 0.28, -0.35, 0, Math.PI * 2);
+  ctx.fillStyle = _wingGrad!;
+  ctx.fill();
 
-  getCtx().beginPath();
-  getCtx().ellipse(0, 0, size * 0.6, size * 0.42, 0, 0, Math.PI * 2);
-  getCtx().fillStyle = _bodyGrad!;
-  getCtx().fill();
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size * 0.6, size * 0.42, 0, 0, Math.PI * 2);
+  ctx.fillStyle = _bodyGrad!;
+  ctx.fill();
 
-  getCtx().beginPath();
-  getCtx().ellipse(size * 0.05, -wingOffset, size * 0.45, size * 0.22, 0.3, 0, Math.PI * 2);
-  getCtx().fillStyle = _wingGrad!;
-  getCtx().fill();
+  ctx.beginPath();
+  ctx.ellipse(size * 0.05, -wingOffset, size * 0.45, size * 0.22, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = _wingGrad!;
+  ctx.fill();
 
-  drawBirdTail(getCtx(), size);
-  drawBirdBeak(getCtx(), size);
-  drawBirdEyes(getCtx(), size);
+  drawBirdTail(ctx, size);
+  drawBirdBeak(ctx, size);
+  drawBirdEyes(ctx, size);
 
-  getCtx().restore();
+  ctx.restore();
 }
 
 export function drawGhost(now: number): void {
@@ -630,50 +619,39 @@ export function drawGhost(now: number): void {
   const baseColor = isRepelled ? '255, 100, 100' : '180, 100, 255';
 
   const ghostImg = gameImages['ghost'];
+  const ctx = getCtx();
   if (ghostImg && ghostImg.loaded) {
     const size: number = radius * 4;
     if (isRepelled) {
-      const glowGrad: CanvasGradient = getCtx().createRadialGradient(gx, gy, 0, gx, gy, size * 0.7);
-      glowGrad.addColorStop(0, 'rgba(255, 50, 50, 0.6)');
-      glowGrad.addColorStop(1, 'rgba(255, 50, 50, 0)');
-      getCtx().fillStyle = glowGrad;
-      getCtx().beginPath();
-      getCtx().arc(gx, gy, size * 0.7, 0, Math.PI * 2);
-      getCtx().fill();
+      drawRadialGlow(ctx, gx, gy, size * 0.7, 'rgba(255, 50, 50, 0.6)', 'rgba(255, 50, 50, 0)');
       const flash: boolean = Math.sin(now * 0.02) > 0;
-      getCtx().globalAlpha = flash ? 0.6 : 1;
+      drawImageAlpha(ctx, ghostImg.img, gx - size / 2, gy - size / 2, size, size, flash ? 0.6 : 1);
+      return;
     }
-    getCtx().drawImage(ghostImg.img, gx - size / 2, gy - size / 2, size, size);
-    getCtx().globalAlpha = 1;
+    ctx.drawImage(ghostImg.img, gx - size / 2, gy - size / 2, size, size);
     return;
   }
 
-  const glowGrad: CanvasGradient = getCtx().createRadialGradient(gx, gy, 0, gx, gy, radius * 2);
-  glowGrad.addColorStop(0, `rgba(${baseColor}, 0.4)`);
-  glowGrad.addColorStop(1, `rgba(${baseColor}, 0)`);
-  getCtx().fillStyle = glowGrad;
-  getCtx().beginPath();
-  getCtx().arc(gx, gy, radius * 2, 0, Math.PI * 2);
-  getCtx().fill();
+  drawRadialGlow(ctx, gx, gy, radius * 2, `rgba(${baseColor}, 0.4)`, `rgba(${baseColor}, 0)`);
 
-  const bodyGrad: CanvasGradient = getCtx().createRadialGradient(gx - radius * 0.3, gy - radius * 0.3, 0, gx, gy, radius);
+  const bodyGrad: CanvasGradient = ctx.createRadialGradient(gx - radius * 0.3, gy - radius * 0.3, 0, gx, gy, radius);
   bodyGrad.addColorStop(0, `rgba(${baseColor}, 0.9)`);
   bodyGrad.addColorStop(1, `rgba(${baseColor}, 0.5)`);
-  getCtx().fillStyle = bodyGrad;
-  getCtx().beginPath();
-  getCtx().arc(gx, gy, radius, 0, Math.PI * 2);
-  getCtx().fill();
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.arc(gx, gy, radius, 0, Math.PI * 2);
+  ctx.fill();
 
-  getCtx().fillStyle = '#fff';
-  getCtx().beginPath();
-  getCtx().arc(gx - radius * 0.3, gy - radius * 0.2, radius * 0.2, 0, Math.PI * 2);
-  getCtx().arc(gx + radius * 0.3, gy - radius * 0.2, radius * 0.2, 0, Math.PI * 2);
-  getCtx().fill();
-  getCtx().fillStyle = '#000';
-  getCtx().beginPath();
-  getCtx().arc(gx - radius * 0.3, gy - radius * 0.2, radius * 0.1, 0, Math.PI * 2);
-  getCtx().arc(gx + radius * 0.3, gy - radius * 0.2, radius * 0.1, 0, Math.PI * 2);
-  getCtx().fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(gx - radius * 0.3, gy - radius * 0.2, radius * 0.2, 0, Math.PI * 2);
+  ctx.arc(gx + radius * 0.3, gy - radius * 0.2, radius * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(gx - radius * 0.3, gy - radius * 0.2, radius * 0.1, 0, Math.PI * 2);
+  ctx.arc(gx + radius * 0.3, gy - radius * 0.2, radius * 0.1, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 // ─── Effects (ripples, explosions) ───────────────────────────────────
@@ -777,9 +755,7 @@ export function drawExplosion(now: number): void {
   const ey = (1 - explosion.y) * $canvas.height;
   const baseSize = Math.min($canvas.width, $canvas.height) * 0.15;
   const size = baseSize * (0.5 + progress * 0.5);
-  ctx.globalAlpha = 1 - progress;
-  ctx.drawImage(gameImages['explosion']!.img, ex - size / 2, ey - size / 2, size, size);
-  ctx.globalAlpha = 1;
+  drawImageAlpha(ctx, gameImages['explosion']!.img, ex - size / 2, ey - size / 2, size, size, 1 - progress);
 }
 
 registerResetFn(resetRendererState);
