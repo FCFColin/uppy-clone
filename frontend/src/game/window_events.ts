@@ -2,7 +2,7 @@ import { resumeAudioContext } from '../shared/ui/audio.js';
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
 import { getState, dispatch } from './state.js';
 import { resizeCanvas, startGameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
-import { pickRandomNickname, $copyCodeBtn, $hudCopyBtn, $setupNicknameInput } from './ui_elements.js';
+import { pickRandomNickname, $copyCodeBtn, $hudCopyBtn, $setupNicknameInput } from './ui_common.js';
 import { copyCode, showFallbackErrorScreen } from './ui_common.js';
 import { connectWebSocket } from './ws_connection.js';
 import { stopHeartbeat, getWs } from './ws_connection.js';

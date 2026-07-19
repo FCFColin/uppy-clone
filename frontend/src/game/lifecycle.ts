@@ -4,7 +4,7 @@ import { normalizeAuthHost } from '../shared/network/session.js';
 import { showToast } from '../shared/ui/utils.js';
 import { resizeCanvas, startGameLoop, renderOnce } from './renderer.js';
 import { updateUI } from './ui_update.js';
-import { pickRandomNickname, $setupNicknameInput } from './ui_elements.js';
+import { pickRandomNickname, $setupNicknameInput } from './ui_common.js';
 import { initWaitingTips, bindReconnectRetry } from './ui_common.js';
 import { connectWebSocket, showConnectionError } from './ws_connection.js';
 import { sendOrQueue } from './ws_connection.js';

@@ -35,7 +35,7 @@ vi.mock('./renderer.js', () => ({
   $canvas: document.getElementById('game-canvas')! as HTMLCanvasElement,
 }));
 
-vi.mock('./ui_elements.js', () => ({
+vi.mock('./ui_common.js', () => ({
   $lobbyCode: document.getElementById('lobby-code')!,
   $hudCode: document.getElementById('hud-code')!,
 }));

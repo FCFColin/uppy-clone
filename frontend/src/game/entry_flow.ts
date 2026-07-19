@@ -1,7 +1,7 @@
 import type { GamePhase } from './state.js';
 import { dispatch, getState } from './state.js';
 import { $canvas } from './renderer.js';
-import { $lobbyCode, $hudCode } from './ui_elements.js';
+import { $lobbyCode, $hudCode } from './ui_common.js';
 import { matchNewRoomCode } from './lobby_match.js';
 
 let entryUiBound = false;

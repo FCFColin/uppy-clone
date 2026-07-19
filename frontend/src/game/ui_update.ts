@@ -8,7 +8,7 @@ import {
   $hudScore, $hudPlayers, $finalScore, $hudPlayerList,
   $endPlayerList, $playerListWaiting,
   $nicknameSetupScreen,
-} from './ui_elements.js';
+} from './ui_common.js';
 import { updateWindIndicator, hideWindIndicator } from './ui_common.js';
 import { resizeCanvas } from './renderer.js';
 import { isLowHeightDanger } from './visual_helpers.js';

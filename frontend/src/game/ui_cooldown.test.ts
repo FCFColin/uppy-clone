@@ -2,26 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { state } from './state.js';
 
 const mocks = vi.hoisted(() => {
-  const bar = {
-    style: { width: '100%' },
-    classList: {
-      add: vi.fn(),
-      remove: vi.fn(),
-      contains: vi.fn(() => false),
-    },
-  };
-  const text = { textContent: '' };
+  document.body.innerHTML = `
+    <div id="cooldown-bar"></div>
+    <div id="cooldown-text"></div>
+  `;
+  const bar = document.getElementById('cooldown-bar')!;
+  const text = document.getElementById('cooldown-text')!;
+  bar.style.width = '100%';
   return { bar, text };
 });
-
-vi.mock('./ui_elements.js', () => ({
-  $cooldownBar: mocks.bar,
-  $cooldownText: mocks.text,
-}));
-vi.mock('../shared/ui/audio.js', () => ({
-  playReadySound: vi.fn(),
-  vibrate: vi.fn(),
-}));
 
 import { startCooldownUpdater, stopCooldownUpdater, updateCooldownBar } from './ui_common.js';
 
@@ -30,8 +19,7 @@ describe('ui_cooldown', () => {
     vi.useFakeTimers();
     mocks.bar.style.width = '100%';
     mocks.text.textContent = '';
-    mocks.bar.classList.add.mockClear();
-    mocks.bar.classList.remove.mockClear();
+    mocks.bar.classList.remove('ready');
     state.phase = 'playing';
     state.myCooldownEnd = Date.now() + 2000;
     state.players = [{ playerIndex: 0, cooldownEndTime: 0, palette: 0, scoreContribution: 0, nickname: 'a' }];
@@ -46,12 +34,12 @@ describe('ui_cooldown', () => {
     // Cooling down
     updateCooldownBar();
     expect(mocks.bar.style.width).not.toBe('0%');
-    expect(mocks.bar.classList.remove).toHaveBeenCalledWith('ready');
+    expect(mocks.bar.classList.contains('ready')).toBe(false);
     // Elapsed
     state.myCooldownEnd = Date.now() - 1;
     updateCooldownBar();
     expect(mocks.text.textContent).toBe('点击！');
-    expect(mocks.bar.classList.add).toHaveBeenCalledWith('ready');
+    expect(mocks.bar.classList.contains('ready')).toBe(true);
   });
 
   it('interval updater runs at 10Hz during playing phase', () => {
