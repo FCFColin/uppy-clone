@@ -28,8 +28,6 @@ const (
 	jsonMessage          = "message"
 	jsonUserID           = "userId"
 	jsonNickname         = "nickname"
-	sessionCookie        = "session"
-	quickplayCookie      = "quickplay"
 	degradedKey          = "degraded"
 	globalScope          = "global"
 	codeKey              = "code"

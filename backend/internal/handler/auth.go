@@ -72,8 +72,8 @@ func getJTI(r *http.Request) string {
 }
 
 func clearAuthCookies(w http.ResponseWriter, secure bool) {
-	http.SetCookie(w, auth.BuildAuthCookie(quickplayCookie, "", -1, secure))
-	http.SetCookie(w, auth.BuildAuthCookie(sessionCookie, "", -1, secure))
+	http.SetCookie(w, auth.BuildAuthCookie(auth.QuickplayCookie, "", -1, secure))
+	http.SetCookie(w, auth.BuildAuthCookie(auth.SessionCookie, "", -1, secure))
 	http.SetCookie(w, buildRefreshCookie("", secure))
 }
 
@@ -177,9 +177,9 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookieName := sessionCookie
-	if _, err := r.Cookie(quickplayCookie); err == nil {
-		cookieName = quickplayCookie
+	cookieName := auth.SessionCookie
+	if _, err := r.Cookie(auth.QuickplayCookie); err == nil {
+		cookieName = auth.QuickplayCookie
 	}
 
 	secure := isSecure(r)
@@ -214,7 +214,7 @@ func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
 		accessToken = cookie.Value
 	}
 	secure := isSecure(r)
-	writeAuthCookies(w, r, auth.BuildAuthCookie(quickplayCookie, accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
+	writeAuthCookies(w, r, auth.BuildAuthCookie(auth.QuickplayCookie, accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -335,7 +335,7 @@ func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Reques
 		accessToken = cookie.Value
 	}
 	secure := isSecure(r)
-	writeAuthCookies(w, r, auth.BuildAuthCookie(sessionCookie, accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
+	writeAuthCookies(w, r, auth.BuildAuthCookie(auth.SessionCookie, accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
 
 	writeJSON(w, http.StatusOK, map[string]string{jsonUserID: resp.UserID})
 }

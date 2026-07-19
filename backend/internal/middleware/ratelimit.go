@@ -181,7 +181,7 @@ func rateLimitKey(r *http.Request, endpoint string, jwtMgr *auth.JWTManager) str
 
 	// 2. Fallback: try "session" cookie, then "quickplay" cookie
 	if jwtMgr != nil {
-		for _, cookieName := range []string{sessionCookie, quickplayCookie} {
+		for _, cookieName := range []string{auth.SessionCookie, auth.QuickplayCookie} {
 			if uid, _, _, _, err := parseAuthCookie(r, cookieName, jwtMgr); err == nil && uid != "" {
 				return fmt.Sprintf("%s:%s:%s", endpoint, uid, ip)
 			}

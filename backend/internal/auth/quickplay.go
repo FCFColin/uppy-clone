@@ -82,7 +82,7 @@ func issueQuickPlayCredentials(ctx context.Context, jwtMgr *JWTManager, refreshM
 	}
 
 	secure := IsSecure(r)
-	cookie := BuildAuthCookie(quickplayCookie, token, config.CookieMaxAge, secure) // 15min matches access token TTL
+	cookie := BuildAuthCookie(QuickplayCookie, token, config.CookieMaxAge, secure) // 15min matches access token TTL
 
 	refreshToken, err := refreshMgr.Generate(ctx, userID)
 	if err != nil {

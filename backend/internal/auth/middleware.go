@@ -11,9 +11,10 @@ import (
 
 var tracer = otel.Tracer("github.com/uppy-clone/backend/internal/auth")
 
+// Cookie names for session and quickplay authentication.
 const (
-	sessionCookie   = "session"
-	quickplayCookie = "quickplay"
+	SessionCookie   = "session"
+	QuickplayCookie = "quickplay"
 )
 
 // tryCookie attempts to read and validate a JWT from the named cookie.
@@ -49,7 +50,7 @@ func authenticatedUserFromCookies(r *http.Request, jwtMgr *JWTManager, rev JWTRe
 		span.SetAttributes(attribute.Bool("jwt_mgr_nil", true))
 		return "", "", false
 	}
-	for _, cookieName := range []string{sessionCookie, quickplayCookie} {
+	for _, cookieName := range []string{SessionCookie, QuickplayCookie} {
 		uid, nick, jti, _ := tryCookie(r, jwtMgr, cookieName)
 		if uid == "" {
 			continue

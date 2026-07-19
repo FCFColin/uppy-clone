@@ -21,11 +21,6 @@ var authTracer = otel.Tracer("github.com/uppy-clone/backend/internal/middleware"
 // maxIPsPerHour is the threshold for suspicious multi-IP login detection.
 const maxIPsPerHour = 3
 
-const (
-	sessionCookie   = "session"
-	quickplayCookie = "quickplay"
-)
-
 // tryCookie attempts to read and validate a JWT from the named cookie.
 // Returns userID, nickname, jti, role if valid, empty strings otherwise.
 func tryCookie(r *http.Request, jwtMgr *auth.JWTManager, name string) (userID, nickname, jti, role string) {
@@ -57,7 +52,7 @@ func AuthMiddleware(jwtMgr *auth.JWTManager, next http.HandlerFunc, revoker ...a
 		r = r.WithContext(ctx)
 
 		// Try "session" cookie first (Magic Link login), then "quickplay" cookie
-		for _, cookieName := range []string{sessionCookie, quickplayCookie} {
+		for _, cookieName := range []string{auth.SessionCookie, auth.QuickplayCookie} {
 			userId, nickname, jti, role := tryCookie(r, jwtMgr, cookieName)
 			if userId == "" {
 				continue
