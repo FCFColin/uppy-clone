@@ -85,3 +85,11 @@ func DegradedHandler(cbs ...*gobreaker.CircuitBreaker[any]) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(map[string]bool{degradedKey: IsDegraded(cbs...)})
 	}
 }
+
+// writeJSON sets the JSON content type, writes the status code, and encodes the
+// payload as JSON. It is the standard handler response helper.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}

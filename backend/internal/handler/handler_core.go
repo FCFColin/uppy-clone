@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -9,16 +8,6 @@ import (
 
 	"github.com/uppy-clone/backend/internal/game"
 )
-
-// ─── Response Helper ────────────────────────────────────────────────
-
-// writeJSON sets the JSON content type, writes the status code, and encodes the
-// payload as JSON. It is the standard handler response helper.
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
 
 // ─── URL Parameter Helper ───────────────────────────────────────────
 
