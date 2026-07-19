@@ -67,88 +67,99 @@ func TestLeaderboardQuery_Scopes(t *testing.T) {
 	})
 }
 
-func TestLoadAllActiveLobbies_DefaultLimit(t *testing.T) {
-	repo, mock := newMockRepo(t, NewLobbyRepository)
-	ctx := context.Background()
-
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(0))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WithArgs(51).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}))
-
-	result, err := repo.LoadAllActiveLobbies(ctx, 0, "")
-	if err != nil {
-		t.Fatalf("LoadAllActiveLobbies: %v", err)
+func TestLoadAllActiveLobbies(t *testing.T) {
+	tests := []struct {
+		name        string
+		limit       int
+		cursor      string
+		countRow    interface{}
+		countErr    error
+		fetchErr    error
+		fetchRows   *pgxmock.Rows
+		wantTotal   int
+		wantErr     bool
+		skipFetch   bool // true when count fails; fetch expectation should be omitted
+		fetchArgs   []interface{}
+	}{
+		{
+			name:      "default limit",
+			limit:     0,
+			countRow:  0,
+			fetchRows: pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}),
+			fetchArgs: []interface{}{51},
+		},
+		{
+			name:      "capped limit",
+			limit:     500,
+			countRow:  5,
+			fetchRows: pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}),
+			fetchArgs: []interface{}{101},
+		},
+		{
+			name:      "with cursor",
+			limit:     5,
+			cursor:    "100|CODE1",
+			countRow:  10,
+			fetchRows: pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).AddRow("id1", "CODE1", "waiting", int64(99), int64(50)),
+			fetchArgs: []interface{}{int64(100), "CODE1", 6},
+			wantTotal: 10,
+		},
+		{
+			name:      "count error",
+			limit:     10,
+			countErr:  errors.New("count failed"),
+			wantErr:   true,
+			skipFetch: true,
+		},
+		{
+			name:      "fetch error",
+			limit:     10,
+			countRow:  5,
+			fetchErr:  errors.New("query failed"),
+			wantErr:   true,
+			fetchArgs: []interface{}{11},
+		},
 	}
-	if result == nil || result.Total != 0 {
-		t.Fatalf("result = %+v", result)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewLobbyRepository)
+			ctx := context.Background()
 
-func TestLoadAllActiveLobbies_CappedLimit(t *testing.T) {
-	repo, mock := newMockRepo(t, NewLobbyRepository)
-	ctx := context.Background()
+			countQ := mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'")
+			if tt.countErr != nil {
+				countQ.WillReturnError(tt.countErr)
+			} else {
+				countQ.WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(tt.countRow))
+			}
 
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(5))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WithArgs(101).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}))
+			if !tt.skipFetch {
+				fetchQ := mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states")
+				if len(tt.fetchArgs) > 0 {
+					fetchQ.WithArgs(tt.fetchArgs...)
+				}
+				if tt.fetchErr != nil {
+					fetchQ.WillReturnError(tt.fetchErr)
+				} else {
+					fetchQ.WillReturnRows(tt.fetchRows)
+				}
+			}
 
-	result, err := repo.LoadAllActiveLobbies(ctx, 500, "")
-	if err != nil {
-		t.Fatalf("LoadAllActiveLobbies: %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected result")
-	}
-}
-
-func TestLoadAllActiveLobbies_WithCursor(t *testing.T) {
-	repo, mock := newMockRepo(t, NewLobbyRepository)
-	ctx := context.Background()
-
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(10))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WithArgs(int64(100), "CODE1", 6).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id1", "CODE1", "waiting", int64(99), int64(50)))
-
-	result, err := repo.LoadAllActiveLobbies(ctx, 5, "100|CODE1")
-	if err != nil {
-		t.Fatalf("LoadAllActiveLobbies: %v", err)
-	}
-	if result == nil || result.Total != 10 {
-		t.Fatalf("result = %+v", result)
-	}
-}
-
-func TestLoadAllActiveLobbies_CountError(t *testing.T) {
-	repo, mock := newMockRepo(t, NewLobbyRepository)
-	ctx := context.Background()
-
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnError(errors.New("count failed"))
-
-	_, err := repo.LoadAllActiveLobbies(ctx, 10, "")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestLoadAllActiveLobbies_FetchError(t *testing.T) {
-	repo, mock := newMockRepo(t, NewLobbyRepository)
-	ctx := context.Background()
-
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(5))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WillReturnError(errors.New("query failed"))
-
-	_, err := repo.LoadAllActiveLobbies(ctx, 10, "")
-	if err == nil {
-		t.Fatal("expected error")
+			result, err := repo.LoadAllActiveLobbies(ctx, tt.limit, tt.cursor)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadAllActiveLobbies: %v", err)
+			}
+			if result == nil {
+				t.Fatal("expected result")
+			}
+			if tt.wantTotal > 0 && result.Total != tt.wantTotal {
+				t.Fatalf("total = %d, want %d", result.Total, tt.wantTotal)
+			}
+		})
 	}
 }

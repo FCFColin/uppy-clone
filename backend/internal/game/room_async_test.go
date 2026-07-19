@@ -1,4 +1,4 @@
-﻿package game
+package game
 
 import (
 	"context"
@@ -119,5 +119,3 @@ func TestRoom_EnqueueGameResultAsync_OutboxPath(t *testing.T) {
 		t.Fatalf("insertOutboxCount = %d, want 1", repo.insertOutboxCount)
 	}
 }
-
-

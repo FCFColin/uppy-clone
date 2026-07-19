@@ -91,15 +91,13 @@ describe('interp_buffers', () => {
     expect(point!.y).toBeGreaterThan(0.6);
   });
 
-  it('tryEntityFromDelayBuffer returns b position when span is non-positive', () => {
+  it('tryEntityFromDelayBuffer returns b position when span is non-positive or zero', () => {
     ghostBuffer.push(
       { tick: 2, receivedAt: 2000, x: 0.5, y: 0.6, active: true },
       { tick: 1, receivedAt: 1500, x: 0.1, y: 0.2, active: true },
     );
     expect(tryEntityFromDelayBuffer(ghostBuffer, 2000)).toEqual({ x: 0.1, y: 0.2 });
-  });
-
-  it('tryEntityFromDelayBuffer handles zero span between anchors', () => {
+    ghostBuffer.length = 0;
     ghostBuffer.push(
       { tick: 1, receivedAt: 1500, x: 0.1, y: 0.2, active: true },
       { tick: 2, receivedAt: 1500, x: 0.5, y: 0.6, active: true },
@@ -107,15 +105,13 @@ describe('interp_buffers', () => {
     expect(tryEntityFromDelayBuffer(ghostBuffer, 1500)).toEqual({ x: 0.5, y: 0.6 });
   });
 
-  it('tryEntityFromDelayBuffer returns null for inactive anchors', () => {
+  it('tryEntityFromDelayBuffer returns null for inactive first anchor, holds position when next anchor is inactive', () => {
     ghostBuffer.push(
       { tick: 1, receivedAt: 100, x: 0.1, y: 0.2, active: false },
       { tick: 2, receivedAt: 200, x: 0.3, y: 0.4, active: true },
     );
     expect(tryEntityFromDelayBuffer(ghostBuffer, 150)).toBeNull();
-  });
-
-  it('tryEntityFromDelayBuffer holds position when next anchor is inactive', () => {
+    ghostBuffer.length = 0;
     ghostBuffer.push(
       { tick: 1, receivedAt: 100, x: 0.1, y: 0.2, active: true },
       { tick: 2, receivedAt: 200, x: 0.9, y: 0.9, active: false },

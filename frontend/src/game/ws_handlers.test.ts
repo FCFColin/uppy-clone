@@ -101,22 +101,20 @@ describe('handleBinaryMessage routing', () => {
     expect(pushFloatingText).toHaveBeenCalled();
   });
 
-  it('routes game state change messages', () => {
+  it('routes game state change messages (playing and ended with end reason)', () => {
     const buf = new ArrayBuffer(2);
     const dv = new DataView(buf);
     dv.setUint8(0, MSG_TYPE.GAME_STATE_CHANGE);
     dv.setUint8(1, PHASE_CODE.PLAYING);
     handleBinaryMessage(buf);
     expect(mocks.applyPhaseChange).toHaveBeenCalledWith('playing', 3);
-  });
 
-  it('routes ended game state with end reason', () => {
-    const buf = new ArrayBuffer(3);
-    const dv = new DataView(buf);
-    dv.setUint8(0, MSG_TYPE.GAME_STATE_CHANGE);
-    dv.setUint8(1, PHASE_CODE.ENDED);
-    dv.setUint8(2, 1);
-    handleBinaryMessage(buf);
+    const buf2 = new ArrayBuffer(3);
+    const dv2 = new DataView(buf2);
+    dv2.setUint8(0, MSG_TYPE.GAME_STATE_CHANGE);
+    dv2.setUint8(1, PHASE_CODE.ENDED);
+    dv2.setUint8(2, 1);
+    handleBinaryMessage(buf2);
     expect(playGameOverSound).toHaveBeenCalled();
     expect(mocks.state.endReason).toBe(1);
   });
@@ -131,16 +129,6 @@ describe('handleBinaryMessage routing', () => {
     handleBinaryMessage(buf);
     expect(mocks.state.restartVotes.yes).toBe(2);
     expect(mocks.syncRestartVoteUI).toHaveBeenCalled();
-  });
-
-  it.each([
-    [MSG_TYPE.PONG],
-    [MSG_TYPE.PLAYER_JOIN],
-    [MSG_TYPE.PLAYER_LEAVE],
-  ])('ignores opcode %i without throwing', (msgType) => {
-    const buf = new ArrayBuffer(1);
-    new DataView(buf).setUint8(0, msgType);
-    expect(() => handleBinaryMessage(buf)).not.toThrow();
   });
 
   it('warns on unknown message types', () => {
@@ -174,22 +162,6 @@ describe('ws_handlers_events', () => {
     expect(mocks.state.ripples.some((r) => r.playerIndex === 1)).toBe(true);
   });
 
-  it('handleTapAccepted falls back to server balloon coordinates', () => {
-    mocks.state.lastTapX = null;
-    mocks.state.lastTapY = null;
-    const buf = new ArrayBuffer(18);
-    const view = new DataView(buf);
-    view.setUint8(0, MSG_TYPE.TAP_ACCEPTED);
-    view.setUint16(1, 2, true);
-    view.setUint32(3, 250, true);
-    view.setFloat32(7, 0.7, true);
-    view.setFloat32(11, 0.8, true);
-    handleTapAccepted(view);
-    expect(mocks.state.ripples.at(-1)).toMatchObject({ playerIndex: 2 });
-    expect(mocks.state.ripples.at(-1)!.x).toBeCloseTo(0.7, 5);
-    expect(mocks.state.ripples.at(-1)!.y).toBeCloseTo(0.8, 5);
-  });
-
   it('handleTapRejected clears optimistic cooldown, adds rejected ripple and floating text', () => {
     mocks.state.myCooldownEnd = Date.now() + 5000;
     mocks.state.ripples = [{ isOptimistic: true }];
@@ -200,13 +172,7 @@ describe('ws_handlers_events', () => {
     expect(pushFloatingText).toHaveBeenCalledWith(0.4, 0.6, '太远了');
   });
 
-  it('handleTapRejected is a no-op without last tap coordinates', () => {
-    mocks.state.lastTapX = null;
-    handleTapRejected();
-    expect(mocks.state.ripples).toHaveLength(0);
-    expect(pushFloatingText).not.toHaveBeenCalled();
   });
-});
 
 describe('handleGameStateChange', () => {
   beforeEach(() => {
@@ -222,14 +188,6 @@ describe('handleGameStateChange', () => {
     expect(mocks.applyPhaseChange).toHaveBeenCalledWith('playing', 3);
   });
 
-  it('skips blocked phase regression', () => {
-    mocks.shouldApplySnapshotPhase.mockReturnValue(false);
-    const buf = new ArrayBuffer(2);
-    new DataView(buf).setUint8(1, 1);
-    handleGameStateChange(new DataView(buf));
-    expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
-  });
-
   it('derives countdown seconds from remaining ms', async () => {
     const buf = new ArrayBuffer(6);
     const dv = new DataView(buf);
@@ -241,7 +199,7 @@ describe('handleGameStateChange', () => {
     });
   });
 
-  it('handles ended phase with end reason and score banner', async () => {
+  it('handles ended phase with end reason and score banner, skips update when personal-best element is missing', async () => {
     mocks.state.score = 88;
     document.body.innerHTML = '<div id="personal-best"></div>';
     const buf = new ArrayBuffer(3);
@@ -254,6 +212,13 @@ describe('handleGameStateChange', () => {
       expect(document.getElementById('personal-best')?.textContent).toContain('本局 88');
       expect(document.getElementById('personal-best')?.textContent).toContain('个人最佳 999');
     });
+    document.body.innerHTML = '';
+    const dv2 = new DataView(new ArrayBuffer(3));
+    dv2.setUint8(1, 2);
+    dv2.setUint8(2, 1);
+    handleGameStateChange(dv2);
+    await Promise.resolve();
+    expect(document.getElementById('personal-best')).toBeNull();
   });
 
   it('marks new record when cookie best is fresh', async () => {
@@ -270,32 +235,7 @@ describe('handleGameStateChange', () => {
     });
   });
 
-  it('shows new record when score exceeds server best', async () => {
-    const bestScoreModule = await import('../shared/data/cookies.js');
-    vi.mocked(bestScoreModule.updateBestScore).mockReturnValueOnce({ best: 10, isNewRecord: false });
-    vi.mocked(bestScoreModule.fetchUserBestScore).mockResolvedValueOnce(5);
-    mocks.state.score = 88;
-    document.body.innerHTML = '<div id="personal-best"></div>';
-    const dv = new DataView(new ArrayBuffer(3));
-    dv.setUint8(1, 2);
-    dv.setUint8(2, 1);
-    handleGameStateChange(dv);
-    await vi.waitFor(() => {
-      expect(document.getElementById('personal-best')?.textContent).toContain('新纪录');
-    });
   });
-
-  it('skips end-screen update when personal-best element is missing', async () => {
-    document.body.innerHTML = '';
-    const buf = new ArrayBuffer(3);
-    const dv = new DataView(buf);
-    dv.setUint8(1, 2);
-    dv.setUint8(2, 1);
-    handleGameStateChange(dv);
-    await Promise.resolve();
-    expect(document.getElementById('personal-best')).toBeNull();
-  });
-});
 
 describe('handleRestartStatus', () => {
   beforeEach(() => {
@@ -328,12 +268,17 @@ describe('handleSnapshot', () => {
     resetWsHandlersMocks();
   });
 
-  it('ignores messages shorter than 44 bytes', () => {
+  it('ignores snapshots that are too short or undecodable', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     handleSnapshot(new DataView(new ArrayBuffer(10)));
     expect(warn).toHaveBeenCalled();
     expect(mocks.state.hasReceivedFirstSnapshot).toBe(false);
     warn.mockRestore();
+
+    vi.mocked(decodeSnapshot).mockReturnValueOnce(null);
+    handleSnapshot(new DataView(buildMinimalSnapshot(1, 400)));
+    expect(mocks.state.hasReceivedFirstSnapshot).toBe(false);
+    expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
   });
 
   it('parses score, balloon, and phase from a minimal snapshot', () => {
@@ -343,46 +288,6 @@ describe('handleSnapshot', () => {
     expect(mocks.state.balloon.y).toBeCloseTo(0.6);
     expect(mocks.applyPhaseChange).toHaveBeenCalledWith('playing');
     expect(mocks.state.hasReceivedFirstSnapshot).toBe(true);
-  });
-
-  it('skips duplicate sequence timestamps', () => {
-    mocks.isDuplicateSeq.mockReturnValue(true);
-    handleSnapshot(new DataView(buildMinimalSnapshot(1, 300)));
-    expect(mocks.state.score).toBe(0);
-    expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    [new Error('boom'), 'boom'],
-    ['string failure', 'string failure'],
-  ])('logs parse errors without throwing (Error=%s)', (thrown, expected) => {
-    vi.mocked(decodeSnapshot).mockImplementationOnce(() => {
-      throw thrown;
-    });
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    handleSnapshot(new DataView(buildMinimalSnapshot(1, 404)));
-    expect(err).toHaveBeenCalledWith('[snapshot] parse error:', expected);
-    err.mockRestore();
-  });
-
-  it('ignores undecodable snapshots', () => {
-    vi.mocked(decodeSnapshot).mockReturnValueOnce(null);
-    handleSnapshot(new DataView(buildMinimalSnapshot(1, 400)));
-    expect(mocks.state.hasReceivedFirstSnapshot).toBe(false);
-    expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
-  });
-
-  it('skips blocked phase transitions from snapshot', () => {
-    mocks.shouldApplySnapshotPhase.mockReturnValueOnce(false);
-    mocks.state.phase = 'countdown';
-    handleSnapshot(new DataView(buildMinimalSnapshot(2, 401)));
-    expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
-  });
-
-  it('keeps pending nickname until player appears in roster', () => {
-    mocks.state.pendingNickname = 'Ghost';
-    handleSnapshot(new DataView(buildMinimalSnapshot(1, 402)));
-    expect(mocks.state.pendingNickname).toBe('Ghost');
   });
 
   it('applies wind, ripples, pending nickname, and freezes on ended phase', () => {

@@ -142,8 +142,10 @@ describe('ws_connection', () => {
     expect(getWs()).toBeNull();
   });
 
-  it('scheduleReconnect stops after max attempts', async () => {
-    for (let i = 0; i < MAX_RECONNECT_ATTEMPTS; i++) {
+  it('scheduleReconnect shows banner before max attempts, then connection error after max', async () => {
+    scheduleReconnect();
+    expect(showReconnectBanner).toHaveBeenCalledWith(1);
+    for (let i = 1; i < MAX_RECONNECT_ATTEMPTS; i++) {
       scheduleReconnect();
       vi.runAllTimers();
     }
@@ -151,11 +153,6 @@ describe('ws_connection', () => {
     await vi.waitFor(() => {
       expect(showConnectionErrorUI).toHaveBeenCalled();
     });
-  });
-
-  it('scheduleReconnect shows reconnect banner before max attempts', () => {
-    scheduleReconnect();
-    expect(showReconnectBanner).toHaveBeenCalledWith(1);
   });
 
   it('handlePong updates ping display when ping was sent', () => {

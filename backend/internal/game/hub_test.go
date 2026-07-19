@@ -3,6 +3,7 @@ package game
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -198,6 +199,40 @@ func TestHub_CleanupLoop(t *testing.T) {
 	}
 }
 
+func TestHub_CleanupLoop_ContextCancellation(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		h.CleanupLoop(ctx)
+		close(done)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CleanupLoop did not exit after context cancellation")
+	}
+}
+
+// ─── Timeouts ────────────────────────────────────────────────────────
+
+func TestHub_Timeouts(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 0, 0)
+
+	got := h.Timeouts()
+	if got.PGConnectTimeout != timeouts.PGConnectTimeout {
+		t.Fatalf("Timeouts mismatch: got %v, want %v", got.PGConnectTimeout, timeouts.PGConnectTimeout)
+	}
+}
+
 // ─── Broadcast backpressure ─────────────────────────────────────────
 
 func TestRoom_Broadcast_Backpressure(t *testing.T) {
@@ -242,23 +277,37 @@ func TestRoom_Broadcast_Backpressure(t *testing.T) {
 // ─── Bulkhead: WS Connection Limit ──────────────────────────────────
 
 func TestHub_WSConnectionLimit(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 5, 50)
+	t.Run("RejectsWhenFull", func(t *testing.T) {
+		timeouts := config.DefaultTimeoutConfig()
+		h := NewHub(nil, nil, timeouts, 5, 50) // max 5 WS connections
 
-	for i := 0; i < 5; i++ {
-		if !h.CanAcceptWSConnection() {
-			t.Fatalf("should accept connection %d", i)
+		for i := 0; i < 5; i++ {
+			if !h.CanAcceptWSConnection() {
+				t.Fatalf("should accept connection %d", i)
+			}
+			h.IncrementWSConnection()
 		}
-		h.IncrementWSConnection()
-	}
 
-	if h.CanAcceptWSConnection() {
-		t.Fatal("should reject connection when limit reached")
-	}
+		if h.CanAcceptWSConnection() {
+			t.Fatal("should reject connection when limit reached")
+		}
 
-	if count := h.WSConnCount(); count != 5 {
-		t.Fatalf("expected 5 connections, got %d", count)
-	}
+		if count := h.WSConnCount(); count != 5 {
+			t.Fatalf("expected 5 connections, got %d", count)
+		}
+	})
+
+	t.Run("DefaultValues", func(t *testing.T) {
+		timeouts := config.DefaultTimeoutConfig()
+		h := NewHub(nil, nil, timeouts, 0, 0) // zero → should use defaults
+
+		if h.MaxWSConnections() != 1000 {
+			t.Fatalf("expected default max 1000, got %d", h.MaxWSConnections())
+		}
+		if h.MaxPlayersPerRoom() != 50 {
+			t.Fatalf("expected default max players 50, got %d", h.MaxPlayersPerRoom())
+		}
+	})
 }
 
 // ─── Bulkhead: Room MaxPlayers ──────────────────────────────────────
@@ -288,6 +337,35 @@ func TestRoom_MaxPlayers_RejectsWhenFull(t *testing.T) {
 	}
 }
 
+func TestRoom_MaxPlayers_ReconnectDoesNotCount(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 100, 2) // max 2 players per room
+
+	code, _ := h.CreateRoom(context.Background())
+	room := h.getRoom(code)
+
+	room.mu.Lock()
+	for i := 0; i < 2; i++ {
+		pid := fmt.Sprintf("player%d", i)
+		room.state.Players[pid] = &domain.PlayerState{
+			ID:          pid,
+			PlayerIndex: i,
+			Nickname:    fmt.Sprintf("nick%d", i),
+		}
+		room.usedNames[fmt.Sprintf("nick%d", i)] = true
+	}
+
+	room.state.Players["player0"].Disconnected = true
+	now := time.Now().UnixMilli()
+	room.state.Players["player0"].DisconnectedAt = &now
+	room.mu.Unlock()
+
+	err := room.HandleJoin("player0", nil)
+	if err != nil {
+		t.Fatalf("reconnect should succeed, got %v", err)
+	}
+}
+
 // ─── RestoreRooms (nil store) ────────────────────────────────────────
 
 func TestHub_RestoreRooms_NilStore(t *testing.T) {
@@ -309,6 +387,36 @@ func TestMatchRoom_NoRooms(t *testing.T) {
 	}
 	if code == "" {
 		t.Fatal("MatchRoom returned empty code")
+	}
+}
+
+func TestMatchRoom_FullRoomsCreateNew(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	h := NewHub(nil, nil, timeouts, 2, 1)
+
+	code1, _ := h.CreateRoom(context.Background())
+	room1 := h.getRoom(code1)
+
+	room1.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
+	room1.state.Phase = domain.PhasePlaying
+
+	code2, err := h.MatchRoom(context.Background())
+	if err != nil {
+		t.Fatalf("MatchRoom: %v", err)
+	}
+	if code2 == code1 {
+		t.Error("MatchRoom should create a new room when all rooms are full")
+	}
+}
+
+func TestInstanceAddress(t *testing.T) {
+	if err := os.Setenv("INSTANCE_ADDR", "10.0.0.1:9000"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Unsetenv("INSTANCE_ADDR") }()
+	addr := instanceAddress()
+	if addr != "10.0.0.1:9000" {
+		t.Errorf("instanceAddress = %q, want %q", addr, "10.0.0.1:9000")
 	}
 }
 
@@ -363,5 +471,41 @@ func TestHub_RemoveRoom_DeletesFromStore(t *testing.T) {
 	}
 	if h.RoomCount() != 0 {
 		t.Fatalf("RoomCount = %d, want 0", h.RoomCount())
+	}
+}
+
+func TestHub_removeRooms_EmptyBatch(t *testing.T) {
+	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
+	h.removeRooms(nil, removeRoomOptions{pgDelete: true})
+	h.removeRooms([]string{"MISSING"}, removeRoomOptions{pgDelete: true})
+	if h.RoomCount() != 0 {
+		t.Fatalf("RoomCount = %d, want 0", h.RoomCount())
+	}
+}
+
+func TestHub_CleanupLoop_RunsCleanupOnce(t *testing.T) {
+	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
+	code, _ := h.CreateRoom(context.Background())
+	room := h.getRoom(code)
+	room.mu.Lock()
+	room.state.Phase = domain.PhaseWaiting
+	room.connections = make(map[string]*PlayerConn)
+	room.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		h.CleanupLoop(ctx)
+		close(done)
+	}()
+	h.cleanupOnce()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CleanupLoop did not exit")
+	}
+	if h.getRoom(code) != nil {
+		t.Fatal("empty waiting room should be cleaned up")
 	}
 }

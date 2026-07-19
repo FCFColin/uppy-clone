@@ -9,99 +9,99 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 )
 
-func TestUpdateUserLastLogin_Success(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("UPDATE users SET last_login").
-		WithArgs("user-1").
-		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
-
-	if err := repo.UpdateUserLastLogin(ctx, "user-1"); err != nil {
-		t.Fatalf("UpdateUserLastLogin: %v", err)
+func TestUpdateUserLastLogin(t *testing.T) {
+	tests := []struct {
+		name    string
+		execErr error
+		wantErr bool
+	}{
+		{"success", nil, false},
+		{"error", errors.New("update failed"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewUserRepository)
+			exec := mock.ExpectExec("UPDATE users SET last_login").WithArgs("user-1")
+			if tt.execErr != nil {
+				exec.WillReturnError(tt.execErr)
+			} else {
+				exec.WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
+			}
+			err := repo.UpdateUserLastLogin(context.Background(), "user-1")
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("UpdateUserLastLogin: %v", err)
+			}
+		})
 	}
 }
 
-func TestUpdateUserLastLogin_Error(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("UPDATE users SET last_login").
-		WillReturnError(errors.New("update failed"))
-
-	if err := repo.UpdateUserLastLogin(ctx, "user-1"); err == nil {
-		t.Fatal("expected error")
+func TestAnonymizeUser(t *testing.T) {
+	tests := []struct {
+		name      string
+		userErr   error
+		outboxErr error
+		wantErr   bool
+	}{
+		{"success", nil, nil, false},
+		{"user update error", errors.New("update failed"), nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewUserRepository)
+			exec := mock.ExpectExec("UPDATE users SET email").
+				WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-gdpr")
+			if tt.userErr != nil {
+				exec.WillReturnError(tt.userErr)
+			} else {
+				exec.WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
+				outboxExec := mock.ExpectExec("UPDATE outbox_events").WithArgs("user-gdpr")
+				if tt.outboxErr != nil {
+					outboxExec.WillReturnError(tt.outboxErr)
+				} else {
+					outboxExec.WillReturnResult(pgconn.NewCommandTag("UPDATE 0"))
+				}
+			}
+			err := repo.AnonymizeUser(context.Background(), "user-gdpr")
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("AnonymizeUser: %v", err)
+			}
+		})
 	}
 }
 
-func TestAnonymizeUser_Success(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("UPDATE users SET email").
-		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-gdpr").
-		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
-	mock.ExpectExec("UPDATE outbox_events").
-		WithArgs("user-gdpr").
-		WillReturnResult(pgconn.NewCommandTag("UPDATE 0"))
-
-	if err := repo.AnonymizeUser(ctx, "user-gdpr"); err != nil {
-		t.Fatalf("AnonymizeUser: %v", err)
+func TestHardDeleteExpiredUsers(t *testing.T) {
+	tests := []struct {
+		name      string
+		retention int
+		execErr   error
+		wantErr   bool
+	}{
+		{"success", 30, nil, false},
+		{"error", 30, errors.New("delete failed"), true},
+		{"default retention", 0, nil, false},
 	}
-}
-
-func TestAnonymizeUser_Error(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("UPDATE users SET email").
-		WillReturnError(errors.New("update failed"))
-
-	if err := repo.AnonymizeUser(ctx, "user-gdpr"); err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestHardDeleteExpiredUsers_Success(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("DELETE FROM users").
-		WithArgs(pgxmock.AnyArg()).
-		WillReturnResult(pgconn.NewCommandTag("DELETE 5"))
-
-	deleted, err := repo.HardDeleteExpiredUsers(ctx, 30)
-	if err != nil {
-		t.Fatalf("HardDeleteExpiredUsers: %v", err)
-	}
-	if deleted != 5 {
-		t.Fatalf("expected 5 deleted, got %d", deleted)
-	}
-}
-
-func TestHardDeleteExpiredUsers_Error(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("DELETE FROM users").
-		WithArgs(pgxmock.AnyArg()).
-		WillReturnError(errors.New("delete failed"))
-
-	_, err := repo.HardDeleteExpiredUsers(ctx, 30)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestHardDeleteExpiredUsers_DefaultRetention(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("DELETE FROM users").
-		WithArgs(pgxmock.AnyArg()).
-		WillReturnResult(pgconn.NewCommandTag("DELETE 0"))
-
-	if _, err := repo.HardDeleteExpiredUsers(ctx, 0); err != nil {
-		t.Fatalf("HardDeleteExpiredUsers: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewUserRepository)
+			exec := mock.ExpectExec("DELETE FROM users").WithArgs(pgxmock.AnyArg())
+			if tt.execErr != nil {
+				exec.WillReturnError(tt.execErr)
+			} else {
+				exec.WillReturnResult(pgconn.NewCommandTag("DELETE 5"))
+			}
+			_, err := repo.HardDeleteExpiredUsers(context.Background(), tt.retention)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("HardDeleteExpiredUsers: %v", err)
+			}
+		})
 	}
 }

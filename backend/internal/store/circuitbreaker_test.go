@@ -6,45 +6,62 @@ import (
 	"github.com/sony/gobreaker/v2"
 )
 
-func TestNewPostgresBreaker(t *testing.T) {
-	cb := NewPostgresBreaker()
-	if cb == nil {
-		t.Fatal("NewPostgresBreaker returned nil")
+// TestNewBreakers verifies that each breaker constructor returns a non-nil
+// breaker in the closed state.
+func TestNewBreakers(t *testing.T) {
+	tests := []struct {
+		name    string
+		breaker func() *gobreaker.CircuitBreaker[any]
+	}{
+		{"postgres", NewPostgresBreaker},
+		{"redis", NewRedisBreaker},
+		{"resend", NewResendBreaker},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ResetBreakersForTesting()
+			cb := tt.breaker()
+			if cb == nil {
+				t.Fatal("breaker returned nil")
+			}
+			if cb.State() != gobreaker.StateClosed {
+				t.Fatalf("breaker should start in closed state, got %v", cb.State())
+			}
+		})
 	}
 }
 
-func TestNewPostgresBreaker_InitialState(t *testing.T) {
-	ResetBreakersForTesting()
-	cb := NewPostgresBreaker()
-	if cb.State() != gobreaker.StateClosed {
-		t.Fatalf("breaker should start in closed state, got %v", cb.State())
+// TestBreaker_ExecuteSuccess verifies that a closed breaker returns the result
+// of the wrapped function unchanged.
+func TestBreaker_ExecuteSuccess(t *testing.T) {
+	tests := []struct {
+		name    string
+		breaker func() *gobreaker.CircuitBreaker[any]
+		want    any
+	}{
+		{"postgres", NewPostgresBreaker, 42},
+		{"redis", NewRedisBreaker, "redis-ok"},
+		{"resend", NewResendBreaker, "resend-ok"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cb := tt.breaker()
+			got, err := cb.Execute(func() (any, error) {
+				return tt.want, nil
+			})
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+		})
 	}
 }
 
-func TestNewPostgresBreaker_Name(t *testing.T) {
-	cb := NewPostgresBreaker()
-	_, err := cb.Execute(func() (any, error) {
-		return "ok", nil
-	})
-	if err != nil {
-		t.Fatalf("closed breaker should allow execution, got error: %v", err)
-	}
-}
-
-func TestNewPostgresBreaker_SuccessfulExecution(t *testing.T) {
-	cb := NewPostgresBreaker()
-	result, err := cb.Execute(func() (any, error) {
-		return 42, nil
-	})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if result != 42 {
-		t.Fatalf("expected 42, got %v", result)
-	}
-}
-
-func TestNewPostgresBreaker_FailedExecution(t *testing.T) {
+// TestBreaker_FailedExecution verifies that breaker execution surfaces the
+// wrapped function's error.
+func TestBreaker_FailedExecution(t *testing.T) {
 	cb := NewPostgresBreaker()
 	_, err := cb.Execute(func() (any, error) {
 		return nil, errCBTest
@@ -54,104 +71,31 @@ func TestNewPostgresBreaker_FailedExecution(t *testing.T) {
 	}
 }
 
-func TestNewRedisBreaker(t *testing.T) {
-	cb := NewRedisBreaker()
-	if cb == nil {
-		t.Fatal("NewRedisBreaker returned nil")
+// TestBreaker_OpensAfterFailures verifies that each breaker opens after its
+// configured consecutive-failure threshold.
+func TestBreaker_OpensAfterFailures(t *testing.T) {
+	tests := []struct {
+		name     string
+		breaker  func() *gobreaker.CircuitBreaker[any]
+		failures int
+	}{
+		{"postgres", NewPostgresBreaker, 6},
+		{"redis", NewRedisBreaker, 6},
+		{"resend", NewResendBreaker, 4},
 	}
-}
-
-func TestNewRedisBreaker_InitialState(t *testing.T) {
-	ResetBreakersForTesting()
-	cb := NewRedisBreaker()
-	if cb.State() != gobreaker.StateClosed {
-		t.Fatalf("breaker should start in closed state, got %v", cb.State())
-	}
-}
-
-func TestNewRedisBreaker_SuccessfulExecution(t *testing.T) {
-	cb := NewRedisBreaker()
-	result, err := cb.Execute(func() (any, error) {
-		return "redis-ok", nil
-	})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if result != "redis-ok" {
-		t.Fatalf("expected redis-ok, got %v", result)
-	}
-}
-
-func TestNewResendBreaker(t *testing.T) {
-	cb := NewResendBreaker()
-	if cb == nil {
-		t.Fatal("NewResendBreaker returned nil")
-	}
-}
-
-func TestNewResendBreaker_InitialState(t *testing.T) {
-	ResetBreakersForTesting()
-	cb := NewResendBreaker()
-	if cb.State() != gobreaker.StateClosed {
-		t.Fatalf("breaker should start in closed state, got %v", cb.State())
-	}
-}
-
-func TestNewResendBreaker_SuccessfulExecution(t *testing.T) {
-	cb := NewResendBreaker()
-	result, err := cb.Execute(func() (any, error) {
-		return "resend-ok", nil
-	})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if result != "resend-ok" {
-		t.Fatalf("expected resend-ok, got %v", result)
-	}
-}
-
-func TestPostgresBreaker_OpensAfterFailures(t *testing.T) {
-	ResetBreakersForTesting()
-	cb := NewPostgresBreaker()
-
-	for i := 0; i < 6; i++ {
-		_, _ = cb.Execute(func() (any, error) {
-			return nil, errCBTest
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ResetBreakersForTesting()
+			cb := tt.breaker()
+			for i := 0; i < tt.failures; i++ {
+				_, _ = cb.Execute(func() (any, error) {
+					return nil, errCBTest
+				})
+			}
+			if cb.State() != gobreaker.StateOpen {
+				t.Fatalf("breaker should be open after %d consecutive failures, got %v", tt.failures, cb.State())
+			}
 		})
-	}
-
-	if cb.State() != gobreaker.StateOpen {
-		t.Fatalf("breaker should be open after 6 consecutive failures, got %v", cb.State())
-	}
-}
-
-func TestRedisBreaker_OpensAfterFailures(t *testing.T) {
-	ResetBreakersForTesting()
-	cb := NewRedisBreaker()
-
-	for i := 0; i < 6; i++ {
-		_, _ = cb.Execute(func() (any, error) {
-			return nil, errCBTest
-		})
-	}
-
-	if cb.State() != gobreaker.StateOpen {
-		t.Fatalf("breaker should be open after 6 consecutive failures, got %v", cb.State())
-	}
-}
-
-func TestResendBreaker_OpensAfterFailures(t *testing.T) {
-	ResetBreakersForTesting()
-	cb := NewResendBreaker()
-
-	for i := 0; i < 4; i++ {
-		_, _ = cb.Execute(func() (any, error) {
-			return nil, errCBTest
-		})
-	}
-
-	if cb.State() != gobreaker.StateOpen {
-		t.Fatalf("breaker should be open after 4 consecutive failures, got %v", cb.State())
 	}
 }
 

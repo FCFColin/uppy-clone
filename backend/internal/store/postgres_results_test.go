@@ -10,69 +10,82 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func TestInsertSeedGameResult_Success(t *testing.T) {
-	repo, mock := newMockRepo(t, NewResultRepository)
-	ctx := context.Background()
+func TestInsertSeedGameResult(t *testing.T) {
 	result := &domain.GameResult{
 		ID: "r1", SessionID: "s1", UserID: "u1",
 		ScoreContribution: 100, TapsCount: 5, CreatedAt: 1000,
 	}
-	mock.ExpectExec("INSERT INTO game_results").
-		WithArgs(result.ID, result.SessionID, result.UserID, result.ScoreContribution, result.TapsCount, result.CreatedAt).
-		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
-	if err := repo.InsertSeedGameResult(ctx, result); err != nil {
-		t.Fatalf("InsertSeedGameResult: %v", err)
+	tests := []struct {
+		name      string
+		queryErr  error
+		wantErr   bool
+	}{
+		{"success", nil, false},
+		{"insert error", errors.New("insert failed"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewResultRepository)
+			ctx := context.Background()
+
+			if tt.queryErr != nil {
+				mock.ExpectExec("INSERT INTO game_results").WillReturnError(tt.queryErr)
+			} else {
+				mock.ExpectExec("INSERT INTO game_results").
+					WithArgs(result.ID, result.SessionID, result.UserID, result.ScoreContribution, result.TapsCount, result.CreatedAt).
+					WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+			}
+
+			err := repo.InsertSeedGameResult(ctx, result)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("InsertSeedGameResult: %v", err)
+			}
+		})
 	}
 }
 
-func TestInsertSeedGameResult_Error(t *testing.T) {
-	repo, mock := newMockRepo(t, NewResultRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("INSERT INTO game_results").
-		WillReturnError(errors.New("insert failed"))
-
-	err := repo.InsertSeedGameResult(ctx, &domain.GameResult{ID: "r1", SessionID: "s1", UserID: "u1"})
-	if err == nil {
-		t.Fatal("expected error")
+func TestGetGameResultsByUserID(t *testing.T) {
+	tests := []struct {
+		name        string
+		userID      string
+		rows        *pgxmock.Rows
+		wantResults int
+	}{
+		{
+			name:   "success",
+			userID: "u1",
+			rows: pgxmock.NewRows([]string{"id", "session_id", "user_id", "score_contribution", "taps_count", "created_at"}).
+				AddRow("r1", "s1", "u1", 100, 10, int64(1000)).
+				AddRow("r2", "s2", "u1", 50, 5, int64(900)),
+			wantResults: 2,
+		},
+		{
+			name:        "empty",
+			userID:      "u-empty",
+			rows:        pgxmock.NewRows([]string{"id", "session_id", "user_id", "score_contribution", "taps_count", "created_at"}),
+			wantResults: 0,
+		},
 	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewUserRepository)
+			ctx := context.Background()
 
-func TestGetGameResultsByUserID_Success(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
+			mock.ExpectQuery("SELECT id, session_id, user_id, score_contribution, taps_count, created_at FROM game_results").
+				WithArgs(tt.userID).
+				WillReturnRows(tt.rows)
 
-	rows := pgxmock.NewRows([]string{"id", "session_id", "user_id", "score_contribution", "taps_count", "created_at"}).
-		AddRow("r1", "s1", "u1", 100, 10, int64(1000)).
-		AddRow("r2", "s2", "u1", 50, 5, int64(900))
-	mock.ExpectQuery("SELECT id, session_id, user_id, score_contribution, taps_count, created_at FROM game_results").
-		WithArgs("u1").
-		WillReturnRows(rows)
-
-	results, err := repo.GetGameResultsByUserID(ctx, "u1")
-	if err != nil {
-		t.Fatalf("GetGameResultsByUserID: %v", err)
-	}
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
-}
-
-func TestGetGameResultsByUserID_Empty(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	rows := pgxmock.NewRows([]string{"id", "session_id", "user_id", "score_contribution", "taps_count", "created_at"})
-	mock.ExpectQuery("SELECT id, session_id, user_id, score_contribution, taps_count, created_at FROM game_results").
-		WithArgs("u-empty").
-		WillReturnRows(rows)
-
-	results, err := repo.GetGameResultsByUserID(ctx, "u-empty")
-	if err != nil {
-		t.Fatalf("GetGameResultsByUserID: %v", err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("expected 0 results, got %d", len(results))
+			results, err := repo.GetGameResultsByUserID(ctx, tt.userID)
+			if err != nil {
+				t.Fatalf("GetGameResultsByUserID: %v", err)
+			}
+			if len(results) != tt.wantResults {
+				t.Fatalf("expected %d results, got %d", tt.wantResults, len(results))
+			}
+		})
 	}
 }
 

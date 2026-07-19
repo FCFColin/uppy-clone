@@ -11,15 +11,15 @@ func TestHandleSetNickname(t *testing.T) {
 	now := time.Now().UnixMilli()
 
 	cases := []struct {
-		name              string
-		input             string
-		lastChange        int64
-		usedNames         map[string]bool
-		wantAccept        bool
-		wantNicknameIs    string // if non-empty, player.Nickname must equal this
-		wantNicknameNot   string // if non-empty, player.Nickname must not equal this
-		checkUsedNewName  bool   // verify usedNames["NewName"] is true and usedNames["OldName"] is false
-		checkTimestamp    bool   // verify LastNicknameChange updated to ~now
+		name             string
+		input            string
+		lastChange       int64
+		usedNames        map[string]bool
+		wantAccept       bool
+		wantNicknameIs   string // if non-empty, player.Nickname must equal this
+		wantNicknameNot  string // if non-empty, player.Nickname must not equal this
+		checkUsedNewName bool   // verify usedNames["NewName"] is true and usedNames["OldName"] is false
+		checkTimestamp   bool   // verify LastNicknameChange updated to ~now
 	}{
 		{
 			name:             "FirstChangeSkipsCooldown",
@@ -30,11 +30,11 @@ func TestHandleSetNickname(t *testing.T) {
 			checkTimestamp:   true,
 		},
 		{
-			name:            "ControlCharacters",
-			input:           "hello\x00world",
-			usedNames:       map[string]bool{"OldName": true},
-			wantAccept:      true,
-			wantNicknameIs:  testNickname,
+			name:           "ControlCharacters",
+			input:          "hello\x00world",
+			usedNames:      map[string]bool{"OldName": true},
+			wantAccept:     true,
+			wantNicknameIs: testNickname,
 		},
 		{
 			name:            "HTMLCharacters",
@@ -91,10 +91,10 @@ func TestHandleSetNickname(t *testing.T) {
 			wantNicknameNot: "abcdefghijklmnop",
 		},
 		{
-			name:            "TruncateLongName",
-			input:           "这是一个非常长的名字用来测试截断功能",
-			usedNames:       map[string]bool{"OldName": true},
-			wantAccept:      true,
+			name:       "TruncateLongName",
+			input:      "这是一个非常长的名字用来测试截断功能",
+			usedNames:  map[string]bool{"OldName": true},
+			wantAccept: true,
 		},
 	}
 

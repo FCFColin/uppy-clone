@@ -10,7 +10,9 @@ import (
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func newTestLobbyHandler() *LobbyHandler {
@@ -93,4 +95,28 @@ func withPathParam(r *http.Request, key, val string) *http.Request {
 func newTestAdminHandler() *AdminHandler {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	return NewAdminHandler(nil, jwtMgr, nil)
+}
+
+// newTestAuthHandlerWithRedis builds an AuthHandler backed by miniredis with
+// default Config (no DB, no refresh manager). Returns the handler plus the
+// redis store and JWT manager so tests can sign tokens or manipulate state.
+func newTestAuthHandlerWithRedis(t *testing.T) (*AuthHandler, *store.RedisStore, *auth.JWTManager) {
+	t.Helper()
+	redisStore := testutil.SetupMiniredisStore(t)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{})
+	return h, redisStore, jwtMgr
+}
+
+// newTestAuthHandlerWithRefreshMgr builds an AuthHandler backed by miniredis
+// with a refresh token manager. db may be nil. Returns handler, redis store,
+// JWT manager, and refresh manager so tests can sign tokens or generate
+// refresh tokens after setup.
+func newTestAuthHandlerWithRefreshMgr(t *testing.T, db auth.UserDB) (*AuthHandler, *store.RedisStore, *auth.JWTManager, *auth.RefreshTokenManager) {
+	t.Helper()
+	redisStore := testutil.SetupMiniredisStore(t)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
+	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
+	return h, redisStore, jwtMgr, refreshMgr
 }

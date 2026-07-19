@@ -11,19 +11,19 @@ import (
 
 func TestRoom_HandleTap(t *testing.T) {
 	cases := []struct {
-		name        string
-		phase       domain.GamePhase
-		cooldownEnd int64
-		payload     []byte
-		wantMsg     byte
+		name          string
+		phase         domain.GamePhase
+		cooldownEnd   int64
+		payload       []byte
+		wantMsg       byte
 		wantScoreIncr bool
 	}{
 		{
-			name:           "AcceptsValidTap",
-			phase:          domain.PhasePlaying,
-			payload:        encodeTapTestPayload(0.5, 0.5),
-			wantMsg:        protocol.MsgTapAccepted,
-			wantScoreIncr:  true,
+			name:          "AcceptsValidTap",
+			phase:         domain.PhasePlaying,
+			payload:       encodeTapTestPayload(0.5, 0.5),
+			wantMsg:       protocol.MsgTapAccepted,
+			wantScoreIncr: true,
 		},
 		{
 			name:    "RejectsWrongPhase",

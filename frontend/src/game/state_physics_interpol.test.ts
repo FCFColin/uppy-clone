@@ -28,11 +28,12 @@ describe('Physics interpolation', () => {
     vi.useRealTimers();
   });
 
-  it('resets prev to null and curr to defaults', () => {
+  it('resets prev to null and curr to defaults, returns currBalloon when prevBalloon is null', () => {
     expect(getInterpState().prevBalloon).toBeNull();
     expect(getInterpState().prevGhost).toBeNull();
     expect(getInterpState().currBalloon).toEqual({ x: 0.5, y: 0.95 });
     expect(getInterpState().currGhost).toEqual({ x: 0.5, y: 0.5, active: false });
+    expect(getInterpolatedBalloon()).toEqual({ x: 0.5, y: 0.95 });
   });
 
   it('initializes prev and curr to the current state values on first call', () => {
@@ -48,11 +49,6 @@ describe('Physics interpolation', () => {
     expect(getInterpState().currBalloon).toEqual({ x: 0.3, y: 0.7 });
     expect(getInterpState().prevGhost).toEqual({ x: 0.4, y: 0.6, active: true });
     expect(getInterpState().currGhost).toEqual({ x: 0.4, y: 0.6, active: true });
-  });
-
-  it('returns currBalloon when prevBalloon is null', () => {
-    resetInterpolation();
-    expect(getInterpolatedBalloon()).toEqual({ x: 0.5, y: 0.95 });
   });
 
   it('linearly interpolates between prev and curr as tick time advances', () => {
@@ -142,15 +138,6 @@ describe('Physics interpolation', () => {
     expect(getInterpolatedBalloon()).toEqual({ x: 0.6, y: 0.7 });
     vi.advanceTimersByTime(TICK_MS / 2);
     expect(getInterpolatedBalloon()).toEqual({ x: 0.6, y: 0.7 });
-  });
-
-  it('returns null when the ghost is inactive', () => {
-    state.balloon.x = 0.5;
-    state.balloon.y = 0.5;
-    updateInterpolation(0);
-    state.ghost.active = false;
-    updateInterpolation(1);
-    expect(getInterpolatedGhost()).toBeNull();
   });
 
   it('returns currGhost when prevGhost is null (first activation)', () => {

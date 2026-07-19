@@ -15,81 +15,88 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func TestConfigRepository_GetConfig_Found(t *testing.T) {
-	repo, mock := newMockRepo(t, NewConfigRepository)
-	ctx := context.Background()
-
-	rows := pgxmock.NewRows([]string{"id", "config", "updated_at"}).
-		AddRow("global", `{"x":1}`, int64(100))
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("global").
-		WillReturnRows(rows)
-
-	cfg, err := repo.GetConfig(ctx, "global")
-	if err != nil {
-		t.Fatalf("GetConfig: %v", err)
+func TestConfigRepository_GetConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		queryErr error
+		rows     *pgxmock.Rows
+		wantNil  bool
+		wantErr  bool
+	}{
+		{
+			name: "found",
+			rows: pgxmock.NewRows([]string{"id", "config", "updated_at"}).
+				AddRow("global", `{"x":1}`, int64(100)),
+		},
+		{
+			name:     "not found",
+			queryErr: pgx.ErrNoRows,
+			wantNil:  true,
+		},
+		{
+			name:     "error",
+			queryErr: fmt.Errorf("query failed"),
+			wantErr:  true,
+		},
 	}
-	if cfg == nil || cfg.ID != "global" {
-		t.Fatalf("unexpected config: %+v", cfg)
-	}
-}
-
-func TestConfigRepository_GetConfig_NotFound(t *testing.T) {
-	repo, mock := newMockRepo(t, NewConfigRepository)
-	ctx := context.Background()
-
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("missing").
-		WillReturnError(pgx.ErrNoRows)
-
-	cfg, err := repo.GetConfig(ctx, "missing")
-	if err != nil {
-		t.Fatalf("GetConfig: %v", err)
-	}
-	if cfg != nil {
-		t.Fatalf("expected nil, got %+v", cfg)
-	}
-}
-
-func TestConfigRepository_GetConfig_Error(t *testing.T) {
-	repo, mock := newMockRepo(t, NewConfigRepository)
-	ctx := context.Background()
-
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("err").
-		WillReturnError(fmt.Errorf("query failed"))
-
-	_, err := repo.GetConfig(ctx, "err")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestConfigRepository_SaveConfig_Success(t *testing.T) {
-	repo, mock := newMockRepo(t, NewConfigRepository)
-	ctx := context.Background()
-
-	cfg := &domain.AppConfig{ID: "global", Config: `{"x":1}`, UpdatedAt: 100}
-
-	mock.ExpectExec("INSERT INTO admin_config").
-		WithArgs(cfg.ID, cfg.Config, cfg.UpdatedAt).
-		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
-
-	if err := repo.SaveConfig(ctx, cfg); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewConfigRepository)
+			q := mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
+				WithArgs(pgxmock.AnyArg())
+			if tt.queryErr != nil {
+				q.WillReturnError(tt.queryErr)
+			} else {
+				q.WillReturnRows(tt.rows)
+			}
+			cfg, err := repo.GetConfig(context.Background(), "global")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetConfig: %v", err)
+			}
+			if tt.wantNil && cfg != nil {
+				t.Fatalf("expected nil, got %+v", cfg)
+			}
+			if !tt.wantNil && cfg == nil {
+				t.Fatal("expected non-nil config")
+			}
+		})
 	}
 }
 
-func TestConfigRepository_SaveConfig_Error(t *testing.T) {
-	repo, mock := newMockRepo(t, NewConfigRepository)
-	ctx := context.Background()
-
-	mock.ExpectExec("INSERT INTO admin_config").
-		WillReturnError(errors.New("save failed"))
-
-	err := repo.SaveConfig(ctx, &domain.AppConfig{ID: "global", Config: `{}`})
-	if err == nil {
-		t.Fatal("expected error")
+func TestConfigRepository_SaveConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		execErr error
+		wantErr bool
+	}{
+		{"success", nil, false},
+		{"error", errors.New("save failed"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewConfigRepository)
+			cfg := &domain.AppConfig{ID: "global", Config: `{"x":1}`, UpdatedAt: 100}
+			exec := mock.ExpectExec("INSERT INTO admin_config").
+				WithArgs(cfg.ID, cfg.Config, cfg.UpdatedAt)
+			if tt.execErr != nil {
+				exec.WillReturnError(tt.execErr)
+			} else {
+				exec.WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
+			}
+			err := repo.SaveConfig(context.Background(), cfg)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("SaveConfig: %v", err)
+			}
+		})
 	}
 }
 

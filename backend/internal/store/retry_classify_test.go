@@ -13,43 +13,31 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-func TestIsRetryable_Nil(t *testing.T) {
-	if isRetryable(nil) {
-		t.Fatal("nil error should not be retryable")
-	}
-}
-
-func TestIsRetryable_PgxErrors(t *testing.T) {
-	if !isRetryable(pgx.ErrTxCommitRollback) {
-		t.Fatal("ErrTxCommitRollback should be retryable")
-	}
-	if !isRetryable(pgconn.ErrConnClosed) {
-		t.Fatal("ErrConnClosed should be retryable")
-	}
-}
-
-func TestIsRetryable_NetworkErrors(t *testing.T) {
+func TestIsRetryable(t *testing.T) {
 	timeoutErr := net.Error(&timeoutNetErr{})
-	if !isRetryable(timeoutErr) {
-		t.Fatal("timeout net error should be retryable")
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"pgx ErrTxCommitRollback", pgx.ErrTxCommitRollback, true},
+		{"pgconn ErrConnClosed", pgconn.ErrConnClosed, true},
+		{"timeout net error", timeoutErr, true},
+		{"ECONNRESET", syscall.ECONNRESET, true},
+		{"ECONNREFUSED", syscall.ECONNREFUSED, true},
+		{"EOF", io.EOF, true},
+		{"ErrUnexpectedEOF", io.ErrUnexpectedEOF, true},
+		{"generic error", errors.New("permanent failure"), false},
+		{"stub SafeToRetry", stubSafeToRetryErr{}, true},
+		{"stub Timeout", stubTimeoutErr{}, true},
 	}
-	if !isRetryable(syscall.ECONNRESET) {
-		t.Fatal("ECONNRESET should be retryable")
-	}
-	if !isRetryable(syscall.ECONNREFUSED) {
-		t.Fatal("ECONNREFUSED should be retryable")
-	}
-	if !isRetryable(io.EOF) {
-		t.Fatal("EOF should be retryable")
-	}
-	if !isRetryable(io.ErrUnexpectedEOF) {
-		t.Fatal("ErrUnexpectedEOF should be retryable")
-	}
-}
-
-func TestIsRetryable_PersistentError(t *testing.T) {
-	if isRetryable(errors.New("permanent failure")) {
-		t.Fatal("generic error should not be retryable")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isRetryable(tt.err); got != tt.want {
+				t.Fatalf("isRetryable(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -78,48 +66,62 @@ type stubSafeToRetryErr struct{}
 func (stubSafeToRetryErr) Error() string     { return "safe to retry" }
 func (stubSafeToRetryErr) SafeToRetry() bool { return true }
 
-func TestIsRetryable_StubSafeToRetry(t *testing.T) {
-	if !isRetryable(stubSafeToRetryErr{}) {
-		t.Fatal("SafeToRetry interface error should be retryable")
-	}
-}
-
 type stubTimeoutErr struct{}
 
 func (stubTimeoutErr) Error() string   { return "timeout" }
 func (stubTimeoutErr) Timeout() bool   { return true }
 func (stubTimeoutErr) Temporary() bool { return true }
 
-func TestIsRetryable_StubTimeout(t *testing.T) {
-	if !isRetryable(stubTimeoutErr{}) {
-		t.Fatal("Timeout interface error should be retryable")
+func TestRetryableError(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantNil bool
+	}{
+		{"nil returns nil", nil, true},
+		{"wraps transient", syscall.ECONNRESET, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RetryableError(tt.err)
+			if tt.wantNil && got != nil {
+				t.Fatal("RetryableError(nil) should return nil")
+			}
+			if !tt.wantNil && got == nil {
+				t.Fatal("RetryableError should wrap transient error")
+			}
+		})
 	}
 }
 
-func TestRetryableError_Nil(t *testing.T) {
-	if RetryableError(nil) != nil {
-		t.Fatal("RetryableError(nil) should return nil")
+func TestMaybeRetryable(t *testing.T) {
+	persistent := errors.New("nope")
+	tests := []struct {
+		name    string
+		err     error
+		wantNil bool
+		wantIs  error // for non-nil case, errors.Is check
+	}{
+		{"nil returns nil", nil, true, nil},
+		{"transient wrapped", syscall.ECONNRESET, false, nil},
+		{"persistent passed through", persistent, false, persistent},
 	}
-}
-
-func TestRetryableError_WrapsTransient(t *testing.T) {
-	err := RetryableError(syscall.ECONNRESET)
-	if err == nil {
-		t.Fatal("RetryableError should wrap transient error")
-	}
-}
-
-func TestMaybeRetryable_Transient(t *testing.T) {
-	err := MaybeRetryable(syscall.ECONNRESET)
-	if err == nil {
-		t.Fatal("expected retryable error wrapper")
-	}
-}
-
-func TestMaybeRetryable_Persistent(t *testing.T) {
-	orig := errors.New("nope")
-	if got := MaybeRetryable(orig); !errors.Is(got, orig) {
-		t.Fatalf("MaybeRetryable = %v", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MaybeRetryable(tt.err)
+			if tt.wantNil {
+				if got != nil {
+					t.Fatal("MaybeRetryable(nil) should return nil")
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("expected non-nil error")
+			}
+			if tt.wantIs != nil && !errors.Is(got, tt.wantIs) {
+				t.Fatalf("MaybeRetryable = %v", got)
+			}
+		})
 	}
 }
 
@@ -128,12 +130,6 @@ type timeoutNetErr struct{}
 func (e *timeoutNetErr) Error() string   { return "timeout" }
 func (e *timeoutNetErr) Timeout() bool   { return true }
 func (e *timeoutNetErr) Temporary() bool { return true }
-
-func TestMaybeRetryable_Nil(t *testing.T) {
-	if MaybeRetryable(nil) != nil {
-		t.Fatal("MaybeRetryable(nil) should return nil")
-	}
-}
 
 func TestJitteredBackoff_Attempt3(t *testing.T) {
 	d := JitteredBackoff(50*time.Millisecond, 3)

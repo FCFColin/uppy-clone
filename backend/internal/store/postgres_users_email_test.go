@@ -48,37 +48,6 @@ func TestPrepareEmailForStorage_WithEncryptionKey(t *testing.T) {
 	}
 }
 
-func TestEmailFromStorage_PlaintextLegacy(t *testing.T) {
-	t.Parallel()
-
-	got, err := emailFromStorage("legacy@example.com")
-	if err != nil {
-		t.Fatalf("emailFromStorage: %v", err)
-	}
-	if got != "legacy@example.com" {
-		t.Errorf("got %q, want legacy plaintext", got)
-	}
-}
-
-func TestEmailFromStorage_EncryptedRoundTrip(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-	if err := crypto.InitFromEnv(); err != nil {
-		t.Fatalf("crypto.InitFromEnv: %v", err)
-	}
-
-	_, stored, err := prepareEmailForStorage("roundtrip@example.com")
-	if err != nil {
-		t.Fatalf("prepareEmailForStorage: %v", err)
-	}
-	got, err := emailFromStorage(stored)
-	if err != nil {
-		t.Fatalf("emailFromStorage: %v", err)
-	}
-	if got != "roundtrip@example.com" {
-		t.Errorf("got %q, want roundtrip@example.com", got)
-	}
-}
-
 func TestPrepareEmailForStorage_EncryptError(t *testing.T) {
 	orig := encryptEmailForStorageFn
 	t.Cleanup(func() { encryptEmailForStorageFn = orig })
@@ -95,17 +64,43 @@ func TestPrepareEmailForStorage_EncryptError(t *testing.T) {
 	}
 }
 
-func TestEmailFromStorage_CorruptedCiphertext(t *testing.T) {
+func TestEmailFromStorage(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	if err := crypto.InitFromEnv(); err != nil {
 		t.Fatalf("crypto.InitFromEnv: %v", err)
 	}
 
-	_, err := emailFromStorage("v1:00112233445566778899aabbccddeeff")
-	if err == nil {
-		t.Fatal("expected decrypt error for corrupted ciphertext")
+	// Round-trip: prepare then read back.
+	_, stored, err := prepareEmailForStorage("roundtrip@example.com")
+	if err != nil {
+		t.Fatalf("prepareEmailForStorage: %v", err)
 	}
-	if !strings.Contains(err.Error(), "decrypt email") {
-		t.Errorf("error = %v, want decrypt email wrapper", err)
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr string
+	}{
+		{name: "plaintext legacy", input: "legacy@example.com", want: "legacy@example.com"},
+		{name: "encrypted round trip", input: stored, want: "roundtrip@example.com"},
+		{name: "corrupted ciphertext", input: "v1:00112233445566778899aabbccddeeff", wantErr: "decrypt email"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := emailFromStorage(tt.input)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("emailFromStorage = %v, want %q error", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("emailFromStorage: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

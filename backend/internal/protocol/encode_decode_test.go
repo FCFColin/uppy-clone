@@ -131,11 +131,11 @@ func TestEncodeGameStateChangeEnded_WithReason(t *testing.T) {
 
 func TestDecodeTap(t *testing.T) {
 	cases := []struct {
-		name   string
+		name    string
 		payload []byte
-		wantX  float32
-		wantY  float32
-		wantOK bool
+		wantX   float32
+		wantY   float32
+		wantOK  bool
 	}{
 		{"valid", encodeFloat32Pair(0.5, 0.3), 0.5, 0.3, true},
 		{"too_short", []byte{0x01, 0x02}, 0, 0, false},

@@ -229,8 +229,8 @@ func TestUpdatePlayerStats(t *testing.T) {
 // that should transition phase to PhaseEnded.
 func TestRoom_tickOnce_CollisionEndsGame(t *testing.T) {
 	cases := []struct {
-		name   string
-		setup  func(state *domain.GameState)
+		name  string
+		setup func(state *domain.GameState)
 	}{
 		{
 			name: "GameOverGround",
@@ -407,9 +407,9 @@ func TestRoom_HandleMessage_RateLimitDisconnect(t *testing.T) {
 
 func TestRoom_handleSetNicknameMsg(t *testing.T) {
 	cases := []struct {
-		name             string
-		payload          []byte
-		wantConfirmed    bool
+		name          string
+		payload       []byte
+		wantConfirmed bool
 	}{
 		{name: "InvalidPayloadZero", payload: []byte{0}, wantConfirmed: false},
 		{name: "EmptySanitized", payload: append([]byte{byte(3)}, []byte("   ")...), wantConfirmed: false},

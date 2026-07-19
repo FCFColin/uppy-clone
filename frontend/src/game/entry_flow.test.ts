@@ -85,27 +85,13 @@ describe('entry_flow', () => {
     expect(state.lobbyCode).toBe('ABC12');
   });
 
-  it('onLobbyCodeReady is no-op after nickname submit', () => {
-    onLobbyCodeReady('ABC12');
-    onNicknameSubmit();
-    onLobbyCodeReady('OTHER');
-    expect(getEntryStep()).toBe('waiting');
-    expect(state.lobbyCode).toBe('ABC12');
-  });
-
-  it('onNicknameSubmit advances to waiting, no-op when already past nickname step', () => {
+  it('onNicknameSubmit advances to waiting, no-op when already past, cannot regress via applyEntryStep', () => {
     onLobbyCodeReady('ABC12');
     onNicknameSubmit();
     expect(getEntryStep()).toBe('waiting');
     expect(document.getElementById('waiting-screen')!.classList.contains('hidden')).toBe(false);
-    // Second submit is no-op
     onNicknameSubmit();
     expect(getEntryStep()).toBe('waiting');
-  });
-
-  it('cannot regress from waiting to nickname via applyEntryStep', () => {
-    onLobbyCodeReady('ABC12');
-    onNicknameSubmit();
     applyEntryStep('nickname');
     expect(getEntryStep()).toBe('waiting');
   });

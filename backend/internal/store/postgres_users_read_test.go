@@ -11,51 +11,67 @@ import (
 	"github.com/uppy-clone/backend/internal/testsecrets"
 )
 
-func TestGetUserByEmail_Found(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
+func TestGetUserByEmail(t *testing.T) {
 	lastLogin := int64(200)
-	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
-		AddRow("user-1", "found@example.com", "Found", 2, int64(100), &lastLogin)
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
-		WithArgs(pgxmock.AnyArg(), "found@example.com").
-		WillReturnRows(rows)
-
-	user, err := repo.GetUserByEmail(ctx, "found@example.com")
-	if err != nil {
-		t.Fatalf("GetUserByEmail: %v", err)
+	tests := []struct {
+		name     string
+		email    string
+		queryErr error
+		rows     *pgxmock.Rows
+		wantNil  bool
+		wantErr  string
+	}{
+		{
+			name:  "found",
+			email: "found@example.com",
+			rows: pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
+				AddRow("user-1", "found@example.com", "Found", 2, int64(100), &lastLogin),
+		},
+		{
+			name:     "not found",
+			email:    "missing@example.com",
+			queryErr: pgx.ErrNoRows,
+			wantNil:  true,
+		},
+		{
+			name:    "scan error",
+			email:   "bad@example.com",
+			rows:    pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).AddRow("user-1", 123, "Bad", 0, int64(1), int64(2)),
+			wantErr: "scan",
+		},
 	}
-	if user == nil {
-		t.Fatal("expected user, got nil")
-	}
-	if user.ID != "user-1" || user.Email != "found@example.com" || user.Nickname != "Found" {
-		t.Errorf("user = %+v", user)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewUserRepository)
+			q := mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
+				WithArgs(pgxmock.AnyArg(), tt.email)
+			if tt.queryErr != nil {
+				q.WillReturnError(tt.queryErr)
+			} else {
+				q.WillReturnRows(tt.rows)
+			}
+			user, err := repo.GetUserByEmail(context.Background(), tt.email)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("GetUserByEmail = %v, want %q error", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetUserByEmail: %v", err)
+			}
+			if tt.wantNil && user != nil {
+				t.Fatalf("expected nil, got %+v", user)
+			}
+			if !tt.wantNil && user == nil {
+				t.Fatal("expected non-nil user")
+			}
+		})
 	}
 }
 
-func TestGetUserByEmail_NotFound(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
-		WithArgs(pgxmock.AnyArg(), "missing@example.com").
-		WillReturnError(pgx.ErrNoRows)
-
-	user, err := repo.GetUserByEmail(ctx, "missing@example.com")
-	if err != nil {
-		t.Fatalf("GetUserByEmail: %v", err)
-	}
-	if user != nil {
-		t.Fatalf("expected nil user, got %+v", user)
-	}
-}
-
-// store-020: Verify the OR branch is parenthesized so deleted_at IS NULL
-// filters the entire WHERE clause, not just the email fallback branch.
-// The regex requires an opening paren before email_hash which only exists
-// in the fixed query — a regression to the old unparenthesized OR would
-// cause pgxmock to report an unexpected query.
+// TestGetUserByEmail_SoftDeletedFilterParenthesized verifies store-020: the OR
+// branch is parenthesized so deleted_at IS NULL filters the entire WHERE.
 func TestGetUserByEmail_SoftDeletedFilterParenthesized(t *testing.T) {
 	repo, mock := newMockRepo(t, NewUserRepository)
 	ctx := context.Background()
@@ -73,58 +89,6 @@ func TestGetUserByEmail_SoftDeletedFilterParenthesized(t *testing.T) {
 	}
 	if user == nil || user.ID != "user-1" {
 		t.Fatalf("user = %+v", user)
-	}
-}
-
-func TestGetUserByEmail_ScanError(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
-		AddRow("user-1", 123, "Bad", 0, int64(1), int64(2))
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
-		WillReturnRows(rows)
-
-	_, err := repo.GetUserByEmail(ctx, "bad@example.com")
-	if err == nil {
-		t.Fatal("expected scan error")
-	}
-}
-
-func TestGetUserByID_Found(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	lastLogin := int64(60)
-	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
-		AddRow("id-42", "byid@example.com", "ByID", 3, int64(50), &lastLogin)
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("id-42").
-		WillReturnRows(rows)
-
-	user, err := repo.GetUserByID(ctx, "id-42")
-	if err != nil {
-		t.Fatalf("GetUserByID: %v", err)
-	}
-	if user == nil || user.ID != "id-42" {
-		t.Fatalf("user = %+v", user)
-	}
-}
-
-func TestGetUserByID_NotFound(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("missing-id").
-		WillReturnError(pgx.ErrNoRows)
-
-	user, err := repo.GetUserByID(ctx, "missing-id")
-	if err != nil {
-		t.Fatalf("GetUserByID: %v", err)
-	}
-	if user != nil {
-		t.Fatalf("expected nil, got %+v", user)
 	}
 }
 
@@ -150,19 +114,62 @@ func TestGetUserByEmail_DecryptError(t *testing.T) {
 	}
 }
 
-func TestGetUserByID_ScanError(t *testing.T) {
-	repo, mock := newMockRepo(t, NewUserRepository)
-	ctx := context.Background()
-
-	rows := pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
-		AddRow("id-42", 123, "Bad", 0, int64(1), int64(2))
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("id-42").
-		WillReturnRows(rows)
-
-	_, err := repo.GetUserByID(ctx, "id-42")
-	if err == nil {
-		t.Fatal("expected scan error")
+func TestGetUserByID(t *testing.T) {
+	lastLogin := int64(60)
+	tests := []struct {
+		name     string
+		id       string
+		queryErr error
+		rows     *pgxmock.Rows
+		wantNil  bool
+		wantErr  string
+	}{
+		{
+			name: "found",
+			id:   "id-42",
+			rows: pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
+				AddRow("id-42", "byid@example.com", "ByID", 3, int64(50), &lastLogin),
+		},
+		{
+			name:     "not found",
+			id:       "missing-id",
+			queryErr: pgx.ErrNoRows,
+			wantNil:  true,
+		},
+		{
+			name:    "scan error",
+			id:      "id-42",
+			rows:    pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).AddRow("id-42", 123, "Bad", 0, int64(1), int64(2)),
+			wantErr: "scan",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewUserRepository)
+			q := mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
+				WithArgs(tt.id)
+			if tt.queryErr != nil {
+				q.WillReturnError(tt.queryErr)
+			} else {
+				q.WillReturnRows(tt.rows)
+			}
+			user, err := repo.GetUserByID(context.Background(), tt.id)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("GetUserByID = %v, want %q error", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetUserByID: %v", err)
+			}
+			if tt.wantNil && user != nil {
+				t.Fatalf("expected nil, got %+v", user)
+			}
+			if !tt.wantNil && user == nil {
+				t.Fatal("expected non-nil user")
+			}
+		})
 	}
 }
 

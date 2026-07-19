@@ -10,15 +10,13 @@ import (
 )
 
 func TestDefaultDBRetry(t *testing.T) {
-	b := DefaultDBRetry()
-	if b == nil {
+	if b := DefaultDBRetry(); b == nil {
 		t.Fatal("DefaultDBRetry returned nil")
 	}
 }
 
 func TestDefaultRedisRetry(t *testing.T) {
-	b := DefaultRedisRetry()
-	if b == nil {
+	if b := DefaultRedisRetry(); b == nil {
 		t.Fatal("DefaultRedisRetry returned nil")
 	}
 }
@@ -60,51 +58,58 @@ func TestJitteredBackoff_ZeroBase(t *testing.T) {
 	JitteredBackoff(0, 3)
 }
 
-func TestRetryWithBackoff_SucceedsImmediately(t *testing.T) {
-	ctx := context.Background()
-	attempts := 0
-	err := retry.Do(ctx, DefaultDBRetry(), func(_ context.Context) error {
-		attempts++
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
+func TestRetryWithBackoff(t *testing.T) {
+	tests := []struct {
+		name         string
+		fn           func(attempts *int) func(_ context.Context) error
+		wantAttempts int
+		wantErr      bool
+	}{
+		{
+			name:         "succeeds immediately",
+			fn:           func(a *int) func(_ context.Context) error { return func(_ context.Context) error { *a++; return nil } },
+			wantAttempts: 1,
+		},
+		{
+			name: "succeeds after retries",
+			fn: func(a *int) func(_ context.Context) error {
+				return func(_ context.Context) error {
+					*a++
+					if *a < 3 {
+						return retry.RetryableError(errors.New("transient error"))
+					}
+					return nil
+				}
+			},
+			wantAttempts: 3,
+		},
+		{
+			name: "exhausts retries",
+			fn: func(a *int) func(_ context.Context) error {
+				return func(_ context.Context) error {
+					*a++
+					return retry.RetryableError(errors.New("persistent error"))
+				}
+			},
+			wantAttempts: 4,
+			wantErr:      true,
+		},
 	}
-	if attempts != 1 {
-		t.Fatalf("expected 1 attempt, got %d", attempts)
-	}
-}
 
-func TestRetryWithBackoff_SucceedsAfterRetries(t *testing.T) {
-	ctx := context.Background()
-	attempts := 0
-	err := retry.Do(ctx, DefaultDBRetry(), func(_ context.Context) error {
-		attempts++
-		if attempts < 3 {
-			return retry.RetryableError(errors.New("transient error"))
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("expected nil error after retries, got %v", err)
-	}
-	if attempts != 3 {
-		t.Fatalf("expected 3 attempts, got %d", attempts)
-	}
-}
-
-func TestRetryWithBackoff_ExhaustsRetries(t *testing.T) {
-	ctx := context.Background()
-	attempts := 0
-	err := retry.Do(ctx, DefaultDBRetry(), func(_ context.Context) error {
-		attempts++
-		return retry.RetryableError(errors.New("persistent error"))
-	})
-	if err == nil {
-		t.Fatal("expected error after exhausting retries")
-	}
-	if attempts != 4 {
-		t.Fatalf("expected 4 attempts (1 initial + 3 retries), got %d", attempts)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			attempts := 0
+			err := retry.Do(context.Background(), DefaultDBRetry(), tt.fn(&attempts))
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if attempts != tt.wantAttempts {
+				t.Fatalf("attempts = %d, want %d", attempts, tt.wantAttempts)
+			}
+		})
 	}
 }
 

@@ -104,8 +104,7 @@ func TestCheckAuth_AuthenticatedViaCookieWithoutMiddleware(t *testing.T) {
 func TestCheckAuth_RevokedSession(t *testing.T) {
 	t.Parallel()
 
-	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	h, redisStore, jwtMgr := newTestAuthHandlerWithRedis(t)
 	token, err := jwtMgr.SignToken("user-revoked", "Revoked")
 	if err != nil {
 		t.Fatalf("SignToken: %v", err)
@@ -117,8 +116,6 @@ func TestCheckAuth_RevokedSession(t *testing.T) {
 	if err := redisStore.RevokeJWT(context.Background(), jti, time.Minute); err != nil {
 		t.Fatalf("RevokeJWT: %v", err)
 	}
-
-	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
@@ -286,12 +283,7 @@ func TestQuickPlay_WithDB(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
-	_, rdb := testutil.NewTestMiniredis(t)
-	redisStore := store.NewRedisStoreFromClient(rdb)
-
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
+	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO users").
@@ -337,12 +329,7 @@ func TestDeleteUserData_Success(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
-	_, rdb := testutil.NewTestMiniredis(t)
-	redisStore := store.NewRedisStoreFromClient(rdb)
-
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
+	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
 
 	// AnonymizeUser uses pool.Exec directly (non-transactional, via withRetryWrite circuit breaker)
 	mock.ExpectExec("UPDATE users SET email").
@@ -366,10 +353,7 @@ func TestDeleteUserData_DBError(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
-	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
+	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
 
 	// AnonymizeUser uses pool.Exec directly (non-transactional, via withRetryWrite circuit breaker)
 	mock.ExpectExec("UPDATE users SET email").
@@ -460,9 +444,7 @@ func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 }
 
 func TestRequestMagicLink_InvalidEmail(t *testing.T) {
-	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{})
+	h, _, _ := newTestAuthHandlerWithRedis(t)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(`{"email":"bad-email"}`))
@@ -519,9 +501,7 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 }
 
 func TestVerifyMagicLinkToken_InvalidToken(t *testing.T) {
-	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{})
+	h, _, _ := newTestAuthHandlerWithRedis(t)
 
 	token := strings.Repeat("b", config.MagicLinkTokenLen)
 	w := httptest.NewRecorder()
@@ -536,12 +516,7 @@ func TestRefreshToken_Success(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
-	_, rdb := testutil.NewTestMiniredis(t)
-	redisStore := store.NewRedisStoreFromClient(rdb)
-
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
-	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
+	h, _, _, refreshMgr := newTestAuthHandlerWithRefreshMgr(t, db)
 
 	ctx := context.Background()
 	refreshToken, err := refreshMgr.Generate(ctx, "user-refresh")
@@ -649,12 +624,9 @@ func TestCheckAuth_DBErrorDegraded(t *testing.T) {
 }
 
 func TestRefreshToken_InvalidToken(t *testing.T) {
-	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
-	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
+	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", strings.NewReader(`{"refresh_token":"invalid-token"}`))

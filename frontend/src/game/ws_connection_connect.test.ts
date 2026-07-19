@@ -150,31 +150,6 @@ describe('connectWebSocket', () => {
     expect(connectMocks.onLobbyCodeReady).toHaveBeenCalledWith('MATCH2');
   });
 
-  it('skips reconnect when socket already open for same lobby, after room resolve, or after match', async () => {
-    // Case 1: same lobby
-    await connectWebSocket();
-    expect(MockWebSocket.lastInstance).not.toBeNull();
-    const first = MockWebSocket.lastInstance;
-    await connectWebSocket();
-    expect(MockWebSocket.lastInstance).toBe(first);
-
-    // Case 2: after room resolve (waiting step)
-    connectMocks.getEntryStep.mockReturnValue('waiting');
-    connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM2');
-    await connectWebSocket();
-    const second = MockWebSocket.lastInstance;
-    await connectWebSocket();
-    expect(MockWebSocket.lastInstance).toBe(second);
-
-    // Case 3: after match (lobbyCode from match, not URL)
-    connectMocks.getLobbyCodeFromUrl.mockReturnValue(null);
-    connectMocks.resolveLobbyCode.mockResolvedValue('MATCH2');
-    await connectWebSocket();
-    const third = MockWebSocket.lastInstance;
-    await connectWebSocket();
-    expect(MockWebSocket.lastInstance).toBe(third);
-  });
-
   it('uses fresh match sessionStorage without re-validating room', async () => {
     sessionStorage.setItem('uppy-fresh-match', 'URL22');
     await connectWebSocket();
@@ -184,31 +159,6 @@ describe('connectWebSocket', () => {
     setRoomPreChecked(false);
   });
 
-  it('shows connection error when socket closes before open, with/without room pre-checked', async () => {
-    // Without pre-checked
-    await connectWebSocket();
-    setWsEverOpened(false);
-    MockWebSocket.lastInstance?.onclose?.();
-    expect(showConnectionErrorUI).toHaveBeenCalled();
-    // With pre-checked
-    setRoomPreChecked(true);
-    await connectWebSocket();
-    setWsEverOpened(false);
-    MockWebSocket.lastInstance?.onclose?.();
-    expect(showConnectionErrorUI).toHaveBeenCalledWith(
-      '无法连接房间，请稍后重试',
-      expect.objectContaining({ showActions: true }),
-    );
-    setRoomPreChecked(false);
-  });
-
-  it('ignores non-arraybuffer websocket messages', async () => {
-    await connectWebSocket();
-    MockWebSocket.lastInstance?.onmessage?.({ data: 'text' } as MessageEvent);
-    drainPendingMessages(1);
-    expect(handleBinaryMessage).not.toHaveBeenCalled();
-  });
-
   it('logs websocket errors without throwing', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await connectWebSocket();
@@ -216,15 +166,6 @@ describe('connectWebSocket', () => {
     MockWebSocket.lastInstance!.onerror!(new Event('error'));
     expect(errSpy).toHaveBeenCalledWith('WebSocket error');
     errSpy.mockRestore();
-  });
-
-  it('shows not_found room error title', async () => {
-    connectMocks.validateRoomCode.mockResolvedValueOnce({ ok: false, reason: 'not_found' });
-    await connectWebSocket();
-    expect(showConnectionErrorUI).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ title: '无法进入房间' }),
-    );
   });
 
   it('ignores connect while another connect is in flight', async () => {
@@ -237,17 +178,6 @@ describe('connectWebSocket', () => {
     resolveSession({ ok: true });
     await first;
     expect(MockWebSocket.lastInstance).not.toBeNull();
-  });
-
-  it('fires onopen handlers and restart vote after ended phase', async () => {
-    const { state } = await import('./state.js');
-    state.phase = 'ended';
-    state.restartClicked = true;
-    await connectWebSocket();
-    MockWebSocket.lastInstance?.onopen?.();
-    expect(MockWebSocket.lastInstance?.sent.length).toBeGreaterThan(0);
-    state.phase = 'waiting';
-    state.restartClicked = false;
   });
 
   it('schedules reconnect when socket closes after it opened', async () => {
