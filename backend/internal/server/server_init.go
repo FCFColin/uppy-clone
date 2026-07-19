@@ -64,8 +64,7 @@ func initRedisCluster(cfg *handler.Config, timeouts appConfig.TimeoutConfig, dep
 func initHub(db *store.PostgresStore, redis *store.RedisStore, timeouts appConfig.TimeoutConfig) *game.Hub {
 	maxWSConnections := getEnvInt("MAX_WS_CONNECTIONS", appConfig.MaxWSConnections)
 	maxPlayersPerRoom := getEnvInt("MAX_PLAYERS_PER_ROOM", appConfig.MaxPlayersPerRoom)
-	gameStore := db.NewGameStore()
-	hub := game.NewHub(gameStore, redis, timeouts, maxWSConnections, maxPlayersPerRoom)
+	hub := game.NewHub(db, redis, timeouts, maxWSConnections, maxPlayersPerRoom)
 	if err := hub.RestoreRooms(); err != nil {
 		slog.Warn("failed to restore rooms", "error", err)
 	}

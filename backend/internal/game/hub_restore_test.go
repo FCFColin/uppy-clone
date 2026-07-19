@@ -51,7 +51,7 @@ func TestHub_DeserializeAndMaterialize_Invalid(t *testing.T) {
 func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 
-	db := store.NewGameStore(mock)
+	db := store.NewPostgresStoreWithPool(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
 	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, 8)
 
@@ -88,7 +88,7 @@ func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
 func TestHub_RestoreRooms_SkipsForeignOwner(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 
-	db := store.NewGameStore(mock)
+	db := store.NewPostgresStoreWithPool(mock)
 	redisStore := testutil.SetupMiniredisStore(t)
 	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, 8)
 
@@ -191,7 +191,7 @@ func TestHub_loadOrMaterializeRoom(t *testing.T) {
 	stateJSON, _ := json.Marshal(state)
 
 	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
+	db := store.NewPostgresStoreWithPool(mock)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
 		WithArgs("LOAD1").
 		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
@@ -222,7 +222,7 @@ func TestHub_loadOrMaterializeRoom_NilStore(t *testing.T) {
 
 func TestHub_RestoreRooms_LoadError(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
+	db := store.NewPostgresStoreWithPool(mock)
 	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnError(context.Canceled)
 
@@ -234,7 +234,7 @@ func TestHub_RestoreRooms_LoadError(t *testing.T) {
 
 func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
+	db := store.NewPostgresStoreWithPool(mock)
 
 	state := NewGameState("EXIST", 42, testRNG())
 	stateJSON, _ := json.Marshal(state)
@@ -257,7 +257,7 @@ func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
 
 func TestHub_RestoreRooms_DeserializeError(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
+	db := store.NewPostgresStoreWithPool(mock)
 
 	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
@@ -287,7 +287,7 @@ func TestHub_loadOrMaterializeRoom_ForeignOwner(t *testing.T) {
 
 func TestHub_loadOrMaterializeRoom_ForeignOwnerWithStore(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
+	db := store.NewPostgresStoreWithPool(mock)
 
 	redisStore := testutil.SetupMiniredisStore(t)
 	foreign := []byte(`{"code":"LOAD5","instance":"other","address":"x","created_at":1}`)
@@ -337,7 +337,7 @@ func TestHub_loadOrMaterializeRoom_ErrorCases(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			mock := testutil.NewPgxMock(t)
-			db := store.NewGameStore(mock)
+			db := store.NewPostgresStoreWithPool(mock)
 			c.setupMock(t, mock)
 			h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
 			if room := h.loadOrMaterializeRoom(c.code); room != nil {
@@ -407,7 +407,7 @@ func TestHub_RestoreRooms_EmptyPage(t *testing.T) {
 
 func TestHub_loadOrMaterializeRoom_ReturnsExisting(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
+	db := store.NewPostgresStoreWithPool(mock)
 	state := NewGameState("EXIST1", 42, testRNG())
 	stateJSON, _ := json.Marshal(state)
 

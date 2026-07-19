@@ -33,6 +33,10 @@ type PostgresStore struct {
 	cb   *gobreaker.CircuitBreaker[any]
 	deps Deps
 
+	lobby  *LobbyRepository
+	result *ResultRepository
+	outbox *OutboxRepository
+
 	lastAcquireDuration atomic.Value // float64
 	lastAcquireCount    atomic.Value // int64
 }
@@ -82,9 +86,12 @@ func NewPostgresStore(connString string, timeouts config.TimeoutConfig, deps ...
 	}
 
 	return &PostgresStore{
-		pool: pool,
-		cb:   d.PostgresBreakerFactory(),
-		deps: d,
+		pool:   pool,
+		cb:     d.PostgresBreakerFactory(),
+		deps:   d,
+		lobby:  NewLobbyRepository(pool, d),
+		result: NewResultRepository(pool, d),
+		outbox: NewOutboxRepository(pool, d),
 	}, nil
 }
 
@@ -92,9 +99,12 @@ func NewPostgresStore(connString string, timeouts config.TimeoutConfig, deps ...
 func NewPostgresStoreWithPool(pool base.PGPool, deps ...Deps) *PostgresStore {
 	d := depsOrZero(deps...)
 	return &PostgresStore{
-		pool: pool,
-		cb:   d.PostgresBreakerFactory(),
-		deps: d,
+		pool:   pool,
+		cb:     d.PostgresBreakerFactory(),
+		deps:   d,
+		lobby:  NewLobbyRepository(pool, d),
+		result: NewResultRepository(pool, d),
+		outbox: NewOutboxRepository(pool, d),
 	}
 }
 
@@ -106,17 +116,40 @@ func (s *PostgresStore) Close() {
 	s.pool.Close()
 }
 
+// ─── RoomRepository implementation ───────────────────────────────────
+
+func (s *PostgresStore) SaveLobbyState(ctx context.Context, ls *domain.LobbyState) error {
+	return s.lobby.SaveLobbyState(ctx, ls)
+}
+
+func (s *PostgresStore) LoadLobbyState(ctx context.Context, code string) (*domain.LobbyState, error) {
+	return s.lobby.LoadLobbyState(ctx, code)
+}
+
+func (s *PostgresStore) DeleteLobbyState(ctx context.Context, code string) error {
+	return s.lobby.DeleteLobbyState(ctx, code)
+}
+
+func (s *PostgresStore) LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*domain.LobbyListResult, error) {
+	return s.lobby.LoadAllActiveLobbies(ctx, limit, cursor)
+}
+
+func (s *PostgresStore) CreateGameSession(ctx context.Context, gs *domain.GameSession) error {
+	return s.result.CreateGameSession(ctx, gs)
+}
+
+func (s *PostgresStore) RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error {
+	return s.result.RecordGameResult(ctx, sessionID, roomCode, endedAt, finalScore, results)
+}
+
+func (s *PostgresStore) InsertOutboxEvent(ctx context.Context, aggregateType, aggregateID string, payload []byte) error {
+	return s.outbox.InsertOutboxEvent(ctx, aggregateType, aggregateID, payload)
+}
+
 // Pool returns the underlying connection pool.
 func (s *PostgresStore) Pool() *pgxpool.Pool {
 	p, _ := s.pool.(*pgxpool.Pool)
 	return p
-}
-
-// NewGameStore returns a GameStore backed by this store's pool.
-// Unlike NewGameStore(db.Pool()), this works with pgxmock-backed stores in tests
-// because it uses the internal pool abstraction directly.
-func (s *PostgresStore) NewGameStore() *GameStore {
-	return NewGameStore(s.pool, s.deps)
 }
 
 // NewUserRepository returns a UserRepository backed by this store's pool.
