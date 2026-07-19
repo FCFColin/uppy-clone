@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,8 +9,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/uppy-clone/backend/internal/crypto"
-	"github.com/uppy-clone/backend/internal/domain"
 )
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
@@ -166,12 +163,6 @@ func TestUpdateConfig_OldPasswordVerification(t *testing.T) {
 		}
 	})
 }
-
-// Avoid unused imports
-var _ = json.Marshal
-var _ = domain.AppConfig{}
-var _ = crypto.Encrypt
-var _ = fmt.Sprintf
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
 

@@ -109,18 +109,19 @@ export function resetWsHandlersMocks() {
 // An optional `stateOverride` may be supplied when the caller maintains its own
 // mock state (e.g. entry_flow_test_setup.ts uses a different state shape).
 export async function createStateJsMockModule(
-  importActual: () => Promise<never>,
-  stateOverride?: never,
+  importActual: () => Promise<unknown>,
+  stateOverride?: Record<string, unknown>,
 ) {
-  const actual = await importActual();
+  const actual = (await importActual()) as Record<string, unknown>;
   const m = getMocks();
   const state = stateOverride ?? m.state;
   return {
     ...actual,
     state,
     getState: () => state,
-    dispatch: (action: never) => {
-      const next = actual.gameReducer(state, action);
+    dispatch: (action: Record<string, unknown>) => {
+      const gameReducer = actual.gameReducer as (state: unknown, action: unknown) => unknown;
+      const next = gameReducer(state, action);
       if (next !== state) Object.assign(state, next);
     },
   };

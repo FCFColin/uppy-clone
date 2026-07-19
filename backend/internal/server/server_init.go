@@ -6,51 +6,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/auth"
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
-	"github.com/uppy-clone/backend/internal/metrics"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/outbox"
 	"github.com/uppy-clone/backend/internal/rbac"
 	"github.com/uppy-clone/backend/internal/store"
-	"github.com/uppy-clone/backend/internal/telemetry"
 	"github.com/uppy-clone/backend/internal/worker"
 )
 
 // defaultMigrationsDir is the on-disk directory used to locate SQL migration
 // files when the environment does not override MigrationsDir.
 const defaultMigrationsDir = "migrations"
-
-// newStoreDeps builds production Deps with real resilience, tracing, metrics,
-// and audit logging. Passed to store constructors via variadic parameter.
-func newStoreDeps() store.Deps {
-	return store.Deps{
-		RedisBreakerFactory:    store.NewRedisBreaker,
-		PostgresBreakerFactory: store.NewPostgresBreaker,
-		DBRetryPolicy:          store.DefaultDBRetry(),
-		RedisRetryPolicy:       store.DefaultRedisRetry(),
-		MaybeRetryableFn:       store.MaybeRetryable,
-		Tracer:                 telemetry.Tracer(),
-		PoolMetrics:            poolMetricsAdapter{},
-		AuditLogFn: func(ctx context.Context, e store.AuditEntry) {
-			audit.Log(ctx, e)
-		},
-	}
-}
-
-// poolMetricsAdapter adapts the metrics package's Prometheus collectors to
-// the store.PoolMetricsRecorder interface (RO-052).
-type poolMetricsAdapter struct{}
-
-func (poolMetricsAdapter) IncAcquireCount()        { metrics.DBPoolAcquireCount.Inc() }
-func (poolMetricsAdapter) SetIdleConns(v float64)  { metrics.DBPoolIdleConns.Set(v) }
-func (poolMetricsAdapter) SetInUseConns(v float64) { metrics.DBPoolInUseConns.Set(v) }
-func (poolMetricsAdapter) ObserveAcquireDuration(v float64) {
-	metrics.DBPoolAcquireDuration.Observe(v)
-}
 
 // initDB connects to PostgreSQL and runs migrations.
 func initDB(cfg *handler.Config, timeouts appConfig.TimeoutConfig, deps store.Deps) (*store.PostgresStore, error) {

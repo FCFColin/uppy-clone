@@ -13,7 +13,7 @@ import { updateWindIndicator, hideWindIndicator } from './ui_common.js';
 import { resizeCanvas } from './renderer.js';
 import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff } from './entry_flow.js';
-import { getWaitingTitleText } from './entry_flow_ui.js';
+import { getWaitingTitleText } from './entry_flow.js';
 import { syncRestartVoteProgress } from './restart_vote_ui.js';
 import { safeGetItem } from '../shared/ui/utils.js';
 

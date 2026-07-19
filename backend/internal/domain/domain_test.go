@@ -8,11 +8,7 @@ import (
 	"testing"
 )
 
-type testValidator struct{}
-
-func (testValidator) ValidateNickname(s string) string { return s }
-
-var _testValidator = testValidator{}
+var _testValidator = func(s string) string { return s }
 
 func TestNewNickname_Valid(t *testing.T) {
 	n, err := NewNickname("  Hello World  ", _testValidator)

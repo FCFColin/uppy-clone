@@ -14,6 +14,7 @@ import (
 
 	"github.com/uppy-clone/backend/internal/audit"
 	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/bootstrap"
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
@@ -53,7 +54,7 @@ func runServer(logger *slog.Logger) error {
 		return fmt.Errorf("init crypto: %w", err)
 	}
 
-	deps := newStoreDeps()
+	deps := bootstrap.NewStoreDeps()
 
 	db, err := initDB(cfg, timeouts, deps)
 	if err != nil {

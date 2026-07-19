@@ -5,7 +5,6 @@ import { CLIENT_MSG } from '../shared/game/constants.js';
 
 const _textEncoder = new TextEncoder();
 const _textDecoder = new TextDecoder();
-export { _textEncoder as textEncoder, _textDecoder as textDecoder };
 
 
 const phaseByCode: Record<number, GamePhase> = {

@@ -1,4 +1,4 @@
-import type { EntryStep } from './entry_flow_ui.js';
+import type { EntryStep } from './entry_flow.js';
 export type GamePhase = 'waiting' | 'countdown' | 'playing' | 'ended';
 
 interface ClientBalloon {

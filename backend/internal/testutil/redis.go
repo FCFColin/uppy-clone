@@ -12,8 +12,7 @@ import (
 	"github.com/uppy-clone/backend/internal/store"
 )
 
-// SetupRedisStore starts Redis via testcontainers and returns a connected RedisStore.
-func SetupRedisStore(t *testing.T) (context.Context, *store.RedisStore) {
+func startRedisContainer(t *testing.T) (context.Context, string) {
 	t.Helper()
 	skipIfShort(t)
 
@@ -33,6 +32,13 @@ func SetupRedisStore(t *testing.T) (context.Context, *store.RedisStore) {
 	if err != nil {
 		t.Fatalf("redis endpoint: %v", err)
 	}
+	return ctx, addr
+}
+
+// SetupRedisStore starts Redis via testcontainers and returns a connected RedisStore.
+func SetupRedisStore(t *testing.T) (context.Context, *store.RedisStore) {
+	t.Helper()
+	ctx, addr := startRedisContainer(t)
 
 	timeouts := config.TimeoutConfig{
 		RedisConnectTimeout: 5 * time.Second,

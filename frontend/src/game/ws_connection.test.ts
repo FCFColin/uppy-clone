@@ -40,10 +40,8 @@ vi.mock('./entry_flow.js', () => ({
   onWebSocketOpen: vi.fn(),
   onWebSocketClosed: vi.fn(),
   getEntryStep: vi.fn(() => 'waiting'),
-}));
-
-vi.mock('./entry_flow_ui.js', () => ({
   clearWaitingInlineError: vi.fn(),
+  showLoadingOverlay: vi.fn(),
 }));
 
 vi.mock('./state_interp.js', () => ({

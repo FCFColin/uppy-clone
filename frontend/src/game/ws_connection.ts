@@ -19,7 +19,7 @@ import {
   onWebSocketClosed,
   getEntryStep,
 } from './entry_flow.js';
-import { clearWaitingInlineError } from './entry_flow_ui.js';
+import { clearWaitingInlineError } from './entry_flow.js';
 import {
   resolveLobbyCode,
   getLobbyCodeFromUrl,

@@ -54,16 +54,10 @@ func isRetryable(err error) bool {
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
-	if errors.Is(err, syscall.ECONNRESET) {
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) {
 		return true
 	}
-	if errors.Is(err, syscall.ECONNREFUSED) {
-		return true
-	}
-	if errors.Is(err, io.EOF) {
-		return true
-	}
-	if errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
 	return false

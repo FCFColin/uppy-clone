@@ -29,7 +29,7 @@ vi.hoisted(() => {
 
 const mockState = getEntryMocks().state;
 
-vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as never, getEntryMocks().state));
+vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as unknown as () => Promise<unknown>, getEntryMocks().state as unknown as Record<string, unknown>));
 
 vi.mock('./renderer.js', () => ({
   $canvas: document.getElementById('game-canvas')! as HTMLCanvasElement,
@@ -45,6 +45,7 @@ vi.mock('./lobby_match.js', () => ({
 }));
 
 import {
+  resetEntryFlowForTest,
   setNicknameStatus,
   nicknameReadyStatus,
   setWaitingInlineError,
@@ -53,8 +54,7 @@ import {
   syncEntryOverlays,
   setLobbyCodeDisplay,
   renderEntryFullScreenError,
-} from './entry_flow_ui.js';
-import { resetEntryFlowForTest } from './entry_flow.js';
+} from './entry_flow.js';
 import type { EntryOverlayContext } from './entry_flow.js';
 
 describe('entry_flow_dom', () => {

@@ -7,10 +7,6 @@ import { updateUI } from './ui_update.js';
 import { startCountdownTimer, hideCountdownOverlay, showCountdownOverlay, startCooldownUpdater, stopCooldownUpdater } from './ui_common.js';
 import { clearRestartCountdownTimer as clearVoteCountdownTimer } from './restart_vote_ui.js';
 import { tryEntryHandoff } from './entry_flow.js';
-import { END_REASON } from '../shared/game/constants.js';
-
-export { END_REASON };
-
 /**
  * Whether a snapshot phase transition is allowed from the current client phase.
  *

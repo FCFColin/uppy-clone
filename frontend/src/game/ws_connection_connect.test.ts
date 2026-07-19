@@ -7,7 +7,7 @@ const connectMocks = vi.hoisted(() => ({
   resolveLobbyCode: vi.fn(async (): Promise<string | null> => 'ROOM2'),
   getLobbyCodeFromUrl: vi.fn((): string | null => 'URL22'),
   onLobbyCodeReady: vi.fn(),
-  getEntryStep: vi.fn((): import('./entry_flow_ui.js').EntryStep => 'connecting'),
+  getEntryStep: vi.fn((): import('./entry_flow.js').EntryStep => 'connecting'),
 }));
 
 vi.mock('../shared/network/session.js', () => ({
@@ -28,10 +28,8 @@ vi.mock('./entry_flow.js', () => ({
   getEntryStep: connectMocks.getEntryStep,
   onWebSocketOpen: vi.fn(),
   onWebSocketClosed: vi.fn(),
-}));
-
-vi.mock('./entry_flow_ui.js', () => ({
   clearWaitingInlineError: vi.fn(),
+  showLoadingOverlay: vi.fn(),
 }));
 
 vi.mock('./ui_common.js', async () => {

@@ -132,16 +132,16 @@ func TestSanitizeNickname_WhitespaceHandling(t *testing.T) {
 }
 
 func TestNicknameValidatorFunc(t *testing.T) {
-	fn := NicknameValidatorFunc(func(_ string) string {
+	fn := NicknameValidator(func(_ string) string {
 		return "fixed"
 	})
-	if got := fn.ValidateNickname("anything"); got != "fixed" {
-		t.Errorf("ValidateNickname = %q, want %q", got, "fixed")
+	if got := fn("anything"); got != "fixed" {
+		t.Errorf("NicknameValidator = %q, want %q", got, "fixed")
 	}
 }
 
 func TestDefaultValidator(t *testing.T) {
-	got := DefaultValidator.ValidateNickname("<script>alert(1)</script>")
+	got := DefaultValidator("<script>alert(1)</script>")
 	if len(got) >= len("<script>alert(1)</script>") {
 		t.Errorf("DefaultValidator should strip HTML: got %q", got)
 	}
