@@ -45,10 +45,10 @@ type Deps struct {
 func DefaultDeps() Deps {
 	return Deps{
 		PostgresBreakerFactory: func() *gobreaker.CircuitBreaker[any] {
-			return gobreaker.NewCircuitBreaker[any](gobreaker.Settings{Name: "postgres"})
+			return gobreaker.NewCircuitBreaker[any](gobreaker.Settings{Name: pgBreakerName})
 		},
 		RedisBreakerFactory: func() *gobreaker.CircuitBreaker[any] {
-			return gobreaker.NewCircuitBreaker[any](gobreaker.Settings{Name: "redis"})
+			return gobreaker.NewCircuitBreaker[any](gobreaker.Settings{Name: redisBreakerName})
 		},
 		DBRetryPolicy:    retry.WithMaxRetries(3, retry.NewExponential(100*time.Millisecond)),
 		RedisRetryPolicy: retry.WithMaxRetries(2, retry.NewExponential(50*time.Millisecond)),

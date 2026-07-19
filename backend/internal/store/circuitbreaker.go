@@ -57,7 +57,7 @@ var (
 func NewPostgresBreaker() *gobreaker.CircuitBreaker[any] {
 	pgBreakerOnce.Do(func() {
 		pgBreakerSingleton = gobreaker.NewCircuitBreaker[any](gobreaker.Settings{
-			Name:        "postgres",
+			Name:        pgBreakerName,
 			MaxRequests: 3,
 			Interval:    60 * time.Second,
 			Timeout:     30 * time.Second,
@@ -66,7 +66,7 @@ func NewPostgresBreaker() *gobreaker.CircuitBreaker[any] {
 			},
 			OnStateChange: onStateChange,
 		})
-		metrics.CircuitBreakerState.WithLabelValues("postgres", gobreaker.StateClosed.String()).Set(0)
+		metrics.CircuitBreakerState.WithLabelValues(pgBreakerName, gobreaker.StateClosed.String()).Set(0)
 	})
 	return pgBreakerSingleton
 }
@@ -75,7 +75,7 @@ func NewPostgresBreaker() *gobreaker.CircuitBreaker[any] {
 func NewRedisBreaker() *gobreaker.CircuitBreaker[any] {
 	redisBreakerOnce.Do(func() {
 		redisBreakerSingleton = gobreaker.NewCircuitBreaker[any](gobreaker.Settings{
-			Name:        "redis",
+			Name:        redisBreakerName,
 			MaxRequests: 3,
 			Interval:    60 * time.Second,
 			Timeout:     15 * time.Second,
@@ -84,7 +84,7 @@ func NewRedisBreaker() *gobreaker.CircuitBreaker[any] {
 			},
 			OnStateChange: onStateChange,
 		})
-		metrics.CircuitBreakerState.WithLabelValues("redis", gobreaker.StateClosed.String()).Set(0)
+		metrics.CircuitBreakerState.WithLabelValues(redisBreakerName, gobreaker.StateClosed.String()).Set(0)
 	})
 	return redisBreakerSingleton
 }
