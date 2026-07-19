@@ -11,9 +11,9 @@ bin/
 .env.*
 !.env.example
 
-# IDE working data (但保留 specs 需求文档)
+# IDE working data
 .trae/*
-!.trae/specs/
+.trae/
 .superpowers/
 
 # Terraform provider cache
