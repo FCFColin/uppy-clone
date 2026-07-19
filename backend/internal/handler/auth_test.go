@@ -4,16 +4,15 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
-	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
@@ -155,9 +154,7 @@ func TestCheckAuth_Authenticated(t *testing.T) {
 	}
 
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["authenticated"] != true {
 		t.Errorf("authenticated = %v, want true", body["authenticated"])
 	}
@@ -166,34 +163,39 @@ func TestCheckAuth_Authenticated(t *testing.T) {
 	}
 }
 
-func TestRefreshToken_MissingBody(t *testing.T) {
+func TestRefreshToken_BadRequest(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAuthHandler()
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
-
-	h.RefreshToken(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"missing body", ""},
+		{"empty token", `{"refresh_token":""}`},
 	}
-}
 
-func TestRefreshToken_EmptyToken(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	h := newTestAuthHandler()
+			var bodyReader io.Reader
+			if tt.body != "" {
+				bodyReader = strings.NewReader(tt.body)
+			}
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bodyReader)
+			if tt.body != "" {
+				r.Header.Set("Content-Type", "application/json")
+			}
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", strings.NewReader(`{"refresh_token":""}`))
-	r.Header.Set("Content-Type", "application/json")
+			h.RefreshToken(w, r)
 
-	h.RefreshToken(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d; body = %s", w.Code, http.StatusBadRequest, w.Body.String())
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d; body = %s", w.Code, http.StatusBadRequest, w.Body.String())
+			}
+		})
 	}
 }
 
@@ -284,12 +286,8 @@ func TestQuickPlay_WithDB(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, rdb := testutil.NewTestMiniredis(t)
+	redisStore := store.NewRedisStoreFromClient(rdb)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
@@ -339,12 +337,8 @@ func TestDeleteUserData_Success(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, rdb := testutil.NewTestMiniredis(t)
+	redisStore := store.NewRedisStoreFromClient(rdb)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
@@ -432,9 +426,7 @@ func TestCheckAuth_WithDB(t *testing.T) {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["nickname"] != "DbNick" {
 		t.Fatalf("nickname = %v, want DbNick", body["nickname"])
 	}
@@ -447,12 +439,8 @@ func TestCheckAuth_WithDB(t *testing.T) {
 }
 
 func TestRequestMagicLink_TooManyRequests(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, rdb := testutil.NewTestMiniredis(t)
+	redisStore := store.NewRedisStoreFromClient(rdb)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
@@ -508,12 +496,8 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	refreshMgr := auth.NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, rdb := testutil.NewTestMiniredis(t)
+	refreshMgr := auth.NewRefreshTokenManager(rdb)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
@@ -552,12 +536,8 @@ func TestRefreshToken_Success(t *testing.T) {
 	mock := testutil.NewPgxMock(t)
 	db := store.NewUserRepository(mock)
 
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, rdb := testutil.NewTestMiniredis(t)
+	redisStore := store.NewRedisStoreFromClient(rdb)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
@@ -703,12 +683,8 @@ func TestRequestMagicLink_InternalError(t *testing.T) {
 }
 
 func TestLogout_RevokesRefreshToken(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	redisStore := store.NewRedisStoreFromClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, rdb := testutil.NewTestMiniredis(t)
+	redisStore := store.NewRedisStoreFromClient(rdb)
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	h := NewAuthHandler(nil, redisStore, jwtMgr, refreshMgr, &Config{})

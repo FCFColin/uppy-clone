@@ -43,63 +43,26 @@ describe('windowEvents', () => {
     document.body.innerHTML = '';
   });
 
-  it('bindWindowEvents does not throw', () => {
-    expect(() => bindWindowEvents()).not.toThrow();
+  it.each([
+    ['click', mockCanvas, mockResumeAudioContext],
+    ['touchstart', mockCanvas, mockResumeAudioContext],
+  ] as const)('canvas %s listener resumes audio context', (_evt, target, mock) => {
+    bindWindowEvents();
+    const eventCtor = _evt === 'click' ? MouseEvent : TouchEvent;
+    target.dispatchEvent(new eventCtor(_evt));
+    expect(mock).toHaveBeenCalled();
   });
 
-  it('adds click listener to canvas that resumes audio context', () => {
+  it('registers all window and document event handlers', () => {
+    const windowSpy = vi.spyOn(window, 'addEventListener');
+    const docSpy = vi.spyOn(document, 'addEventListener');
     bindWindowEvents();
-    mockCanvas.dispatchEvent(new MouseEvent('click'));
-    expect(mockResumeAudioContext).toHaveBeenCalled();
-  });
-
-  it('adds touchstart listener to canvas that resumes audio context', () => {
-    bindWindowEvents();
-    mockCanvas.dispatchEvent(new TouchEvent('touchstart'));
-    expect(mockResumeAudioContext).toHaveBeenCalled();
-  });
-
-  it('registers resize handler on window', () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-    bindWindowEvents();
-    expect(addEventListenerSpy).toHaveBeenCalledWith('resize', expect.any(Function));
-    expect(addEventListenerSpy).toHaveBeenCalledWith('orientationchange', expect.any(Function));
-  });
-
-  it('registers visibilitychange handler on document', () => {
-    const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
-    bindWindowEvents();
-    expect(addEventListenerSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
-  });
-
-  it('registers keydown handler on document', () => {
-    const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
-    bindWindowEvents();
-    expect(addEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
-  });
-
-  it('registers error handler on window', () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-    bindWindowEvents();
-    expect(addEventListenerSpy).toHaveBeenCalledWith('error', expect.any(Function));
-  });
-
-  it('registers unhandledrejection handler on window', () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-    bindWindowEvents();
-    expect(addEventListenerSpy).toHaveBeenCalledWith('unhandledrejection', expect.any(Function));
-  });
-
-  it('registers online/offline handlers on window', () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-    bindWindowEvents();
-    expect(addEventListenerSpy).toHaveBeenCalledWith('online', expect.any(Function));
-    expect(addEventListenerSpy).toHaveBeenCalledWith('offline', expect.any(Function));
-  });
-
-  it('registers beforeunload handler on window', () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-    bindWindowEvents();
-    expect(addEventListenerSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    const windowEvents = windowSpy.mock.calls.map((c) => c[0]);
+    const docEvents = docSpy.mock.calls.map((c) => c[0]);
+    expect(windowEvents).toEqual(expect.arrayContaining([
+      'resize', 'orientationchange', 'error', 'unhandledrejection',
+      'online', 'offline', 'beforeunload',
+    ]));
+    expect(docEvents).toEqual(expect.arrayContaining(['visibilitychange', 'keydown']));
   });
 });

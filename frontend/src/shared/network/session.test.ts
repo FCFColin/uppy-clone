@@ -2,33 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { normalizeAuthHost, establishGameSession, sessionErrorMessage } from './session.js';
 
 describe('normalizeAuthHost', () => {
-  it('redirects 127.0.0.1 to localhost', () => {
+  it.each([
+    ['127.0.0.1 with port', '5173', '/play.html', '?code=ABC', 'http://localhost:5173/play.html?code=ABC'],
+    ['127.0.0.1 without port', '', '/', '', 'http://localhost/'],
+  ] as const)('redirects %s to localhost', (_label, port, pathname, search, expectedUrl) => {
     const replace = vi.fn();
     vi.stubGlobal('location', {
       hostname: '127.0.0.1',
-      port: '5173',
-      pathname: '/play.html',
-      search: '?code=ABC',
+      port,
+      pathname,
+      search,
       hash: '',
       replace,
     });
     normalizeAuthHost();
-    expect(replace).toHaveBeenCalledWith('http://localhost:5173/play.html?code=ABC');
-    vi.unstubAllGlobals();
-  });
-
-  it('redirects 127.0.0.1 without explicit port', () => {
-    const replace = vi.fn();
-    vi.stubGlobal('location', {
-      hostname: '127.0.0.1',
-      port: '',
-      pathname: '/',
-      search: '',
-      hash: '',
-      replace,
-    });
-    normalizeAuthHost();
-    expect(replace).toHaveBeenCalledWith('http://localhost/');
+    expect(replace).toHaveBeenCalledWith(expectedUrl);
     vi.unstubAllGlobals();
   });
 });
@@ -140,12 +128,11 @@ describe('establishGameSession', () => {
 });
 
 describe('sessionErrorMessage', () => {
-  it('maps network failures', () => {
-    expect(sessionErrorMessage({ ok: false, reason: 'network' })).toContain('网络');
-  });
-
-  it('maps rate limit and server failures', () => {
-    expect(sessionErrorMessage({ ok: false, reason: 'rate_limit' })).toContain('频繁');
-    expect(sessionErrorMessage({ ok: false, reason: 'server' })).toContain('认证失败');
+  it.each([
+    ['network', '网络'],
+    ['rate_limit', '频繁'],
+    ['server', '认证失败'],
+  ] as const)('maps %s reason to expected message', (reason, expected) => {
+    expect(sessionErrorMessage({ ok: false, reason })).toContain(expected);
   });
 });

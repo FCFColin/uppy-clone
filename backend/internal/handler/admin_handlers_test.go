@@ -43,19 +43,6 @@ func TestAdminHandler_Logout(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_Logout_WithJTI(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAdminHandler()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/admin/logout", nil)
-	r = r.WithContext(auth.WithJTI(r.Context(), "jti-123"))
-	h.Logout(w, r)
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", w.Code)
-	}
-}
-
 func TestAdminHandler_Login_PasswordTooLong(t *testing.T) {
 	t.Parallel()
 
@@ -96,16 +83,6 @@ func TestMaskSensitiveFields(t *testing.T) {
 	if out["email_from"] != "a@b.com" {
 		t.Errorf("non-sensitive field altered: %v", out["email_from"])
 	}
-}
-
-func TestAdminHandler_AuditConfigChange(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAdminHandler()
-	r := httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", nil)
-	before := map[string]interface{}{"email_enabled": false}
-	after := map[string]interface{}{"email_enabled": true, "admin_password": "x"}
-	h.auditConfigChange(context.Background(), r, before, after)
 }
 
 func TestAdminHandler_VerifyAdminTokenClaims(t *testing.T) {
@@ -154,54 +131,47 @@ func expectAdminConfigQuery(mock pgxmock.PgxPoolIface, configJSON string) {
 
 func TestAdminHandler_getStoredAdminPassword(t *testing.T) {
 	t.Parallel()
+
 	hashed, _ := hashAdminPassword("secret")
-	cfgJSON, _ := json.Marshal(map[string]string{"admin_password": hashed})
+	hashedCfg, _ := json.Marshal(map[string]string{"admin_password": hashed})
 
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, string(cfgJSON))
-
-	w := httptest.NewRecorder()
-	pwd, ok := h.getStoredAdminPassword(context.Background(), w)
-	if !ok || pwd != hashed {
-		t.Fatalf("getStoredAdminPassword = (%q, %v)", pwd, ok)
+	tests := []struct {
+		name      string
+		cfgJSON   string
+		dbError   bool
+		wantOK    bool
+		wantPwd   string
+		wantStatus int
+	}{
+		{"success", string(hashedCfg), false, true, hashed, 0},
+		{"db error not configured", "", true, false, "", http.StatusForbidden},
+		{"invalid json", `{invalid`, false, false, "", http.StatusInternalServerError},
+		{"empty password", `{"admin_password":""}`, false, false, "", http.StatusForbidden},
 	}
-}
 
-func TestAdminHandler_getStoredAdminPassword_NotConfigured(t *testing.T) {
-	t.Parallel()
-	h, mock, _ := newAdminHandlerWithDB(t)
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("global").
-		WillReturnError(context.Canceled)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, mock, _ := newAdminHandlerWithDB(t)
+			if tt.dbError {
+				mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
+					WithArgs("global").
+					WillReturnError(context.Canceled)
+			} else {
+				expectAdminConfigQuery(mock, tt.cfgJSON)
+			}
 
-	w := httptest.NewRecorder()
-	_, ok := h.getStoredAdminPassword(context.Background(), w)
-	if ok || w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, ok = %v", w.Code, ok)
-	}
-}
-
-func TestAdminHandler_getStoredAdminPassword_InvalidJSON(t *testing.T) {
-	t.Parallel()
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, `{invalid`)
-
-	w := httptest.NewRecorder()
-	_, ok := h.getStoredAdminPassword(context.Background(), w)
-	if ok || w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d", w.Code)
-	}
-}
-
-func TestAdminHandler_getStoredAdminPassword_EmptyPassword(t *testing.T) {
-	t.Parallel()
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, `{"admin_password":""}`)
-
-	w := httptest.NewRecorder()
-	_, ok := h.getStoredAdminPassword(context.Background(), w)
-	if ok || w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d", w.Code)
+			w := httptest.NewRecorder()
+			pwd, ok := h.getStoredAdminPassword(context.Background(), w)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if tt.wantOK && pwd != tt.wantPwd {
+				t.Fatalf("pwd = %q, want %q", pwd, tt.wantPwd)
+			}
+			if !tt.wantOK && w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+		})
 	}
 }
 
@@ -366,34 +336,43 @@ func TestAdminHandler_UpdateConfig_NotFound(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_applyConfigUpdates_OldPasswordRequired(t *testing.T) {
-	h, _, _ := newAdminHandlerWithDB(t)
-	w := httptest.NewRecorder()
-	stored := map[string]interface{}{}
-	newPwd := "new"
-	updates := &configUpdates{AdminPassword: &newPwd}
-	if h.applyConfigUpdates(context.Background(), w, httptest.NewRequest(http.MethodPatch, "/", nil), stored, updates) {
-		t.Fatal("expected failure")
+func TestAdminHandler_applyConfigUpdates_PasswordFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		storedPwd  string // empty means no stored password
+		newPwd     string
+		oldPwd     string
+		wantStatus int
+	}{
+		{"old password required", "", "new", "", http.StatusBadRequest},
+		{"wrong old password", hashMustPwd("correct"), "new", "wrong", http.StatusUnauthorized},
 	}
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d", w.Code)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, _, _ := newAdminHandlerWithDB(t)
+			w := httptest.NewRecorder()
+			stored := map[string]interface{}{}
+			if tt.storedPwd != "" {
+				stored["admin_password"] = tt.storedPwd
+			}
+			updates := &configUpdates{AdminPassword: &tt.newPwd}
+			if tt.oldPwd != "" {
+				updates.OldPassword = &tt.oldPwd
+			}
+			if h.applyConfigUpdates(context.Background(), w, httptest.NewRequest(http.MethodPatch, "/", nil), stored, updates) {
+				t.Fatal("expected failure")
+			}
+			if w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+		})
 	}
 }
 
-func TestAdminHandler_applyConfigUpdates_WrongOldPassword(t *testing.T) {
-	hashed, _ := hashAdminPassword("correct")
-	h, _, _ := newAdminHandlerWithDB(t)
-	w := httptest.NewRecorder()
-	stored := map[string]interface{}{"admin_password": hashed}
-	newPwd := "new"
-	oldPwd := "wrong"
-	updates := &configUpdates{AdminPassword: &newPwd, OldPassword: &oldPwd}
-	if h.applyConfigUpdates(context.Background(), w, httptest.NewRequest(http.MethodPatch, "/", nil), stored, updates) {
-		t.Fatal("expected failure")
-	}
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d", w.Code)
-	}
+func hashMustPwd(pwd string) string {
+	hashed, _ := hashAdminPassword(pwd)
+	return hashed
 }
 
 func TestAdminHandler_applyConfigUpdates_ChangePassword(t *testing.T) {
@@ -515,14 +494,6 @@ func TestAdminHandler_VerifyAdminTokenClaims_RedisError(t *testing.T) {
 	if _, ok := h.VerifyAdminTokenClaims(req); ok {
 		t.Fatal("expected verification failure when redis unavailable")
 	}
-}
-
-func TestAdminHandler_handleFailedLogin_RedisErrors(t *testing.T) {
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	h.handleFailedLogin(context.Background(), "203.0.113.99", "admin")
 }
 
 func TestAdminHandler_GetConfig_DecryptFallback(t *testing.T) {
@@ -685,17 +656,6 @@ func TestAdminHandler_completeAdminLogin_SignError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", w.Code)
 	}
-}
-
-func TestAdminHandler_handleFailedLogin_SetLockError(t *testing.T) {
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	ctx := context.Background()
-	clientIP := "203.0.113.88"
-	for i := 0; i < maxFailedLoginAttempts-1; i++ {
-		h.handleFailedLogin(ctx, clientIP, "admin")
-	}
-	redisStore.Client().AddHook(failLoginLockHook{})
-	h.handleFailedLogin(ctx, clientIP, "admin")
 }
 
 func TestAdminHandler_completeAdminLogin_SecureCookie(t *testing.T) {

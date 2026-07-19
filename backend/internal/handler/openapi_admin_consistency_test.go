@@ -48,9 +48,7 @@ func TestAdminLoginResponseSchema(t *testing.T) {
 	}
 
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 
 	msg, ok := body["message"].(string)
 	if !ok || msg == "" {
@@ -93,9 +91,7 @@ func TestAdminLoginBadPasswordResponseSchema(t *testing.T) {
 	}
 
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["status"] == nil {
 		t.Error("handler-030: error response should include 'status' field per OpenAPI error schema")
 	}
@@ -138,9 +134,7 @@ func TestAdminConfigResponseSchema(t *testing.T) {
 	}
 
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 
 	// OpenAPI spec requires these fields in the config response
 	// (AdminConfigResponse schema uses camelCase: emailEnabled, emailFrom)
@@ -177,9 +171,7 @@ func TestAdminLogoutResponseSchema(t *testing.T) {
 	}
 
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 
 	msg, ok := body["message"].(string)
 	if !ok || msg == "" {

@@ -7,20 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func setupHubWithMiniredis(t *testing.T, repo RoomRepository) (*Hub, *store.RedisStore) {
 	t.Helper()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
+	mr, _ := testutil.NewTestMiniredis(t)
 
 	timeouts := config.DefaultTimeoutConfig()
 	redisStore, err := store.NewRedisStore(mr.Addr(), timeouts)

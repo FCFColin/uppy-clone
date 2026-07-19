@@ -4,7 +4,6 @@ node_modules/
 # Build output
 dist/
 bin/
-.wrangler/
 
 # Environment & secrets
 .dev.vars
@@ -38,8 +37,6 @@ backend/bin/
 # Security/audit scan reports
 *-report.txt
 leaks.json
-staged.txt
-staged_list.txt
 
 # Lint output
 lint-*.txt

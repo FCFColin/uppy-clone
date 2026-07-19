@@ -6,10 +6,12 @@ import (
 )
 
 func TestGenerateRandomNickname_NonEmpty(t *testing.T) {
-	for i := 0; i < 100; i++ {
-		name := GenerateRandomNickname(map[string]bool{})
-		if name == "" {
-			t.Fatal("生成的昵称不应为空")
+	for _, excluded := range []map[string]bool{map[string]bool{}, nil} {
+		for i := 0; i < 100; i++ {
+			name := GenerateRandomNickname(excluded)
+			if name == "" {
+				t.Fatal("生成的昵称不应为空")
+			}
 		}
 	}
 }
@@ -49,13 +51,6 @@ func TestGenerateRandomNickname_AllExcluded(t *testing.T) {
 	hasPlayer := strings.HasPrefix(name, "Player")
 	if !hasHash && !hasPlayer {
 		t.Fatalf("排除所有基础组合后应返回带 # 后缀或 Player 前缀的名字，got=%s", name)
-	}
-}
-
-func TestGenerateRandomNickname_EmptyExclude(t *testing.T) {
-	name := GenerateRandomNickname(nil)
-	if name == "" {
-		t.Fatal("nil 排除列表时应正常生成")
 	}
 }
 

@@ -61,25 +61,25 @@ func TestWriteAuthCookies_AccessOnly(t *testing.T) {
 	}
 }
 
-func TestVerifyMagicLinkPost_InvalidBody(t *testing.T) {
+func TestVerifyMagicLinkPost_BadRequest(t *testing.T) {
 	h := newTestAuthHandler()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader("{bad"))
-	r.Header.Set("Content-Type", "application/json")
-	h.VerifyMagicLinkPost(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"invalid body", "{bad"},
+		{"missing token", `{"token":""}`},
 	}
-}
-
-func TestVerifyMagicLinkPost_MissingToken(t *testing.T) {
-	h := newTestAuthHandler()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(`{"token":""}`))
-	r.Header.Set("Content-Type", "application/json")
-	h.VerifyMagicLinkPost(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(tt.body))
+			r.Header.Set("Content-Type", "application/json")
+			h.VerifyMagicLinkPost(w, r)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", w.Code)
+			}
+		})
 	}
 }
 
@@ -118,21 +118,29 @@ func TestRefreshToken_NilRedis_Degraded(t *testing.T) {
 	}
 }
 
-func TestExportUserData_Unauthorized(t *testing.T) {
+func TestUserData_Unauthorized(t *testing.T) {
 	h := newTestAuthHandler()
-	w := httptest.NewRecorder()
-	h.ExportUserData(w, httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil))
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", w.Code)
+	tests := []struct {
+		name   string
+		method string
+	}{
+		{"export unauthorized", http.MethodGet},
+		{"delete unauthorized", http.MethodDelete},
 	}
-}
-
-func TestDeleteUserData_Unauthorized(t *testing.T) {
-	h := newTestAuthHandler()
-	w := httptest.NewRecorder()
-	h.DeleteUserData(w, httptest.NewRequest(http.MethodDelete, "/api/v1/user/data", nil))
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", w.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(tt.method, "/api/v1/user/data", nil)
+			switch tt.method {
+			case http.MethodGet:
+				h.ExportUserData(w, r)
+			case http.MethodDelete:
+				h.DeleteUserData(w, r)
+			}
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want 401", w.Code)
+			}
+		})
 	}
 }
 

@@ -137,14 +137,6 @@ func TestHub_shouldLocalMaterializeRoom(t *testing.T) {
 	}
 }
 
-func TestHub_unregisterRoomFromRedis(t *testing.T) {
-	redisStore := testutil.SetupMiniredisStore(t)
-	h := NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0)
-	h.registerRoomInRedis("CODE1")
-	h.unregisterRoomFromRedis("CODE1")
-	h.unregisterRoomFromRedis("CODE1")
-}
-
 func TestAllPlayersDisconnectedExpired(t *testing.T) {
 	now := time.Now().UnixMilli()
 	expired := now - domain.ReconnectGraceMs - 1000
@@ -307,43 +299,51 @@ func TestHub_loadOrMaterializeRoom_ForeignOwnerWithStore(t *testing.T) {
 	}
 }
 
-func TestHub_loadOrMaterializeRoom_LoadError(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
-		WithArgs("LOAD3").
-		WillReturnError(context.Canceled)
-
-	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
-	if room := h.loadOrMaterializeRoom("LOAD3"); room != nil {
-		t.Fatal("expected nil on load error")
+func TestHub_loadOrMaterializeRoom_ErrorCases(t *testing.T) {
+	cases := []struct {
+		name      string
+		code      string
+		setupMock func(t *testing.T, mock pgxmock.PgxPoolIface)
+	}{
+		{
+			name: "LoadError",
+			code: "LOAD3",
+			setupMock: func(_ *testing.T, mock pgxmock.PgxPoolIface) {
+				mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
+					WithArgs("LOAD3").
+					WillReturnError(context.Canceled)
+			},
+		},
+		{
+			name: "DeserializeError",
+			code: "LOAD4",
+			setupMock: func(_ *testing.T, mock pgxmock.PgxPoolIface) {
+				mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
+					WithArgs("LOAD4").
+					WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
+						AddRow("id1", "LOAD4", "{bad", int64(1), int64(1)))
+			},
+		},
+		{
+			name: "NotFound",
+			code: "MISSING",
+			setupMock: func(_ *testing.T, mock pgxmock.PgxPoolIface) {
+				mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
+					WithArgs("MISSING").
+					WillReturnError(pgx.ErrNoRows)
+			},
+		},
 	}
-}
-
-func TestHub_loadOrMaterializeRoom_DeserializeError(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
-		WithArgs("LOAD4").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id1", "LOAD4", "{bad", int64(1), int64(1)))
-
-	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
-	if room := h.loadOrMaterializeRoom("LOAD4"); room != nil {
-		t.Fatal("expected nil on deserialize error")
-	}
-}
-
-func TestHub_loadOrMaterializeRoom_NotFound(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
-		WithArgs("MISSING").
-		WillReturnError(pgx.ErrNoRows)
-
-	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
-	if room := h.loadOrMaterializeRoom("MISSING"); room != nil {
-		t.Fatal("expected nil when lobby not found")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mock := testutil.NewPgxMock(t)
+			db := store.NewGameStore(mock)
+			c.setupMock(t, mock)
+			h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
+			if room := h.loadOrMaterializeRoom(c.code); room != nil {
+				t.Fatal("expected nil")
+			}
+		})
 	}
 }
 

@@ -80,7 +80,6 @@ vi.mock('./seen_seqs.js', () => ({
   clearSeenSeqs: mocks.clearSeenSeqs,
 }));
 
-
 vi.mock('./entry_flow.js', () => ({
   tryEntryHandoff: vi.fn(),
   isEntryHandoff: vi.fn(() => false),
@@ -109,35 +108,25 @@ describe('applyPhaseChange', () => {
     expect(mocks.updateUI).not.toHaveBeenCalled();
   });
 
-  it('clears round FX and resets interpolation when entering playing', () => {
+  it('clears round FX, seenSeqs, and resets interpolation when entering playing', () => {
     mocks.state.phase = 'countdown';
+    mocks.state.countdownTimerInterval = setInterval(() => {}, 1000);
     expect(applyPhaseChange('playing')).toBe(true);
     expect(mocks.state.phase).toBe('playing');
     expect(mocks.state.ripples).toEqual([]);
     expect(mocks.state.myCooldownEnd).toBe(0);
+    expect(mocks.state.score).toBe(0);
+    expect(mocks.state.balloon).toEqual({ x: 0.5, y: 0.95, vx: 0, vy: 0 });
+    expect(mocks.state.wind).toBe(0);
+    expect(mocks.state.countdownTimerInterval).toBeNull();
     expect(mocks.resetInterpolation).toHaveBeenCalled();
+    expect(mocks.clearSeenSeqs).toHaveBeenCalled();
     expect(mocks.hideCountdownOverlay).toHaveBeenCalled();
     expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
     expect(window.__gamePhase).toBe('playing');
   });
 
-  it('clears seenSeqs when entering playing', () => {
-    mocks.state.phase = 'countdown';
-    applyPhaseChange('playing');
-    expect(mocks.clearSeenSeqs).toHaveBeenCalled();
-  });
-
-  it('resets score, balloon, ghost, and wind when entering playing', () => {
-    mocks.state.phase = 'countdown';
-    applyPhaseChange('playing');
-    expect(mocks.state.score).toBe(0);
-    expect(mocks.state.balloon).toEqual({ x: 0.5, y: 0.95, vx: 0, vy: 0 });
-    expect(mocks.state.bird).toEqual({ x: 0, y: 0, active: false });
-    expect(mocks.state.ghost).toEqual({ x: 0, y: 0, active: false, repelTimer: 0 });
-    expect(mocks.state.wind).toBe(0);
-  });
-
-  it('shows countdown overlay when entering countdown', () => {
+  it('shows countdown overlay when entering countdown after nickname submit', () => {
     mocks.state.nicknameSubmitted = true;
     expect(applyPhaseChange('countdown', 5)).toBe(true);
     expect(mocks.showCountdownOverlay).toHaveBeenCalled();
@@ -145,18 +134,14 @@ describe('applyPhaseChange', () => {
     expect(mocks.resetInterpolation).toHaveBeenCalled();
   });
 
-  it('blocks countdown before nickname submitted', () => {
+  it.each([
+    ['countdown', 'showCountdownOverlay'],
+    ['ended', 'freezeInterpolation'],
+  ] as const)('blocks %s transition before nickname submitted', (to, blockedMock) => {
     mocks.state.nicknameSubmitted = false;
-    expect(applyPhaseChange('countdown')).toBe(false);
+    expect(applyPhaseChange(to)).toBe(false);
     expect(mocks.state.phase).toBe('waiting');
-    expect(mocks.showCountdownOverlay).not.toHaveBeenCalled();
-  });
-
-  it('blocks ended before nickname submitted', () => {
-    mocks.state.nicknameSubmitted = false;
-    expect(applyPhaseChange('ended')).toBe(false);
-    expect(mocks.state.phase).toBe('waiting');
-    expect(mocks.freezeInterpolation).not.toHaveBeenCalled();
+    expect(mocks[blockedMock as 'freezeInterpolation' | 'showCountdownOverlay']).not.toHaveBeenCalled();
   });
 
   it('allows countdown after restart from ended', () => {
@@ -173,75 +158,16 @@ describe('applyPhaseChange', () => {
     expect(mocks.state.restartVotes.total).toBe(mocks.state.players.length);
   });
 
-  it('allows playing -> countdown transition (server restart scenario)', () => {
+  it('allows playing -> countdown and playing -> waiting transitions', () => {
     mocks.state.phase = 'playing';
     mocks.state.nicknameSubmitted = true;
     expect(applyPhaseChange('countdown')).toBe(true);
     expect(mocks.state.phase).toBe('countdown');
     expect(mocks.showCountdownOverlay).toHaveBeenCalled();
-  });
 
-  it('allows playing -> waiting transition (server reset scenario)', () => {
     mocks.state.phase = 'playing';
     expect(applyPhaseChange('waiting')).toBe(true);
     expect(mocks.state.phase).toBe('waiting');
-  });
-});
-
-describe('shouldApplySnapshotPhase', () => {
-  beforeEach(() => {
-    mocks.state.phase = 'waiting';
-  });
-
-  it('allows same phase', () => {
-    expect(shouldApplySnapshotPhase('waiting')).toBe(true);
-  });
-
-  it('allows playing -> countdown (new round after restart)', () => {
-    mocks.state.phase = 'playing';
-    expect(shouldApplySnapshotPhase('countdown')).toBe(true);
-  });
-
-  it('allows playing -> waiting (server reset)', () => {
-    mocks.state.phase = 'playing';
-    expect(shouldApplySnapshotPhase('waiting')).toBe(true);
-  });
-
-  it('allows playing -> ended (normal game over)', () => {
-    mocks.state.phase = 'playing';
-    expect(shouldApplySnapshotPhase('ended')).toBe(true);
-  });
-
-  it('allows ended -> countdown (restart)', () => {
-    mocks.state.phase = 'ended';
-    expect(shouldApplySnapshotPhase('countdown')).toBe(true);
-  });
-
-  it('allows ended -> waiting (server reset)', () => {
-    mocks.state.phase = 'ended';
-    expect(shouldApplySnapshotPhase('waiting')).toBe(true);
-  });
-
-  it('blocks countdown -> ended regression', () => {
-    mocks.state.phase = 'countdown';
-    expect(shouldApplySnapshotPhase('ended')).toBe(false);
-  });
-
-  it('blocks countdown -> waiting regression', () => {
-    mocks.state.phase = 'countdown';
-    expect(shouldApplySnapshotPhase('waiting')).toBe(false);
-  });
-
-  it('allows unknown client phase via default branch', () => {
-    mocks.state.phase = 'unknown' as typeof mocks.state.phase;
-    expect(shouldApplySnapshotPhase('playing')).toBe(true);
-  });
-
-  it('clears countdown timer when entering playing', () => {
-    mocks.state.phase = 'countdown';
-    mocks.state.countdownTimerInterval = setInterval(() => {}, 1000);
-    applyPhaseChange('playing');
-    expect(mocks.state.countdownTimerInterval).toBeNull();
   });
 
   it('handles missing nickname inline element when entering playing', () => {
@@ -251,11 +177,29 @@ describe('shouldApplySnapshotPhase', () => {
     applyPhaseChange('playing');
     expect(document.getElementById('nickname-inline')!.classList.contains('hidden')).toBe(true);
   });
+});
 
-  it('allows waiting snapshot transitions from waiting phase', () => {
+describe('shouldApplySnapshotPhase', () => {
+  beforeEach(() => {
     mocks.state.phase = 'waiting';
-    expect(shouldApplySnapshotPhase('countdown')).toBe(true);
+  });
+
+  it.each([
+    ['waiting', 'waiting', true],
+    ['playing', 'countdown', true],
+    ['playing', 'waiting', true],
+    ['playing', 'ended', true],
+    ['ended', 'countdown', true],
+    ['ended', 'waiting', true],
+    ['countdown', 'ended', false],
+    ['countdown', 'waiting', false],
+  ] as const)('phase %s -> %s allowed=%s', (from, to, allowed) => {
+    mocks.state.phase = from;
+    expect(shouldApplySnapshotPhase(to)).toBe(allowed);
+  });
+
+  it('allows unknown client phase via default branch', () => {
+    mocks.state.phase = 'unknown' as typeof mocks.state.phase;
     expect(shouldApplySnapshotPhase('playing')).toBe(true);
-    expect(shouldApplySnapshotPhase('ended')).toBe(true);
   });
 });

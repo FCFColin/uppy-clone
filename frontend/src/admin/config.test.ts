@@ -29,14 +29,20 @@ describe('admin/config', () => {
       expect(showToast).not.toHaveBeenCalled();
     });
 
-    it('shows toast on non-401 error', async () => {
-      apiFetchMock.mockResolvedValue({ ok: false, status: 500 } as Response);
+    it('shows toast on non-401 error or network error', async () => {
+      // Non-401 error
+      apiFetchMock.mockResolvedValueOnce({ ok: false, status: 500 } as Response);
       const onUnauthorized = vi.fn();
       const showToast = vi.fn();
       const applyConfig = vi.fn();
       await loadConfig(onUnauthorized, showToast, applyConfig);
-      expect(showToast).toHaveBeenCalledWith('加载配置失败', 'error');
+      expect(showToast).toHaveBeenCalledWith('加载配置失败');
       expect(applyConfig).not.toHaveBeenCalled();
+
+      // Network error
+      apiFetchMock.mockRejectedValueOnce(new Error('offline'));
+      await loadConfig(onUnauthorized, showToast, applyConfig);
+      expect(showToast).toHaveBeenCalledWith('加载配置失败');
     });
 
     it('applies config on success', async () => {
@@ -55,15 +61,6 @@ describe('admin/config', () => {
       const applyConfig = vi.fn();
       await loadConfig(onUnauthorized, showToast, applyConfig);
       expect(applyConfig).toHaveBeenCalledWith(config);
-    });
-
-    it('shows toast on network error', async () => {
-      apiFetchMock.mockRejectedValue(new Error('offline'));
-      const onUnauthorized = vi.fn();
-      const showToast = vi.fn();
-      const applyConfig = vi.fn();
-      await loadConfig(onUnauthorized, showToast, applyConfig);
-      expect(showToast).toHaveBeenCalledWith('加载配置失败', 'error');
     });
 
     it('passes autoRefresh:false to apiFetch', async () => {
@@ -85,33 +82,30 @@ describe('admin/config', () => {
         emailFrom: '',
       };
       await saveConfig(config, showToast, onSaved);
-      expect(showToast).toHaveBeenCalledWith('配置已保存', 'success');
+      expect(showToast).toHaveBeenCalledWith('配置已保存');
       expect(onSaved).toHaveBeenCalledOnce();
     });
 
-    it('shows error toast on non-ok', async () => {
-      apiFetchMock.mockResolvedValue({ ok: false, status: 400 } as Response);
+    it('shows error toast on non-ok or network error', async () => {
       const showToast = vi.fn();
       const onSaved = vi.fn();
+      // non-ok response
+      apiFetchMock.mockResolvedValueOnce({ ok: false, status: 400 } as Response);
       await saveConfig(
         { emailEnabled: false, resendApiKey: '', emailFrom: '' },
         showToast,
         onSaved,
       );
-      expect(showToast).toHaveBeenCalledWith('保存失败', 'error');
+      expect(showToast).toHaveBeenCalledWith('保存失败');
       expect(onSaved).not.toHaveBeenCalled();
-    });
-
-    it('shows error toast on network error', async () => {
-      apiFetchMock.mockRejectedValue(new Error('offline'));
-      const showToast = vi.fn();
-      const onSaved = vi.fn();
+      // network error
+      apiFetchMock.mockRejectedValueOnce(new Error('offline'));
       await saveConfig(
         { emailEnabled: false, resendApiKey: '', emailFrom: '' },
         showToast,
         onSaved,
       );
-      expect(showToast).toHaveBeenCalledWith('网络错误', 'error');
+      expect(showToast).toHaveBeenCalledWith('网络错误');
     });
 
     it('sends PATCH with JSON body and autoRefresh:false', async () => {

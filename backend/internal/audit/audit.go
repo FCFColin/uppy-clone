@@ -31,7 +31,7 @@ type auditDBPool interface {
 
 // RetryPolicy holds the retry backoff and error classifier for audit DB writes.
 type RetryPolicy struct {
-	DBRetry       retry.Backoff
+	DBRetry        retry.Backoff
 	MaybeRetryable func(error) error
 }
 

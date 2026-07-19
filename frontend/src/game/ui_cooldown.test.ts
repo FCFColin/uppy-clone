@@ -42,13 +42,12 @@ describe('ui_cooldown', () => {
     vi.useRealTimers();
   });
 
-  it('updates bar width while cooling down', () => {
+  it('updates bar width while cooling down, shows Tap when elapsed', () => {
+    // Cooling down
     updateCooldownBar();
     expect(mocks.bar.style.width).not.toBe('0%');
     expect(mocks.bar.classList.remove).toHaveBeenCalledWith('ready');
-  });
-
-  it('shows Tap when cooldown elapsed', () => {
+    // Elapsed
     state.myCooldownEnd = Date.now() - 1;
     updateCooldownBar();
     expect(mocks.text.textContent).toBe('点击！');

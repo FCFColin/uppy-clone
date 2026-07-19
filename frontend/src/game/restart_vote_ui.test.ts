@@ -23,37 +23,29 @@ describe('restart_vote_ui', () => {
   });
 
   describe('syncRestartVoteProgress', () => {
-    it('no-ops when phase is not ended', () => {
+    it('no-ops when phase is not ended, restartVotes is null, or total is 0', () => {
+      // Phase not ended
       mockState.phase = 'playing';
       syncRestartVoteProgress();
       expect(document.getElementById('restart-progress')!.textContent).toBe('');
-    });
-
-    it('no-ops when restartVotes is null', () => {
+      // restartVotes null
       mockState.phase = 'ended';
       mockState.restartVotes = null as unknown as typeof mockState.restartVotes;
       syncRestartVoteProgress();
       expect(document.getElementById('restart-progress')!.textContent).toBe('');
-    });
-
-    it('clears text when total is 0', () => {
+      // total 0
       mockState.restartVotes = { yes: 0, total: 0, countdownMs: 0, receivedAt: 0 };
       syncRestartVoteProgress();
       expect(document.getElementById('restart-progress')!.textContent).toBe('');
     });
 
-    it('shows restarting text when yes >= total', () => {
-      mockState.restartVotes = { yes: 2, total: 2, countdownMs: 0, receivedAt: 0 };
+    it.each([
+      [2, 2, '正在重启游戏...'],
+      [1, 3, '1/3 人已投票，还差 2 人'],
+    ] as const)('yes=%i total=%i shows expected text', (yes, total, expected) => {
+      mockState.restartVotes = { yes, total, countdownMs: 0, receivedAt: 0 };
       syncRestartVoteProgress();
-      expect(document.getElementById('restart-progress')!.textContent).toBe('正在重启游戏...');
-    });
-
-    it('shows vote progress text when yes < total', () => {
-      mockState.restartVotes = { yes: 1, total: 3, countdownMs: 0, receivedAt: 0 };
-      syncRestartVoteProgress();
-      expect(document.getElementById('restart-progress')!.textContent).toBe(
-        '1/3 人已投票，还差 2 人',
-      );
+      expect(document.getElementById('restart-progress')!.textContent).toBe(expected);
     });
   });
 

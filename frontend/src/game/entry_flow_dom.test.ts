@@ -67,199 +67,129 @@ describe('entry_flow_dom', () => {
     resetEntryFlowForTest();
   });
 
-  describe('setNicknameStatus', () => {
-    it('updates the nickname connect status text', () => {
-      const el = document.getElementById('nickname-connect-status')!;
-      el.textContent = '';
-      setNicknameStatus('test status');
-      expect(el.textContent).toBe('test status');
-    });
+  it('updates the nickname connect status text', () => {
+    const el = document.getElementById('nickname-connect-status')!;
+    el.textContent = '';
+    setNicknameStatus('test status');
+    expect(el.textContent).toBe('test status');
   });
 
-  describe('nicknameReadyStatus', () => {
-    it('shows connected message when ws is connected', () => {
-      const el = document.getElementById('nickname-connect-status')!;
-      nicknameReadyStatus('ABC12', true);
-      expect(el.textContent).toContain('服务器已连接');
-      expect(el.textContent).toContain('ABC12');
-    });
-
-    it('shows ready message when ws is not connected', () => {
-      const el = document.getElementById('nickname-connect-status')!;
-      nicknameReadyStatus('ABC12', false);
-      expect(el.textContent).toContain('已就绪');
-      expect(el.textContent).toContain('ABC12');
-    });
-
-    it('uses fallback code when lobbyCode is empty', () => {
-      const el = document.getElementById('nickname-connect-status')!;
-      nicknameReadyStatus('', true);
-      expect(el.textContent).toContain('-----');
-    });
+  it.each([
+    [true, 'ABC12', '服务器已连接'],
+    [false, 'ABC12', '已就绪'],
+    [true, '', '-----'],
+  ] as const)('nicknameReadyStatus wsConnected=%s lobbyCode=%s shows %s', (wsConnected, lobbyCode, expected) => {
+    const el = document.getElementById('nickname-connect-status')!;
+    nicknameReadyStatus(lobbyCode, wsConnected);
+    expect(el.textContent).toContain(expected);
+    if (lobbyCode) expect(el.textContent).toContain(lobbyCode);
   });
 
-  describe('setWaitingInlineError', () => {
-    it('shows error text and removes hidden class', () => {
-      const el = document.getElementById('waiting-connect-error')!;
-      el.classList.add('hidden');
-      setWaitingInlineError('连接超时');
-      expect(el.textContent).toBe('连接超时');
-      expect(el.classList.contains('hidden')).toBe(false);
-    });
-
-    it('clears error and adds hidden class when text is empty', () => {
-      const el = document.getElementById('waiting-connect-error')!;
-      el.classList.remove('hidden');
-      el.textContent = 'old error';
-      setWaitingInlineError('');
-      expect(el.textContent).toBe('');
-      expect(el.classList.contains('hidden')).toBe(true);
-    });
+  it.each([
+    ['连接超时', false, '连接超时'],
+    ['', true, ''],
+  ] as const)('setWaitingInlineError text=%s hides=%s', (text, expectedHidden, expectedText) => {
+    const el = document.getElementById('waiting-connect-error')!;
+    el.classList.remove('hidden');
+    el.textContent = 'old';
+    setWaitingInlineError(text);
+    expect(el.textContent).toBe(expectedText);
+    expect(el.classList.contains('hidden')).toBe(expectedHidden);
   });
 
-  describe('clearWaitingInlineError', () => {
-    it('clears the inline error text', () => {
-      const el = document.getElementById('waiting-connect-error')!;
-      el.textContent = 'some error';
-      el.classList.remove('hidden');
-      clearWaitingInlineError();
-      expect(el.textContent).toBe('');
-      expect(el.classList.contains('hidden')).toBe(true);
-    });
+  it('clearWaitingInlineError clears the inline error text', () => {
+    const el = document.getElementById('waiting-connect-error')!;
+    el.textContent = 'some error';
+    el.classList.remove('hidden');
+    clearWaitingInlineError();
+    expect(el.textContent).toBe('');
+    expect(el.classList.contains('hidden')).toBe(true);
   });
 
-  describe('showLoadingOverlay', () => {
-    it('shows the loading overlay with default message', () => {
-      const overlay = document.getElementById('loading-overlay')!;
-      overlay.classList.add('hidden');
-      overlay.style.display = 'none';
-      showLoadingOverlay();
-      expect(overlay.classList.contains('hidden')).toBe(false);
-      expect(overlay.querySelector('.loading-text')!.textContent).toBe('正在连接房间…');
-    });
+  it('shows the loading overlay with default or custom message and hides error panel', () => {
+    const overlay = document.getElementById('loading-overlay')!;
+    const panel = document.getElementById('loading-error-panel')!;
+    overlay.classList.add('hidden');
+    panel.classList.remove('hidden');
+    showLoadingOverlay();
+    expect(overlay.classList.contains('hidden')).toBe(false);
+    expect(panel.classList.contains('hidden')).toBe(true);
+    expect(overlay.querySelector('.loading-text')!.textContent).toBe('正在连接房间…');
 
-    it('shows the loading overlay with custom message', () => {
-      showLoadingOverlay('自定义消息');
-      expect(document.getElementById('loading-overlay')!.querySelector('.loading-text')!.textContent).toBe('自定义消息');
-    });
-
-    it('hides the error panel when showing overlay', () => {
-      const panel = document.getElementById('loading-error-panel')!;
-      panel.classList.remove('hidden');
-      showLoadingOverlay();
-      expect(panel.classList.contains('hidden')).toBe(true);
-    });
+    showLoadingOverlay('自定义消息');
+    expect(overlay.querySelector('.loading-text')!.textContent).toBe('自定义消息');
   });
 
-  describe('hideLoadingOverlay', () => {
-    it('hides the loading overlay', () => {
-      const overlay = document.getElementById('loading-overlay')!;
-      overlay.style.display = 'flex';
-      hideLoadingOverlay();
-      expect(overlay.classList.contains('hidden')).toBe(true);
-    });
+  it('hides the loading overlay', () => {
+    const overlay = document.getElementById('loading-overlay')!;
+    overlay.style.display = 'flex';
+    hideLoadingOverlay();
+    expect(overlay.classList.contains('hidden')).toBe(true);
   });
 
-  describe('updateWaitingStatusLine', () => {
-    it('shows connecting message when ws not connected', () => {
-      const ctx: EntryOverlayContext = {
-        entryStep: 'waiting',
-        wsConnected: false,
-        lobbyCode: 'ABC12',
-        phase: 'waiting',
-        getWaitingTitleText: () => '等待中',
-      };
-      updateWaitingStatusLine(ctx);
-      expect(document.getElementById('waiting-title')!.textContent).toBe('已加入等待大厅 · 正在连接服务器…');
-    });
-
-    it('shows waiting title text when ws is connected', () => {
-      const ctx: EntryOverlayContext = {
-        entryStep: 'waiting',
-        wsConnected: true,
-        lobbyCode: 'ABC12',
-        phase: 'waiting',
-        getWaitingTitleText: () => '正在等待其他玩家…',
-      };
-      updateWaitingStatusLine(ctx);
-      expect(document.getElementById('waiting-title')!.textContent).toBe('正在等待其他玩家…');
-    });
+  it.each([
+    [false, '已加入等待大厅 · 正在连接服务器…'],
+    [true, '正在等待其他玩家…'],
+  ] as const)('updateWaitingStatusLine wsConnected=%s shows %s', (wsConnected, expected) => {
+    const ctx: EntryOverlayContext = {
+      entryStep: 'waiting',
+      wsConnected,
+      lobbyCode: 'ABC12',
+      phase: 'waiting',
+      getWaitingTitleText: () => expected,
+    };
+    updateWaitingStatusLine(ctx);
+    expect(document.getElementById('waiting-title')!.textContent).toBe(expected);
   });
 
-  describe('renderStartCountdownTitle', () => {
-    it('shows countdown text when remaining > 0', () => {
-      renderStartCountdownTitle(5);
-      expect(document.getElementById('waiting-title')!.textContent).toBe('即将开始 · 5…');
-    });
-
-    it('shows starting text when remaining <= 0', () => {
-      renderStartCountdownTitle(0);
-      expect(document.getElementById('waiting-title')!.textContent).toBe('正在开始…');
-    });
-
-    it('shows starting text when remaining negative', () => {
-      renderStartCountdownTitle(-1);
-      expect(document.getElementById('waiting-title')!.textContent).toBe('正在开始…');
-    });
+  it.each([
+    [5, '即将开始 · 5…'],
+    [0, '正在开始…'],
+    [-1, '正在开始…'],
+  ] as const)('renderStartCountdownTitle remaining=%s shows %s', (remaining, expected) => {
+    renderStartCountdownTitle(remaining);
+    expect(document.getElementById('waiting-title')!.textContent).toBe(expected);
   });
 
-  describe('setLobbyCodeDisplay', () => {
-    it('updates both lobby code elements', () => {
-      document.getElementById('lobby-code')!.textContent = '';
-      document.getElementById('hud-code')!.textContent = '';
-      setLobbyCodeDisplay('ROOMX');
-      expect(document.getElementById('lobby-code')!.textContent).toBe('ROOMX');
-      expect(document.getElementById('hud-code')!.textContent).toBe('ROOMX');
-    });
+  it('setLobbyCodeDisplay updates both lobby code elements', () => {
+    document.getElementById('lobby-code')!.textContent = '';
+    document.getElementById('hud-code')!.textContent = '';
+    setLobbyCodeDisplay('ROOMX');
+    expect(document.getElementById('lobby-code')!.textContent).toBe('ROOMX');
+    expect(document.getElementById('hud-code')!.textContent).toBe('ROOMX');
   });
 
   describe('renderEntryFullScreenError', () => {
-    it('shows error panel with given message', () => {
+    it('shows error panel with given message and hides spinner/reconnect banner', () => {
       const overlay = document.getElementById('loading-overlay')!;
+      const banner = document.getElementById('reconnect-banner')!;
       overlay.classList.add('hidden');
+      banner.classList.remove('hidden');
       renderEntryFullScreenError('连接超时，请重试');
       expect(overlay.classList.contains('hidden')).toBe(false);
       expect(overlay.dataset.error).toBe('true');
       expect(overlay.style.display).toBe('flex');
       expect(document.getElementById('loading-error-text')!.textContent).toBe('连接超时，请重试');
       expect(overlay.querySelector('.loading-spinner')!.classList.contains('hidden')).toBe(true);
-    });
-
-    it('shows derived title based on message content', () => {
-      renderEntryFullScreenError('房间已结束');
-      expect(document.getElementById('loading-error-title')!.textContent).toBe('房间已结束');
-    });
-
-    it('shows mid-game disconnect title', () => {
-      renderEntryFullScreenError('连接中断', { midGameDisconnect: true });
-      expect(document.getElementById('loading-error-title')!.textContent).toBe('对局连接中断');
-    });
-
-    it('shows connection failure title for network messages', () => {
-      renderEntryFullScreenError('网络连接超时');
-      expect(document.getElementById('loading-error-title')!.textContent).toBe('连接失败');
-    });
-
-    it('shows default title for unknown messages', () => {
-      renderEntryFullScreenError('未知错误');
-      expect(document.getElementById('loading-error-title')!.textContent).toBe('无法进入房间');
-    });
-
-    it('hides actions when showActions is false', () => {
-      renderEntryFullScreenError('错误', { showActions: false });
-      expect(document.getElementById('loading-error-actions')!.classList.contains('hidden')).toBe(true);
-    });
-
-    it('shows actions when showActions is true', () => {
-      renderEntryFullScreenError('错误', { showActions: true });
-      expect(document.getElementById('loading-error-actions')!.classList.contains('hidden')).toBe(false);
-    });
-
-    it('hides reconnect banner when showing error', () => {
-      const banner = document.getElementById('reconnect-banner')!;
-      banner.classList.remove('hidden');
-      renderEntryFullScreenError('错误');
       expect(banner.classList.contains('hidden')).toBe(true);
+    });
+
+    it.each([
+      ['房间已结束', undefined, '房间已结束'],
+      ['连接中断', { midGameDisconnect: true }, '对局连接中断'],
+      ['网络连接超时', undefined, '连接失败'],
+      ['未知错误', undefined, '无法进入房间'],
+    ] as const)('message %s shows title %s', (message, opts, expectedTitle) => {
+      renderEntryFullScreenError(message, opts);
+      expect(document.getElementById('loading-error-title')!.textContent).toBe(expectedTitle);
+    });
+
+    it.each([
+      [false, true],
+      [true, false],
+    ] as const)('showActions=%s hides actions=%s', (showActions, expectedHidden) => {
+      renderEntryFullScreenError('错误', { showActions });
+      expect(document.getElementById('loading-error-actions')!.classList.contains('hidden')).toBe(expectedHidden);
     });
 
     it('uses custom title when provided', () => {
@@ -271,8 +201,7 @@ describe('entry_flow_dom', () => {
       const { matchNewRoomCode } = await import('./lobby_match.js');
       vi.mocked(matchNewRoomCode).mockResolvedValue(null);
       renderEntryFullScreenError('匹配失败');
-      const matchBtn = document.getElementById('loading-match-btn')!;
-      matchBtn.click();
+      document.getElementById('loading-match-btn')!.click();
       await new Promise((r) => setTimeout(r, 10));
       expect(document.getElementById('loading-error-text')!.textContent).toBe('匹配失败，请稍后重试或返回大厅');
     });
@@ -291,21 +220,27 @@ describe('entry_flow_dom', () => {
   });
 
   describe('syncEntryOverlays', () => {
-    it('shows loading overlay for connecting step', () => {
+    it.each([
+      ['connecting' as const, false, 'loading-overlay'],
+      ['nickname' as const, true, 'nickname-setup-screen'],
+      ['waiting' as const, true, 'waiting-screen'],
+    ])('step=%s shows target element', (step, wsConnected, targetId) => {
+      const target = document.getElementById(targetId)!;
+      target.classList.add('hidden');
       const ctx: EntryOverlayContext = {
-        entryStep: 'connecting',
-        wsConnected: false,
-        lobbyCode: '',
+        entryStep: step,
+        wsConnected,
+        lobbyCode: 'ABC12',
         phase: 'waiting',
         getWaitingTitleText: () => '',
       };
-      const overlay = document.getElementById('loading-overlay')!;
-      overlay.classList.add('hidden');
       syncEntryOverlays(ctx);
-      expect(overlay.classList.contains('hidden')).toBe(false);
+      expect(target.classList.contains('hidden')).toBe(false);
     });
 
     it('does not hide loading overlay for error step', () => {
+      const overlay = document.getElementById('loading-overlay')!;
+      overlay.style.display = 'flex';
       const ctx: EntryOverlayContext = {
         entryStep: 'error',
         wsConnected: false,
@@ -313,38 +248,8 @@ describe('entry_flow_dom', () => {
         phase: 'waiting',
         getWaitingTitleText: () => '',
       };
-      const overlay = document.getElementById('loading-overlay')!;
-      overlay.style.display = 'flex';
       syncEntryOverlays(ctx);
       expect(overlay.style.display).toBe('flex');
-    });
-
-    it('shows nickname screen for nickname step', () => {
-      const nicknameScreen = document.getElementById('nickname-setup-screen')!;
-      nicknameScreen.classList.add('hidden');
-      const ctx: EntryOverlayContext = {
-        entryStep: 'nickname',
-        wsConnected: true,
-        lobbyCode: 'ABC12',
-        phase: 'waiting',
-        getWaitingTitleText: () => '',
-      };
-      syncEntryOverlays(ctx);
-      expect(nicknameScreen.classList.contains('hidden')).toBe(false);
-    });
-
-    it('shows waiting screen for waiting step', () => {
-      const waitingScreen = document.getElementById('waiting-screen')!;
-      waitingScreen.classList.add('hidden');
-      const ctx: EntryOverlayContext = {
-        entryStep: 'waiting',
-        wsConnected: true,
-        lobbyCode: 'ABC12',
-        phase: 'waiting',
-        getWaitingTitleText: () => '等待中',
-      };
-      syncEntryOverlays(ctx);
-      expect(waitingScreen.classList.contains('hidden')).toBe(false);
     });
 
     it('hides entry overlays on handoff step', () => {

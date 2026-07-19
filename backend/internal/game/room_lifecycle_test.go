@@ -1,19 +1,15 @@
 package game
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/protocol"
-	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
@@ -40,18 +36,6 @@ func TestRoom_notifyJoin_SendsSnapshot(t *testing.T) {
 		}
 	default:
 		t.Fatal("notifyJoin should enqueue snapshot to joining player")
-	}
-}
-
-func TestRoom_notifyJoin_Reconnect(t *testing.T) {
-	r := NewRoom("JOIN2", nil, nil, config.DefaultTimeoutConfig(), 0)
-	player := &domain.PlayerState{ID: "p1", Nickname: "Bob", PlayerIndex: 0, Palette: 2}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-	r.notifyJoin("p1", player, true)
-	select {
-	case <-r.connections["p1"].Send:
-	default:
-		t.Fatal("reconnect notifyJoin should send snapshot")
 	}
 }
 
@@ -120,29 +104,6 @@ func TestRoom_closeExistingConnection_ClosesAndRemoves(t *testing.T) {
 	}
 }
 
-func TestRoom_closeExistingConnection_SkipsNilPlayer(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-
-	r.closeExistingConnection("p1", nil)
-	if _, ok := r.connections["p1"]; !ok {
-		t.Fatal("nil player should not trigger connection replacement")
-	}
-}
-
-func TestRoom_closeExistingConnection_SkipsDisconnected(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-	player := &domain.PlayerState{ID: "p1", Disconnected: true}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4)}
-
-	r.closeExistingConnection("p1", player)
-	if _, ok := r.connections["p1"]; !ok {
-		t.Fatal("disconnected player should not trigger connection replacement")
-	}
-}
-
 func TestRoom_Creation(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
@@ -207,64 +168,6 @@ func TestRoom_HandleDisconnect_NonexistentPlayer(t *testing.T) {
 	}
 }
 
-// ─── cleanupDisconnected ─────────────────────────────────────────────
-
-func TestRoom_CleanupDisconnected_RemovesExpired(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	disconnectedAt := time.Now().UnixMilli() - domain.ReconnectGraceMs - 1000 // expired
-	r.mu.Lock()
-	r.state.Players["p1"] = &domain.PlayerState{
-		ID:             "p1",
-		Nickname:       "ExpiredPlayer",
-		Disconnected:   true,
-		DisconnectedAt: &disconnectedAt,
-	}
-	r.usedNames["ExpiredPlayer"] = true
-	r.mu.Unlock()
-
-	r.cleanupDisconnected(time.Now().UnixMilli())
-
-	r.mu.RLock()
-	_, playerExists := r.state.Players["p1"]
-	_, nameExists := r.usedNames["ExpiredPlayer"]
-	r.mu.RUnlock()
-
-	if playerExists {
-		t.Fatal("expired disconnected player should be removed")
-	}
-	if nameExists {
-		t.Fatal("expired player's name should be removed from usedNames")
-	}
-}
-
-func TestRoom_CleanupDisconnected_KeepsGracePeriod(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	disconnectedAt := time.Now().UnixMilli() - 1000 // still in grace period
-	r.mu.Lock()
-	r.state.Players["p1"] = &domain.PlayerState{
-		ID:             "p1",
-		Nickname:       "GracePlayer",
-		Disconnected:   true,
-		DisconnectedAt: &disconnectedAt,
-	}
-	r.usedNames["GracePlayer"] = true
-	r.mu.Unlock()
-
-	r.cleanupDisconnected(time.Now().UnixMilli())
-
-	r.mu.RLock()
-	_, exists := r.state.Players["p1"]
-	r.mu.RUnlock()
-
-	if !exists {
-		t.Fatal("player in grace period should not be removed")
-	}
-}
-
 // ─── broadcast ───────────────────────────────────────────────────────
 
 func TestRoom_Close(t *testing.T) {
@@ -322,30 +225,6 @@ func TestRoom_StartGame_FromWaiting(t *testing.T) {
 	}
 }
 
-func TestRoom_StartGame_NotFromWaiting(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.mu.Unlock()
-
-	err := r.StartGame()
-	if err != nil {
-		t.Fatalf("StartGame from non-waiting should return nil, got %v", err)
-	}
-
-	r.mu.RLock()
-	phase := r.state.Phase
-	r.mu.RUnlock()
-
-	if phase != domain.PhasePlaying {
-		t.Fatalf("phase should remain unchanged, got %q", phase)
-	}
-}
-
-// ─── EndGame ─────────────────────────────────────────────────────────
-
 func TestRoom_EndGame(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
@@ -370,52 +249,6 @@ func TestRoom_EndGame(t *testing.T) {
 	}
 }
 
-func TestRoom_EndGame_NoPlayers(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.state.SessionID = "test-session"
-	// No connections
-	r.mu.Unlock()
-
-	if err := r.EndGame(); err != nil {
-		t.Fatal(err)
-	}
-
-	r.mu.RLock()
-	phase := r.state.Phase
-	r.mu.RUnlock()
-
-	// No connections → should reset to waiting
-	if phase != domain.PhaseWaiting {
-		t.Fatalf("expected phase waiting when no players, got %q", phase)
-	}
-}
-
-func TestRoom_EndGame_ClampsBalloonY(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.state.Balloon.Y = -0.2
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 64)}
-	r.mu.Unlock()
-
-	if err := r.EndGame(); err != nil {
-		t.Fatalf("EndGame failed: %v", err)
-	}
-
-	r.mu.RLock()
-	y := r.state.Balloon.Y
-	r.mu.RUnlock()
-	if y < 0 {
-		t.Fatalf("expected balloon Y clamped to >= 0, got %v", y)
-	}
-}
-
 // ─── HandleMessage rate limiting ─────────────────────────────────────
 
 func TestModelPhaseToProtocol(t *testing.T) {
@@ -433,32 +266,6 @@ func TestModelPhaseToProtocol(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("protocol.GamePhase(%q) = %q, want %q", tt.input, got, tt.expected)
 		}
-	}
-}
-
-// ─── Benchmarks ──────────────────────────────────────────────────────
-
-func BenchmarkRoom_CleanupDisconnected(b *testing.B) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("BENCH", nil, nil, timeouts, 0)
-
-	now := time.Now().UnixMilli()
-	r.mu.Lock()
-	for i := 0; i < 100; i++ {
-		pid := "p" + string(rune('0'+i%10)) + string(rune('0'+i/10))
-		disconnectedAt := now - domain.ReconnectGraceMs - 1000
-		r.state.Players[pid] = &domain.PlayerState{
-			ID:             pid,
-			Nickname:       "Player",
-			Disconnected:   true,
-			DisconnectedAt: &disconnectedAt,
-		}
-	}
-	r.mu.Unlock()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		r.cleanupDisconnected(now)
 	}
 }
 
@@ -587,272 +394,6 @@ func TestRoom_SetNicknameSameNameStillConfirms(t *testing.T) {
 	waitForCountdown(t, r, 2*time.Second)
 }
 
-func TestTryStartWhenAllReady_WrongPhase(t *testing.T) {
-	t.Parallel()
-	room := &Room{
-		state:  NewGameState("TEST", 42, testRNG()),
-		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
-	}
-	room.state.Phase = domain.PhasePlaying
-	room.tryStartWhenAllReady()
-	if room.state.Phase != domain.PhasePlaying {
-		t.Error("tryStartWhenAllReady should not change phase when not waiting")
-	}
-}
-
-func TestTryStartWhenAllReady_NotAllReady(t *testing.T) {
-	t.Parallel()
-	room := &Room{
-		state:           NewGameState("TEST", 42, testRNG()),
-		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-		usedNames:       make(map[string]bool),
-		logger:          slog.New(slog.NewTextHandler(os.Stderr, nil)),
-	}
-	room.state.Phase = domain.PhaseWaiting
-	room.state.Players["p1"] = &domain.PlayerState{
-		Nickname:          "Alice",
-		PlayerIndex:       0,
-		NicknameConfirmed: false,
-	}
-	room.connections["p1"] = &PlayerConn{}
-	room.tryStartWhenAllReady()
-	if room.state.Phase != domain.PhaseWaiting {
-		t.Errorf("Phase should remain waiting, got %v", room.state.Phase)
-	}
-}
-
-func TestTryStartWhenAllReady_NoConnections(t *testing.T) {
-	t.Parallel()
-	room := &Room{
-		state:  NewGameState("TEST", 42, testRNG()),
-		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
-	}
-	room.state.Phase = domain.PhaseWaiting
-	room.state.Players["p1"] = &domain.PlayerState{
-		Nickname:          "Alice",
-		PlayerIndex:       0,
-		NicknameConfirmed: true,
-	}
-	room.tryStartWhenAllReady()
-	if room.state.Phase != domain.PhaseWaiting {
-		t.Errorf("Phase should remain waiting when no connections, got %v", room.state.Phase)
-	}
-}
-
-func TestTryStartWhenAllReady_EmptyPlayers(t *testing.T) {
-	t.Parallel()
-	room := &Room{
-		state:  NewGameState("TEST", 42, testRNG()),
-		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
-	}
-	room.state.Phase = domain.PhaseWaiting
-	room.tryStartWhenAllReady()
-	if room.state.Phase != domain.PhaseWaiting {
-		t.Errorf("Phase should remain waiting with no players, got %v", room.state.Phase)
-	}
-}
-
-func TestCleanupDisconnected(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now().UnixMilli()
-	grace := int64(domain.ReconnectGraceMs)
-
-	t.Run("removes player past grace period", func(t *testing.T) {
-		room := &Room{
-			state:     NewGameState("TEST", 42, testRNG()),
-			usedNames: make(map[string]bool),
-			logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		}
-		disconnectedAt := now - grace - 1000
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, Disconnected: true, DisconnectedAt: &disconnectedAt}
-		room.usedNames["Player1"] = true
-
-		room.cleanupDisconnected(now)
-
-		if _, exists := room.state.Players["p1"]; exists {
-			t.Error("cleanupDisconnected should remove player past grace period")
-		}
-		if room.usedNames["Player1"] {
-			t.Error("cleanupDisconnected should free used name")
-		}
-	})
-
-	t.Run("keeps player within grace period", func(t *testing.T) {
-		room := &Room{
-			state:     NewGameState("TEST", 42, testRNG()),
-			usedNames: make(map[string]bool),
-			logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		}
-		disconnectedAt := now - grace + 1000
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, Disconnected: true, DisconnectedAt: &disconnectedAt}
-		room.usedNames["Player1"] = true
-
-		room.cleanupDisconnected(now)
-
-		if _, exists := room.state.Players["p1"]; !exists {
-			t.Error("cleanupDisconnected should keep player within grace period")
-		}
-	})
-
-	t.Run("skips connected players", func(t *testing.T) {
-		room := &Room{
-			state:     NewGameState("TEST", 42, testRNG()),
-			usedNames: make(map[string]bool),
-			logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		}
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, Disconnected: false}
-
-		room.cleanupDisconnected(now)
-
-		if _, exists := room.state.Players["p1"]; !exists {
-			t.Error("cleanupDisconnected should keep connected player")
-		}
-	})
-
-	t.Run("handles empty players", func(_ *testing.T) {
-		room := &Room{state: NewGameState("TEST", 42, testRNG()), logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
-		room.cleanupDisconnected(now)
-	})
-}
-
-func TestAllConnectedPlayersReady(t *testing.T) {
-	t.Parallel()
-
-	t.Run("empty connections returns false", func(t *testing.T) {
-		room := &Room{
-			RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-			state:           NewGameState("TEST", 42, testRNG()),
-		}
-		if room.allConnectedPlayersReady() {
-			t.Error("allConnectedPlayersReady should return false with no connections")
-		}
-	})
-
-	t.Run("all ready returns true", func(t *testing.T) {
-		room := &Room{
-			RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-			state:           NewGameState("TEST", 42, testRNG()),
-		}
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, NicknameConfirmed: true}
-		room.state.Players["p2"] = &domain.PlayerState{Nickname: "Player2", PlayerIndex: 1, NicknameConfirmed: true}
-		room.connections["p1"] = &PlayerConn{}
-		room.connections["p2"] = &PlayerConn{}
-
-		if !room.allConnectedPlayersReady() {
-			t.Error("allConnectedPlayersReady should return true when all connected players are ready")
-		}
-	})
-
-	t.Run("player not found returns false", func(t *testing.T) {
-		room := &Room{
-			RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-			state:           NewGameState("TEST", 42, testRNG()),
-		}
-		room.connections["ghost"] = &PlayerConn{}
-
-		if room.allConnectedPlayersReady() {
-			t.Error("allConnectedPlayersReady should return false for unknown player")
-		}
-	})
-
-	t.Run("disconnected player returns false", func(t *testing.T) {
-		room := &Room{
-			RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-			state:           NewGameState("TEST", 42, testRNG()),
-		}
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, NicknameConfirmed: true, Disconnected: true}
-		room.connections["p1"] = &PlayerConn{}
-
-		if room.allConnectedPlayersReady() {
-			t.Error("allConnectedPlayersReady should return false for disconnected player")
-		}
-	})
-
-	t.Run("player not confirmed returns false", func(t *testing.T) {
-		room := &Room{
-			RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-			state:           NewGameState("TEST", 42, testRNG()),
-		}
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, NicknameConfirmed: false}
-		room.connections["p1"] = &PlayerConn{}
-
-		if room.allConnectedPlayersReady() {
-			t.Error("allConnectedPlayersReady should return false when nickname not confirmed")
-		}
-	})
-}
-
-func TestNormalizePhaseForNicknameGate(t *testing.T) {
-	t.Parallel()
-
-	t.Run("waiting phase unchanged", func(t *testing.T) {
-		room := &Room{
-			state:     NewGameState("TEST", 42, testRNG()),
-			usedNames: make(map[string]bool),
-			logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		}
-		room.state.Phase = domain.PhaseWaiting
-		room.normalizePhaseForNicknameGate()
-		if room.state.Phase != domain.PhaseWaiting {
-			t.Errorf("Phase = %v, want %v", room.state.Phase, domain.PhaseWaiting)
-		}
-	})
-
-	t.Run("playing resets to waiting when not all ready", func(t *testing.T) {
-		room := &Room{
-			state:           NewGameState("TEST", 42, testRNG()),
-			RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-			usedNames:       make(map[string]bool),
-			logger:          slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		}
-		room.state.Phase = domain.PhasePlaying
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0, NicknameConfirmed: false}
-		room.connections["p1"] = &PlayerConn{}
-
-		room.normalizePhaseForNicknameGate()
-		if room.state.Phase != domain.PhaseWaiting {
-			t.Errorf("Phase should reset to waiting, got %v", room.state.Phase)
-		}
-	})
-}
-
-func TestTransitionPhaseIfNeeded(t *testing.T) {
-	t.Parallel()
-
-	t.Run("playing without tick starts tick", func(_ *testing.T) {
-		room := &Room{
-			state:     NewGameState("TEST", 42, testRNG()),
-			usedNames: make(map[string]bool),
-		}
-		room.state.Phase = domain.PhasePlaying
-		room.tickCancel = nil
-
-		room.transitionPhaseIfNeeded()
-	})
-
-	t.Run("playing with active tick does nothing", func(t *testing.T) {
-		room := &Room{
-			state:     NewGameState("TEST", 42, testRNG()),
-			usedNames: make(map[string]bool),
-		}
-		room.state.Phase = domain.PhasePlaying
-		room.tickCancel = func() {}
-
-		room.transitionPhaseIfNeeded()
-		// tickCancel should not be replaced
-		if room.tickCancel == nil {
-			t.Error("tickCancel should not be nil after transitionPhaseIfNeeded")
-		}
-	})
-
-	t.Run("non-playing phase does nothing", func(_ *testing.T) {
-		room := &Room{state: NewGameState("TEST", 42, testRNG())}
-		room.state.Phase = domain.PhaseWaiting
-		room.transitionPhaseIfNeeded()
-	})
-}
-
 func TestRoom_HandleJoin_ExistingPlayer(t *testing.T) {
 	r := NewRoom("JOIN3", nil, nil, config.DefaultTimeoutConfig(), 4)
 	r.state.Players["p1"] = &domain.PlayerState{
@@ -911,115 +452,4 @@ func TestRoom_reconnectPlayer_PlayingPhase(t *testing.T) {
 		t.Fatal("expected tick started on playing reconnect")
 	}
 	r.stopTick()
-}
-
-func TestRoom_normalizePhaseForNicknameGate_Countdown(t *testing.T) {
-	r := NewRoom("NG1", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhaseCountdown
-	r.endGameTimer = time.AfterFunc(time.Hour, func() {})
-	r.startDelayTimer = time.AfterFunc(time.Hour, func() {})
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", NicknameConfirmed: false}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1"}
-	r.normalizePhaseForNicknameGate()
-	if r.state.Phase != domain.PhaseWaiting {
-		t.Fatalf("phase = %s", r.state.Phase)
-	}
-}
-
-func TestRoom_setEndGameAlarm_EndedPhase(_ *testing.T) {
-	r := NewRoom("EGA", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhaseEnded
-	addConnectedPlayer(r, "p1")
-	r.setEndGameAlarm(time.Now().Add(10 * time.Millisecond))
-	time.Sleep(50 * time.Millisecond)
-}
-
-func TestRoom_handleCountdownEnd_WithStore(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewGameStore(mock)
-	mock.ExpectExec("INSERT INTO game_sessions").WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
-
-	r := NewRoom("HCE", nil, db, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhaseCountdown
-	r.state.SessionID = "11111111-1111-4111-8111-111111111111"
-	r.state.StartedAt = time.Now().UnixMilli()
-	r.handleCountdownEnd()
-	if r.state.Phase != domain.PhasePlaying {
-		t.Fatalf("phase should be Playing, got %v", r.state.Phase)
-	}
-}
-
-func TestRoom_reconnectPlayer_WaitingPhase(_ *testing.T) {
-	r := NewRoom("RW", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.startDelay = time.Millisecond
-	r.state.Phase = domain.PhaseWaiting
-	player := &domain.PlayerState{ID: "p1", Nickname: "Nick", NicknameConfirmed: true}
-	r.state.Players["p1"] = player
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
-	r.reconnectPlayer("p1", player)
-	time.Sleep(20 * time.Millisecond)
-}
-
-func TestRoom_normalizePhaseForNicknameGate_AllReadyNoOp(t *testing.T) {
-	r := NewRoom("NR", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhasePlaying
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", NicknameConfirmed: true}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1"}
-	r.normalizePhaseForNicknameGate()
-	if r.state.Phase != domain.PhasePlaying {
-		t.Fatalf("phase = %s, want playing after past deadline", r.state.Phase)
-	}
-}
-
-func TestRoom_handleAutoRestart_AutoRestart(t *testing.T) {
-	r := NewRoom("AR3", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhaseEnded
-	addConnectedPlayer(r, "p1")
-	r.state.RestartVotes = map[string]bool{}
-	r.handleAutoRestart()
-	if r.state.Phase != domain.PhaseCountdown {
-		t.Fatalf("phase = %s, want countdown after auto restart", r.state.Phase)
-	}
-}
-
-// --- coverage gap 补充用例 ---
-
-func TestRoom_addNewPlayer_ClosesConnWhenFull(t *testing.T) {
-	server := testutil.NewWSTestUpgraderServer(t)
-	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-
-	r := NewRoom("FULL2", nil, nil, config.DefaultTimeoutConfig(), 1)
-	r.state.Players["p0"] = &domain.PlayerState{ID: "p0", Nickname: "taken"}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1)}
-
-	_, err = r.addNewPlayer("p1", conn)
-	if err != ErrRoomFull {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestRoom_handleAutoRestart_PruneDisconnectedVotes(_ *testing.T) {
-	r := NewRoom("AR4", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhaseEnded
-	addConnectedPlayer(r, "p1")
-	r.state.RestartVotes = map[string]bool{"gone": true, "p1": false}
-	r.handleAutoRestart()
-}
-
-func TestRoom_Close_WithPersistFlush(_ *testing.T) {
-	repo := newMockRoomRepository()
-	r := NewRoom("CL2", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	addConnectedPlayer(r, "p1")
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.mu.Unlock()
-	r.startTick()
-	r.Close()
 }

@@ -7,33 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
 )
 
 type mockLeaderboardRows struct {
+	mockRowsBase
 	scores   []int
 	codes    []string
 	endedAts []int64
-	pos      int
-	closed   bool
-	err      error
-	scanErr  error
 }
 
-func (m *mockLeaderboardRows) Close()                                       { m.closed = true }
-func (m *mockLeaderboardRows) Err() error                                   { return m.err }
-func (m *mockLeaderboardRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
-func (m *mockLeaderboardRows) Conn() *pgx.Conn                              { return nil }
-func (m *mockLeaderboardRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (m *mockLeaderboardRows) Next() bool {
-	if m.err != nil || m.pos >= len(m.scores) {
-		return false
-	}
-	m.pos++
-	return m.pos <= len(m.scores)
-}
+func (m *mockLeaderboardRows) Next() bool { return m.next(len(m.scores)) }
 func (m *mockLeaderboardRows) Scan(dest ...interface{}) error {
 	if m.scanErr != nil {
 		return m.scanErr
@@ -47,8 +31,6 @@ func (m *mockLeaderboardRows) Scan(dest ...interface{}) error {
 	*dest[2].(*int64) = m.endedAts[i]
 	return nil
 }
-func (m *mockLeaderboardRows) RawValues() [][]byte    { return nil }
-func (m *mockLeaderboardRows) Values() ([]any, error) { return nil, nil }
 
 func TestScanLeaderboardRows(t *testing.T) {
 	t.Parallel()
@@ -76,9 +58,9 @@ func TestScanLeaderboardRows(t *testing.T) {
 
 	t.Run("scan error propagates", func(t *testing.T) {
 		rows := &mockLeaderboardRows{
-			scores:  []int{100},
-			codes:   []string{"C"},
-			scanErr: errors.New("field type mismatch"),
+			scores:       []int{100},
+			codes:        []string{"C"},
+			mockRowsBase: mockRowsBase{scanErr: errors.New("field type mismatch")},
 		}
 		_, err := scanLeaderboardRows(rows)
 		if err == nil || !strings.Contains(err.Error(), "scan leaderboard row") {
@@ -88,9 +70,9 @@ func TestScanLeaderboardRows(t *testing.T) {
 
 	t.Run("rows.Err propagates", func(t *testing.T) {
 		rows := &mockLeaderboardRows{
-			scores: []int{100},
-			codes:  []string{"D"},
-			err:    errors.New("connection lost"),
+			scores:       []int{100},
+			codes:        []string{"D"},
+			mockRowsBase: mockRowsBase{err: errors.New("connection lost")},
 		}
 		_, err := scanLeaderboardRows(rows)
 		if err == nil || !strings.Contains(err.Error(), "connection lost") {

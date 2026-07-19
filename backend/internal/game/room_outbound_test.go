@@ -47,44 +47,6 @@ func blockOutboundConsumerAndFillQueue(t *testing.T, r *Room) {
 	}
 }
 
-func TestRoom_enqueueOutbound_DropsNonCriticalWhenFull(t *testing.T) {
-	r := NewRoom("OUT2", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = false
-	blockOutboundConsumerAndFillQueue(t, r)
-	r.enqueueOutbound([]byte("drop"), broadcastOpts{})
-	r.mu.Unlock()
-	r.stopOutbound()
-}
-
-func TestRoom_enqueueOutbound_CriticalTimeoutDrop(t *testing.T) {
-	r := NewRoom("OUTCT", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = false
-	blockOutboundConsumerAndFillQueue(t, r)
-	r.enqueueOutbound([]byte("crit-drop"), broadcastOpts{critical: true})
-	r.mu.Unlock()
-	r.stopOutbound()
-}
-
-func TestRoom_enqueueOutbound_CriticalRetrySuccess(t *testing.T) {
-	r := NewRoom("OUTRS", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = false
-	blockOutboundConsumerAndFillQueue(t, r)
-
-	done := make(chan struct{})
-	go func() {
-		time.Sleep(15 * time.Millisecond)
-		r.mu.Unlock()
-	}()
-
-	r.enqueueOutbound([]byte("crit-ok"), broadcastOpts{critical: true})
-
-	select {
-	case <-done:
-	case <-time.After(200 * time.Millisecond):
-	}
-	r.stopOutbound()
-}
-
 func TestRoom_deliverToTargets_SlowClientDisconnect(t *testing.T) {
 	r := NewRoom("OUT3", nil, nil, config.DefaultTimeoutConfig(), 0)
 	ch := make(chan []byte)

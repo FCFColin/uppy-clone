@@ -6,47 +6,29 @@ describe('tutorialCookie', () => {
     document.cookie = 'uppy-tutorial=; max-age=0; path=/';
   });
 
-  it('isTutorialDone returns false initially', () => {
+  it('isTutorialDone returns false initially, true after marking done, sets cookie', () => {
     expect(isTutorialDone()).toBe(false);
-  });
-
-  it('isTutorialDone returns true after marking done', () => {
     markTutorialDone();
     expect(isTutorialDone()).toBe(true);
-  });
-
-  it('sets cookie with done value', () => {
-    markTutorialDone();
     expect(document.cookie).toContain('uppy-tutorial=done');
   });
 
-  it('shouldShowTutorial returns false when cookie is done', async () => {
-    markTutorialDone();
+  it.each([
+    ['cookie done', true, null, false],
+    ['not done and API fails', false, 'reject', true],
+    ['API reports hasHistory', false, { hasHistory: true }, false],
+    ['API reports no history', false, { hasHistory: false }, true],
+  ] as const)('shouldShowTutorial returns %s when %s', async (_label, cookieDone, apiResponse, expected) => {
+    if (cookieDone) markTutorialDone();
+    if (apiResponse === 'reject') {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'));
+    } else if (apiResponse) {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      } as Response);
+    }
     const result = await shouldShowTutorial();
-    expect(result).toBe(false);
-  });
-
-  it('shouldShowTutorial returns true when not done and API fails', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'));
-    const result = await shouldShowTutorial();
-    expect(result).toBe(true);
-  });
-
-  it('shouldShowTutorial returns false when API reports hasHistory', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ hasHistory: true }),
-    } as Response);
-    const result = await shouldShowTutorial();
-    expect(result).toBe(false);
-  });
-
-  it('shouldShowTutorial returns true when API reports no history', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ hasHistory: false }),
-    } as Response);
-    const result = await shouldShowTutorial();
-    expect(result).toBe(true);
+    expect(result).toBe(expected);
   });
 });

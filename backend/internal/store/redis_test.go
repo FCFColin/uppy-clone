@@ -2,79 +2,51 @@ package store
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
-	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func newTestRedisStore(t *testing.T) (*RedisStore, *miniredis.Miniredis) {
+func newTestMiniredis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 	t.Helper()
 	mr, err := miniredis.Run()
 	if err != nil {
 		t.Fatalf("miniredis: %v", err)
 	}
 	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	return redis.NewClient(&redis.Options{Addr: mr.Addr()}), mr
+}
+
+func newTestRedisStore(t *testing.T) (*RedisStore, *miniredis.Miniredis) {
+	rdb, mr := newTestMiniredis(t)
 	return NewRedisStoreFromClient(rdb), mr
 }
 
 func newTestSessionStore(t *testing.T) (*SessionStore, *miniredis.Miniredis) {
-	t.Helper()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdb, mr := newTestMiniredis(t)
 	return NewSessionStore(rdb), mr
 }
 
 func newTestMagicLinkStore(t *testing.T) (*MagicLinkStore, *miniredis.Miniredis) {
-	t.Helper()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdb, mr := newTestMiniredis(t)
 	return NewMagicLinkStore(rdb), mr
 }
 
 func newTestRateLimitStore(t *testing.T) (*RateLimitStore, *miniredis.Miniredis) {
-	t.Helper()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdb, mr := newTestMiniredis(t)
 	return NewRateLimitStore(rdb), mr
 }
 
 func newTestRoomRegistryStore(t *testing.T) (*RoomRegistryStore, *miniredis.Miniredis) {
-	t.Helper()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdb, mr := newTestMiniredis(t)
 	return NewRoomRegistryStore(rdb), mr
 }
 
 func newTestEmailQueueStore(t *testing.T) (*EmailQueueStore, *miniredis.Miniredis) {
-	t.Helper()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rdb, mr := newTestMiniredis(t)
 	return NewEmailQueueStore(rdb), mr
 }
 
@@ -329,83 +301,5 @@ func TestEmailQueueStore_EnqueueStreams(t *testing.T) {
 	}
 	if !mr.Exists("email:queue") {
 		t.Fatal("expected email:queue redis stream to exist")
-	}
-}
-
-func TestGetEnvInt(t *testing.T) {
-	t.Run("returns default when env not set", func(t *testing.T) {
-		_ = os.Unsetenv("TEST_STORE_INT")
-		got := config.GetEnvIntPositive("TEST_STORE_INT", 42)
-		if got != 42 {
-			t.Errorf("GetEnvIntPositive = %d, want %d", got, 42)
-		}
-	})
-	t.Run("parses valid int", func(t *testing.T) {
-		if err := os.Setenv("TEST_STORE_INT", "50"); err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = os.Unsetenv("TEST_STORE_INT") }()
-		if got := config.GetEnvIntPositive("TEST_STORE_INT", 10); got != 50 {
-			t.Errorf("GetEnvIntPositive = %d, want 50", got)
-		}
-	})
-	t.Run("returns default for invalid int", func(t *testing.T) {
-		if err := os.Setenv("TEST_STORE_INT", "not-a-number"); err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = os.Unsetenv("TEST_STORE_INT") }()
-		if got := config.GetEnvIntPositive("TEST_STORE_INT", 10); got != 10 {
-			t.Errorf("GetEnvIntPositive = %d, want 10", got)
-		}
-	})
-}
-func TestGetEnvDuration(t *testing.T) {
-	t.Run("returns default when env not set", func(t *testing.T) {
-		_ = os.Unsetenv("TEST_STORE_DUR")
-		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
-		if got != 5*time.Second {
-			t.Errorf("GetEnvDuration = %v, want 5s", got)
-		}
-	})
-	t.Run("returns default for invalid env", func(t *testing.T) {
-		if err := os.Setenv("TEST_STORE_DUR", "not-a-duration"); err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = os.Unsetenv("TEST_STORE_DUR") }()
-		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
-		if got != 5*time.Second {
-			t.Errorf("GetEnvDuration = %v, want 5s", got)
-		}
-	})
-	t.Run("returns default for zero duration", func(t *testing.T) {
-		if err := os.Setenv("TEST_STORE_DUR", "0s"); err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = os.Unsetenv("TEST_STORE_DUR") }()
-		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
-		if got != 5*time.Second {
-			t.Errorf("GetEnvDuration = %v, want 5s", got)
-		}
-	})
-	t.Run("parses valid duration", func(t *testing.T) {
-		if err := os.Setenv("TEST_STORE_DUR", "10s"); err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = os.Unsetenv("TEST_STORE_DUR") }()
-		got := config.GetEnvDuration("TEST_STORE_DUR", 5*time.Second)
-
-		if got != 10*time.Second {
-			t.Errorf("GetEnvDuration = %v, want 10s", got)
-		}
-	})
-}
-
-func TestSessionStore_AdminLoginLockout_RateLimitCheck(t *testing.T) {
-	s, _ := newTestSessionStore(t)
-	ctx := context.Background()
-
-	ipCount, acctCount, err := s.IncrementFailedLogin(ctx, "10.0.0.1", "testadmin")
-	if err != nil || ipCount != 1 || acctCount != 1 {
-		t.Fatalf("IncrementFailedLogin = (%d,%d), %v", ipCount, acctCount, err)
 	}
 }

@@ -2,17 +2,16 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 type stubLobbyRepo struct {
@@ -50,9 +49,7 @@ func TestWriteDegradedLobbyList(t *testing.T) {
 	}
 
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["degraded"] != true {
 		t.Errorf("degraded = %v, want true", body["degraded"])
 	}
@@ -72,9 +69,7 @@ func TestListLobbies_DegradedWhenStoreUnavailable(t *testing.T) {
 		t.Errorf("status = %d, want 200 degraded", w.Code)
 	}
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["degraded"] != true {
 		t.Errorf("degraded = %v, want true", body["degraded"])
 	}
@@ -111,28 +106,31 @@ func TestListLobbies_SuccessWithETag(t *testing.T) {
 	}
 }
 
-func TestListLobbies_RespectsLimitQuery(t *testing.T) {
+func TestListLobbies_LimitQuery(t *testing.T) {
 	t.Parallel()
 
-	repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
-	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
-	h := NewLobbyHandler(hub, nil)
-
-	w := httptest.NewRecorder()
-	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies?limit=5", nil))
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", w.Code)
+	tests := []struct {
+		name   string
+		limit  string
+	}{
+		{"valid limit", "5"},
+		{"invalid limit uses default", "99999"},
 	}
-}
 
-func TestListLobbies_InvalidLimitUsesDefault(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	h := newTestLobbyHandler()
-	w := httptest.NewRecorder()
-	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies?limit=99999", nil))
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200 degraded", w.Code)
+			repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
+			hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
+			h := NewLobbyHandler(hub, nil)
+
+			w := httptest.NewRecorder()
+			h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies?limit="+tt.limit, nil))
+			if w.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200", w.Code)
+			}
+		})
 	}
 }
 
@@ -149,9 +147,7 @@ func TestCreateRoom_Success(t *testing.T) {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
 	var body map[string]string
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["code"] == "" {
 		t.Fatalf("body = %+v", body)
 	}
@@ -236,9 +232,7 @@ func TestMatchRoom_Success(t *testing.T) {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
 	var body map[string]string
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["lobbyCode"] == "" {
 		t.Fatalf("body = %+v", body)
 	}
@@ -255,9 +249,7 @@ func TestCheckRoom_HubUnavailable(t *testing.T) {
 		t.Fatalf("status = %d, want 503 degraded", w.Code)
 	}
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["degraded"] != true {
 		t.Errorf("degraded = %v, want true", body["degraded"])
 	}
@@ -266,11 +258,7 @@ func TestCheckRoom_HubUnavailable(t *testing.T) {
 func TestCheckRoom_CacheReadError(t *testing.T) {
 	t.Parallel()
 
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
+	mr, _ := testutil.NewTestMiniredis(t)
 	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
 	if err != nil {
 		t.Fatalf("NewRedisStore: %v", err)
@@ -288,9 +276,7 @@ func TestCheckRoom_CacheReadError(t *testing.T) {
 		t.Fatalf("status = %d, want 503 degraded", w.Code)
 	}
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["degraded"] != true {
 		t.Errorf("degraded = %v, want true", body["degraded"])
 	}
@@ -318,52 +304,10 @@ func TestListLobbies_MarshalError(t *testing.T) {
 		t.Fatalf("status = %d, want 200 degraded", w.Code)
 	}
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["degraded"] != true {
 		t.Errorf("degraded = %v, want true", body["degraded"])
 	}
-}
-
-type errResponseWriter struct {
-	header     http.Header
-	statusCode int
-	failWrite  bool
-}
-
-func (e *errResponseWriter) Header() http.Header {
-	if e.header == nil {
-		e.header = make(http.Header)
-	}
-	return e.header
-}
-
-func (e *errResponseWriter) Write([]byte) (int, error) {
-	if e.failWrite {
-		return 0, context.Canceled
-	}
-	return len([]byte(`{"lobbies":[]}`)), nil
-}
-
-func (e *errResponseWriter) WriteHeader(statusCode int) {
-	e.statusCode = statusCode
-}
-
-func TestListLobbies_WriteError(t *testing.T) {
-	t.Parallel()
-
-	repo := &stubLobbyRepo{
-		result: &domain.LobbyListResult{
-			Lobbies: []domain.LobbyState{{Code: "ABCDE", State: "waiting"}},
-			Total:   1,
-		},
-	}
-	hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
-	h := NewLobbyHandler(hub, nil)
-
-	w := &errResponseWriter{failWrite: true}
-	h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies", nil))
 }
 
 func TestHandleRegistryRoom_OpError(t *testing.T) {

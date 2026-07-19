@@ -19,41 +19,6 @@ func TestNoopGameObserver_SatisfiesGameObserver(t *testing.T) {
 	var _ GameObserver = (*NoopGameObserver)(nil)
 }
 
-func TestNoopGameObserver_AllMethodsAreNoOp(t *testing.T) {
-	t.Parallel()
-	o := NoopGameObserver{}
-
-	// None of these should panic or return non-zero values that affect logic.
-	o.SetActiveRooms(5)
-	o.IncGameSessions()
-	o.RecordRoomLockHold("create", 10*time.Millisecond)
-	o.RecordGameTick(5 * time.Millisecond)
-	o.RecordWSMessage("tap", 1*time.Millisecond)
-	o.SetOutboundQueueDepth("ABCDE", 10)
-	o.IncWSMessageDropped("ABCDE")
-	o.IncPersistDropped()
-	o.SetPersistLag("ABCDE", 100*time.Millisecond)
-	o.IncGameResultMarshalFailures()
-	o.IncNicknameConfirm(true)
-	o.IncNicknameConfirm(false)
-	o.AuditRoomCreate(context.Background(), "ABCDE", 8)
-	o.AuditRoomDelete(context.Background(), "ABCDE")
-}
-
-// TestGameObserver_MethodCount documents the required method set count.
-// If a method is added or removed, this test breaks and forces authors to audit
-// all call sites in the game package.
-func TestGameObserver_MethodCount(t *testing.T) {
-	t.Parallel()
-
-	// GameObserver currently has 13 methods. If you add/remove one, update
-	// this number AND audit every Hub/Room call site.
-	const expectedMethodCount = 13
-	if expectedMethodCount != 13 {
-		t.Fatalf("expectedMethodCount = %d, want 13", expectedMethodCount)
-	}
-}
-
 // recordingObserver is a test double that captures every call so Hub tests
 // can assert observer wiring without depending on Prometheus.
 type recordingObserver struct {

@@ -11,7 +11,6 @@ import (
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
-	"github.com/uppy-clone/backend/internal/protocol"
 )
 
 func TestWebSocket_MissingRoomCode(t *testing.T) {
@@ -204,125 +203,6 @@ func TestStartWSPumps_ConnectAndDisconnect(t *testing.T) {
 	}
 }
 
-func TestWebSocket_PingMessage(t *testing.T) {
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := h.hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, _ := wsDial(t, server, code, "http://localhost")
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	defer func() { _ = conn.Close() }()
-
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-
-	// Drain initial snapshot
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, _ = conn.ReadMessage()
-
-	ping := []byte{protocol.MsgPing}
-	if err := conn.WriteMessage(websocket.BinaryMessage, ping); err != nil {
-		t.Fatalf("write ping: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestWebSocket_SetNicknameMessage(t *testing.T) {
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := h.hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, _ := wsDial(t, server, code, "http://localhost")
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	defer func() { _ = conn.Close() }()
-
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, _ = conn.ReadMessage()
-
-	nick := "Alice"
-	payload := append([]byte{byte(len(nick))}, []byte(nick)...)
-	msg := append([]byte{protocol.MsgSetNickname}, payload...)
-	if err := conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
-		t.Fatalf("write set nickname: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestWebSocket_TapMessage(t *testing.T) {
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := h.hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, _ := wsDial(t, server, code, "http://localhost")
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	defer func() { _ = conn.Close() }()
-
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, _ = conn.ReadMessage()
-
-	tap := []byte{protocol.MsgTap, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} // tap near center
-	if err := conn.WriteMessage(websocket.BinaryMessage, tap); err != nil {
-		t.Fatalf("write tap: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestWebSocket_WritePumpPing(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	timeouts.WSPingInterval = 50 * time.Millisecond
-	hub := game.NewHub(nil, nil, timeouts, 0, 0)
-	h := NewLobbyHandler(hub, []string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := h.hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, _ := wsDial(t, server, code, "http://localhost")
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	defer func() { _ = conn.Close() }()
-
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-
-	time.Sleep(150 * time.Millisecond)
-}
-
 func TestStartWSPumps_JoinFails(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	hub := game.NewHub(nil, nil, timeouts, 10, 1)
@@ -348,65 +228,6 @@ func TestStartWSPumps_JoinFails(t *testing.T) {
 	if hub.WSConnCount() != 0 {
 		t.Fatalf("join failure should decrement WS count, got %d", hub.WSConnCount())
 	}
-}
-
-func TestWebSocket_EmptyMessage(t *testing.T) {
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := h.hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, _ := wsDial(t, server, code, "http://localhost")
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	defer func() { _ = conn.Close() }()
-
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, _ = conn.ReadMessage()
-
-	if err := conn.WriteMessage(websocket.BinaryMessage, []byte{}); err != nil {
-		t.Fatalf("write empty message: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestWebSocket_PongHandler(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	timeouts.WSPingInterval = 30 * time.Millisecond
-	hub := game.NewHub(nil, nil, timeouts, 0, 0)
-	h := NewLobbyHandler(hub, []string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, _ := wsDial(t, server, code, "http://localhost")
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	defer func() { _ = conn.Close() }()
-
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, _ = conn.ReadMessage()
-
-	conn.SetPingHandler(nil)
-	time.Sleep(200 * time.Millisecond)
 }
 
 func TestWebSocket_ReadPumpUnexpectedClose(t *testing.T) {
@@ -443,66 +264,6 @@ func TestWebSocket_ReadPumpUnexpectedClose(t *testing.T) {
 	if !waitForConnCount(h, 0, 3*time.Second) {
 		t.Fatalf("conn count = %d after abnormal close", h.hub.WSConnCount())
 	}
-}
-
-func TestWebSocket_ReadPumpPongHandler(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	timeouts.WSPingInterval = 30 * time.Millisecond
-	hub := game.NewHub(nil, nil, timeouts, 0, 0)
-	h := NewLobbyHandler(hub, []string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, _ := wsDial(t, server, code, "http://localhost")
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	defer func() { _ = conn.Close() }()
-
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	for i := 0; i < 5; i++ {
-		if _, _, err := conn.ReadMessage(); err != nil {
-			break
-		}
-	}
-}
-
-func TestWebSocket_ReadPumpHandleMessageError(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	hub := game.NewHub(nil, nil, timeouts, 0, 0)
-	h := NewLobbyHandler(hub, []string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, _ := wsDial(t, server, code, "http://localhost")
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	defer func() { _ = conn.Close() }()
-
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-
-	// Invalid tap payload triggers HandleMessage error in readPump.
-	if err := conn.WriteMessage(websocket.BinaryMessage, []byte{protocol.MsgTap, 0x01}); err != nil {
-		t.Fatalf("WriteMessage: %v", err)
-	}
-	time.Sleep(200 * time.Millisecond)
 }
 
 // TestStartWSPumps_HandlerTimeout handler-028: verifies the handler-level

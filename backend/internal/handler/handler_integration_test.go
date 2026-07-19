@@ -4,7 +4,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -48,9 +47,7 @@ func TestQuickPlayRoundTrip(t *testing.T) {
 	var resp struct {
 		UserID string `json:"userId"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &resp)
 	if resp.UserID == "" {
 		t.Fatal("expected non-empty userId")
 	}
@@ -100,9 +97,7 @@ func TestMagicLinkRequestVerify(t *testing.T) {
 	}
 
 	var body map[string]string
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 	if body["message"] != "Magic link sent" {
 		t.Fatalf("message = %q, want 'Magic link sent'", body["message"])
 	}
@@ -129,9 +124,7 @@ func TestLobbyCreateJoinFlow(t *testing.T) {
 	}
 
 	var createResp map[string]string
-	if err := json.NewDecoder(w.Body).Decode(&createResp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &createResp)
 	code := createResp["code"]
 	if code == "" {
 		t.Fatal("expected non-empty room code")
@@ -166,9 +159,7 @@ func TestLobbyCreateJoinFlow(t *testing.T) {
 	}
 
 	var checkResp map[string]interface{}
-	if err := json.NewDecoder(w2.Body).Decode(&checkResp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w2, &checkResp)
 	if checkResp["code"] != code {
 		t.Fatalf("check code = %v, want %q", checkResp["code"], code)
 	}
@@ -214,9 +205,7 @@ func TestLeaderboardAfterGameEnd(t *testing.T) {
 		Scope   string                    `json:"scope"`
 		Entries []domain.LeaderboardEntry `json:"entries"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &resp)
 	if resp.Scope != "global" {
 		t.Fatalf("scope = %q, want global", resp.Scope)
 	}

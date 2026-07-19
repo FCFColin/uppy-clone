@@ -133,21 +133,17 @@ describe('handleBinaryMessage routing', () => {
     expect(mocks.syncRestartVoteUI).toHaveBeenCalled();
   });
 
-  it('routes pong messages without throwing', () => {
+  it.each([
+    [MSG_TYPE.PONG],
+    [MSG_TYPE.PLAYER_JOIN],
+    [MSG_TYPE.PLAYER_LEAVE],
+  ])('ignores opcode %i without throwing', (msgType) => {
     const buf = new ArrayBuffer(1);
-    new DataView(buf).setUint8(0, MSG_TYPE.PONG);
+    new DataView(buf).setUint8(0, msgType);
     expect(() => handleBinaryMessage(buf)).not.toThrow();
   });
 
-  it('ignores player join and leave opcodes', () => {
-    for (const msgType of [MSG_TYPE.PLAYER_JOIN, MSG_TYPE.PLAYER_LEAVE]) {
-      const buf = new ArrayBuffer(1);
-      new DataView(buf).setUint8(0, msgType);
-      expect(() => handleBinaryMessage(buf)).not.toThrow();
-    }
-  });
-
-  it('ignores unknown message types', () => {
+  it('warns on unknown message types', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const buf = new ArrayBuffer(1);
     new DataView(buf).setUint8(0, 0xff);
@@ -194,16 +190,12 @@ describe('ws_handlers_events', () => {
     expect(mocks.state.ripples.at(-1)!.y).toBeCloseTo(0.8, 5);
   });
 
-  it('handleTapRejected clears optimistic cooldown', () => {
+  it('handleTapRejected clears optimistic cooldown, adds rejected ripple and floating text', () => {
     mocks.state.myCooldownEnd = Date.now() + 5000;
     mocks.state.ripples = [{ isOptimistic: true }];
     handleTapRejected();
     expect(mocks.state.myCooldownEnd).toBe(0);
     expect(mocks.state.ripples.some((r) => r.isOptimistic)).toBe(false);
-  });
-
-  it('handleTapRejected adds rejected ripple and floating text', () => {
-    handleTapRejected();
     expect(mocks.state.ripples.some((r) => r.rejected)).toBe(true);
     expect(pushFloatingText).toHaveBeenCalledWith(0.4, 0.6, '太远了');
   });
@@ -360,23 +352,16 @@ describe('handleSnapshot', () => {
     expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
   });
 
-  it('handles Error parse failures', () => {
+  it.each([
+    [new Error('boom'), 'boom'],
+    ['string failure', 'string failure'],
+  ])('logs parse errors without throwing (Error=%s)', (thrown, expected) => {
     vi.mocked(decodeSnapshot).mockImplementationOnce(() => {
-      throw new Error('boom');
-    });
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    handleSnapshot(new DataView(buildMinimalSnapshot(1, 405)));
-    expect(err).toHaveBeenCalledWith('[snapshot] parse error:', 'boom');
-    err.mockRestore();
-  });
-
-  it('handles parse errors without throwing', () => {
-    vi.mocked(decodeSnapshot).mockImplementationOnce(() => {
-      throw 'string failure';
+      throw thrown;
     });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     handleSnapshot(new DataView(buildMinimalSnapshot(1, 404)));
-    expect(err).toHaveBeenCalledWith('[snapshot] parse error:', 'string failure');
+    expect(err).toHaveBeenCalledWith('[snapshot] parse error:', expected);
     err.mockRestore();
   });
 

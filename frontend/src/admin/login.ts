@@ -10,7 +10,7 @@ const loginError = document.getElementById('login-error')!;
 
 async function doLogin(
   onSuccess: () => void,
-  showToast: (msg: string, type: 'success' | 'error') => void,
+  showToast: (msg: string) => void,
 ): Promise<void> {
   const password: string = adminPasswordInput.value;
   loginBtn.disabled = true;
@@ -47,7 +47,7 @@ async function doLogin(
 
 export function bindLoginEvents(
   onSuccess: () => void,
-  showToast: (msg: string, type: 'success' | 'error') => void,
+  showToast: (msg: string) => void,
 ): void {
   loginBtn.addEventListener('click', () => doLogin(onSuccess, showToast));
   adminPasswordInput.addEventListener('keydown', (e: KeyboardEvent) => {

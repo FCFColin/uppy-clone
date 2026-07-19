@@ -77,17 +77,16 @@ describe('ws_connection', () => {
     stopHeartbeat();
   });
 
-  it('sendOrQueue sends when socket open', () => {
+  it('sendOrQueue sends when socket open, queues when closed', () => {
+    // When socket open: sends immediately
     const socket = new MockWebSocket() as unknown as WebSocket;
     setWs(socket);
-    const buf = new ArrayBuffer(1);
-    sendOrQueue(buf);
+    sendOrQueue(new ArrayBuffer(1));
     expect((socket as unknown as MockWebSocket).sent.length).toBe(1);
-  });
 
-  it('sendOrQueue queues when socket closed', () => {
-    const buf = new ArrayBuffer(1);
-    sendOrQueue(buf);
+    // When socket closed: queues
+    setWs(null);
+    sendOrQueue(new ArrayBuffer(1));
     expect(getOutboundQueueLength()).toBe(1);
   });
 
@@ -98,14 +97,22 @@ describe('ws_connection', () => {
     expect(getOutboundQueueLength()).toBe(MAX_PENDING_QUEUE);
   });
 
-  it('flushPendingQueue drains queue on open socket', () => {
+  it('flushPendingQueue drains all queued messages on open socket, no-ops on closed', () => {
+    // No-op when socket closed
+    sendOrQueue(new ArrayBuffer(1));
+    flushPendingQueue();
+    expect(getOutboundQueueLength()).toBe(1);
+
+    // Drains 1 message on open socket
     const socket = new MockWebSocket() as unknown as WebSocket;
     setWs(null);
+    sendOrQueue(new ArrayBuffer(1));
+    sendOrQueue(new ArrayBuffer(1));
     sendOrQueue(new ArrayBuffer(1));
     setWs(socket);
     flushPendingQueue();
     expect(getOutboundQueueLength()).toBe(0);
-    expect((socket as unknown as MockWebSocket).sent.length).toBe(1);
+    expect((socket as unknown as MockWebSocket).sent.length).toBe(4);
   });
 
   it('handlePong clears heartbeat timeout without closing socket', () => {
@@ -127,30 +134,12 @@ describe('ws_connection', () => {
     expect(closeSpy).toHaveBeenCalled();
   });
 
-  it('flushPendingQueue drains multiple queued messages', () => {
-    const socket = new MockWebSocket() as unknown as WebSocket;
-    setWs(null);
-    sendOrQueue(new ArrayBuffer(1));
-    sendOrQueue(new ArrayBuffer(1));
-    sendOrQueue(new ArrayBuffer(1));
-    setWs(socket);
-    flushPendingQueue();
-    expect(getOutboundQueueLength()).toBe(0);
-    expect((socket as unknown as MockWebSocket).sent.length).toBe(3);
-  });
-
   it('getWs returns the active socket reference', () => {
     const socket = new MockWebSocket() as unknown as WebSocket;
     setWs(socket);
     expect(getWs()).toBe(socket);
     setWs(null);
     expect(getWs()).toBeNull();
-  });
-
-  it('flushPendingQueue no-ops when socket is closed', () => {
-    sendOrQueue(new ArrayBuffer(1));
-    flushPendingQueue();
-    expect(getOutboundQueueLength()).toBe(1);
   });
 
   it('scheduleReconnect stops after max attempts', async () => {

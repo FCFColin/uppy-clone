@@ -1,19 +1,7 @@
-# Prometheus-Adapter: expose custom metrics from Prometheus to the Kubernetes
-# custom.metrics API so HPA can scale on `ws_connections` (ADR-005 / v2-C-03 / v2-C-15).
-#
-# 企业为何需要：HPA（hpa.yaml）按 Pods 类型自定义指标 `ws_connections` 扩缩，
-# 但 HPA 无法直接查询 Prometheus。prometheus-adapter 充当翻译层：
-#   HPA → custom.metrics.k8s.io API → prometheus-adapter → Prometheus 查询
-# 不补此链路，HPA 只剩 CPU 维度生效，WS 连接数维度失效，可能让单实例连接超限
-# （舱壁上限 10000，hpa.yaml averageValue 6000）。
-#
-# 协同：
-#   - Prometheus 由 deploy/prometheus/deployment.yaml 部署，Service `prometheus:9090`
-#   - balloon-game Pod 通过 prometheus.io/scrape 注解被自动抓取，指标含 ws_connections
-#   - adapter 规则把 `ws_connections{namespace="..."}` 解析为按 Pod 的自定义指标
+# Prometheus-Adapter (ADR-005/v2-C-03/v2-C-15): 翻译 HPA custom.metrics 请求为 Prometheus 查询，暴露 ws_connections 自定义指标。
+# 链路: HPA → custom.metrics.k8s.io → adapter → Prometheus (prometheus:9090); balloon-game Pod 通过 prometheus.io/scrape 注解被抓取。
 ---
-# 1) ServiceAccount + RBAC：adapter 需列举 Pods/Namespaces 才能把 series 标签
-#    映射到 Pod resource，并需读 Prometheus 配置（service discovery）。
+# 1) ServiceAccount + RBAC: adapter 需列举 Pods/Namespaces 映射 series 标签到 Pod resource。
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -50,11 +38,7 @@ subjects:
     name: prometheus-adapter
     namespace: balloon-game
 ---
-# 2) ConfigMap：adapter 规则。
-#    将 Prometheus 中 `ws_connections` 指标（来自 balloon-game Pod）映射为
-#    `pods/ws_connections` 自定义指标（Pods 类型），HPA 即可 AverageValue 聚合。
-#    seriesQuery 必须能枚举出 namespace/pod 标签，resources.overrides 把它们映射到
-#    Kubernetes Pod 资源，使 adapter 知道如何按 Pod 切片聚合。
+# 2) ConfigMap: adapter 规则——将 ws_connections 映射为 pods/ws_connections 自定义指标; seriesQuery 枚举 namespace/pod 标签切片聚合。
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -97,9 +81,7 @@ data:
             container: { resource: "container" }
         containerLabel: container
 ---
-# 3) Deployment：adapter 自身。
-#    镜像：与 deploy/prometheus/deployment.yaml 风格一致使用 tag（observability stack
-#    暂未要求 digest pin）；如需 digest pin 可后续由 CI 在 build/deploy 时注入。
+# 3) Deployment: adapter 自身; 镜像用 tag (observability stack 暂未要求 digest pin)。
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -194,10 +176,7 @@ spec:
       port: 443
       targetPort: 6443
 ---
-# 5) APIService：注册 v1beta1.custom.metrics.k8s.io，由 adapter 实现。
-#    HPA controller 通过此 API 查询 ws_connections 自定义指标。
-#    insecureSkipTLSVerify=true：adapter 启动时自签证书（--cert-dir=/tmp/cert），
-#    简化部署；生产可改用 cert-manager 注入 caBundle（不在本任务范围）。
+# 5) APIService: 注册 v1beta1.custom.metrics.k8s.io (adapter 实现); insecureSkipTLSVerify=true 简化部署，生产可改 cert-manager。
 apiVersion: apiregistration.k8s.io/v1
 kind: APIService
 metadata:

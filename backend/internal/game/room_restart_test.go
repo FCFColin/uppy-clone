@@ -162,29 +162,6 @@ func TestCheckRestartConsensus_TimerAlreadyStarted(t *testing.T) {
 	}
 }
 
-func TestCheckRestartConsensus_DisconnectedPlayersNotCounted(t *testing.T) {
-	room := &Room{
-		state:           NewGameState("TEST", 42, testRNG()),
-		rng:             testRNG(),
-		usedNames:       make(map[string]bool),
-		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-	}
-	room.state.Phase = domain.PhaseEnded
-	room.state.Players = map[string]*domain.PlayerState{
-		"p1": {ID: "p1", Nickname: "Player1"},
-		"p2": {ID: "p2", Nickname: "Player2", Disconnected: true},
-	}
-	room.state.RestartVotes = map[string]bool{"p1": true}
-
-	// Only 1 connected player voted yes → unanimous among connected
-	room.mu.Lock()
-	err := CheckRestartConsensus(room)
-	room.mu.Unlock()
-	if err != nil {
-		t.Logf("CheckRestartConsensus error: %v", err)
-	}
-}
-
 // --- RestartAndStart tests ---
 
 func TestRestartAndStart_NotEndedPhase(t *testing.T) {
@@ -355,11 +332,22 @@ func TestCheckRestartConsensus_FirstVoteStartsTimer(t *testing.T) {
 // --- coverage gap 补充用例 ---
 
 func TestCheckRestartConsensus_PhaseNotEnded(t *testing.T) {
-	r := NewRoom("PNE", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	r.state.Phase = domain.PhasePlaying
-	if err := CheckRestartConsensus(r); err != nil {
-		t.Fatalf("CheckRestartConsensus: %v", err)
+	cases := []struct {
+		name  string
+		phase domain.GamePhase
+	}{
+		{"playing", domain.PhasePlaying},
+		{"countdown", domain.PhaseCountdown},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := NewRoom("PNE", nil, nil, config.DefaultTimeoutConfig(), 0)
+			r.syncOutbound = true
+			r.state.Phase = c.phase
+			if err := CheckRestartConsensus(r); err != nil {
+				t.Fatalf("CheckRestartConsensus: %v", err)
+			}
+		})
 	}
 }
 
@@ -378,15 +366,6 @@ func TestCheckRestartConsensus_UnanimousRestart(t *testing.T) {
 	}
 	if r.state.Phase != domain.PhaseCountdown {
 		t.Fatalf("phase = %s, want countdown after unanimous restart", r.state.Phase)
-	}
-}
-
-func TestCheckRestartConsensus_NotEndedAfterBroadcast(t *testing.T) {
-	r := NewRoom("NBA", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	r.state.Phase = domain.PhaseCountdown
-	if err := CheckRestartConsensus(r); err != nil {
-		t.Fatalf("CheckRestartConsensus: %v", err)
 	}
 }
 

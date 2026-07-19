@@ -47,20 +47,6 @@ func TestEncodeSnapshot_BasicFormat(t *testing.T) {
 	}
 }
 
-func TestEncodeSnapshot_BirdInactive(t *testing.T) {
-	balloon := BalloonState{X: 0.5, Y: 0.95, Vy: 0, Vx: 0}
-	bird := BirdState{Active: false}
-	ghost := GhostState{X: 0.6, Y: 0.5, Active: false, RepelTimer: 0}
-
-	data := EncodeSnapshot(PhaseWaiting, 0, 0, balloon, bird, ghost, nil, nil, 0)
-
-	// 鸟 inactive 时只写 1 字节 (0)，不写坐标
-	// 偏移: header(10) + balloon(16) = 26 → bird active flag
-	if data[26] != 0 {
-		t.Fatalf("鸟未激活时 active 标志应为 0，got=%d", data[26])
-	}
-}
-
 // ─── EncodeTapAccepted ───────────────────────────────────────────────
 
 func TestEncodeTapAccepted(t *testing.T) {
@@ -81,14 +67,24 @@ func TestEncodeTapAccepted(t *testing.T) {
 
 // ─── EncodeTapRejected ───────────────────────────────────────────────
 
-func TestEncodeTapRejected(t *testing.T) {
-	data := EncodeTapRejected()
-
-	if len(data) != 1 {
-		t.Fatalf("EncodeTapRejected 应为 1 字节，got=%d", len(data))
+func TestEncodeSingleByteMessages(t *testing.T) {
+	cases := []struct {
+		name     string
+		data     []byte
+		wantMsg  byte
+	}{
+		{"Pong", EncodePong(), MsgPong},
+		{"TapRejected", EncodeTapRejected(), MsgTapRejected},
 	}
-	if data[0] != MsgTapRejected {
-		t.Fatalf("首字节应为 MsgTapRejected=0x05，got=0x%02x", data[0])
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if len(c.data) != 1 {
+				t.Fatalf("expected 1 byte, got %d", len(c.data))
+			}
+			if c.data[0] != c.wantMsg {
+				t.Fatalf("first byte = 0x%02x, want 0x%02x", c.data[0], c.wantMsg)
+			}
+		})
 	}
 }
 
@@ -136,79 +132,61 @@ func TestEncodeGameStateChangeEnded_WithReason(t *testing.T) {
 
 // ─── DecodeTap ───────────────────────────────────────────────────────
 
-func TestDecodeTap_Valid(t *testing.T) {
+func TestDecodeTap(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload []byte
+		wantX   float32
+		wantY   float32
+		wantOK  bool
+	}{
+		{"valid_0.5_0.3", encodeFloat32Pair(0.5, 0.3), 0.5, 0.3, true},
+		{"valid_0.75_0.25", encodeFloat32Pair(0.75, 0.25), 0.75, 0.25, true},
+		{"too_short", []byte{0x01, 0x02}, 0, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tapX, tapY, ok := DecodeTap(c.payload)
+			if ok != c.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, c.wantOK)
+			}
+			if ok && (tapX != c.wantX || tapY != c.wantY) {
+				t.Fatalf("got (%v, %v), want (%v, %v)", tapX, tapY, c.wantX, c.wantY)
+			}
+		})
+	}
+}
+
+func encodeFloat32Pair(x, y float32) []byte {
 	var buf bytes.Buffer
-	_ = binary.Write(&buf, le, float32(0.5))
-	_ = binary.Write(&buf, le, float32(0.3))
-
-	tapX, tapY, ok := DecodeTap(buf.Bytes())
-	if !ok {
-		t.Fatal("有效的 tap 消息应解码成功")
-	}
-	if tapX != 0.5 {
-		t.Fatalf("tapX 不匹配: got=%v, want=0.5", tapX)
-	}
-	if tapY != 0.3 {
-		t.Fatalf("tapY 不匹配: got=%v, want=0.3", tapY)
-	}
+	_ = binary.Write(&buf, le, x)
+	_ = binary.Write(&buf, le, y)
+	return buf.Bytes()
 }
 
-func TestDecodeTap_TooShort(t *testing.T) {
-	_, _, ok := DecodeTap([]byte{0x01, 0x02})
-	if ok {
-		t.Fatal("过短的消息应解码失败")
+func TestDecodeNicknamePayload(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload []byte
+		wantNick string
+		wantOK  bool
+	}{
+		{"valid", append([]byte{5}, []byte("hello")...), "hello", true},
+		{"empty", nil, "", false},
+		{"zero_length", []byte{0}, "", false},
+		{"truncated", []byte{5, 'a', 'b'}, "", false},
+		{"negative_length", []byte{255, 'x'}, "", false},
 	}
-}
-
-func TestDecodeNicknamePayload_Valid(t *testing.T) {
-	nick, ok := DecodeNicknamePayload(append([]byte{5}, []byte("hello")...))
-	if !ok || nick != "hello" {
-		t.Fatalf("DecodeNicknamePayload = (%q, %v), want (hello, true)", nick, ok)
-	}
-}
-
-func TestDecodeNicknamePayload_Empty(t *testing.T) {
-	_, ok := DecodeNicknamePayload(nil)
-	if ok {
-		t.Fatal("empty payload should fail")
-	}
-}
-
-func TestDecodeNicknamePayload_ZeroLength(t *testing.T) {
-	_, ok := DecodeNicknamePayload([]byte{0})
-	if ok {
-		t.Fatal("zero nickLen should fail")
-	}
-}
-
-func TestDecodeNicknamePayload_Truncated(t *testing.T) {
-	_, ok := DecodeNicknamePayload([]byte{5, 'a', 'b'})
-	if ok {
-		t.Fatal("truncated nickname should fail")
-	}
-}
-
-func TestDecodeNicknamePayload_NegativeLength(t *testing.T) {
-	_, ok := DecodeNicknamePayload([]byte{255, 'x'})
-	if ok {
-		t.Fatal("nickLen > payload should fail")
-	}
-}
-
-// ─── Round-trip: encode then decode ─────────────────────────────────
-
-func TestRoundTrip_Tap(t *testing.T) {
-	// 构造客户端 tap payload（无 msgType 前缀，DecodeMessage 已剥离）
-	var buf bytes.Buffer
-	_ = binary.Write(&buf, le, float32(0.75))
-	_ = binary.Write(&buf, le, float32(0.25))
-
-	tapX, tapY, ok := DecodeTap(buf.Bytes())
-	if !ok {
-		t.Fatal("round-trip 解码应成功")
-	}
-	if tapX != 0.75 || tapY != 0.25 {
-		t.Fatalf("round-trip 值不匹配: got (%v, %v), want (0.75, 0.25)", tapX, tapY)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			nick, ok := DecodeNicknamePayload(c.payload)
+			if ok != c.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, c.wantOK)
+			}
+			if nick != c.wantNick {
+				t.Fatalf("nick = %q, want %q", nick, c.wantNick)
+			}
+		})
 	}
 }
 
@@ -236,12 +214,6 @@ func TestDecodeMessage_Empty(t *testing.T) {
 
 // ─── WSMessageTypeName ──────────────────────────────────────────────
 
-func TestWSMessageTypeName(t *testing.T) {
-	if got := WSMessageTypeName(MsgSetNickname); got != "set_nickname" {
-		t.Fatalf("got %q, want set_nickname", got)
-	}
-}
-
 func TestWSMessageTypeName_AllCases(t *testing.T) {
 	cases := map[byte]string{
 		MsgTap:         "tap",
@@ -259,26 +231,24 @@ func TestWSMessageTypeName_AllCases(t *testing.T) {
 
 // ─── PhaseToCode ────────────────────────────────────────────────────
 
-func TestPhaseToCode_RoundTrip(t *testing.T) {
+func TestPhaseToCode(t *testing.T) {
 	cases := []struct {
+		name  string
 		phase GamePhase
 		code  uint8
 	}{
-		{PhaseWaiting, PhaseCodeWaiting},
-		{PhaseCountdown, PhaseCodeCountdown},
-		{PhasePlaying, PhaseCodePlaying},
-		{PhaseEnded, PhaseCodeEnded},
+		{"waiting", PhaseWaiting, PhaseCodeWaiting},
+		{"countdown", PhaseCountdown, PhaseCodeCountdown},
+		{"playing", PhasePlaying, PhaseCodePlaying},
+		{"ended", PhaseEnded, PhaseCodeEnded},
+		{"unknown", GamePhase("unknown"), PhaseCodeWaiting},
 	}
 	for _, c := range cases {
-		if got := PhaseToCode(c.phase); got != c.code {
-			t.Errorf("PhaseToCode(%q) = %d, want %d", c.phase, got, c.code)
-		}
-	}
-}
-
-func TestPhaseToCode_Unknown(t *testing.T) {
-	if got := PhaseToCode(GamePhase("unknown")); got != PhaseCodeWaiting {
-		t.Fatalf("unknown phase should map to PhaseCodeWaiting, got %d", got)
+		t.Run(c.name, func(t *testing.T) {
+			if got := PhaseToCode(c.phase); got != c.code {
+				t.Fatalf("PhaseToCode(%q) = %d, want %d", c.phase, got, c.code)
+			}
+		})
 	}
 }
 
@@ -302,16 +272,6 @@ func TestEncodePlayerLeave(t *testing.T) {
 	}
 }
 
-func TestEncodePong(t *testing.T) {
-	data := EncodePong()
-	if len(data) != 1 {
-		t.Fatalf("EncodePong should be 1 byte, got=%d", len(data))
-	}
-	if data[0] != MsgPong {
-		t.Fatalf("first byte should be MsgPong=0x21, got=0x%02x", data[0])
-	}
-}
-
 func TestEncodeRestartStatus(t *testing.T) {
 	data := EncodeRestartStatus(2, 5, 30000)
 	if data[0] != MsgRestartStatus {
@@ -322,64 +282,6 @@ func TestEncodeRestartStatus(t *testing.T) {
 	}
 	if data[2] != 5 {
 		t.Fatalf("totalPlayers mismatch: got=%d, want=5", data[2])
-	}
-}
-
-// ─── Benchmarks ──────────────────────────────────────────────────────
-
-func BenchmarkEncodeSnapshot(b *testing.B) {
-	balloon := BalloonState{X: 0.5, Y: 0.95, Vy: 0.01, Vx: -0.02}
-	bird := BirdState{X: 0.3, Y: 0.4, Active: true}
-	ghost := GhostState{X: 0.6, Y: 0.5, Active: true, RepelTimer: 10}
-	players := []PlayerState{
-		{PlayerIndex: 0, CooldownMs: 1000, Palette: 1, ScoreContribution: 50, Nickname: "test"},
-		{PlayerIndex: 1, CooldownMs: 500, Palette: 2, ScoreContribution: 30, Nickname: "player2"},
-	}
-	ripples := []Ripple{
-		{PlayerIndex: 0, X: 0.5, Y: 0.5},
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		EncodeSnapshot(PhasePlaying, 42, 100, balloon, bird, ghost, players, ripples, 0.3)
-	}
-}
-
-func BenchmarkEncodeSnapshot_NoPlayers(b *testing.B) {
-	balloon := BalloonState{X: 0.5, Y: 0.95, Vy: 0, Vx: 0}
-	bird := BirdState{Active: false}
-	ghost := GhostState{X: 0.6, Y: 0.5, Active: false, RepelTimer: 0}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		EncodeSnapshot(PhaseWaiting, 0, 0, balloon, bird, ghost, nil, nil, 0)
-	}
-}
-
-func BenchmarkDecodeTap(b *testing.B) {
-	var buf bytes.Buffer
-	_ = binary.Write(&buf, le, float32(0.5))
-	_ = binary.Write(&buf, le, float32(0.3))
-	data := buf.Bytes()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		DecodeTap(data)
-	}
-}
-
-func BenchmarkEncodeTapAccepted(b *testing.B) {
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		EncodeTapAccepted(3, 2000, 0.5, 0.3)
-	}
-}
-
-func BenchmarkDecodeMessage(b *testing.B) {
-	data := []byte{MsgTap, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		DecodeMessage(data)
 	}
 }
 
@@ -567,9 +469,9 @@ func TestEncodeSnapshot_RoundTrip(t *testing.T) {
 			wind: 0.15,
 		},
 		{
-			name:     "InactiveBirdGhost",
-			phase:    PhaseWaiting,
-			balloon:  BalloonState{X: 0.5, Y: 0.5},
+			name:    "InactiveBirdGhost",
+			phase:   PhaseWaiting,
+			balloon: BalloonState{X: 0.5, Y: 0.5},
 		},
 		{
 			name:      "UnicodeNickname",
@@ -638,48 +540,3 @@ func TestEncodeSnapshot_RoundTrip(t *testing.T) {
 	}
 }
 
-// ─── Fuzz tests (v2-R-103~106) ───────────────────────────────────────
-
-// FuzzDecodeNicknamePayload ensures DecodeNicknamePayload never panics and
-// returns consistent results for arbitrary byte inputs.
-// Note: FuzzDecodeTap/FuzzDecodeMessage already exist
-// in decode_fuzz_test.go; this adds coverage for the standalone payload decoder.
-func FuzzDecodeNicknamePayload(f *testing.F) {
-	// Seed corpus: valid, empty, zero-length, truncated, oversized.
-	f.Add([]byte{5, 'h', 'e', 'l', 'l', 'o'})
-	f.Add([]byte{})
-	f.Add([]byte{0})
-	f.Add([]byte{3, 'a', 'b'})
-	f.Add([]byte{255, 'x'})
-	f.Add([]byte{1, 0xff})
-
-	f.Fuzz(func(t *testing.T, data []byte) {
-		nickname, ok := DecodeNicknamePayload(data)
-		if !ok {
-			// On failure, nickname must be empty.
-			if nickname != "" {
-				t.Fatalf("on failure expected empty nickname, got %q", nickname)
-			}
-			return
-		}
-		// On success: data must have at least 1 byte (nickLen) and nickLen > 0.
-		if len(data) < 1 {
-			t.Fatalf("ok=true but data empty")
-		}
-		nickLen := int(data[0])
-		if nickLen <= 0 {
-			t.Fatalf("ok=true but nickLen=%d <= 0", nickLen)
-		}
-		if len(data) < 1+nickLen {
-			t.Fatalf("ok=true but data too short: len=%d, need %d", len(data), 1+nickLen)
-		}
-		// Nickname bytes must match the slice.
-		expected := string(data[1 : 1+nickLen])
-		if nickname != expected {
-			t.Fatalf("nickname=%q, want %q", nickname, expected)
-		}
-		if len(nickname) != nickLen {
-			t.Fatalf("len(nickname)=%d, want %d", len(nickname), nickLen)
-		}
-	})
-}

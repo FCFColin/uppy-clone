@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestReadyHandler_RedisUnavailable_Degraded(t *testing.T) {
@@ -29,12 +29,7 @@ func TestReadyHandler_RedisUnavailable_Degraded(t *testing.T) {
 }
 
 func TestReadyHandler_RedisOK(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	_, rdb := testutil.NewTestMiniredis(t)
 	checker := NewChecker(nil, rdb)
 
 	rec := httptest.NewRecorder()

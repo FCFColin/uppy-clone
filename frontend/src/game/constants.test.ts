@@ -17,19 +17,15 @@ describe('END_REASON constants', () => {
 });
 
 describe('endReasonLabel', () => {
-  it('maps known end reason codes to labels', () => {
-    expect(endReasonLabel(END_REASON.GROUND)).toBe('气球落地');
-    expect(endReasonLabel(END_REASON.BIRD)).toBe('被鸟撞到');
-    expect(endReasonLabel(END_REASON.GHOST)).toBe('被幽灵碰到');
-  });
-
-  it('returns empty string for NONE code', () => {
-    expect(endReasonLabel(END_REASON.NONE)).toBe('');
-  });
-
-  it('returns empty string for unknown codes', () => {
-    expect(endReasonLabel(99)).toBe('');
-    expect(endReasonLabel(-1)).toBe('');
-    expect(endReasonLabel(100)).toBe('');
+  it.each([
+    [END_REASON.GROUND, '气球落地'],
+    [END_REASON.BIRD, '被鸟撞到'],
+    [END_REASON.GHOST, '被幽灵碰到'],
+    [END_REASON.NONE, ''],
+    [99, ''],
+    [-1, ''],
+    [100, ''],
+  ])('maps code %i to %j', (code, expected) => {
+    expect(endReasonLabel(code)).toBe(expected);
   });
 });

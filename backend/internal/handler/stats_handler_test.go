@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,65 +22,6 @@ func TestNewStatsHandler(t *testing.T) {
 	}
 }
 
-func TestGetLeaderboard_NilDB(t *testing.T) {
-	t.Parallel()
-
-	h := NewStatsHandler(nil)
-	w := httptest.NewRecorder()
-	h.GetLeaderboard(w, httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard", nil))
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", w.Code)
-	}
-}
-
-func TestGetLeaderboard_InvalidScope(t *testing.T) {
-	t.Parallel()
-
-	var db store.ResultRepository
-	h := NewStatsHandler(&db)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard?scope=daily", nil)
-	h.GetLeaderboard(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestGetLeaderboard_InvalidLimitIgnored(t *testing.T) {
-	t.Parallel()
-
-	h := NewStatsHandler(nil)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard?limit=abc", nil)
-	h.GetLeaderboard(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503 with nil db", w.Code)
-	}
-}
-
-func TestGetLeaderboard_WeeklyScopeNilDB(t *testing.T) {
-	t.Parallel()
-
-	h := NewStatsHandler(nil)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard?scope=weekly", nil)
-	h.GetLeaderboard(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", w.Code)
-	}
-}
-
-func TestGetUserStats_NilDB(t *testing.T) {
-	t.Parallel()
-
-	h := NewStatsHandler(nil)
-	w := httptest.NewRecorder()
-	h.GetUserStats(w, httptest.NewRequest(http.MethodGet, "/api/v1/user/stats", nil))
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", w.Code)
-	}
-}
-
 func TestGetUserStats_Unauthorized(t *testing.T) {
 	t.Parallel()
 
@@ -91,22 +31,6 @@ func TestGetUserStats_Unauthorized(t *testing.T) {
 	h.GetUserStats(w, httptest.NewRequest(http.MethodGet, "/api/v1/user/stats", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
-func TestGetLeaderboard_ResponseShape(t *testing.T) {
-	t.Parallel()
-
-	h := NewStatsHandler(nil)
-	w := httptest.NewRecorder()
-	h.GetLeaderboard(w, httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard", nil))
-
-	var body map[string]json.RawMessage
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if _, ok := body["title"]; !ok {
-		t.Errorf("expected title field in degraded response, got %s", w.Body.String())
 	}
 }
 

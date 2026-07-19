@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -9,8 +10,8 @@ import (
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/util"
 	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/util"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -125,4 +126,18 @@ func detectMultiIPLogin(ctx context.Context, rdb redis.Scripter, userID, clientI
 		slog.Warn("suspicious: multiple IPs for user",
 			"user_id", userID, "ip_count", ipCount, "current_ip", clientIP)
 	}
+}
+
+// parseAuthCookie reads the named cookie and verifies it with the given token verifier.
+//
+// RO-051 (interface segregation): the parameter is auth.TokenVerifier rather
+// than *auth.JWTManager so that middleware depends on the narrow capability
+// it needs (VerifyToken) and test doubles can be injected without spinning up
+// a real JWTManager. *auth.JWTManager already satisfies auth.TokenVerifier.
+func parseAuthCookie(r *http.Request, cookieName string, verifier auth.TokenVerifier) (userID, nickname, jti, role string, err error) {
+	cookie, err := r.Cookie(cookieName)
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("cookie %s not found: %w", cookieName, err)
+	}
+	return verifier.VerifyToken(cookie.Value)
 }

@@ -225,6 +225,60 @@ func TestUpdatePlayerStats(t *testing.T) {
 	})
 }
 
+// TestRoom_tickOnce_CollisionEndsGame covers ground, ghost, and bird collisions
+// that should transition phase to PhaseEnded.
+func TestRoom_tickOnce_CollisionEndsGame(t *testing.T) {
+	cases := []struct {
+		name   string
+		setup  func(state *domain.GameState)
+	}{
+		{
+			name: "GameOverGround",
+			setup: func(s *domain.GameState) {
+				s.Balloon.Y = 0.001
+				s.Balloon.VY = -0.1
+			},
+		},
+		{
+			name: "GhostCollision",
+			setup: func(s *domain.GameState) {
+				s.Ghost.Active = true
+				s.Ghost.X = s.Balloon.X
+				s.Ghost.Y = s.Balloon.Y
+				s.Ghost.VX = 0
+				s.Ghost.VY = 0
+				s.Ghost.RepelTimer = 0
+			},
+		},
+		{
+			name: "BirdCollision",
+			setup: func(s *domain.GameState) {
+				s.Bird.Active = true
+				s.Bird.X = s.Balloon.X
+				s.Bird.Y = s.Balloon.Y
+				s.Bird.VX = 0
+				s.Bird.VY = 0
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := NewRoom("TICK", nil, nil, config.DefaultTimeoutConfig(), 0)
+			r.syncOutbound = true
+			addConnectedPlayer(r, "p1")
+			r.mu.Lock()
+			r.state.Phase = domain.PhasePlaying
+			c.setup(r.state)
+			r.tickOnce(time.Now())
+			phase := r.state.Phase
+			r.mu.Unlock()
+			if phase != domain.PhaseEnded {
+				t.Fatalf("phase = %s, want ended after %s", phase, c.name)
+			}
+		})
+	}
+}
+
 func TestRoom_tickOnce_NotPlaying(t *testing.T) {
 	r := NewRoom("TICK1", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.mu.Lock()
@@ -251,88 +305,41 @@ func TestRoom_tickOnce_AdvancesPlaying(t *testing.T) {
 	r.mu.Unlock()
 }
 
-func TestRoom_tickOnce_GameOverGround(t *testing.T) {
-	r := NewRoom("TICK3", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	addConnectedPlayer(r, "p1")
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.state.Balloon.Y = 0.001
-	r.state.Balloon.VY = -0.1
-	r.tickOnce(time.Now())
-	phase := r.state.Phase
-	r.mu.Unlock()
-	if phase != domain.PhaseEnded {
-		t.Fatalf("phase = %s, want ended after ground collision", phase)
+// TestRoom_tickOnce_StopsWhenNoActivePlayers covers both all-disconnected and zero-players cases.
+func TestRoom_tickOnce_StopsWhenNoActivePlayers(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(state *domain.GameState)
+	}{
+		{
+			name: "AllDisconnected",
+			setup: func(s *domain.GameState) {
+				now := time.Now().UnixMilli()
+				s.Players["p1"] = &domain.PlayerState{ID: "p1", Disconnected: true, DisconnectedAt: &now}
+			},
+		},
+		{
+			name:  "EmptyPlayers",
+			setup: func(_ *domain.GameState) {},
+		},
 	}
-}
-
-func TestRoom_tickOnce_GhostCollision(t *testing.T) {
-	r := NewRoom("TICK4", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	addConnectedPlayer(r, "p1")
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.state.Ghost.Active = true
-	r.state.Ghost.X = r.state.Balloon.X
-	r.state.Ghost.Y = r.state.Balloon.Y
-	r.state.Ghost.VX = 0
-	r.state.Ghost.VY = 0
-	r.state.Ghost.RepelTimer = 0
-	r.tickOnce(time.Now())
-	phase := r.state.Phase
-	r.mu.Unlock()
-	if phase != domain.PhaseEnded {
-		t.Fatalf("phase = %s, want ended after ghost collision", phase)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := NewRoom("TICK", nil, nil, config.DefaultTimeoutConfig(), 0)
+			r.mu.Lock()
+			r.state.Phase = domain.PhasePlaying
+			c.setup(r.state)
+			r.startTick()
+			if r.tickCancel == nil {
+				t.Fatal("expected tick to start")
+			}
+			r.tickOnce(time.Now())
+			if r.tickCancel != nil {
+				t.Fatal("expected tick to stop with no active players")
+			}
+			r.mu.Unlock()
+		})
 	}
-}
-
-func TestRoom_tickOnce_BirdCollision(t *testing.T) {
-	r := NewRoom("TICK5", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	addConnectedPlayer(r, "p1")
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.state.Bird.Active = true
-	r.state.Bird.X = r.state.Balloon.X
-	r.state.Bird.Y = r.state.Balloon.Y
-	r.state.Bird.VX = 0
-	r.state.Bird.VY = 0
-	r.tickOnce(time.Now())
-	phase := r.state.Phase
-	r.mu.Unlock()
-	if phase != domain.PhaseEnded {
-		t.Fatalf("phase = %s, want ended after bird collision", phase)
-	}
-}
-
-func TestRoom_tickOnce_StopsWhenAllDisconnected(t *testing.T) {
-	r := NewRoom("TICK6", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	now := time.Now().UnixMilli()
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Disconnected: true, DisconnectedAt: &now}
-	r.startTick()
-	if r.tickCancel == nil {
-		t.Fatal("expected tick to start")
-	}
-	r.tickOnce(time.Now())
-	if r.tickCancel != nil {
-		t.Fatal("expected tick to stop when all players disconnected")
-	}
-	r.mu.Unlock()
-}
-
-func TestRoom_tickOnce_EmptyPlayersStopsTick(t *testing.T) {
-	r := NewRoom("TICK7", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.startTick()
-	r.tickOnce(time.Now())
-	if r.tickCancel != nil {
-		t.Fatal("expected tick to stop with zero players")
-	}
-	r.mu.Unlock()
 }
 
 func TestRoom_tickOnce_SavesStateEvery30Ticks(t *testing.T) {
@@ -398,51 +405,28 @@ func TestRoom_HandleMessage_RateLimitDisconnect(t *testing.T) {
 	}
 }
 
-func TestRoom_handleSetNicknameMsg_InvalidPayload(t *testing.T) {
-	r := NewRoom("INV", nil, nil, config.DefaultTimeoutConfig(), 0)
-	player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
-	r.mu.Lock()
-	r.handleSetNicknameMsg(player, []byte{0})
-	r.mu.Unlock()
-	if player.NicknameConfirmed {
-		t.Fatal("invalid payload should not confirm nickname")
+func TestRoom_handleSetNicknameMsg(t *testing.T) {
+	cases := []struct {
+		name             string
+		payload          []byte
+		wantConfirmed    bool
+	}{
+		{name: "InvalidPayloadZero", payload: []byte{0}, wantConfirmed: false},
+		{name: "EmptySanitized", payload: append([]byte{byte(3)}, []byte("   ")...), wantConfirmed: false},
+		{name: "AcceptsValidNickname", payload: append([]byte{byte(len("Valid"))}, []byte("Valid")...), wantConfirmed: true},
 	}
-}
-
-func TestRoom_handleSetNicknameMsg_RejectedNickname(t *testing.T) {
-	r := NewRoom("REJ", nil, nil, config.DefaultTimeoutConfig(), 0)
-	player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
-	r.mu.Lock()
-	r.handleSetNicknameMsg(player, []byte{0}) // invalid length prefix
-	r.mu.Unlock()
-	if player.NicknameConfirmed {
-		t.Fatal("invalid nickname should not confirm")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := NewRoom("NICK", nil, nil, config.DefaultTimeoutConfig(), 0)
+			player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
+			r.mu.Lock()
+			r.handleSetNicknameMsg(player, c.payload)
+			r.mu.Unlock()
+			if player.NicknameConfirmed != c.wantConfirmed {
+				t.Fatalf("NicknameConfirmed = %v, want %v", player.NicknameConfirmed, c.wantConfirmed)
+			}
+		})
 	}
 }
 
 // encodeTapTestPayload helper: creates a mock tap payload for testing decodeTapPayload.
-
-func TestRoom_handleSetNicknameMsg_EmptySanitized(t *testing.T) {
-	r := NewRoom("EMP", nil, nil, config.DefaultTimeoutConfig(), 0)
-	player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
-	// valid framing but nickname becomes empty after sanitize
-	payload := append([]byte{byte(3)}, []byte("   ")...)
-	r.mu.Lock()
-	r.handleSetNicknameMsg(player, payload)
-	r.mu.Unlock()
-	if player.NicknameConfirmed {
-		t.Fatal("whitespace-only nickname should not confirm")
-	}
-}
-
-func TestRoom_handleSetNicknameMsg_AcceptsValidNickname(t *testing.T) {
-	r := NewRoom("OK", nil, nil, config.DefaultTimeoutConfig(), 0)
-	player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
-	payload := append([]byte{byte(len("Valid"))}, []byte("Valid")...)
-	r.mu.Lock()
-	r.handleSetNicknameMsg(player, payload)
-	r.mu.Unlock()
-	if !player.NicknameConfirmed {
-		t.Fatal("valid nickname should confirm")
-	}
-}

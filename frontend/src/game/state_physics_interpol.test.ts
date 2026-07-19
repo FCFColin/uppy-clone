@@ -9,38 +9,14 @@ import {
   getInterpolatedBird,
   getInterpState,
   commitRenderedState,
+  resetClientState,
 } from './state_interp.js';
 import { isDuplicateSeq, getSeenSeqsSize } from './seen_seqs.js';
-import { resetClientState } from './state_interp.js';
 import { PHYSICS } from '../shared/game/constants.js';
 
 const TICK_MS = PHYSICS.TICK_INTERVAL;
 
-describe('Physics interpolation - resetInterpolation', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    resetInterpolation();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('clears prevBalloon and prevGhost to null', () => {
-    expect(getInterpState().prevBalloon).toBeNull();
-    expect(getInterpState().prevGhost).toBeNull();
-  });
-
-  it('resets currBalloon to the default position', () => {
-    expect(getInterpState().currBalloon).toEqual({ x: 0.5, y: 0.95 });
-  });
-
-  it('resets currGhost to the inactive default', () => {
-    expect(getInterpState().currGhost).toEqual({ x: 0.5, y: 0.5, active: false });
-  });
-});
-
-describe('Physics interpolation - updateInterpolation (first call)', () => {
+describe('Physics interpolation', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
@@ -50,6 +26,13 @@ describe('Physics interpolation - updateInterpolation (first call)', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('resets prev to null and curr to defaults', () => {
+    expect(getInterpState().prevBalloon).toBeNull();
+    expect(getInterpState().prevGhost).toBeNull();
+    expect(getInterpState().currBalloon).toEqual({ x: 0.5, y: 0.95 });
+    expect(getInterpState().currGhost).toEqual({ x: 0.5, y: 0.5, active: false });
   });
 
   it('initializes prev and curr to the current state values on first call', () => {
@@ -66,22 +49,6 @@ describe('Physics interpolation - updateInterpolation (first call)', () => {
     expect(getInterpState().prevGhost).toEqual({ x: 0.4, y: 0.6, active: true });
     expect(getInterpState().currGhost).toEqual({ x: 0.4, y: 0.6, active: true });
   });
-});
-
-describe('Physics interpolation - getInterpolatedBalloon', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    resetInterpolation();
-    resetClientState();
-    state.balloon.x = 0.1;
-    state.balloon.y = 0.2;
-    updateInterpolation(0);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
 
   it('returns currBalloon when prevBalloon is null', () => {
     resetInterpolation();
@@ -89,6 +56,9 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
   });
 
   it('linearly interpolates between prev and curr as tick time advances', () => {
+    state.balloon.x = 0.1;
+    state.balloon.y = 0.2;
+    updateInterpolation(0);
     state.balloon.x = 0.14;
     state.balloon.y = 0.24;
     updateInterpolation(1);
@@ -109,6 +79,9 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
   });
 
   it('allows velocity extrapolation once elapsed exceeds one tick interval', () => {
+    state.balloon.x = 0.1;
+    state.balloon.y = 0.2;
+    updateInterpolation(0);
     state.balloon.x = 0.14;
     state.balloon.y = 0.24;
     state.balloon.vx = 0.01;
@@ -122,6 +95,9 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
   });
 
   it('does not snap backward when a new snapshot arrives after extrapolation', () => {
+    state.balloon.x = 0.1;
+    state.balloon.y = 0.2;
+    updateInterpolation(0);
     state.balloon.x = 0.14;
     state.balloon.y = 0.24;
     state.balloon.vx = 0.01;
@@ -144,6 +120,9 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
   it('handles the edge case of zero delta (same position)', () => {
     state.balloon.x = 0.1;
     state.balloon.y = 0.2;
+    updateInterpolation(0);
+    state.balloon.x = 0.1;
+    state.balloon.y = 0.2;
     updateInterpolation(1);
 
     vi.advanceTimersByTime(TICK_MS / 2);
@@ -153,6 +132,9 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
   });
 
   it('snaps (no smoothing) when movement exceeds the teleport threshold', () => {
+    state.balloon.x = 0.1;
+    state.balloon.y = 0.2;
+    updateInterpolation(0);
     state.balloon.x = 0.6;
     state.balloon.y = 0.7;
     updateInterpolation(1);
@@ -161,30 +143,20 @@ describe('Physics interpolation - getInterpolatedBalloon', () => {
     vi.advanceTimersByTime(TICK_MS / 2);
     expect(getInterpolatedBalloon()).toEqual({ x: 0.6, y: 0.7 });
   });
-});
 
-describe('Physics interpolation - getInterpolatedGhost', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    resetInterpolation();
-    resetClientState();
+  it('returns null when the ghost is inactive', () => {
     state.balloon.x = 0.5;
     state.balloon.y = 0.5;
     updateInterpolation(0);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('returns null when the ghost is inactive', () => {
     state.ghost.active = false;
     updateInterpolation(1);
     expect(getInterpolatedGhost()).toBeNull();
   });
 
   it('returns currGhost when prevGhost is null (first activation)', () => {
+    state.balloon.x = 0.5;
+    state.balloon.y = 0.5;
+    updateInterpolation(0);
     state.ghost.active = true;
     state.ghost.x = 0.2;
     state.ghost.y = 0.3;
@@ -193,6 +165,9 @@ describe('Physics interpolation - getInterpolatedGhost', () => {
   });
 
   it('linearly interpolates the ghost position between snapshots', () => {
+    state.balloon.x = 0.5;
+    state.balloon.y = 0.5;
+    updateInterpolation(0);
     state.ghost.active = true;
     state.ghost.x = 0.1;
     state.ghost.y = 0.2;
@@ -216,6 +191,9 @@ describe('Physics interpolation - getInterpolatedGhost', () => {
   });
 
   it('returns null again once the ghost becomes inactive', () => {
+    state.balloon.x = 0.5;
+    state.balloon.y = 0.5;
+    updateInterpolation(0);
     state.ghost.active = true;
     state.ghost.x = 0.2;
     state.ghost.y = 0.3;
@@ -226,28 +204,16 @@ describe('Physics interpolation - getInterpolatedGhost', () => {
     updateInterpolation(2);
     expect(getInterpolatedGhost()).toBeNull();
   });
-});
-
-describe('Physics interpolation - getInterpolatedBird', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    resetInterpolation();
-    resetClientState();
-    updateInterpolation(0);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
 
   it('returns null when bird inactive', () => {
+    updateInterpolation(0);
     state.bird.active = false;
     updateInterpolation(1);
     expect(getInterpolatedBird()).toBeNull();
   });
 
   it('interpolates active bird between ticks', () => {
+    updateInterpolation(0);
     state.bird.active = true;
     state.bird.x = 0.2;
     state.bird.y = 0.3;
@@ -282,19 +248,12 @@ describe('Physics interpolation - getInterpolatedBird', () => {
     expect(ghost).not.toBeNull();
     expect(bird).not.toBeNull();
   });
-});
 
-describe('Physics interpolation - freezeInterpolation', () => {
-  beforeEach(() => {
-    resetInterpolation();
-    resetClientState();
+  it('freezeInterpolation pins rendered entities to the current authoritative state', () => {
     state.balloon = { x: 0.2, y: 0.3, vx: 0, vy: 0 };
     state.ghost = { x: 0.4, y: 0.5, active: true, repelTimer: 0 };
     state.bird = { x: 0.6, y: 0.7, active: true };
     updateInterpolation(1);
-  });
-
-  it('pins rendered entities to the current authoritative state', () => {
     state.balloon = { x: 0.25, y: 0.35, vx: 0, vy: 0 };
     state.ghost = { x: 0.45, y: 0.55, active: true, repelTimer: 0 };
     state.bird = { x: 0.65, y: 0.75, active: true };
@@ -303,19 +262,8 @@ describe('Physics interpolation - freezeInterpolation', () => {
     expect(getInterpolatedGhost()).toEqual({ x: 0.45, y: 0.55, active: true });
     expect(getInterpolatedBird()).toEqual({ x: 0.65, y: 0.75, active: true });
   });
-});
 
-describe('Physics interpolation - resetClientState', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    resetInterpolation();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('resets score, cooldown, ripples, balloon and wind to defaults', () => {
+  it('resetClientState resets score, cooldown, ripples, balloon and wind to defaults', () => {
     state.score = 999;
     state.myCooldownEnd = 12345;
     state.ripples.push({ playerIndex: 1, x: 0.5, y: 0.5, time: 0 });
@@ -333,7 +281,7 @@ describe('Physics interpolation - resetClientState', () => {
     expect(state.hasReceivedFirstSnapshot).toBe(false);
   });
 
-  it('clears the seenSeqs set', () => {
+  it('resetClientState clears the seenSeqs set', () => {
     isDuplicateSeq(1);
     isDuplicateSeq(2);
     resetClientState();

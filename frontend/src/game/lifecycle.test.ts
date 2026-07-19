@@ -55,44 +55,26 @@ describe('lifecycle', () => {
     resetBootBound();
   });
 
-  it('boot does not throw', () => {
-    expect(() => boot()).not.toThrow();
-  });
-
   it('boot saves game url to localStorage', () => {
     boot();
     expect(localStorage.getItem('uppy-game-url')).toBe(window.location.href);
   });
 
-  it('boot calls normalizeAuthHost', () => {
+  it.each([
+    ['normalizeAuthHost', mockNormalizeAuthHost],
+    ['connectWebSocket', mockConnectWebSocket],
+    ['initEntryFlow', mockInitEntryFlow],
+    ['initWaitingTips', mockInitWaitingTips],
+    ['resizeCanvas', mockResizeCanvas],
+    ['renderOnce', mockRenderOnce],
+  ] as const)('boot calls %s', (_name, mock) => {
     boot();
-    expect(mockNormalizeAuthHost).toHaveBeenCalled();
-  });
-
-  it('boot calls connectWebSocket', () => {
-    boot();
-    expect(mockConnectWebSocket).toHaveBeenCalled();
-  });
-
-  it('boot calls initEntryFlow', () => {
-    boot();
-    expect(mockInitEntryFlow).toHaveBeenCalled();
+    expect(mock).toHaveBeenCalled();
   });
 
   it('boot calls bindEntryUI with submit callback', () => {
     boot();
     expect(mockBindEntryUI).toHaveBeenCalledWith(expect.any(Function));
-  });
-
-  it('boot calls initWaitingTips', () => {
-    boot();
-    expect(mockInitWaitingTips).toHaveBeenCalled();
-  });
-
-  it('boot calls resizeCanvas and renderOnce', () => {
-    boot();
-    expect(mockResizeCanvas).toHaveBeenCalled();
-    expect(mockRenderOnce).toHaveBeenCalled();
   });
 
   it('boot sets timeout for connection error', () => {

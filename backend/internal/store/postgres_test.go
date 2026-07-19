@@ -16,32 +16,27 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func TestPostgresStore_NewRequiresDatabaseURL(t *testing.T) {
-	_, err := NewPostgresStore("", config.DefaultTimeoutConfig())
-	if err == nil {
-		t.Fatal("expected error for empty database URL")
-	}
-}
-
-func TestPostgresStore_NewInvalidConnString(t *testing.T) {
+func TestPostgresStore_NewInvalidInputs(t *testing.T) {
 	t.Parallel()
-	_, err := NewPostgresStore("://not-a-valid-dsn", config.DefaultTimeoutConfig())
-	if err == nil {
-		t.Fatal("expected error for invalid connection string")
+	tests := []struct {
+		name     string
+		connStr  string
+		wantErr  string
+	}{
+		{"empty database URL", "", "expected error for empty database URL"},
+		{"invalid connection string", "://not-a-valid-dsn", "parse config"},
+		{"unreachable ping", "postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable&connect_timeout=1", "ping"},
 	}
-	if !strings.Contains(err.Error(), "parse config") {
-		t.Fatalf("expected parse config error, got %v", err)
-	}
-}
-
-func TestPostgresStore_NewUnreachablePing(t *testing.T) {
-	t.Parallel()
-	_, err := NewPostgresStore(
-		"postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable&connect_timeout=1",
-		config.DefaultTimeoutConfig(),
-	)
-	if err == nil || !strings.Contains(err.Error(), "ping") {
-		t.Fatalf("expected ping error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewPostgresStore(tt.connStr, config.DefaultTimeoutConfig())
+			if err == nil {
+				t.Fatalf("expected error for %s", tt.name)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected %q error, got %v", tt.wantErr, err)
+			}
+		})
 	}
 }
 
@@ -171,27 +166,39 @@ func TestPostgresStore_recordAcquireDurationDelta(t *testing.T) {
 	db.recordAcquireDurationDelta(3.0, 3)
 }
 
-// mockRows implements pgx.Rows for testing scanLobbyRows.
-type mockRows struct {
-	data    []domain.LobbyState
+// mockRowsBase provides shared pgx.Rows methods for test mocks. Concrete mock
+// row types embed this and implement Scan() + Next() with their own data shape.
+type mockRowsBase struct {
 	pos     int
 	closed  bool
 	err     error
 	scanErr error
 }
 
-func (m *mockRows) Close()                                       { m.closed = true }
-func (m *mockRows) Err() error                                   { return m.err }
-func (m *mockRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
-func (m *mockRows) Conn() *pgx.Conn                              { return nil }
-func (m *mockRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (m *mockRows) Next() bool {
-	if m.err != nil || m.pos >= len(m.data) {
+func (m *mockRowsBase) Close()                                       { m.closed = true }
+func (m *mockRowsBase) Err() error                                   { return m.err }
+func (m *mockRowsBase) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (m *mockRowsBase) Conn() *pgx.Conn                              { return nil }
+func (m *mockRowsBase) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRowsBase) RawValues() [][]byte                          { return nil }
+func (m *mockRowsBase) Values() ([]any, error)                       { return nil, nil }
+
+// next advances pos for a slice of length n. Returns false at end or on err.
+func (m *mockRowsBase) next(n int) bool {
+	if m.err != nil || m.pos >= n {
 		return false
 	}
 	m.pos++
-	return m.pos <= len(m.data)
+	return m.pos <= n
 }
+
+// mockRows implements pgx.Rows for testing scanLobbyRows.
+type mockRows struct {
+	mockRowsBase
+	data []domain.LobbyState
+}
+
+func (m *mockRows) Next() bool { return m.next(len(m.data)) }
 func (m *mockRows) Scan(dest ...interface{}) error {
 	if m.scanErr != nil {
 		return m.scanErr
@@ -218,8 +225,6 @@ func (m *mockRows) Scan(dest ...interface{}) error {
 	}
 	return nil
 }
-func (m *mockRows) RawValues() [][]byte    { return nil }
-func (m *mockRows) Values() ([]any, error) { return nil, nil }
 
 func TestScanLobbyRows(t *testing.T) {
 	t.Parallel()
@@ -256,8 +261,8 @@ func TestScanLobbyRows(t *testing.T) {
 
 	t.Run("scan error propagates", func(t *testing.T) {
 		rows := &mockRows{
-			data:    []domain.LobbyState{{ID: "id1"}},
-			scanErr: errors.New("scan failed"),
+			data:         []domain.LobbyState{{ID: "id1"}},
+			mockRowsBase: mockRowsBase{scanErr: errors.New("scan failed")},
 		}
 		_, err := scanLobbyRows(rows)
 		if err == nil || !strings.Contains(err.Error(), "scan failed") {
@@ -267,8 +272,8 @@ func TestScanLobbyRows(t *testing.T) {
 
 	t.Run("rows.Err propagates", func(t *testing.T) {
 		rows := &mockRows{
-			data: []domain.LobbyState{{ID: "id1"}},
-			err:  errors.New("iteration error"),
+			data:         []domain.LobbyState{{ID: "id1"}},
+			mockRowsBase: mockRowsBase{err: errors.New("iteration error")},
 		}
 		_, err := scanLobbyRows(rows)
 		if err == nil || !strings.Contains(err.Error(), "iteration error") {

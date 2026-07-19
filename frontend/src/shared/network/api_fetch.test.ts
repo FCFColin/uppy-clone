@@ -31,39 +31,37 @@ describe('apiFetch', () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
-  it('defaults credentials to include', async () => {
+  it.each([
+    ['defaults to include', undefined, 'include'],
+    ['preserves caller-provided', 'omit', 'omit'],
+  ] as const)('credentials %s', async (_label, input, expected) => {
     vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200 } as Response);
-    await apiFetch('/api/v1/test');
+    await apiFetch('/api/v1/test', input ? { credentials: input } : undefined);
     const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
-    expect(init.credentials).toBe('include');
+    expect(init.credentials).toBe(expected);
   });
 
-  it('preserves caller-provided credentials', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200 } as Response);
-    await apiFetch('/api/v1/test', { credentials: 'omit' });
-    const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
-    expect(init.credentials).toBe('omit');
-  });
-
-  it('retries once on network failure then succeeds', async () => {
-    vi.mocked(fetch)
-      .mockRejectedValueOnce(new Error('network'))
-      .mockResolvedValueOnce({ ok: true, status: 200 } as Response);
-    const res = await apiFetch('/api/v1/test', { retries: 1 });
-    expect(res.status).toBe(200);
-    expect(fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('throws when retries exhausted', async () => {
-    vi.mocked(fetch).mockRejectedValue(new Error('network'));
-    await expect(apiFetch('/api/v1/test', { retries: 1 })).rejects.toThrow('network');
-    expect(fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not retry when retries is 0', async () => {
-    vi.mocked(fetch).mockRejectedValue(new Error('network'));
-    await expect(apiFetch('/api/v1/test', { retries: 0 })).rejects.toThrow('network');
-    expect(fetch).toHaveBeenCalledOnce();
+  it.each([
+    ['retries once on network failure then succeeds', 1, [['reject', null], ['resolve', { ok: true, status: 200 }]], 2, 200, false],
+    ['throws when retries exhausted', 1, [['reject', null], ['reject', null]], 2, null, true],
+    ['does not retry when retries is 0', 0, [['reject', null]], 1, null, true],
+  ] as const)('%s', async (_label, retries, fetchSequence, expectedCalls, expectedStatus, shouldThrow) => {
+    const mockFetch = vi.mocked(fetch);
+    for (const [mode, response] of fetchSequence) {
+      if (mode === 'reject') {
+        mockFetch.mockRejectedValueOnce(new Error('network'));
+      } else {
+        mockFetch.mockResolvedValueOnce(response as Response);
+      }
+    }
+    const promise = apiFetch('/api/v1/test', { retries });
+    if (shouldThrow) {
+      await expect(promise).rejects.toThrow('network');
+    } else {
+      const res = await promise;
+      expect(res.status).toBe(expectedStatus);
+    }
+    expect(fetch).toHaveBeenCalledTimes(expectedCalls);
   });
 
   it('refreshes token on 401 and retries successfully', async () => {

@@ -3,7 +3,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,9 +39,7 @@ func TestQuickPlayResponseMatchesOpenAPISchema(t *testing.T) {
 	}
 
 	var body map[string]interface{}
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	testutil.DecodeJSONBody(t, w, &body)
 
 	expectedFields := []string{"userId"}
 	for _, field := range expectedFields {

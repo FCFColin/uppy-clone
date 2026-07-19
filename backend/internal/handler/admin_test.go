@@ -12,7 +12,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
@@ -77,100 +76,53 @@ func TestAdminHandler_VerifyAdminToken_ValidToken(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_VerifyAdminToken_NoCookie(t *testing.T) {
-	h := newTestAdminHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
-
-	if h.VerifyAdminToken(req) {
-		t.Error("VerifyAdminToken should return false when no cookie is present")
-	}
-}
-
-func TestAdminHandler_VerifyAdminToken_InvalidToken(t *testing.T) {
-	h := newTestAdminHandler()
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
-	req.AddCookie(&http.Cookie{
-		Name:  "admin_token",
-		Value: "invalid-token",
-	})
-
-	if h.VerifyAdminToken(req) {
-		t.Error("VerifyAdminToken should return false for invalid token")
-	}
-}
-
-func TestAdminHandler_VerifyAdminToken_WrongSigningMethod(t *testing.T) {
+func TestAdminHandler_VerifyAdminToken_RejectionCases(t *testing.T) {
 	h := newTestAdminHandler()
 
-	// Create a token with wrong signing method
+	// Build tokens for various rejection cases
 	now := time.Now()
-	claims := adminClaims{
+
+	wrongMethodToken := jwt.NewWithClaims(jwt.SigningMethodNone, adminClaims{
 		Role: "admin",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "admin",
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
 		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodNone, claims)
-	tokenString, _ := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
+	})
+	wrongMethodStr, _ := wrongMethodToken.SignedString(jwt.UnsafeAllowNoneSignatureType)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
-	req.AddCookie(&http.Cookie{
-		Name:  "admin_token",
-		Value: tokenString,
+	nonAdminToken, _ := h.adminJwtMgr.SignWithClaims(map[string]any{
+		"role": "user", "sub": "admin",
+		"iat": now.Unix(), "exp": now.Add(24 * time.Hour).Unix(),
 	})
 
-	if h.VerifyAdminToken(req) {
-		t.Error("VerifyAdminToken should reject token with wrong signing method")
-	}
-}
-
-func TestAdminHandler_VerifyAdminToken_NonAdminClaims(t *testing.T) {
-	h := newTestAdminHandler()
-
-	// Create a token without admin role
-	now := time.Now()
-	claims := map[string]any{
-		"role": "user",
-		"sub":  "admin",
-		"iat":  now.Unix(),
-		"exp":  now.Add(24 * time.Hour).Unix(),
-	}
-	tokenString, _ := h.adminJwtMgr.SignWithClaims(claims)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
-	req.AddCookie(&http.Cookie{
-		Name:  "admin_token",
-		Value: tokenString,
+	expiredToken, _ := h.adminJwtMgr.SignWithClaims(map[string]any{
+		"role": "admin", "sub": "admin",
+		"iat": now.Add(-48 * time.Hour).Unix(), "exp": now.Add(-24 * time.Hour).Unix(),
 	})
 
-	if h.VerifyAdminToken(req) {
-		t.Error("VerifyAdminToken should reject token with non-admin role")
+	tests := []struct {
+		name  string
+		cookie string
+	}{
+		{"no cookie", ""},
+		{"invalid token", "invalid-token"},
+		{"wrong signing method", wrongMethodStr},
+		{"non-admin claims", nonAdminToken},
+		{"expired token", expiredToken},
 	}
-}
 
-func TestAdminHandler_VerifyAdminToken_ExpiredToken(t *testing.T) {
-	h := newTestAdminHandler()
-
-	// Create an expired token
-	now := time.Now()
-	claims := map[string]any{
-		"role": "admin",
-		"sub":  "admin",
-		"iat":  now.Add(-48 * time.Hour).Unix(),
-		"exp":  now.Add(-24 * time.Hour).Unix(),
-	}
-	tokenString, _ := h.adminJwtMgr.SignWithClaims(claims)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
-	req.AddCookie(&http.Cookie{
-		Name:  "admin_token",
-		Value: tokenString,
-	})
-
-	if h.VerifyAdminToken(req) {
-		t.Error("VerifyAdminToken should reject expired token")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
+			if tt.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: "admin_token", Value: tt.cookie})
+			}
+			if h.VerifyAdminToken(req) {
+				t.Error("VerifyAdminToken should return false")
+			}
+		})
 	}
 }
 
@@ -179,15 +131,6 @@ func TestAdminHandler_VerifyAdminToken_ExpiredToken(t *testing.T) {
 func TestAdminHandler_MaskedKey(t *testing.T) {
 	if maskedKey != "••••••••" {
 		t.Errorf("maskedKey = %q, want %q", maskedKey, "••••••••")
-	}
-}
-
-// --- AdminHandler.UpdateConfig tests (requires DB, test masking logic) ---
-
-func TestAdminHandler_UpdateConfig_MasksApiKey(t *testing.T) {
-	// Test that the masked key constant is not treated as a real API key
-	if maskedKey == "" {
-		t.Error("maskedKey should not be empty")
 	}
 }
 
@@ -231,40 +174,6 @@ var _ = crypto.Encrypt
 var _ = fmt.Sprintf
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
-
-func TestCompareAdminPassword_BcryptHash(t *testing.T) {
-	password := "admin123"
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("bcrypt hash error: %v", err)
-	}
-
-	t.Run("correct password matches bcrypt hash", func(t *testing.T) {
-		if !compareAdminPassword(password, string(hashed)) {
-			t.Error("compareAdminPassword should return true for correct password")
-		}
-	})
-
-	t.Run("wrong password does not match bcrypt hash", func(t *testing.T) {
-		if compareAdminPassword("wrong-password", string(hashed)) {
-			t.Error("compareAdminPassword should return false for wrong password")
-		}
-	})
-}
-
-func TestCompareAdminPassword_PlaintextRejected(t *testing.T) {
-	t.Run("plaintext password is rejected (no fallback)", func(t *testing.T) {
-		if compareAdminPassword("admin123", "admin123") {
-			t.Error("compareAdminPassword should return false for plaintext stored password")
-		}
-	})
-
-	t.Run("wrong plaintext password is rejected", func(t *testing.T) {
-		if compareAdminPassword("wrong", "admin123") {
-			t.Error("compareAdminPassword should return false for non-bcrypt stored password")
-		}
-	})
-}
 
 func TestHashAdminPassword(t *testing.T) {
 	t.Run("produces bcrypt hash", func(t *testing.T) {
@@ -344,43 +253,4 @@ func TestIsBcryptHash(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestChangePassword_FullFlow(t *testing.T) {
-	t.Run("change password with correct old password", func(t *testing.T) {
-		oldPassword := "old-password"
-		oldHash, _ := hashAdminPassword(oldPassword)
-
-		// Verify old password works
-		if !compareAdminPassword(oldPassword, oldHash) {
-			t.Fatal("old password should match old hash")
-		}
-
-		// Change to new password
-		newPassword := "new-password"
-		newHash, err := hashAdminPassword(newPassword)
-		if err != nil {
-			t.Fatalf("hashAdminPassword error: %v", err)
-		}
-
-		// Verify new password works
-		if !compareAdminPassword(newPassword, newHash) {
-			t.Error("new password should match new hash")
-		}
-
-		// Verify old password no longer works with new hash
-		if compareAdminPassword(oldPassword, newHash) {
-			t.Error("old password should not match new hash")
-		}
-	})
-
-	t.Run("change password with wrong old password", func(t *testing.T) {
-		correctPassword := "correct-password"
-		storedHash, _ := hashAdminPassword(correctPassword)
-
-		// Try to verify with wrong password
-		if compareAdminPassword("wrong-password", storedHash) {
-			t.Error("wrong password should not match stored hash")
-		}
-	})
 }

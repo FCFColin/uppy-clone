@@ -1,4 +1,4 @@
-package game
+﻿package game
 
 import (
 	"context"
@@ -28,12 +28,6 @@ func (t *trackingRoomRepo) InsertOutboxEvent(_ context.Context, _, _ string, _ [
 func (t *trackingRoomRepo) CreateGameSession(_ context.Context, _ *domain.GameSession) error {
 	t.createSessionCount++
 	return t.createSessionErr
-}
-
-func TestRoom_EnqueueGameResultAsync_NoSessionID(_ *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
-	r := NewRoom("TEST1", h, nil, config.DefaultTimeoutConfig(), 0)
-	r.enqueueGameResultAsync()
 }
 
 func TestRoom_CreateGameSessionAsync_NilSession(t *testing.T) {
@@ -126,12 +120,4 @@ func TestRoom_EnqueueGameResultAsync_OutboxPath(t *testing.T) {
 	}
 }
 
-func TestRoom_CreateGameSessionAsync_StoreError(_ *testing.T) {
-	repo := &trackingRoomRepo{
-		mockRoomRepository: *newMockRoomRepository(),
-		createSessionErr:   errors.New("create failed"),
-	}
-	r := NewRoom("SESS", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.createGameSessionAsync(&domain.GameSession{ID: "s1", LobbyCode: "SESS"})
-	r.asyncWg.Wait()
-}
+

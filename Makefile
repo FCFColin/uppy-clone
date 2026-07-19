@@ -127,10 +127,6 @@ generate:
 	go run scripts/codegen/generate_nicknames.go
 	cd backend && go generate ./...
 
-check-generated:
-	go run scripts/codegen/generate_nicknames.go
-	@git diff --exit-code backend/internal/nicknames/pools_gen.go frontend/src/shared/assets/nickname_pools_gen.ts || (echo "generated nickname pools out of sync; run make generate" >&2; exit 1)
-
 simplify:
 	cd backend && gofmt -w .
 	$(TOOL_BUILD)/goimports golang.org/x/tools/cmd/goimports

@@ -1,10 +1,11 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestWriteJSON_SetsContentType(t *testing.T) {
@@ -50,9 +51,7 @@ func TestWriteJSON_EncodesPayload(t *testing.T) {
 	writeJSON(rec, http.StatusOK, payload)
 
 	var got map[string]int
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, rec, &got)
 	if got["a"] != 1 || got["b"] != 2 {
 		t.Fatalf("payload = %+v, want a=1, b=2", got)
 	}
@@ -68,9 +67,7 @@ func TestWriteJSON_NilPayload(t *testing.T) {
 	}
 	// nil should encode to "null"
 	var v interface{}
-	if err := json.NewDecoder(rec.Body).Decode(&v); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, rec, &v)
 	if v != nil {
 		t.Fatalf("decoded value = %v, want nil", v)
 	}
@@ -83,9 +80,7 @@ func TestWriteJSON_SlicePayload(t *testing.T) {
 	writeJSON(rec, http.StatusOK, payload)
 
 	var got []string
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.DecodeJSONBody(t, rec, &got)
 	if len(got) != 3 || got[0] != "a" || got[2] != "c" {
 		t.Fatalf("got = %v", got)
 	}

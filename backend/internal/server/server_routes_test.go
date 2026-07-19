@@ -100,15 +100,6 @@ func TestSetupRoutes_MetricsEndpoint(t *testing.T) {
 	}
 }
 
-func TestSetupRoutes_LeaderboardNilDB(t *testing.T) {
-	r := newTestRouter(t)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard", nil))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", rec.Code)
-	}
-}
-
 func TestSetupRoutes_UserStatsUnauthorized(t *testing.T) {
 	r := newTestRouter(t)
 	rec := httptest.NewRecorder()

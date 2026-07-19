@@ -64,33 +64,24 @@ describe('admin/login', () => {
     expect(onSuccess).toHaveBeenCalledOnce();
   });
 
-  it('shows error text on failed login', async () => {
+  it.each([
+    ['shows error text on failed login', { ok: false, status: 401, jsonBody: { error: '密码错误' } }, '密码错误', true],
+    ['uses generic error when response json fails to parse', { ok: false, status: 502, jsonBody: null }, '密码错误', false],
+  ] as const)('%s', async (_label, response, expectedText, checkDisplay) => {
     apiFetchMock.mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: async () => ({ error: '密码错误' }),
-    } as Response);
-    bindLoginEvents(vi.fn(), vi.fn());
-    clickLogin();
-    await new Promise((r) => setTimeout(r, 10));
-    const errEl = document.getElementById('login-error')!;
-    expect(errEl.textContent).toBe('密码错误');
-    expect(errEl.style.display).toBe('block');
-  });
-
-  it('uses generic error when response json fails to parse', async () => {
-    apiFetchMock.mockResolvedValue({
-      ok: false,
-      status: 502,
+      ok: response.ok,
+      status: response.status,
       json: async () => {
-        throw new Error('not json');
+        if (response.jsonBody === null) throw new Error('not json');
+        return response.jsonBody;
       },
     } as unknown as Response);
     bindLoginEvents(vi.fn(), vi.fn());
     clickLogin();
     await new Promise((r) => setTimeout(r, 10));
     const errEl = document.getElementById('login-error')!;
-    expect(errEl.textContent).toBe('密码错误');
+    expect(errEl.textContent).toBe(expectedText);
+    if (checkDisplay) expect(errEl.style.display).toBe('block');
   });
 
   it('shows network error toast on fetch throw', async () => {
@@ -99,7 +90,7 @@ describe('admin/login', () => {
     bindLoginEvents(vi.fn(), showToast);
     clickLogin();
     await new Promise((r) => setTimeout(r, 10));
-    expect(showToast).toHaveBeenCalledWith('网络错误', 'error');
+    expect(showToast).toHaveBeenCalledWith('网络错误');
   });
 
   it('re-enables login button after failure', async () => {

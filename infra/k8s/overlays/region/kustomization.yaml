@@ -1,18 +1,6 @@
-# Single regional overlay template (ADR-014).
-#
-# Previously three per-region overlays (us-east1 / europe-west1 / asia-southeast1)
-# existed with identical structure and only region-specific string values differing.
-# Merged into this single template; region values are substituted via sed during
-# CI/CD (same mechanism as __GCP_PROJECT_ID__ / __IMAGE_TAG__).
-#
-# Substitution variables (replaced by CI/CD sed step):
-#   __REGION__              — e.g. us-east1, europe-west1, asia-southeast1
-#   __REGION_WS_ENDPOINT__  — e.g. wss://us.balloon.example
-#
-# NOTE(module-infra-overlays-001): True per-region isolation (independent GSAs,
-# per-region Redis, per-region Secret references) is a future goal. Currently
-# all regions deploy the same config with only region-specific string values
-# differing.
+# Single regional overlay template (ADR-014): 三个 per-region overlay 合并为单模板，region 值由 CI/CD sed 替换。
+# 替换变量: __REGION__ / __REGION_WS_ENDPOINT__ / __TRUSTED_PROXY_CIDRS__ / __GCP_PROJECT_ID__ / __IMAGE_TAG__。
+# NOTE(module-infra-overlays-001): 真·per-region 隔离 (独立 GSA/Redis/Secret) 是未来目标，目前仅 string 值差异。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -23,11 +11,10 @@ resources:
   - ../../global
 
 images:
-  # infra-010: __GCP_PROJECT_ID__ is replaced during CI/CD via sed.
-  # Using a delimited placeholder avoids false matches that plain PROJECT_ID caused.
+  # infra-010: __GCP_PROJECT_ID__ 由 CI/CD sed 替换; delimited placeholder 避免 plain PROJECT_ID 误匹配。
   - name: gcr.io/__GCP_PROJECT_ID__/balloon-game
-    newName: gcr.io/__GCP_PROJECT_ID__/balloon-game
-    newTag: __IMAGE_TAG__
+  newName: gcr.io/__GCP_PROJECT_ID__/balloon-game
+  newTag: __IMAGE_TAG__
 
 patches:
   - target:

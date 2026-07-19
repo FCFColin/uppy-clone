@@ -150,12 +150,29 @@ describe('connectWebSocket', () => {
     expect(connectMocks.onLobbyCodeReady).toHaveBeenCalledWith('MATCH2');
   });
 
-  it('skips reconnect when socket already open for same lobby', async () => {
+  it('skips reconnect when socket already open for same lobby, after room resolve, or after match', async () => {
+    // Case 1: same lobby
     await connectWebSocket();
     expect(MockWebSocket.lastInstance).not.toBeNull();
     const first = MockWebSocket.lastInstance;
     await connectWebSocket();
     expect(MockWebSocket.lastInstance).toBe(first);
+
+    // Case 2: after room resolve (waiting step)
+    connectMocks.getEntryStep.mockReturnValue('waiting');
+    connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM2');
+    await connectWebSocket();
+    const second = MockWebSocket.lastInstance;
+    await connectWebSocket();
+    expect(MockWebSocket.lastInstance).toBe(second);
+
+    // Case 3: after match (lobbyCode from match, not URL)
+    connectMocks.getLobbyCodeFromUrl.mockReturnValue(null);
+    connectMocks.resolveLobbyCode.mockResolvedValue('MATCH2');
+    await connectWebSocket();
+    const third = MockWebSocket.lastInstance;
+    await connectWebSocket();
+    expect(MockWebSocket.lastInstance).toBe(third);
   });
 
   it('uses fresh match sessionStorage without re-validating room', async () => {
@@ -167,11 +184,22 @@ describe('connectWebSocket', () => {
     setRoomPreChecked(false);
   });
 
-  it('shows connection error when socket closes before open', async () => {
+  it('shows connection error when socket closes before open, with/without room pre-checked', async () => {
+    // Without pre-checked
     await connectWebSocket();
     setWsEverOpened(false);
     MockWebSocket.lastInstance?.onclose?.();
     expect(showConnectionErrorUI).toHaveBeenCalled();
+    // With pre-checked
+    setRoomPreChecked(true);
+    await connectWebSocket();
+    setWsEverOpened(false);
+    MockWebSocket.lastInstance?.onclose?.();
+    expect(showConnectionErrorUI).toHaveBeenCalledWith(
+      '无法连接房间，请稍后重试',
+      expect.objectContaining({ showActions: true }),
+    );
+    setRoomPreChecked(false);
   });
 
   it('ignores non-arraybuffer websocket messages', async () => {

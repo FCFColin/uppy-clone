@@ -10,17 +10,20 @@ describe('auth token refresh', () => {
     vi.restoreAllMocks();
   });
 
-  it('refreshAccessToken returns false when refresh endpoint fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
-    expect(await refreshAccessToken()).toBe(false);
-  });
-
-  it('refreshAccessToken succeeds via HttpOnly cookie flow', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ refreshed: true }),
-    }));
-    expect(await refreshAccessToken()).toBe(true);
+  it.each([
+    ['returns false when refresh endpoint fails', { ok: false, status: 401 }, null, false],
+    ['succeeds via HttpOnly cookie flow', { ok: true, jsonBody: { refreshed: true } }, null, true],
+    ['returns false on network error', null, 'reject', false],
+  ] as const)('%s', async (_label, response, mode, expected) => {
+    if (mode === 'reject') {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    } else if (response) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: response.ok,
+        json: async () => (response as any).jsonBody,
+      }));
+    }
+    expect(await refreshAccessToken()).toBe(expected);
   });
 
   it('refreshAccessToken deduplicates concurrent refresh calls', async () => {
@@ -40,11 +43,6 @@ describe('auth token refresh', () => {
     expect(await first).toBe(true);
     expect(await second).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('refreshAccessToken returns false on network error', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
-    expect(await refreshAccessToken()).toBe(false);
   });
 
   it('logout redirects to home', async () => {

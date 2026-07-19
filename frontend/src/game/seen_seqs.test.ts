@@ -11,17 +11,9 @@ describe('seen_seqs', () => {
     clearSeenSeqs();
   });
 
-  it('returns false for a new seq', () => {
+  it('returns false for new seq, true for duplicate, tracks size', () => {
     expect(isDuplicateSeq(1)).toBe(false);
-  });
-
-  it('returns true for a duplicate seq', () => {
-    isDuplicateSeq(1);
     expect(isDuplicateSeq(1)).toBe(true);
-  });
-
-  it('tracks size via getSeenSeqsSize', () => {
-    isDuplicateSeq(1);
     isDuplicateSeq(2);
     expect(getSeenSeqsSize()).toBe(2);
   });

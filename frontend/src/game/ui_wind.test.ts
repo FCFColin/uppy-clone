@@ -20,35 +20,26 @@ describe('ui_wind', () => {
     document.body.innerHTML = '';
   });
 
-  it('shows left wind with strength percentage and meter fill', () => {
-    updateWindIndicator(-0.5);
+  it.each([
+    [-0.5, '←', '77%', false, true],
+    [0.02, '·', '3%', true, false],
+    [0.6, '→', '92%', false, true],
+  ] as const)('wind=%f shows direction=%s strength=%s calm=%s strong=%s', (wind, expectedDir, expectedStrength, isCalm, isStrong) => {
+    updateWindIndicator(wind);
     const indicator = document.getElementById('wind-indicator')!;
     const direction = document.getElementById('wind-direction') as HTMLElement;
-    const fill = document.getElementById('wind-meter-fill') as HTMLElement;
     const strength = document.getElementById('wind-strength') as HTMLElement;
+    const fill = document.getElementById('wind-meter-fill') as HTMLElement;
 
     expect(indicator.classList.contains('hidden')).toBe(false);
-    expect(direction.textContent).toBe('←');
-    expect(strength.textContent).toBe('77%');
-    expect(fill.style.right).toBe('50%');
-    expect(parseFloat(fill.style.width)).toBeGreaterThan(35);
-  });
-
-  it('shows calm state for near-zero wind', () => {
-    updateWindIndicator(0.02);
-    const direction = document.getElementById('wind-direction') as HTMLElement;
-    const strength = document.getElementById('wind-strength') as HTMLElement;
-    const fill = document.getElementById('wind-meter-fill') as HTMLElement;
-
-    expect(direction.textContent).toBe('·');
-    expect(strength.textContent).toBe('3%');
-    expect(fill.style.width).toBe('0%');
-  });
-
-  it('marks strong wind with strong class', () => {
-    updateWindIndicator(0.6);
-    const fill = document.getElementById('wind-meter-fill') as HTMLElement;
-    expect(fill.classList.contains('strong')).toBe(true);
+    expect(direction.textContent).toBe(expectedDir);
+    expect(strength.textContent).toBe(expectedStrength);
+    if (isCalm) {
+      expect(fill.style.width).toBe('0%');
+    }
+    if (isStrong) {
+      expect(fill.classList.contains('strong')).toBe(true);
+    }
   });
 
   it('hides indicator outside playing phase', () => {

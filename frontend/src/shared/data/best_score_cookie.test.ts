@@ -6,18 +6,13 @@ describe('bestScoreCookie', () => {
     document.cookie = 'uppy-best-score=; max-age=0; path=/';
   });
 
-  it('returns 0 when no cookie exists', () => {
-    expect(getCookieBestScore()).toBe(0);
-  });
-
-  it('reads valid cookie value', () => {
-    document.cookie = 'uppy-best-score=42';
-    expect(getCookieBestScore()).toBe(42);
-  });
-
-  it('returns 0 for malformed cookie value', () => {
-    document.cookie = 'uppy-best-score=not-a-number';
-    expect(getCookieBestScore()).toBe(0);
+  it.each([
+    ['no cookie', '', 0],
+    ['valid value', '42', 42],
+    ['malformed value', 'not-a-number', 0],
+  ] as const)('getCookieBestScore returns %s', (_label, cookieValue, expected) => {
+    if (cookieValue) document.cookie = `uppy-best-score=${cookieValue}`;
+    expect(getCookieBestScore()).toBe(expected);
   });
 
   it('writes score to cookie', () => {
@@ -41,52 +36,24 @@ describe('bestScoreCookie', () => {
     expect(r).toEqual({ best: 10, isNewRecord: true });
   });
 
-  it('fetchUserBestScore falls back to cookie on API failure', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'));
-    document.cookie = 'uppy-best-score=99';
+  it.each([
+    ['falls back to cookie on API failure', 'reject', null, 99, 99, 'uppy-best-score=99'],
+    ['returns API value on success', 'resolve-ok', { bestScore: 200 }, 0, 200, null],
+    ['returns 0 when API omits bestScore', 'resolve-ok', {}, 0, 0, null],
+    ['writes API score back to cookie when higher than cookie', 'resolve-ok', { bestScore: 200 }, 50, 200, 'uppy-best-score=200'],
+    ['does not overwrite cookie when API score is lower', 'resolve-ok', { bestScore: 100 }, 300, 100, 'uppy-best-score=300'],
+  ] as const)('fetchUserBestScore %s', async (_label, mode, apiBody, cookieInitial, expectedScore, expectedCookie) => {
+    if (cookieInitial) document.cookie = `uppy-best-score=${cookieInitial}`;
+    if (mode === 'reject') {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'));
+    } else {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(apiBody),
+      } as Response);
+    }
     const score = await fetchUserBestScore();
-    expect(score).toBe(99);
-  });
-
-  it('fetchUserBestScore returns API value on success', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ bestScore: 200 }),
-    } as Response);
-    const score = await fetchUserBestScore();
-    expect(score).toBe(200);
-  });
-
-  it('fetchUserBestScore returns 0 when API omits bestScore', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}),
-    } as Response);
-    const score = await fetchUserBestScore();
-    expect(score).toBe(0);
-  });
-
-  // shared-004: API score should be written back to cookie for caching.
-  it('fetchUserBestScore writes API score back to cookie when higher than cookie', async () => {
-    document.cookie = 'uppy-best-score=50';
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ bestScore: 200 }),
-    } as Response);
-    const score = await fetchUserBestScore();
-    expect(score).toBe(200);
-    expect(document.cookie).toContain('uppy-best-score=200');
-  });
-
-  // shared-004: do not overwrite cookie if API score is not higher (stale cache).
-  it('fetchUserBestScore does not overwrite cookie when API score is lower', async () => {
-    document.cookie = 'uppy-best-score=300';
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ bestScore: 100 }),
-    } as Response);
-    const score = await fetchUserBestScore();
-    expect(score).toBe(100);
-    expect(document.cookie).toContain('uppy-best-score=300');
+    expect(score).toBe(expectedScore);
+    if (expectedCookie) expect(document.cookie).toContain(expectedCookie);
   });
 });

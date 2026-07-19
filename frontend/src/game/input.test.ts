@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const inputMockState = vi.hoisted(() => ({
   phase: 'playing',
@@ -71,15 +71,16 @@ describe('input', () => {
     expect(new DataView(buf).getUint8(0)).toBe(0x10);
   });
 
-  it('handleTap rejects during cooldown', () => {
+  it('handleTap rejects during cooldown and ignores non-playing phase', () => {
+    // Rejects during cooldown
     state.myCooldownEnd = Date.now() + 5000;
     handleTap(10, 10);
     expect(sendOrQueue).not.toHaveBeenCalled();
     expect(state.ripples.some((r) => r.rejected)).toBe(true);
-  });
-
-  it('handleTap ignores non-playing phase', () => {
+    // Ignores non-playing phase
     state.phase = 'waiting';
+    state.myCooldownEnd = 0;
+    state.ripples = [];
     handleTap(10, 10);
     expect(sendOrQueue).not.toHaveBeenCalled();
   });
@@ -90,17 +91,15 @@ describe('input', () => {
     expect(sendOrQueue).toHaveBeenCalledOnce();
   });
 
-  it('requestRestart shows message when websocket closed', () => {
+  it('requestRestart shows message when websocket closed or game has not ended', () => {
+    // WebSocket closed
     vi.mocked(getWs).mockReturnValue(null);
     document.body.innerHTML = '<div id="restart-progress"></div>';
     state.phase = 'ended';
     requestRestart();
     expect(sendOrQueue).not.toHaveBeenCalled();
     expect(document.getElementById('restart-progress')?.textContent).toContain('断开');
-  });
-
-  it('requestRestart shows message when game has not ended', () => {
-    document.body.innerHTML = '<div id="restart-progress"></div>';
+    // Game not ended
     state.phase = 'playing';
     requestRestart();
     expect(sendOrQueue).not.toHaveBeenCalled();
@@ -116,7 +115,7 @@ describe('input', () => {
     expect(document.getElementById('restart-progress')?.textContent).toContain('提交');
   });
 
-  it('tapAtBalloonCenter sends tap at balloon position', () => {
+  it('tapAtBalloonCenter sends tap at balloon position, no-ops outside playing phase', () => {
     document.body.innerHTML = '<canvas id="game-canvas" width="100" height="100"></canvas>';
     const canvas = document.getElementById('game-canvas')!;
     canvas.getBoundingClientRect = () => ({
@@ -125,12 +124,9 @@ describe('input', () => {
     });
     tapAtBalloonCenter();
     expect(sendOrQueue).toHaveBeenCalledOnce();
-  });
-
-  it('tapAtBalloonCenter no-ops outside playing phase', () => {
-    document.body.innerHTML = '<canvas id="game-canvas" width="100" height="100"></canvas>';
+    // No-op outside playing phase
     state.phase = 'waiting';
     tapAtBalloonCenter();
-    expect(sendOrQueue).not.toHaveBeenCalled();
+    expect(sendOrQueue).toHaveBeenCalledOnce();
   });
 });

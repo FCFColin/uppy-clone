@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/util"
 	"github.com/uppy-clone/backend/internal/store/base"
+	"github.com/uppy-clone/backend/internal/util"
 )
 
 // Publisher polls outbox_events and publishes to Redis Streams.

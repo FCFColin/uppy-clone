@@ -27,7 +27,7 @@ export async function loadConfig(
     const config: AdminConfig = await res.json();
     applyConfig(config);
   } catch {
-    showToast('加载配置失败', 'error');
+    showToast('加载配置失败');
   }
 }
 
@@ -47,7 +47,7 @@ export async function saveConfig(
       showToast('配置已保存');
       onSaved();
     } else {
-      showToast('保存失败', 'error');
+      showToast('保存失败');
     }
   } catch {
     showToast('网络错误');

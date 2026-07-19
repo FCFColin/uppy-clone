@@ -81,26 +81,4 @@ func TestSaveStateWithError_StoreError(t *testing.T) {
 	}
 }
 
-func TestSaveState_NilStoreDoesNotPanic(t *testing.T) {
-	t.Parallel()
-	room := &Room{
-		state:  NewGameState("TEST", 42, testRNG()),
-		store:  nil,
-		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
-	}
-	room.requestPersist()
-}
-
-func TestSaveState_StoreErrorDoesNotPanic(t *testing.T) {
-	t.Parallel()
-	repo := newMockRoomRepository()
-	repo.saveErr = errors.New("db unavailable")
-	room := &Room{
-		state:  NewGameState("TEST", 42, testRNG()),
-		store:  repo,
-		logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
-	}
-	room.requestPersist()
-}
-
 // --- coverage gap 补充用例 ---

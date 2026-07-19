@@ -93,16 +93,12 @@ describe('entry_flow', () => {
     expect(state.lobbyCode).toBe('ABC12');
   });
 
-  it('onNicknameSubmit advances to waiting', () => {
+  it('onNicknameSubmit advances to waiting, no-op when already past nickname step', () => {
     onLobbyCodeReady('ABC12');
     onNicknameSubmit();
     expect(getEntryStep()).toBe('waiting');
     expect(document.getElementById('waiting-screen')!.classList.contains('hidden')).toBe(false);
-  });
-
-  it('onNicknameSubmit is no-op when not on nickname step', () => {
-    onLobbyCodeReady('ABC12');
-    onNicknameSubmit();
+    // Second submit is no-op
     onNicknameSubmit();
     expect(getEntryStep()).toBe('waiting');
   });
@@ -114,43 +110,38 @@ describe('entry_flow', () => {
     expect(getEntryStep()).toBe('waiting');
   });
 
-  it('tryEntryHandoff moves to handoff on countdown', () => {
+  it('tryEntryHandoff moves to handoff on countdown after nickname submit, no-op before', () => {
+    // No-op before nickname submit
     onLobbyCodeReady('ABC12');
+    tryEntryHandoff('playing');
+    expect(getEntryStep()).toBe('nickname');
+    expect(isEntryHandoff()).toBe(false);
+    // Moves to handoff after nickname submit
     onNicknameSubmit();
     state.nicknameSubmitted = true;
     tryEntryHandoff('countdown');
     expect(getEntryStep()).toBe('handoff');
   });
 
-  it('onWebSocketOpen updates nickname status when on nickname step', () => {
+  it('onWebSocketOpen/Closed updates nickname status when on nickname step', () => {
     onLobbyCodeReady('ABC12');
     onWebSocketOpen();
     expect(document.getElementById('nickname-connect-status')!.textContent).toContain('服务器已连接');
     expect(document.getElementById('nickname-connect-status')!.textContent).toContain('进入游戏');
-  });
-
-  it('onWebSocketClosed updates nickname status when on nickname step', () => {
-    onLobbyCodeReady('ABC12');
-    onWebSocketOpen();
     onWebSocketClosed();
     expect(document.getElementById('nickname-connect-status')!.textContent).toContain('连接已断开');
   });
 
-  it('bindEntryUI form submit triggers callback on nickname step', () => {
+  it('bindEntryUI form submit triggers callback on nickname step, ignores when past', () => {
     onLobbyCodeReady('ABC12');
     const onSubmit = vi.fn();
     bindEntryUI(onSubmit);
     document.getElementById('nickname-entry-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(onSubmit).toHaveBeenCalledOnce();
-  });
-
-  it('bindEntryUI ignores submit when past nickname step', () => {
-    onLobbyCodeReady('ABC12');
+    // Past nickname step: ignored
     onNicknameSubmit();
-    const onSubmit = vi.fn();
-    bindEntryUI(onSubmit);
     document.getElementById('nickname-entry-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledOnce();
   });
 
   it('getWaitingTitleText reflects player count', () => {
@@ -160,12 +151,16 @@ describe('entry_flow', () => {
     expect(getWaitingTitleText()).toBe('等待其他玩家确认昵称…');
   });
 
-  it('onWebSocketOpen preserves countdown when on waiting step', () => {
+  it('onWebSocketOpen preserves countdown, onWebSocketClosed updates waiting title when on waiting step', () => {
     onLobbyCodeReady('ABC12');
     onNicknameSubmit();
     expect(document.getElementById('waiting-title')!.textContent).toMatch(/即将开始 · \d…/);
     onWebSocketOpen();
     expect(document.getElementById('waiting-title')!.textContent).toMatch(/即将开始 · \d…/);
+    clearStartCountdown();
+    onWebSocketOpen();
+    onWebSocketClosed();
+    expect(document.getElementById('waiting-title')!.textContent).toContain('正在连接服务器');
   });
 
   it('countdown timer clears itself after reaching zero', async () => {
@@ -175,15 +170,6 @@ describe('entry_flow', () => {
     vi.advanceTimersByTime(3000);
     expect(document.getElementById('waiting-title')!.textContent).toBe('正在开始…');
     vi.useRealTimers();
-  });
-
-  it('onWebSocketClosed updates waiting title when on waiting step', () => {
-    onLobbyCodeReady('ABC12');
-    onNicknameSubmit();
-    clearStartCountdown();
-    onWebSocketOpen();
-    onWebSocketClosed();
-    expect(document.getElementById('waiting-title')!.textContent).toContain('正在连接服务器');
   });
 
   it('routeConnectionError routes to nickname, waiting inline, or full-screen error', () => {
@@ -249,13 +235,6 @@ describe('entry_flow', () => {
       expect(document.getElementById('loading-error-text')!.textContent).toContain('匹配失败');
     });
     vi.unstubAllGlobals();
-  });
-
-  it('tryEntryHandoff is no-op before nickname submit', () => {
-    onLobbyCodeReady('ABC12');
-    tryEntryHandoff('playing');
-    expect(getEntryStep()).toBe('nickname');
-    expect(isEntryHandoff()).toBe(false);
   });
 
   it('onLobbyCodeReady ignores republication while connecting after publish', () => {
