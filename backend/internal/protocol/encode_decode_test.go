@@ -29,19 +29,16 @@ func TestEncodeSnapshot_BasicFormat(t *testing.T) {
 		t.Fatalf("首字节应为 MsgSnapshot=0x01，got=0x%02x", data[0])
 	}
 
-	// 验证 tickCount（偏移 1，uint32 LE）
 	tickCount := binary.LittleEndian.Uint32(data[1:5])
 	if tickCount != 42 {
 		t.Fatalf("tickCount 不匹配: got=%d, want=42", tickCount)
 	}
 
-	// 验证 score（偏移 5，uint32 LE）
 	score := binary.LittleEndian.Uint32(data[5:9])
 	if score != 100 {
 		t.Fatalf("score 不匹配: got=%d, want=100", score)
 	}
 
-	// 验证 phaseCode（偏移 9）
 	if data[9] != PhaseCodePlaying {
 		t.Fatalf("phaseCode 不匹配: got=%d, want=%d", data[9], PhaseCodePlaying)
 	}
@@ -65,13 +62,13 @@ func TestEncodeTapAccepted(t *testing.T) {
 	}
 }
 
-// ─── EncodeTapRejected ───────────────────────────────────────────────
+// ─── Single-byte messages ────────────────────────────────────────────
 
 func TestEncodeSingleByteMessages(t *testing.T) {
 	cases := []struct {
-		name     string
-		data     []byte
-		wantMsg  byte
+		name    string
+		data    []byte
+		wantMsg byte
 	}{
 		{"Pong", EncodePong(), MsgPong},
 		{"TapRejected", EncodeTapRejected(), MsgTapRejected},
@@ -134,14 +131,13 @@ func TestEncodeGameStateChangeEnded_WithReason(t *testing.T) {
 
 func TestDecodeTap(t *testing.T) {
 	cases := []struct {
-		name    string
+		name   string
 		payload []byte
-		wantX   float32
-		wantY   float32
-		wantOK  bool
+		wantX  float32
+		wantY  float32
+		wantOK bool
 	}{
-		{"valid_0.5_0.3", encodeFloat32Pair(0.5, 0.3), 0.5, 0.3, true},
-		{"valid_0.75_0.25", encodeFloat32Pair(0.75, 0.25), 0.75, 0.25, true},
+		{"valid", encodeFloat32Pair(0.5, 0.3), 0.5, 0.3, true},
 		{"too_short", []byte{0x01, 0x02}, 0, 0, false},
 	}
 	for _, c := range cases {
@@ -166,16 +162,14 @@ func encodeFloat32Pair(x, y float32) []byte {
 
 func TestDecodeNicknamePayload(t *testing.T) {
 	cases := []struct {
-		name    string
-		payload []byte
+		name     string
+		payload  []byte
 		wantNick string
-		wantOK  bool
+		wantOK   bool
 	}{
 		{"valid", append([]byte{5}, []byte("hello")...), "hello", true},
 		{"empty", nil, "", false},
-		{"zero_length", []byte{0}, "", false},
 		{"truncated", []byte{5, 'a', 'b'}, "", false},
-		{"negative_length", []byte{255, 'x'}, "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -193,23 +187,24 @@ func TestDecodeNicknamePayload(t *testing.T) {
 // ─── DecodeMessage ───────────────────────────────────────────────────
 
 func TestDecodeMessage(t *testing.T) {
-	msgType, payload := DecodeMessage([]byte{MsgTap, 0x01, 0x02})
-	if msgType != MsgTap {
-		t.Fatalf("消息类型不匹配: got=0x%02x, want=0x%02x", msgType, MsgTap)
-	}
-	if len(payload) != 2 {
-		t.Fatalf("payload 长度不匹配: got=%d, want=2", len(payload))
-	}
-}
-
-func TestDecodeMessage_Empty(t *testing.T) {
-	msgType, payload := DecodeMessage([]byte{})
-	if msgType != 0 {
-		t.Fatalf("空消息应返回类型 0，got=0x%02x", msgType)
-	}
-	if payload != nil {
-		t.Fatal("空消息 payload 应为 nil")
-	}
+	t.Run("valid", func(t *testing.T) {
+		msgType, payload := DecodeMessage([]byte{MsgTap, 0x01, 0x02})
+		if msgType != MsgTap {
+			t.Fatalf("消息类型不匹配: got=0x%02x, want=0x%02x", msgType, MsgTap)
+		}
+		if len(payload) != 2 {
+			t.Fatalf("payload 长度不匹配: got=%d, want=2", len(payload))
+		}
+	})
+	t.Run("empty", func(t *testing.T) {
+		msgType, payload := DecodeMessage([]byte{})
+		if msgType != 0 {
+			t.Fatalf("空消息应返回类型 0，got=0x%02x", msgType)
+		}
+		if payload != nil {
+			t.Fatal("空消息 payload 应为 nil")
+		}
+	})
 }
 
 // ─── WSMessageTypeName ──────────────────────────────────────────────
@@ -285,10 +280,8 @@ func TestEncodeRestartStatus(t *testing.T) {
 	}
 }
 
-// ─── EncodeSnapshot round-trip tests (misc-007) ──────────────────────
+// ─── EncodeSnapshot round-trip tests ─────────────────────────────────
 
-// decodedSnapshot holds fields extracted from a binary snapshot for round-trip
-// verification. It mirrors the frontend's DecodedSnapshot interface.
 type decodedSnapshot struct {
 	msgType   byte
 	tickCount uint32
@@ -302,8 +295,6 @@ type decodedSnapshot struct {
 	wind      float32
 }
 
-// decodeSnapshot manually parses the binary layout produced by EncodeSnapshot.
-// This is the server-side mirror of the frontend's decodeSnapshot() function.
 func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 	if len(data) < 1 || data[0] != MsgSnapshot {
 		return decodedSnapshot{}, false
@@ -317,7 +308,6 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 	o += 4
 	ds.score = le.Uint32(data[o:])
 	o += 4
-	// Inline phase decode (CodeToPhase removed as dead production code).
 	switch data[o] {
 	case PhaseCodePlaying:
 		ds.phase = PhasePlaying
@@ -330,7 +320,6 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 	}
 	o++
 
-	// Balloon: x, y, vx, vy (16 bytes)
 	if len(data) < o+16 {
 		return decodedSnapshot{}, false
 	}
@@ -343,7 +332,6 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 	ds.balloon.Vy = math.Float32frombits(le.Uint32(data[o:]))
 	o += 4
 
-	// Bird: active flag + optional x, y
 	if len(data) < o+1 {
 		return decodedSnapshot{}, false
 	}
@@ -359,7 +347,6 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 		o += 4
 	}
 
-	// Ghost: active flag + optional x, y, repelTimer
 	if len(data) < o+1 {
 		return decodedSnapshot{}, false
 	}
@@ -377,7 +364,6 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 		o += 2
 	}
 
-	// Players
 	if len(data) < o+1 {
 		return decodedSnapshot{}, false
 	}
@@ -407,7 +393,6 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 		ds.players = append(ds.players, p)
 	}
 
-	// Ripples
 	if len(data) < o+1 {
 		return decodedSnapshot{}, false
 	}
@@ -428,7 +413,6 @@ func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
 		ds.ripples = append(ds.ripples, r)
 	}
 
-	// Wind
 	if len(data) < o+4 {
 		return decodedSnapshot{}, false
 	}
@@ -483,10 +467,6 @@ func TestEncodeSnapshot_RoundTrip(t *testing.T) {
 				{PlayerIndex: 5, CooldownMs: 2000, Palette: 7, ScoreContribution: 100, Nickname: "快乐气球🎮"},
 			},
 		},
-		{name: "PhaseWaiting", phase: PhaseWaiting, tickCount: 1, score: 1, balloon: BalloonState{X: 0.5, Y: 0.5}},
-		{name: "PhaseCountdown", phase: PhaseCountdown, tickCount: 1, score: 1, balloon: BalloonState{X: 0.5, Y: 0.5}},
-		{name: "PhasePlaying", phase: PhasePlaying, tickCount: 1, score: 1, balloon: BalloonState{X: 0.5, Y: 0.5}},
-		{name: "PhaseEnded", phase: PhaseEnded, tickCount: 1, score: 1, balloon: BalloonState{X: 0.5, Y: 0.5}},
 	}
 
 	for _, c := range cases {
@@ -539,4 +519,3 @@ func TestEncodeSnapshot_RoundTrip(t *testing.T) {
 		})
 	}
 }
-

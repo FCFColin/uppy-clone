@@ -65,6 +65,52 @@ func TestRoom_MaybeStartReadSpan(t *testing.T) {
 	})
 }
 
+func TestRoom_WritePump_WriteMessageError(t *testing.T) {
+	timeouts := config.DefaultTimeoutConfig()
+	timeouts.WSPingInterval = time.Hour
+	hub := NewHub(nil, nil, timeouts, 10, 8)
+	room := NewRoom("PUMP3", hub, nil, timeouts, 4)
+	sess := &WSSession{room: room}
+	if err := room.HandleJoin("p1", nil); err != nil {
+		t.Fatal(err)
+	}
+	pc := room.GetConnection("p1")
+	if pc == nil {
+		t.Fatal("expected player connection")
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{}
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		go sess.writePump("p1", c, ctx)
+		time.Sleep(20 * time.Millisecond)
+		select {
+		case pc.Send <- []byte{protocol.MsgSnapshot, 0x01}:
+		default:
+			t.Fatal("failed to enqueue broadcast")
+		}
+		time.Sleep(50 * time.Millisecond)
+		_ = c.Close()
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}))
+	defer server.Close()
+
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	_ = conn.Close()
+}
+
 func TestRoom_RunSession_HandleJoinFailure(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	hub := NewHub(nil, nil, timeouts, 10, 1)

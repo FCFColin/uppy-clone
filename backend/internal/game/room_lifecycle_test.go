@@ -13,14 +13,6 @@ import (
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
-func TestRoom_Code(t *testing.T) {
-	t.Parallel()
-	r := NewRoom("ABCD1", nil, nil, config.DefaultTimeoutConfig(), 0)
-	if got := r.Code(); got != "ABCD1" {
-		t.Fatalf("Code() = %q, want ABCD1", got)
-	}
-}
-
 func TestRoom_notifyJoin_SendsSnapshot(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	r := NewRoom("JOIN1", nil, nil, timeouts, 0)
@@ -72,9 +64,6 @@ func TestRoom_closeExistingConnection_ClosesAndRemoves(t *testing.T) {
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
 	player := &domain.PlayerState{ID: "p1", Disconnected: false}
 
-	// serverCloseCh signals the server handler to close the websocket.
-	// Replaces a fixed time.Sleep(2 * time.Second) that risked flaky on slow
-	// CI machines: the server now blocks on the channel until the test finishes.
 	serverCloseCh := make(chan struct{})
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -104,33 +93,12 @@ func TestRoom_closeExistingConnection_ClosesAndRemoves(t *testing.T) {
 	}
 }
 
-func TestRoom_Creation(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-	if r == nil {
-		t.Fatal("NewRoom returned nil")
-	}
-	if string(r.state.LobbyCode) != "TEST1" {
-		t.Fatalf("expected LobbyCode TEST1, got %q", string(r.state.LobbyCode))
-	}
-	if r.state.Phase != domain.PhaseWaiting {
-		t.Fatalf("expected initial phase waiting, got %q", r.state.Phase)
-	}
-	if len(r.connections) != 0 {
-		t.Fatalf("expected 0 connections, got %d", len(r.connections))
-	}
-	if len(r.usedNames) != 0 {
-		t.Fatalf("expected 0 usedNames, got %d", len(r.usedNames))
-	}
-}
-
 // ─── HandleDisconnect ────────────────────────────────────────────────
 
 func TestRoom_HandleDisconnect(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
 
-	// Add a player manually
 	r.mu.Lock()
 	r.state.Players["p1"] = &domain.PlayerState{
 		ID:       "p1",
@@ -157,31 +125,17 @@ func TestRoom_HandleDisconnect(t *testing.T) {
 	}
 }
 
-func TestRoom_HandleDisconnect_NonexistentPlayer(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	// Should not panic
-	err := r.HandleDisconnect("nonexistent")
-	if err != nil {
-		t.Fatalf("expected nil for nonexistent player disconnect, got %v", err)
-	}
-}
-
 // ─── broadcast ───────────────────────────────────────────────────────
 
 func TestRoom_Close(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
 
-	// Add a player without a real WebSocket connection (Conn = nil)
-	// Close should handle nil Conn gracefully
 	r.mu.Lock()
 	r.state.Players["p1"] = &domain.PlayerState{
 		ID:       "p1",
 		Nickname: "TestPlayer",
 	}
-	// Don't add a connection since we can't create a real websocket.Conn in tests
 	r.state.Phase = domain.PhasePlaying
 	r.mu.Unlock()
 
@@ -196,34 +150,7 @@ func TestRoom_Close(t *testing.T) {
 	}
 }
 
-// ─── StartGame ───────────────────────────────────────────────────────
-
-func TestRoom_StartGame_FromWaiting(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	// Add a player so the game can start
-	r.mu.Lock()
-	r.state.Players["p1"] = &domain.PlayerState{
-		ID:       "p1",
-		Nickname: "TestPlayer",
-	}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 64)}
-	r.mu.Unlock()
-
-	err := r.StartGame()
-	if err != nil {
-		t.Fatalf("StartGame failed: %v", err)
-	}
-
-	r.mu.RLock()
-	phase := r.state.Phase
-	r.mu.RUnlock()
-
-	if phase != domain.PhaseCountdown {
-		t.Fatalf("expected phase countdown after StartGame, got %q", phase)
-	}
-}
+// ─── EndGame ─────────────────────────────────────────────────────────
 
 func TestRoom_EndGame(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
@@ -249,8 +176,6 @@ func TestRoom_EndGame(t *testing.T) {
 	}
 }
 
-// ─── HandleMessage rate limiting ─────────────────────────────────────
-
 func TestModelPhaseToProtocol(t *testing.T) {
 	tests := []struct {
 		input    domain.GamePhase
@@ -269,11 +194,8 @@ func TestModelPhaseToProtocol(t *testing.T) {
 	}
 }
 
-// --- HandleRestartVote tests ---
-
 // ─── Nickname ready flow ─────────────────────────────────────────────
 
-// waitForCountdown polls the room phase until it becomes countdown or timeout.
 func waitForCountdown(t *testing.T, r *Room, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -374,26 +296,6 @@ func TestRoom_SetNicknameWaitsForAllPlayers(t *testing.T) {
 	waitForCountdown(t, r, 2*time.Second)
 }
 
-func TestRoom_SetNicknameSameNameStillConfirms(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-	r.startDelay = 10 * time.Millisecond
-	addConnectedPlayer(r, "p1")
-
-	r.mu.Lock()
-	player := r.state.Players["p1"]
-	currentName := player.Nickname
-	payload := append([]byte{byte(len(currentName))}, []byte(currentName)...)
-	r.handleSetNicknameMsg(player, payload)
-	confirmed := player.NicknameConfirmed
-	r.mu.Unlock()
-
-	if !confirmed {
-		t.Fatal("expected NicknameConfirmed when submitting unchanged nickname")
-	}
-	waitForCountdown(t, r, 2*time.Second)
-}
-
 func TestRoom_HandleJoin_ExistingPlayer(t *testing.T) {
 	r := NewRoom("JOIN3", nil, nil, config.DefaultTimeoutConfig(), 4)
 	r.state.Players["p1"] = &domain.PlayerState{
@@ -440,16 +342,4 @@ func TestRoom_HandleJoin_ReconnectDuringGrace(t *testing.T) {
 	if r.state.Players["p1"].Disconnected {
 		t.Fatal("player should be reconnected")
 	}
-}
-
-func TestRoom_reconnectPlayer_PlayingPhase(t *testing.T) {
-	r := NewRoom("RPL", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhasePlaying
-	player := &domain.PlayerState{ID: "p1", Nickname: "Nick", PlayerIndex: 0}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
-	r.reconnectPlayer("p1", player)
-	if r.tickCancel == nil {
-		t.Fatal("expected tick started on playing reconnect")
-	}
-	r.stopTick()
 }

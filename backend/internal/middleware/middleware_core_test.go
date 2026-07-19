@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -9,14 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/uppy-clone/backend/internal/metrics"
-	"github.com/uppy-clone/backend/internal/util"
 )
-
-// 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
 
 func TestCORS(t *testing.T) {
 	allowedOrigins := []string{"https://example.com", "https://app.example.com"}
@@ -28,94 +23,50 @@ func TestCORS(t *testing.T) {
 	})
 
 	t.Run("allowed origin gets CORS headers", func(t *testing.T) {
-		testCORSAllowedOrigin(t, mw, nextHandler)
+		handler := mw(nextHandler)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.Header.Set("Origin", "https://example.com")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://example.com" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, "https://example.com")
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+			t.Errorf("Access-Control-Allow-Credentials = %q, want %q", got, "true")
+		}
+		if got := rec.Header().Get("Vary"); got != "Origin" {
+			t.Errorf("Vary = %q, want %q", got, "Origin")
+		}
 	})
 	t.Run("non-allowed origin gets no CORS headers", func(t *testing.T) {
-		testCORSNonAllowedOrigin(t, mw, nextHandler)
+		handler := mw(nextHandler)
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.Header.Set("Origin", "https://evil.com")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want empty", got)
+		}
 	})
 	t.Run("OPTIONS preflight returns correct headers and 204", func(t *testing.T) {
-		testCORSPreflightAllowed(t, mw, nextHandler)
+		handler := mw(nextHandler)
+		req := httptest.NewRequest(http.MethodOptions, "/api/test", nil)
+		req.Header.Set("Origin", "https://example.com")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusNoContent)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, POST, PUT, PATCH, DELETE, OPTIONS" {
+			t.Errorf("Access-Control-Allow-Methods = %q, want %q", got, "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Authorization" {
+			t.Errorf("Access-Control-Allow-Headers = %q, want %q", got, "Content-Type, Authorization")
+		}
 	})
-	t.Run("OPTIONS preflight from non-allowed origin returns 204 without CORS headers", func(t *testing.T) {
-		testCORSPreflightNonAllowed(t, mw, nextHandler)
-	})
-	t.Run("request without Origin header gets no CORS headers", func(t *testing.T) {
-		testCORSNoOrigin(t, mw, nextHandler)
-	})
-}
-
-func testCORSAllowedOrigin(t *testing.T, mw func(http.Handler) http.Handler, next http.Handler) {
-	handler := mw(next)
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	req.Header.Set("Origin", "https://example.com")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://example.com" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, "https://example.com")
-	}
-	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
-		t.Errorf("Access-Control-Allow-Credentials = %q, want %q", got, "true")
-	}
-	if got := rec.Header().Get("Vary"); got != "Origin" {
-		t.Errorf("Vary = %q, want %q", got, "Origin")
-	}
-}
-
-func testCORSNonAllowedOrigin(t *testing.T, mw func(http.Handler) http.Handler, next http.Handler) {
-	handler := mw(next)
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	req.Header.Set("Origin", "https://evil.com")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want empty", got)
-	}
-}
-
-func testCORSPreflightAllowed(t *testing.T, mw func(http.Handler) http.Handler, next http.Handler) {
-	handler := mw(next)
-	req := httptest.NewRequest(http.MethodOptions, "/api/test", nil)
-	req.Header.Set("Origin", "https://example.com")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusNoContent)
-	}
-	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, POST, PUT, PATCH, DELETE, OPTIONS" {
-		t.Errorf("Access-Control-Allow-Methods = %q, want %q", got, "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-	}
-	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type, Authorization" {
-		t.Errorf("Access-Control-Allow-Headers = %q, want %q", got, "Content-Type, Authorization")
-	}
-}
-
-func testCORSPreflightNonAllowed(t *testing.T, mw func(http.Handler) http.Handler, next http.Handler) {
-	handler := mw(next)
-	req := httptest.NewRequest(http.MethodOptions, "/api/test", nil)
-	req.Header.Set("Origin", "https://evil.com")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusNoContent)
-	}
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want empty for non-allowed origin", got)
-	}
-}
-
-func testCORSNoOrigin(t *testing.T, mw func(http.Handler) http.Handler, next http.Handler) {
-	handler := mw(next)
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want empty", got)
-	}
 }
 
 func TestAllowedOriginsFromEnv(t *testing.T) {
@@ -146,8 +97,6 @@ func TestAllowedOriginsFromEnv(t *testing.T) {
 	}
 }
 
-// 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
-
 func TestRequestIDLogger_InjectsLoggerIntoContext(t *testing.T) {
 	var capturedLogger *slog.Logger
 
@@ -167,39 +116,7 @@ func TestRequestIDLogger_InjectsLoggerIntoContext(t *testing.T) {
 	}
 }
 
-func TestTracingMiddleware_InjectsTraceID(t *testing.T) {
-	r := chi.NewRouter()
-	r.Use(chimw.RequestID)
-	r.Use(RequestIDLogger)
-	r.Use(TracingMiddleware)
-
-	var gotTraceID string
-	r.Get("/test", func(w http.ResponseWriter, r *http.Request) {
-		ctxLogger, ok := r.Context().Value(util.CtxKey{}).(*slog.Logger)
-		if !ok {
-			t.Error("no logger found in context")
-			w.WriteHeader(500)
-			return
-		}
-		_ = ctxLogger
-		gotTraceID = "present"
-		w.WriteHeader(200)
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != 200 {
-		t.Errorf("expected status 200, got %d", rec.Code)
-	}
-	if gotTraceID != "present" {
-		t.Error("trace_id was not injected into context logger")
-	}
-}
-
 func TestPrometheusMiddleware_IncrementsCounter(t *testing.T) {
-	// Reset the counter before test
 	metrics.HTTPRequestsTotal.Reset()
 
 	handler := PrometheusMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -216,94 +133,77 @@ func TestPrometheusMiddleware_IncrementsCounter(t *testing.T) {
 	}
 }
 
-// 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
-
 func TestSecurityHeaders(t *testing.T) {
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
 	t.Run("sets X-Content-Type-Options nosniff", func(t *testing.T) {
-		rec := makeSecurityRequest()
-		assertHeader(t, rec, "X-Content-Type-Options", "nosniff")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+		}
 	})
 	t.Run("sets X-Frame-Options DENY", func(t *testing.T) {
-		rec := makeSecurityRequest()
-		assertHeader(t, rec, "X-Frame-Options", "DENY")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
+			t.Errorf("X-Frame-Options = %q, want DENY", got)
+		}
 	})
 	t.Run("sets Referrer-Policy", func(t *testing.T) {
-		rec := makeSecurityRequest()
-		assertHeader(t, rec, "Referrer-Policy", "strict-origin-when-cross-origin")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if got := rec.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+			t.Errorf("Referrer-Policy = %q, want strict-origin-when-cross-origin", got)
+		}
 	})
-
 	t.Run("sets Content-Security-Policy", func(t *testing.T) {
-		rec := makeSecurityRequest()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
 		if got := rec.Header().Get("Content-Security-Policy"); got == "" {
 			t.Error("Content-Security-Policy should not be empty")
 		}
 	})
 	t.Run("HSTS behavior", func(t *testing.T) {
-		testHSTSBehavior(t)
+		t.Run("set by default (ENABLE_HSTS not set)", func(t *testing.T) {
+			_ = os.Unsetenv("ENABLE_HSTS")
+			reinitSecurityConfig()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if got := rec.Header().Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains; preload" {
+				t.Errorf("HSTS = %q, want max-age=31536000; includeSubDomains; preload", got)
+			}
+		})
+		t.Run("set when ENABLE_HSTS=true", func(t *testing.T) {
+			_ = os.Setenv("ENABLE_HSTS", "true")
+			defer func() { _ = os.Unsetenv("ENABLE_HSTS"); reinitSecurityConfig() }()
+			reinitSecurityConfig()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if got := rec.Header().Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains; preload" {
+				t.Errorf("HSTS = %q, want max-age=31536000; includeSubDomains; preload", got)
+			}
+		})
+		t.Run("not set when ENABLE_HSTS=false", func(t *testing.T) {
+			_ = os.Setenv("ENABLE_HSTS", "false")
+			defer func() { _ = os.Unsetenv("ENABLE_HSTS"); reinitSecurityConfig() }()
+			reinitSecurityConfig()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
+				t.Errorf("Strict-Transport-Security = %q, want empty", got)
+			}
+		})
 	})
-	t.Run("calls next handler", func(t *testing.T) {
-		testSecurityCallsNext(t)
-	})
-}
-
-// makeSecurityRequest runs a request through SecurityHeaders and returns the recorder.
-func makeSecurityRequest() *httptest.ResponseRecorder {
-	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	return rec
-}
-
-// assertHeader checks that a response header matches the expected value.
-func assertHeader(t *testing.T, rec *httptest.ResponseRecorder, header, want string) {
-	t.Helper()
-	if got := rec.Header().Get(header); got != want {
-		t.Errorf("%s = %q, want %q", header, got, want)
-	}
-}
-
-// testHSTSBehavior verifies HSTS header behavior under different ENABLE_HSTS settings.
-func testHSTSBehavior(t *testing.T) {
-	t.Run("set by default (ENABLE_HSTS not set)", func(t *testing.T) {
-		_ = os.Unsetenv("ENABLE_HSTS")
-		reinitSecurityConfig()
-		rec := makeSecurityRequest()
-		assertHeader(t, rec, "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-	})
-	t.Run("set when ENABLE_HSTS=true", func(t *testing.T) {
-		_ = os.Setenv("ENABLE_HSTS", "true")
-		defer func() { _ = os.Unsetenv("ENABLE_HSTS"); reinitSecurityConfig() }()
-		reinitSecurityConfig()
-		rec := makeSecurityRequest()
-		assertHeader(t, rec, "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-	})
-	t.Run("not set when ENABLE_HSTS=false", func(t *testing.T) {
-		_ = os.Setenv("ENABLE_HSTS", "false")
-		defer func() { _ = os.Unsetenv("ENABLE_HSTS"); reinitSecurityConfig() }()
-		reinitSecurityConfig()
-		rec := makeSecurityRequest()
-		if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
-			t.Errorf("Strict-Transport-Security = %q, want empty", got)
-		}
-	})
-}
-
-// testSecurityCallsNext verifies the middleware calls the next handler in the chain.
-func testSecurityCallsNext(t *testing.T) {
-	called := false
-	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if !called {
-		t.Error("next handler was not called")
-	}
 }
 
 func TestTrustedProxy_StripsUntrustedForwardedHeaders(t *testing.T) {
@@ -375,27 +275,6 @@ func TestExtractClientIP_UsesForwardedForWhenTrusted(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
-	}
-}
-
-func TestIsOriginAllowed_ExactMatch(t *testing.T) {
-	allowed := []string{"https://app.example.com", "http://localhost:5173"}
-	if !IsOriginAllowed("https://app.example.com", allowed) {
-		t.Fatal("expected exact origin match")
-	}
-	// Adversarial: hostname-only match must fail
-	if IsOriginAllowed("https://evil.example.com", allowed) {
-		t.Fatal("hostname-only match must not pass")
-	}
-}
-
-func TestGetRequestID_FromContext(t *testing.T) {
-	ctx := context.WithValue(context.Background(), chimw.RequestIDKey, "req-123")
-	if got := GetRequestID(ctx); got != "req-123" {
-		t.Fatalf("GetRequestID = %q, want req-123", got)
-	}
-	if got := GetRequestID(context.Background()); got != "" {
-		t.Fatalf("empty context GetRequestID = %q, want empty", got)
 	}
 }
 

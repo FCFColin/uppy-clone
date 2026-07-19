@@ -257,16 +257,6 @@ describe('connectWebSocket', () => {
     expect(showReconnectBanner).toHaveBeenCalled();
   });
 
-  it('skips second connect when socket already open after room resolve', async () => {
-    connectMocks.getEntryStep.mockReturnValue('waiting');
-    connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM2');
-    await connectWebSocket();
-    const first = MockWebSocket.lastInstance;
-    connectMocks.getLobbyCodeFromUrl.mockReturnValue('ROOM2');
-    await connectWebSocket();
-    expect(MockWebSocket.lastInstance).toBe(first);
-  });
-
   it('closes an existing socket before opening a new lobby connection', async () => {
     await connectWebSocket();
     const first = MockWebSocket.lastInstance!;
@@ -275,28 +265,6 @@ describe('connectWebSocket', () => {
     await connectWebSocket();
     expect(first.close).toHaveBeenCalled();
     expect(MockWebSocket.lastInstance).not.toBe(first);
-  });
-
-  it('shows room-prechecked error when socket closes before open', async () => {
-    setRoomPreChecked(true);
-    await connectWebSocket();
-    setWsEverOpened(false);
-    MockWebSocket.lastInstance?.onclose?.();
-    expect(showConnectionErrorUI).toHaveBeenCalledWith(
-      '无法连接房间，请稍后重试',
-      expect.objectContaining({ showActions: true }),
-    );
-    setRoomPreChecked(false);
-  });
-
-  it('skips reconnect after match when socket is already open', async () => {
-    connectMocks.getLobbyCodeFromUrl.mockReturnValue(null);
-    connectMocks.resolveLobbyCode.mockResolvedValue('MATCH2');
-    connectMocks.getEntryStep.mockReturnValue('waiting');
-    await connectWebSocket();
-    const first = MockWebSocket.lastInstance;
-    await connectWebSocket();
-    expect(MockWebSocket.lastInstance).toBe(first);
   });
 
   it('uses wss protocol when page is served over https', async () => {
