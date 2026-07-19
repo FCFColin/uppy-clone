@@ -118,30 +118,37 @@ func (s *PostgresStore) Close() {
 
 // ─── RoomRepository implementation ───────────────────────────────────
 
+// SaveLobbyState persists lobby state via the LobbyRepository.
 func (s *PostgresStore) SaveLobbyState(ctx context.Context, ls *domain.LobbyState) error {
 	return s.lobby.SaveLobbyState(ctx, ls)
 }
 
+// LoadLobbyState retrieves lobby state by code via the LobbyRepository.
 func (s *PostgresStore) LoadLobbyState(ctx context.Context, code string) (*domain.LobbyState, error) {
 	return s.lobby.LoadLobbyState(ctx, code)
 }
 
+// DeleteLobbyState removes lobby state by code via the LobbyRepository.
 func (s *PostgresStore) DeleteLobbyState(ctx context.Context, code string) error {
 	return s.lobby.DeleteLobbyState(ctx, code)
 }
 
+// LoadAllActiveLobbies returns paginated active lobbies via the LobbyRepository.
 func (s *PostgresStore) LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*domain.LobbyListResult, error) {
 	return s.lobby.LoadAllActiveLobbies(ctx, limit, cursor)
 }
 
+// CreateGameSession inserts a new game session via the ResultRepository.
 func (s *PostgresStore) CreateGameSession(ctx context.Context, gs *domain.GameSession) error {
 	return s.result.CreateGameSession(ctx, gs)
 }
 
+// RecordGameResult records final game results via the ResultRepository.
 func (s *PostgresStore) RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error {
 	return s.result.RecordGameResult(ctx, sessionID, roomCode, endedAt, finalScore, results)
 }
 
+// InsertOutboxEvent inserts an outbox event via the OutboxRepository.
 func (s *PostgresStore) InsertOutboxEvent(ctx context.Context, aggregateType, aggregateID string, payload []byte) error {
 	return s.outbox.InsertOutboxEvent(ctx, aggregateType, aggregateID, payload)
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/util"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // gameResultNamespace is a custom UUID namespace for generating deterministic game result IDs.
@@ -31,11 +30,8 @@ func NewResultRepository(pool pgPool, deps ...Deps) *ResultRepository {
 
 // CreateGameSession inserts a new game session record into the database.
 func (r *ResultRepository) CreateGameSession(ctx context.Context, gs *domain.GameSession) error {
-	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.CreateGameSession",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("db.operation", "INSERT"),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "result_repo.CreateGameSession",
+		attribute.String("db.operation", "INSERT"),
 	)
 	defer span.End()
 
@@ -52,11 +48,8 @@ func (r *ResultRepository) CreateGameSession(ctx context.Context, gs *domain.Gam
 
 // RecordGameResult records the final results of a game session.
 func (r *ResultRepository) RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error {
-	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.RecordGameResult",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("db.session_id", sessionID),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "result_repo.RecordGameResult",
+		attribute.String("db.session_id", sessionID),
 	)
 	defer span.End()
 
@@ -118,11 +111,8 @@ func (r *ResultRepository) InsertSeedGameResult(ctx context.Context, result *dom
 
 // GetLeaderboard returns the top entries for the given scope and limit.
 func (r *ResultRepository) GetLeaderboard(ctx context.Context, scope string, limit int) ([]domain.LeaderboardEntry, error) {
-	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.GetLeaderboard",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("leaderboard.scope", scope),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "result_repo.GetLeaderboard",
+		attribute.String("leaderboard.scope", scope),
 	)
 	defer span.End()
 
@@ -151,9 +141,7 @@ func (r *ResultRepository) GetLeaderboard(ctx context.Context, scope string, lim
 
 // GetUserBestScore returns the best score and games played for the given user.
 func (r *ResultRepository) GetUserBestScore(ctx context.Context, userID string) (int, int, error) {
-	ctx, span := r.deps.Tracer.Start(ctx, "result_repo.GetUserBestScore",
-		trace.WithAttributes(attribute.String("db.system", "postgresql")),
-	)
+	ctx, span := withSpan(ctx, r.deps.Tracer, "result_repo.GetUserBestScore")
 	defer span.End()
 
 	var bestScore int

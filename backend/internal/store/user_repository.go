@@ -14,7 +14,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/util"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // UserRepository handles user persistence.
@@ -30,9 +29,7 @@ func NewUserRepository(pool pgPool, deps ...Deps) *UserRepository {
 
 // CreateUser inserts a new user record into the database.
 func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error { //nolint:funlen // multi-step user creation with validation+outbox
-	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.CreateUser",
-		trace.WithAttributes(attribute.String("db.system", "postgresql")),
-	)
+	ctx, span := withSpan(ctx, r.deps.Tracer, "user_repo.CreateUser")
 	defer span.End()
 
 	emailHash, storedEmail, err := prepareEmailForStorage(u.Email)
@@ -104,9 +101,7 @@ func (r *UserRepository) CreateUser(ctx context.Context, u *domain.User) error {
 
 // GetUserByEmail retrieves a user by email address.
 func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
-	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.GetUserByEmail",
-		trace.WithAttributes(attribute.String("db.system", "postgresql")),
-	)
+	ctx, span := withSpan(ctx, r.deps.Tracer, "user_repo.GetUserByEmail")
 	defer span.End()
 
 	emailHash := crypto.EmailHMAC(email)
@@ -143,11 +138,8 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 
 // GetUserByID retrieves a user by ID.
 func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*domain.User, error) {
-	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.GetUserByID",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("db.operation", "SELECT"),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "user_repo.GetUserByID",
+		attribute.String("db.operation", "SELECT"),
 	)
 	defer span.End()
 
@@ -181,11 +173,8 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 
 // UpdateUserLastLogin updates the last login timestamp for a user.
 func (r *UserRepository) UpdateUserLastLogin(ctx context.Context, id string) error {
-	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.UpdateUserLastLogin",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("db.operation", "UPDATE"),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "user_repo.UpdateUserLastLogin",
+		attribute.String("db.operation", "UPDATE"),
 	)
 	defer span.End()
 
@@ -203,12 +192,9 @@ func (r *UserRepository) UpdateUserLastLogin(ctx context.Context, id string) err
 
 // AnonymizeUser irreversibly anonymizes a user's personal data for GDPR compliance.
 func (r *UserRepository) AnonymizeUser(ctx context.Context, userID string) error {
-	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.AnonymizeUser",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("db.operation", "UPDATE"),
-			attribute.String("user.id", userID),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "user_repo.AnonymizeUser",
+		attribute.String("db.operation", "UPDATE"),
+		attribute.String("user.id", userID),
 	)
 	defer span.End()
 
@@ -248,12 +234,9 @@ func (r *UserRepository) HardDeleteExpiredUsers(ctx context.Context, retentionDa
 	}
 	cutoff := time.Now().AddDate(0, 0, -retentionDays).Unix()
 
-	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.HardDeleteExpiredUsers",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("db.operation", "DELETE"),
-			attribute.Int64("retention.cutoff_unix", cutoff),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "user_repo.HardDeleteExpiredUsers",
+		attribute.String("db.operation", "DELETE"),
+		attribute.Int64("retention.cutoff_unix", cutoff),
 	)
 	defer span.End()
 
@@ -272,9 +255,7 @@ func (r *UserRepository) HardDeleteExpiredUsers(ctx context.Context, retentionDa
 
 // GetGameResultsByUserID returns all game results for the given user.
 func (r *UserRepository) GetGameResultsByUserID(ctx context.Context, userID string) ([]domain.GameResult, error) {
-	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.GetGameResultsByUserID",
-		trace.WithAttributes(attribute.String("db.system", "postgresql")),
-	)
+	ctx, span := withSpan(ctx, r.deps.Tracer, "user_repo.GetGameResultsByUserID")
 	defer span.End()
 
 	var results []domain.GameResult
@@ -304,9 +285,7 @@ func (r *UserRepository) GetGameResultsByUserID(ctx context.Context, userID stri
 // GetGameSessionsByUserID retrieves all game sessions created by the given user.
 // auth-012: Required for complete GDPR data export.
 func (r *UserRepository) GetGameSessionsByUserID(ctx context.Context, userID string) ([]domain.GameSession, error) {
-	ctx, span := r.deps.Tracer.Start(ctx, "user_repo.GetGameSessionsByUserID",
-		trace.WithAttributes(attribute.String("db.system", "postgresql")),
-	)
+	ctx, span := withSpan(ctx, r.deps.Tracer, "user_repo.GetGameSessionsByUserID")
 	defer span.End()
 
 	var sessions []domain.GameSession

@@ -11,7 +11,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/util"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // LobbyRepository handles lobby state persistence.
@@ -27,11 +26,8 @@ func NewLobbyRepository(pool pgPool, deps ...Deps) *LobbyRepository {
 
 // SaveLobbyState inserts or updates a lobby state by code (upsert).
 func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbyState) error {
-	ctx, span := r.deps.Tracer.Start(ctx, "lobby_repo.SaveLobbyState",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("lobby.code", ls.Code),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "lobby_repo.SaveLobbyState",
+		attribute.String("lobby.code", ls.Code),
 	)
 	defer span.End()
 
@@ -58,11 +54,8 @@ func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbySt
 
 // LoadLobbyState retrieves a lobby state by its code.
 func (r *LobbyRepository) LoadLobbyState(ctx context.Context, code string) (*domain.LobbyState, error) {
-	ctx, span := r.deps.Tracer.Start(ctx, "lobby_repo.LoadLobbyState",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("lobby.code", code),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "lobby_repo.LoadLobbyState",
+		attribute.String("lobby.code", code),
 	)
 	defer span.End()
 
@@ -91,11 +84,8 @@ func (r *LobbyRepository) LoadLobbyState(ctx context.Context, code string) (*dom
 
 // DeleteLobbyState removes a lobby state by its code.
 func (r *LobbyRepository) DeleteLobbyState(ctx context.Context, code string) error {
-	ctx, span := r.deps.Tracer.Start(ctx, "lobby_repo.DeleteLobbyState",
-		trace.WithAttributes(
-			attribute.String("db.system", "postgresql"),
-			attribute.String("db.operation", "DELETE"),
-		),
+	ctx, span := withSpan(ctx, r.deps.Tracer, "lobby_repo.DeleteLobbyState",
+		attribute.String("db.operation", "DELETE"),
 	)
 	defer span.End()
 
@@ -118,16 +108,13 @@ func (r *LobbyRepository) LoadAllActiveLobbies(ctx context.Context, limit int, c
 	}
 
 	spanAttrs := []attribute.KeyValue{
-		attribute.String("db.system", "postgresql"),
 		attribute.Int("db.limit", limit),
 	}
 	if cursor != "" {
 		spanAttrs = append(spanAttrs, attribute.String("db.cursor", cursor))
 	}
 
-	ctx, span := r.deps.Tracer.Start(ctx, "lobby_repo.LoadAllActiveLobbies",
-		trace.WithAttributes(spanAttrs...),
-	)
+	ctx, span := withSpan(ctx, r.deps.Tracer, "lobby_repo.LoadAllActiveLobbies", spanAttrs...)
 	defer span.End()
 
 	cursorUpdatedAt, cursorCode, err := parseLobbyCursor(cursor)

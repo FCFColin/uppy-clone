@@ -9,8 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/domain"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // ConfigRepository handles admin config persistence.
@@ -26,9 +24,7 @@ func NewConfigRepository(pool pgPool, deps ...Deps) *ConfigRepository {
 
 // GetConfig retrieves an application configuration by ID.
 func (r *ConfigRepository) GetConfig(ctx context.Context, id string) (*domain.AppConfig, error) {
-	ctx, span := r.deps.Tracer.Start(ctx, "config_repo.GetConfig",
-		trace.WithAttributes(attribute.String("db.system", "postgresql")),
-	)
+	ctx, span := withSpan(ctx, r.deps.Tracer, "config_repo.GetConfig")
 	defer span.End()
 
 	var c *domain.AppConfig
@@ -63,9 +59,7 @@ func (r *ConfigRepository) GetConfig(ctx context.Context, id string) (*domain.Ap
 
 // SaveConfig persists an application configuration.
 func (r *ConfigRepository) SaveConfig(ctx context.Context, c *domain.AppConfig) error {
-	ctx, span := r.deps.Tracer.Start(ctx, "config_repo.SaveConfig",
-		trace.WithAttributes(attribute.String("db.system", "postgresql")),
-	)
+	ctx, span := withSpan(ctx, r.deps.Tracer, "config_repo.SaveConfig")
 	defer span.End()
 
 	err := retry.Do(ctx, r.deps.DBRetryPolicy, func(ctx context.Context) error {
