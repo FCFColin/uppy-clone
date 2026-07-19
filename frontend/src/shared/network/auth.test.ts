@@ -20,7 +20,7 @@ describe('auth token refresh', () => {
     } else if (response) {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: response.ok,
-        json: async () => (response as any).jsonBody,
+        json: async () => (response as never).jsonBody,
       }));
     }
     expect(await refreshAccessToken()).toBe(expected);

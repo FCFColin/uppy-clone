@@ -5,7 +5,7 @@ import { getMocks, resetWsHandlersMocks, createStateJsMockModule } from './ws_ha
 
 const mocks = getMocks();
 
-vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as any));
+vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as never));
 
 vi.mock('./state_interp.js', async () => {
   const m = getMocks();

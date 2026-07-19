@@ -12,12 +12,12 @@ const inputMockState = vi.hoisted(() => ({
   balloon: { x: 0.5, y: 0.5 },
 }));
 vi.mock('./state.js', async (importActual) => {
-  const actual = await importActual() as any;
+  const actual = await importActual() as never;
   return {
     ...actual,
     state: inputMockState,
     getState: () => inputMockState,
-    dispatch: (action: any) => {
+    dispatch: (action: never) => {
       const next = actual.gameReducer(inputMockState, action);
       if (next !== inputMockState) Object.assign(inputMockState, next);
     },

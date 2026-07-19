@@ -29,7 +29,7 @@ vi.hoisted(() => {
 
 const mockState = getEntryMocks().state;
 
-vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as any, getEntryMocks().state));
+vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as never, getEntryMocks().state));
 
 vi.mock('./renderer.js', () => ({
   $canvas: document.getElementById('game-canvas')! as HTMLCanvasElement,
