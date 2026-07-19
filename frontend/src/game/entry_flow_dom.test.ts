@@ -48,14 +48,11 @@ import {
   setNicknameStatus,
   nicknameReadyStatus,
   setWaitingInlineError,
-  clearWaitingInlineError,
   showLoadingOverlay,
-  hideLoadingOverlay,
   updateWaitingStatusLine,
   syncEntryOverlays,
   setLobbyCodeDisplay,
   renderEntryFullScreenError,
-  renderStartCountdownTitle,
 } from './entry_flow_ui.js';
 import { resetEntryFlowForTest } from './entry_flow.js';
 import type { EntryOverlayContext } from './entry_flow.js';

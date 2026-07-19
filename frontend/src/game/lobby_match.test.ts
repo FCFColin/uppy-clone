@@ -62,7 +62,7 @@ describe('resolveLobbyCode', () => {
         .mockResolvedValueOnce({ ok: false, status: 503 })),
       null,
     ],
-  ])('returns null when match API fails due to %s', async (_label, fetchMock, expected) => {
+  ])('returns null when match API fails due to %s', async (_label, fetchMock, _expected) => {
     if (_label === 'network error') {
       vi.spyOn(console, 'error').mockImplementation(() => {});
     }

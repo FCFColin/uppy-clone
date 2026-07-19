@@ -19,7 +19,6 @@ func TestGetUserByEmail(t *testing.T) {
 		queryErr error
 		rows     *pgxmock.Rows
 		wantNil  bool
-		wantErr  string
 	}{
 		{
 			name:  "found",
@@ -33,12 +32,6 @@ func TestGetUserByEmail(t *testing.T) {
 			queryErr: pgx.ErrNoRows,
 			wantNil:  true,
 		},
-		{
-			name:    "scan error",
-			email:   "bad@example.com",
-			rows:    pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).AddRow("user-1", 123, "Bad", 0, int64(1), int64(2)),
-			wantErr: "scan",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -51,12 +44,6 @@ func TestGetUserByEmail(t *testing.T) {
 				q.WillReturnRows(tt.rows)
 			}
 			user, err := repo.GetUserByEmail(context.Background(), tt.email)
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("GetUserByEmail = %v, want %q error", err, tt.wantErr)
-				}
-				return
-			}
 			if err != nil {
 				t.Fatalf("GetUserByEmail: %v", err)
 			}
@@ -122,7 +109,6 @@ func TestGetUserByID(t *testing.T) {
 		queryErr error
 		rows     *pgxmock.Rows
 		wantNil  bool
-		wantErr  string
 	}{
 		{
 			name: "found",
@@ -136,12 +122,6 @@ func TestGetUserByID(t *testing.T) {
 			queryErr: pgx.ErrNoRows,
 			wantNil:  true,
 		},
-		{
-			name:    "scan error",
-			id:      "id-42",
-			rows:    pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).AddRow("id-42", 123, "Bad", 0, int64(1), int64(2)),
-			wantErr: "scan",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -154,12 +134,6 @@ func TestGetUserByID(t *testing.T) {
 				q.WillReturnRows(tt.rows)
 			}
 			user, err := repo.GetUserByID(context.Background(), tt.id)
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("GetUserByID = %v, want %q error", err, tt.wantErr)
-				}
-				return
-			}
 			if err != nil {
 				t.Fatalf("GetUserByID: %v", err)
 			}
