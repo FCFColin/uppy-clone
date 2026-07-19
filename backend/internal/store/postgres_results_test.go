@@ -16,9 +16,9 @@ func TestInsertSeedGameResult(t *testing.T) {
 		ScoreContribution: 100, TapsCount: 5, CreatedAt: 1000,
 	}
 	tests := []struct {
-		name      string
-		queryErr  error
-		wantErr   bool
+		name     string
+		queryErr error
+		wantErr  bool
 	}{
 		{"success", nil, false},
 		{"insert error", errors.New("insert failed"), true},

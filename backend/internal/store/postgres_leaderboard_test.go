@@ -197,11 +197,11 @@ func TestGetLeaderboard(t *testing.T) {
 
 func TestGetUserBestScore(t *testing.T) {
 	tests := []struct {
-		name       string
-		queryErr   error
-		wantScore  int
-		wantGames  int
-		wantErr    bool
+		name      string
+		queryErr  error
+		wantScore int
+		wantGames int
+		wantErr   bool
 	}{
 		{"success", nil, 500, 3, false},
 		{"query error", errors.New("query failed"), 0, 0, true},

@@ -6,7 +6,7 @@ import (
 )
 
 func TestGenerateRandomNickname_NonEmpty(t *testing.T) {
-	for _, excluded := range []map[string]bool{map[string]bool{}, nil} {
+	for _, excluded := range []map[string]bool{{}, nil} {
 		for i := 0; i < 100; i++ {
 			name := GenerateRandomNickname(excluded)
 			if name == "" {

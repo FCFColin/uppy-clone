@@ -69,17 +69,17 @@ func TestLeaderboardQuery_Scopes(t *testing.T) {
 
 func TestLoadAllActiveLobbies(t *testing.T) {
 	tests := []struct {
-		name        string
-		limit       int
-		cursor      string
-		countRow    interface{}
-		countErr    error
-		fetchErr    error
-		fetchRows   *pgxmock.Rows
-		wantTotal   int
-		wantErr     bool
-		skipFetch   bool // true when count fails; fetch expectation should be omitted
-		fetchArgs   []interface{}
+		name      string
+		limit     int
+		cursor    string
+		countRow  interface{}
+		countErr  error
+		fetchErr  error
+		fetchRows *pgxmock.Rows
+		wantTotal int
+		wantErr   bool
+		skipFetch bool // true when count fails; fetch expectation should be omitted
+		fetchArgs []interface{}
 	}{
 		{
 			name:      "default limit",
