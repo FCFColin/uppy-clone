@@ -110,8 +110,8 @@ func TestListLobbies_LimitQuery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		limit  string
+		name  string
+		limit string
 	}{
 		{"valid limit", "5"},
 		{"invalid limit uses default", "99999"},

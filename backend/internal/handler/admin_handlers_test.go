@@ -136,11 +136,11 @@ func TestAdminHandler_getStoredAdminPassword(t *testing.T) {
 	hashedCfg, _ := json.Marshal(map[string]string{"admin_password": hashed})
 
 	tests := []struct {
-		name      string
-		cfgJSON   string
-		dbError   bool
-		wantOK    bool
-		wantPwd   string
+		name       string
+		cfgJSON    string
+		dbError    bool
+		wantOK     bool
+		wantPwd    string
 		wantStatus int
 	}{
 		{"success", string(hashedCfg), false, true, hashed, 0},

@@ -26,7 +26,7 @@ func WSMessageTypeName(msgType byte) string {
 	case MsgPing:
 		return "ping"
 	default:
-		return "unknown"
+		return "unknown" //nolint:goconst // protocol message-type label
 	}
 }
 

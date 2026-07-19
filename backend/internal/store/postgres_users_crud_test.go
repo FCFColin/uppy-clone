@@ -74,7 +74,7 @@ func TestCreateUser(t *testing.T) {
 		{
 			name:  "prepare email error",
 			user:  &domain.User{ID: "u5", Email: "e@f.com", Nickname: "n"},
-			setup: func(mock pgxmock.PgxPoolIface) {},
+			setup: func(_ pgxmock.PgxPoolIface) {},
 			preHook: func() func() {
 				orig := encryptEmailForStorageFn
 				encryptEmailForStorageFn = func(string) (string, error) {

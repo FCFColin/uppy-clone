@@ -103,7 +103,7 @@ func TestAdminHandler_VerifyAdminToken_RejectionCases(t *testing.T) {
 	})
 
 	tests := []struct {
-		name  string
+		name   string
 		cookie string
 	}{
 		{"no cookie", ""},

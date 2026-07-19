@@ -179,13 +179,20 @@ describe('handleGameStateChange', () => {
     resetWsHandlersMocks();
   });
 
-  it('applies playing phase from binary message', () => {
+  it('applies playing phase from binary message, skips blocked phase regression', () => {
     const buf = new ArrayBuffer(2);
     const dv = new DataView(buf);
     dv.setUint8(0, 0);
     dv.setUint8(1, 1);
     handleGameStateChange(dv);
     expect(mocks.applyPhaseChange).toHaveBeenCalledWith('playing', 3);
+
+    mocks.applyPhaseChange.mockClear();
+    mocks.shouldApplySnapshotPhase.mockReturnValue(false);
+    const buf2 = new ArrayBuffer(2);
+    new DataView(buf2).setUint8(1, 1);
+    handleGameStateChange(new DataView(buf2));
+    expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
   });
 
   it('derives countdown seconds from remaining ms', async () => {

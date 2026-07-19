@@ -9,6 +9,12 @@ import (
 	"github.com/uppy-clone/backend/internal/metrics"
 )
 
+// Circuit breaker name constants (used as breaker names and metric labels).
+const (
+	pgBreakerName    = "postgres"
+	redisBreakerName = "redis"
+)
+
 // circuitBreakerStateValue maps gobreaker states to Prometheus gauge values.
 func circuitBreakerStateValue(state gobreaker.State) float64 {
 	switch state {
