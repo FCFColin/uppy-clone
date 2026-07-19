@@ -3,6 +3,7 @@ export {};
 import { apiFetch } from './shared/network/api_fetch.js';
 import { establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/network/session.js';
 import { initCollapsibleLeaderboard } from './index_leaderboard.js';
+import { ROOM_CODE_RE } from './game/lobby_match.js';
 
 normalizeAuthHost();
 initCollapsibleLeaderboard();
@@ -113,7 +114,7 @@ async function joinByCode(): Promise<void> {
   const input: HTMLInputElement = document.getElementById('join-code-input') as HTMLInputElement;
   const errorEl: HTMLElement = document.getElementById('join-code-error')!;
   const code: string = input.value.trim().toUpperCase();
-  if (!/^[A-Z2-9]{5}$/.test(code)) {
+  if (!ROOM_CODE_RE.test(code)) {
     errorEl.textContent = '房间号为 5 位字母数字';
     errorEl.classList.remove('hidden');
     return;
