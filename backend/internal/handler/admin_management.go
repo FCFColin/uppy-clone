@@ -14,6 +14,7 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/metrics"
 	"github.com/uppy-clone/backend/internal/middleware"
+	"github.com/uppy-clone/backend/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -214,7 +215,7 @@ func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		EmailFrom     string `json:"email_from"`
 		AdminPassword string `json:"admin_password"`
 	}
-	if err := json.Unmarshal([]byte(cfg.Config), &storedConfig); err != nil {
+	if err := store.UnmarshalConfig(cfg.Config, &storedConfig); err != nil {
 		domain.InternalError("Internal server error").Write(w)
 		return
 	}
@@ -253,7 +254,7 @@ func (h *AdminHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var storedConfig map[string]interface{}
-	if err := json.Unmarshal([]byte(cfg.Config), &storedConfig); err != nil {
+	if err := store.UnmarshalConfig(cfg.Config, &storedConfig); err != nil {
 		storedConfig = make(map[string]interface{})
 	}
 

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -212,7 +211,7 @@ func (h *AdminHandler) getStoredAdminPassword(ctx context.Context, w http.Respon
 	var storedConfig struct {
 		AdminPassword string `json:"admin_password"`
 	}
-	if err := json.Unmarshal([]byte(dbConfig.Config), &storedConfig); err != nil {
+	if err := store.UnmarshalConfig(dbConfig.Config, &storedConfig); err != nil {
 		domain.InternalError("Internal server error").Write(w)
 		return "", false
 	}

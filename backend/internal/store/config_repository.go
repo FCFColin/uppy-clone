@@ -10,6 +10,11 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
+// UnmarshalConfig parses the JSON config column into the target struct.
+func UnmarshalConfig(raw string, target interface{}) error {
+	return json.Unmarshal([]byte(raw), target)
+}
+
 // ConfigRepository handles admin config persistence.
 type ConfigRepository struct {
 	baseRepository
@@ -43,7 +48,7 @@ func (r *ConfigRepository) GetConfig(ctx context.Context, id string) (*domain.Ap
 			EmailEnabled bool   `json:"email_enabled"`
 			EmailFrom    string `json:"email_from"`
 		}
-		if jsonErr := json.Unmarshal([]byte(cfg.Config), &parsed); jsonErr == nil {
+		if jsonErr := UnmarshalConfig(cfg.Config, &parsed); jsonErr == nil {
 			cfg.EmailEnabled = parsed.EmailEnabled
 			cfg.EmailFrom = parsed.EmailFrom
 		}
