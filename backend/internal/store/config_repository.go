@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
@@ -62,18 +61,15 @@ func (r *ConfigRepository) SaveConfig(ctx context.Context, c *domain.AppConfig) 
 	ctx, span := withSpan(ctx, r.deps.Tracer, "config_repo.SaveConfig")
 	defer span.End()
 
-	err := retry.Do(ctx, r.deps.DBRetryPolicy, func(ctx context.Context) error {
-		_, cbErr := r.cb.Execute(func() (any, error) {
-			_, execErr := r.pool.Exec(ctx,
-				`INSERT INTO admin_config (id, config, updated_at) VALUES ($1, $2, $3)
-				 ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config, updated_at = EXCLUDED.updated_at`,
-				c.ID, c.Config, c.UpdatedAt)
-			if execErr != nil {
-				return nil, fmt.Errorf("save config: %w", execErr)
-			}
-			return nil, nil
-		})
-		return r.deps.MaybeRetryableFn(cbErr)
+	err := r.withRetryWrite(ctx, func(ctx context.Context) error {
+		_, execErr := r.pool.Exec(ctx,
+			`INSERT INTO admin_config (id, config, updated_at) VALUES ($1, $2, $3)
+			 ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config, updated_at = EXCLUDED.updated_at`,
+			c.ID, c.Config, c.UpdatedAt)
+		if execErr != nil {
+			return fmt.Errorf("save config: %w", execErr)
+		}
+		return nil
 	})
 	return err
 }

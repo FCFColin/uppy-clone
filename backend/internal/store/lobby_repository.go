@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/sethvargo/go-retry"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/util"
 	"go.opentelemetry.io/otel/attribute"
@@ -31,18 +30,15 @@ func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbySt
 	)
 	defer span.End()
 
-	err := retry.Do(ctx, r.deps.DBRetryPolicy, func(ctx context.Context) error {
-		_, cbErr := r.cb.Execute(func() (any, error) {
-			_, execErr := r.pool.Exec(ctx,
-				`INSERT INTO lobby_states (id, code, state, updated_at, created_at) VALUES ($1, $2, $3, $4, $5)
-				 ON CONFLICT (code) DO UPDATE SET state = EXCLUDED.state, updated_at = EXCLUDED.updated_at`,
-				ls.ID, ls.Code, ls.State, ls.UpdatedAt, ls.CreatedAt)
-			if execErr != nil {
-				return nil, fmt.Errorf("save lobby state: %w", execErr)
-			}
-			return nil, nil
-		})
-		return r.deps.MaybeRetryableFn(cbErr)
+	err := r.withRetryWrite(ctx, func(ctx context.Context) error {
+		_, execErr := r.pool.Exec(ctx,
+			`INSERT INTO lobby_states (id, code, state, updated_at, created_at) VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (code) DO UPDATE SET state = EXCLUDED.state, updated_at = EXCLUDED.updated_at`,
+			ls.ID, ls.Code, ls.State, ls.UpdatedAt, ls.CreatedAt)
+		if execErr != nil {
+			return fmt.Errorf("save lobby state: %w", execErr)
+		}
+		return nil
 	})
 	if err != nil {
 		util.LoggerFromContext(ctx).Error("save lobby state failed",
