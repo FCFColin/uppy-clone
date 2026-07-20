@@ -2,7 +2,6 @@ package game
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -14,15 +13,8 @@ import (
 
 type trackingRoomRepo struct {
 	mockRoomRepository
-	insertOutboxErr    error
 	createSessionErr   error
-	insertOutboxCount  int
 	createSessionCount int
-}
-
-func (t *trackingRoomRepo) InsertOutboxEvent(_ context.Context, _, _ string, _ []byte) error {
-	t.insertOutboxCount++
-	return t.insertOutboxErr
 }
 
 func (t *trackingRoomRepo) CreateGameSession(_ context.Context, _ *domain.GameSession) error {
@@ -96,26 +88,5 @@ func TestRoom_WritePersistJob_NilStore(t *testing.T) {
 	case <-done:
 	default:
 		t.Fatal("done channel should close even with nil store")
-	}
-}
-
-func TestRoom_WritePersistJob_StoreError(_ *testing.T) {
-	repo := newMockRoomRepository()
-	repo.saveErr = errors.New("save failed")
-	r := NewRoom("ERR", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.writePersistJob(persistJob{code: "ERR", stateJSON: []byte("{}")})
-}
-
-func TestRoom_EnqueueGameResultAsync_OutboxPath(t *testing.T) {
-	repo := &trackingRoomRepo{mockRoomRepository: *newMockRoomRepository()}
-	r := NewRoom("RES1", nil, repo, config.DefaultTimeoutConfig(), 0)
-	r.state.SessionID = "sess-res"
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", ScoreContribution: 5, TapsCount: 1}
-
-	r.enqueueGameResultAsync()
-	r.asyncWg.Wait()
-
-	if repo.insertOutboxCount != 1 {
-		t.Fatalf("insertOutboxCount = %d, want 1", repo.insertOutboxCount)
 	}
 }

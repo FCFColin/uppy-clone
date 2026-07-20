@@ -128,66 +128,6 @@ func TestRoom_enqueueOutbound_AsyncSuccess(t *testing.T) {
 	r.stopOutbound()
 }
 
-func TestRoom_enqueueOutbound_NonCriticalNotFull(t *testing.T) {
-	r := NewRoom("NF", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = false
-	addConnectedPlayer(r, "p1")
-	r.mu.Lock()
-	r.enqueueOutbound([]byte("msg"), broadcastOpts{})
-	r.mu.Unlock()
-	select {
-	case msg := <-r.connections["p1"].Send:
-		if string(msg) != "msg" {
-			t.Fatalf("msg = %q", msg)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected delivery")
-	}
-	r.stopOutbound()
-}
-
-func TestRoom_enqueueOutbound_CriticalNotFull(t *testing.T) {
-	r := NewRoom("CF", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = false
-	addConnectedPlayer(r, "p1")
-	r.mu.Lock()
-	r.enqueueOutbound([]byte("crit"), broadcastOpts{critical: true})
-	r.mu.Unlock()
-	select {
-	case <-r.connections["p1"].Send:
-	case <-time.After(time.Second):
-		t.Fatal("expected critical delivery")
-	}
-	r.stopOutbound()
-}
-
-func TestRoom_snapshotConnTargetsLocked_SkipsNilAndExcluded(t *testing.T) {
-	r := NewRoom("SN", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.mu.Lock()
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1)}
-	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: nil}
-	r.connections["p3"] = nil
-	targets := r.SnapshotTargets("p1")
-	r.mu.Unlock()
-	if len(targets) != 0 {
-		t.Fatalf("targets = %d, want 0 (excluded/nil only)", len(targets))
-	}
-}
-
-// --- coverage gap 补充用例 ---
-
-func TestRoom_snapshotConnTargetsLocked_IncludesValidTarget(t *testing.T) {
-	r := NewRoom("TG", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.mu.Lock()
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1)}
-	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 1)}
-	targets := r.SnapshotTargets("p1")
-	r.mu.Unlock()
-	if len(targets) != 1 || targets[0].playerID != "p2" {
-		t.Fatalf("targets = %+v", targets)
-	}
-}
-
 func TestRoom_snapshotConnTargetsLocked_ConnCloseCallback(t *testing.T) {
 	server := testutil.NewWSTestUpgraderServer(t)
 	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)

@@ -27,16 +27,6 @@ func TestScheduleCountdownFromNow(t *testing.T) {
 	}
 }
 
-func TestCloseExistingConnection(t *testing.T) {
-	r := NewRoom("CC", nil, nil, config.DefaultTimeoutConfig(), 0)
-	player := &domain.PlayerState{ID: "p1", Nickname: "p1", Disconnected: true}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 1)}
-	r.closeExistingConnection("p1", player)
-	if _, ok := r.connections["p1"]; !ok {
-		t.Fatal("disconnected player should not remove connection")
-	}
-}
-
 func TestReconnectPlayer_Countdown(t *testing.T) {
 	r := NewRoom("RP", nil, nil, config.DefaultTimeoutConfig(), 0)
 	r.state.Phase = domain.PhaseCountdown

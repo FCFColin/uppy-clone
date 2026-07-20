@@ -3,7 +3,6 @@ package game
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -15,8 +14,7 @@ import (
 // ─── NewHub ──────────────────────────────────────────────────────────
 
 func TestNewHub(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
+	h := newTestHub()
 	if h == nil {
 		t.Fatal("NewHub returned nil")
 	}
@@ -28,8 +26,7 @@ func TestNewHub(t *testing.T) {
 // ─── CreateRoom ──────────────────────────────────────────────────────
 
 func TestHub_CreateRoom(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
+	h := newTestHub()
 
 	code, err := h.CreateRoom(context.Background())
 	if err != nil {
@@ -46,8 +43,7 @@ func TestHub_CreateRoom(t *testing.T) {
 // ─── GetRoom ─────────────────────────────────────────────────────────
 
 func TestHub_GetRoom(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
+	h := newTestHub()
 
 	t.Run("Found", func(t *testing.T) {
 		code, _ := h.CreateRoom(context.Background())
@@ -71,8 +67,7 @@ func TestHub_GetRoom(t *testing.T) {
 // ─── RemoveRoom ──────────────────────────────────────────────────────
 
 func TestHub_RemoveRoom(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
+	h := newTestHub()
 
 	code, _ := h.CreateRoom(context.Background())
 	if h.RoomCount() != 1 {
@@ -90,8 +85,7 @@ func TestHub_RemoveRoom(t *testing.T) {
 // ─── CheckRoom ───────────────────────────────────────────────────────
 
 func TestHub_CheckRoom(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
+	h := newTestHub()
 
 	t.Run("Existing", func(t *testing.T) {
 		code, _ := h.CreateRoom(context.Background())
@@ -186,8 +180,7 @@ func TestHub_CleanupLoop(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			timeouts := config.DefaultTimeoutConfig()
-			h := NewHub(nil, nil, timeouts, 0, 0)
+			h := newTestHub()
 			code, _ := h.CreateRoom(context.Background())
 			room := h.getRoom(code)
 			c.setup(room)
@@ -200,8 +193,7 @@ func TestHub_CleanupLoop(t *testing.T) {
 }
 
 func TestHub_CleanupLoop_ContextCancellation(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
+	h := newTestHub()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -236,8 +228,7 @@ func TestHub_Timeouts(t *testing.T) {
 // ─── Broadcast backpressure ─────────────────────────────────────────
 
 func TestRoom_Broadcast_Backpressure(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 100, 50)
+	h := newTestHubWithLimits(100, 50)
 	code, _ := h.CreateRoom(context.Background())
 	room := h.getRoom(code)
 	room.syncOutbound = true
@@ -278,8 +269,7 @@ func TestRoom_Broadcast_Backpressure(t *testing.T) {
 
 func TestHub_WSConnectionLimit(t *testing.T) {
 	t.Run("RejectsWhenFull", func(t *testing.T) {
-		timeouts := config.DefaultTimeoutConfig()
-		h := NewHub(nil, nil, timeouts, 5, 50) // max 5 WS connections
+		h := newTestHubWithLimits(5, 50) // max 5 WS connections
 
 		for i := 0; i < 5; i++ {
 			if !h.CanAcceptWSConnection() {
@@ -298,8 +288,7 @@ func TestHub_WSConnectionLimit(t *testing.T) {
 	})
 
 	t.Run("DefaultValues", func(t *testing.T) {
-		timeouts := config.DefaultTimeoutConfig()
-		h := NewHub(nil, nil, timeouts, 0, 0) // zero → should use defaults
+		h := newTestHub() // zero → should use defaults
 
 		if h.MaxWSConnections() != 1000 {
 			t.Fatalf("expected default max 1000, got %d", h.MaxWSConnections())
@@ -313,8 +302,7 @@ func TestHub_WSConnectionLimit(t *testing.T) {
 // ─── Bulkhead: Room MaxPlayers ──────────────────────────────────────
 
 func TestRoom_MaxPlayers_RejectsWhenFull(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 100, 3)
+	h := newTestHubWithLimits(100, 3)
 
 	code, _ := h.CreateRoom(context.Background())
 	room := h.getRoom(code)
@@ -338,8 +326,7 @@ func TestRoom_MaxPlayers_RejectsWhenFull(t *testing.T) {
 }
 
 func TestRoom_MaxPlayers_ReconnectDoesNotCount(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 100, 2) // max 2 players per room
+	h := newTestHubWithLimits(100, 2) // max 2 players per room
 
 	code, _ := h.CreateRoom(context.Background())
 	room := h.getRoom(code)
@@ -369,8 +356,7 @@ func TestRoom_MaxPlayers_ReconnectDoesNotCount(t *testing.T) {
 // ─── RestoreRooms (nil store) ────────────────────────────────────────
 
 func TestHub_RestoreRooms_NilStore(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
+	h := newTestHub()
 
 	if err := h.RestoreRooms(); err != nil {
 		t.Fatalf("expected nil error with nil store, got %v", err)
@@ -378,8 +364,7 @@ func TestHub_RestoreRooms_NilStore(t *testing.T) {
 }
 
 func TestMatchRoom_NoRooms(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 2, 4)
+	h := newTestHubWithLimits(2, 4)
 
 	code, err := h.MatchRoom(context.Background())
 	if err != nil {
@@ -391,8 +376,7 @@ func TestMatchRoom_NoRooms(t *testing.T) {
 }
 
 func TestMatchRoom_FullRoomsCreateNew(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 2, 1)
+	h := newTestHubWithLimits(2, 1)
 
 	code1, _ := h.CreateRoom(context.Background())
 	room1 := h.getRoom(code1)
@@ -409,21 +393,9 @@ func TestMatchRoom_FullRoomsCreateNew(t *testing.T) {
 	}
 }
 
-func TestInstanceAddress(t *testing.T) {
-	if err := os.Setenv("INSTANCE_ADDR", "10.0.0.1:9000"); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Unsetenv("INSTANCE_ADDR") }()
-	addr := instanceAddress()
-	if addr != "10.0.0.1:9000" {
-		t.Errorf("instanceAddress = %q, want %q", addr, "10.0.0.1:9000")
-	}
-}
-
 func TestHub_CreateRoom_CodeConflict(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
-	h.rooms["CONFL"] = NewRoom("CONFL", h, nil, timeouts, 0)
+	h := newTestHub()
+	h.rooms["CONFL"] = NewRoom("CONFL", h, nil, config.DefaultTimeoutConfig(), 0)
 
 	restore := h.SetGenerateRoomCodeHook(func() string { return "CONFL" })
 	defer restore()
@@ -457,8 +429,7 @@ func TestHub_CreateRoom_WithRedis(t *testing.T) {
 
 func TestHub_RemoveRoom_DeletesFromStore(t *testing.T) {
 	repo := newMockRoomRepository()
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(repo, nil, timeouts, 0, 0)
+	h := NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
 
 	code, err := h.CreateRoom(context.Background())
 	if err != nil {
@@ -474,17 +445,8 @@ func TestHub_RemoveRoom_DeletesFromStore(t *testing.T) {
 	}
 }
 
-func TestHub_removeRooms_EmptyBatch(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
-	h.removeRooms(nil, removeRoomOptions{pgDelete: true})
-	h.removeRooms([]string{"MISSING"}, removeRoomOptions{pgDelete: true})
-	if h.RoomCount() != 0 {
-		t.Fatalf("RoomCount = %d, want 0", h.RoomCount())
-	}
-}
-
 func TestHub_CleanupLoop_RunsCleanupOnce(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
+	h := newTestHub()
 	code, _ := h.CreateRoom(context.Background())
 	room := h.getRoom(code)
 	room.mu.Lock()

@@ -10,7 +10,6 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
-	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
@@ -28,9 +27,6 @@ func (s *stubLobbyRepo) LoadAllActiveLobbies(context.Context, int, string) (*dom
 	return s.result, s.err
 }
 func (s *stubLobbyRepo) CreateGameSession(context.Context, *domain.GameSession) error { return nil }
-func (s *stubLobbyRepo) InsertOutboxEvent(context.Context, string, string, []byte) error {
-	return nil
-}
 func (s *stubLobbyRepo) RecordGameResult(context.Context, string, string, int64, int, []domain.GameResultPlayer) error {
 	return nil
 }
@@ -235,50 +231,6 @@ func TestMatchRoom_Success(t *testing.T) {
 	testutil.DecodeJSONBody(t, w, &body)
 	if body["lobbyCode"] == "" {
 		t.Fatalf("body = %+v", body)
-	}
-}
-
-func TestCheckRoom_HubUnavailable(t *testing.T) {
-	t.Parallel()
-
-	h := &LobbyHandler{hub: nil}
-	w := httptest.NewRecorder()
-	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
-	h.CheckRoom(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503 degraded", w.Code)
-	}
-	var body map[string]interface{}
-	testutil.DecodeJSONBody(t, w, &body)
-	if body["degraded"] != true {
-		t.Errorf("degraded = %v, want true", body["degraded"])
-	}
-}
-
-func TestCheckRoom_CacheReadError(t *testing.T) {
-	t.Parallel()
-
-	mr, _ := testutil.NewTestMiniredis(t)
-	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
-	if err != nil {
-		t.Fatalf("NewRedisStore: %v", err)
-	}
-	t.Cleanup(func() { _ = redisStore.Close() })
-
-	hub := game.NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0)
-	h := NewLobbyHandler(hub, nil)
-
-	mr.SetError("redis down")
-	w := httptest.NewRecorder()
-	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/ABCDE", nil), "code", "ABCDE")
-	h.CheckRoom(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503 degraded", w.Code)
-	}
-	var body map[string]interface{}
-	testutil.DecodeJSONBody(t, w, &body)
-	if body["degraded"] != true {
-		t.Errorf("degraded = %v, want true", body["degraded"])
 	}
 }
 

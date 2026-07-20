@@ -35,7 +35,7 @@ func newTestRouter(t *testing.T) *chi.Mux {
 	}
 	t.Cleanup(func() { serverEnv = prevEnv })
 
-	jwtSecret := testsecrets.TestJWTPrivateKeyPEM
+	jwtSecret := testsecrets.TestJWTPrivateKeyPEM // pragma: allowlist secret
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 	adminJwtMgr := auth.NewJWTManager(jwtSecret)
 	timeouts := appConfig.DefaultTimeoutConfig()
@@ -100,21 +100,26 @@ func TestSetupRoutes_MetricsEndpoint(t *testing.T) {
 	}
 }
 
-func TestSetupRoutes_UserStatsUnauthorized(t *testing.T) {
-	r := newTestRouter(t)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/user/stats", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rec.Code)
+func TestSetupRoutes_UnauthorizedRoutes_TableDriven(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "UserStatsUnauthorized", method: http.MethodGet, path: "/api/v1/user/stats"},
+		{name: "AuthCheckUnauthorized", method: http.MethodGet, path: "/api/v1/auth/check"},
+		{name: "AdminPutConfigUnauthorized", method: http.MethodPut, path: "/api/v1/admin/config"},
+		{name: "AdminConfigUnauthorized", method: http.MethodGet, path: "/api/v1/admin/config"},
 	}
-}
-
-func TestSetupRoutes_AuthCheckUnauthorized(t *testing.T) {
-	r := newTestRouter(t)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newTestRouter(t)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+			if rec.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want 401", rec.Code)
+			}
+		})
 	}
 }
 
@@ -130,21 +135,12 @@ func TestSetupRoutes_ListLobbiesDegraded(t *testing.T) {
 	}
 }
 
-func TestSetupRoutes_AdminPutConfigUnauthorized(t *testing.T) {
-	r := newTestRouter(t)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/v1/admin/config", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rec.Code)
-	}
-}
-
 func TestSetupAdminRoutes_DeprecatedPutConfigHeaders(t *testing.T) {
 	// Reset singleton circuit breakers so earlier tests that tripped them
 	// don't cause GetConfig to fail with "circuit breaker is open".
 	store.ResetBreakersForTesting()
 
-	jwtSecret := testsecrets.TestJWTPrivateKeyPEM
+	jwtSecret := testsecrets.TestJWTPrivateKeyPEM // pragma: allowlist secret
 	jwtMgr := auth.NewJWTManager(jwtSecret)
 
 	mock := testutil.NewPgxMock(t)
@@ -209,15 +205,6 @@ func TestSetupRoutes_AdminLoginBadRequest(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader("{bad")))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
-	}
-}
-
-func TestSetupRoutes_AdminConfigUnauthorized(t *testing.T) {
-	r := newTestRouter(t)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }
 

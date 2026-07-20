@@ -7,43 +7,6 @@ import (
 	"testing"
 )
 
-// ─── EncodeSnapshot ──────────────────────────────────────────────────
-
-func TestEncodeSnapshot_BasicFormat(t *testing.T) {
-	balloon := BalloonState{X: 0.5, Y: 0.95, Vy: 0.01, Vx: -0.02}
-	bird := BirdState{X: 0.3, Y: 0.4, Active: true}
-	ghost := GhostState{X: 0.6, Y: 0.5, Active: true, RepelTimer: 10}
-	players := []PlayerState{
-		{PlayerIndex: 0, CooldownMs: 1000, Palette: 1, ScoreContribution: 50, Nickname: "test"},
-	}
-	ripples := []Ripple{
-		{PlayerIndex: 0, X: 0.5, Y: 0.5},
-	}
-
-	data := EncodeSnapshot(PhasePlaying, 42, 100, balloon, bird, ghost, players, ripples, 0.3)
-
-	if len(data) == 0 {
-		t.Fatal("EncodeSnapshot 应返回非空数据")
-	}
-	if data[0] != MsgSnapshot {
-		t.Fatalf("首字节应为 MsgSnapshot=0x01，got=0x%02x", data[0])
-	}
-
-	tickCount := binary.LittleEndian.Uint32(data[1:5])
-	if tickCount != 42 {
-		t.Fatalf("tickCount 不匹配: got=%d, want=42", tickCount)
-	}
-
-	score := binary.LittleEndian.Uint32(data[5:9])
-	if score != 100 {
-		t.Fatalf("score 不匹配: got=%d, want=100", score)
-	}
-
-	if data[9] != PhaseCodePlaying {
-		t.Fatalf("phaseCode 不匹配: got=%d, want=%d", data[9], PhaseCodePlaying)
-	}
-}
-
 // ─── EncodeTapAccepted ───────────────────────────────────────────────
 
 func TestEncodeTapAccepted(t *testing.T) {

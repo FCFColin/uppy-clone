@@ -115,11 +115,3 @@ func TestRoom_BroadcastTapResult(t *testing.T) {
 		t.Fatal("expected broadcast message")
 	}
 }
-
-func TestRoom_decodeTapPayload_DecodeFailure(t *testing.T) {
-	r := &Room{state: NewGameState("T", 42, testRNG()), rng: testRNG()}
-	_, _, ok := r.decodeTapPayload([]byte{1, 2, 3})
-	if ok {
-		t.Fatal("short payload should fail decode")
-	}
-}

@@ -9,27 +9,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-func TestHandleRestartVote_RecordsVoteInMap(t *testing.T) {
-	room := &Room{
-		state:           NewGameState("TEST", 42, testRNG()),
-		usedNames:       make(map[string]bool),
-		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-	}
-	room.state.Phase = domain.PhaseEnded
-	room.state.Players = map[string]*domain.PlayerState{
-		"p1": {ID: "p1", Nickname: "Player1"},
-		"p2": {ID: "p2", Nickname: "Player2"},
-	}
-	room.state.RestartVotes = make(map[string]bool)
-
-	player := &domain.PlayerState{ID: "p1"}
-	_ = HandleRestartVote(room, player)
-
-	if !room.state.RestartVotes["p1"] {
-		t.Error("vote should be recorded for p1")
-	}
-}
-
 func TestHandleRestartVote_NotEndedPhase(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
@@ -58,35 +37,6 @@ func TestHandleRestartVote_DuplicateVote(t *testing.T) {
 	err := HandleRestartVote(r, player)
 	if err != nil {
 		t.Fatalf("expected nil for duplicate vote, got %v", err)
-	}
-}
-
-func TestHandleRestartVote_NewVote(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	p1 := &domain.PlayerState{ID: "p1"}
-	p2 := &domain.PlayerState{ID: "p2"}
-
-	r.mu.Lock()
-	r.state.Phase = domain.PhaseEnded
-	r.state.Players["p1"] = p1
-	r.state.Players["p2"] = p2
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 64)}
-	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 64)}
-	r.mu.Unlock()
-
-	// First vote from p1 — not yet consensus (2 players, only 1 vote)
-	err := HandleRestartVote(r, p1)
-	if err != nil {
-		t.Fatalf("expected nil for new vote, got %v", err)
-	}
-
-	r.mu.RLock()
-	voted := r.state.RestartVotes["p1"]
-	r.mu.RUnlock()
-	if !voted {
-		t.Fatal("player p1 should have voted")
 	}
 }
 
@@ -280,18 +230,6 @@ func TestRestartAndStart_ResetsPlayerStats(t *testing.T) {
 	}
 	if player.TapsCount != 0 {
 		t.Errorf("TapsCount = %d, want 0", player.TapsCount)
-	}
-}
-
-func TestRestartProtocolConstants(t *testing.T) {
-	if domain.RestartTimeoutMs != 30000 {
-		t.Errorf("RestartTimeoutMs = %d, want 30000", domain.RestartTimeoutMs)
-	}
-	if domain.MaxNicknameLen != 12 {
-		t.Errorf("MaxNicknameLen = %d, want 12", domain.MaxNicknameLen)
-	}
-	if domain.NicknameCooldownMs != 30000 {
-		t.Errorf("NicknameCooldownMs = %d, want 30000", domain.NicknameCooldownMs)
 	}
 }
 

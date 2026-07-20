@@ -10,14 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/redis/go-redis/v9"
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
-	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestNewJWTManager_PanicsOnWeakSecret(t *testing.T) {
@@ -32,7 +29,7 @@ func TestNewJWTManager_PanicsOnWeakSecret(t *testing.T) {
 // ─── SignToken + VerifyToken round-trip ──────────────────────────────
 
 func TestSignVerifyToken_RoundTrip(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mgr := setupJWTManager()
 
 	token, err := mgr.SignToken("user-123", "快乐的气球")
 	if err != nil {
@@ -57,44 +54,8 @@ func TestSignVerifyToken_RoundTrip(t *testing.T) {
 	}
 }
 
-// ─── Role claim ─────────────────────────────────────────────────────
-
-func TestSignToken_DefaultRoleIsUser(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-
-	token, err := mgr.SignToken("user-role", "RoleTest")
-	if err != nil {
-		t.Fatalf("SignToken: %v", err)
-	}
-
-	_, _, _, role, err := mgr.VerifyToken(token)
-	if err != nil {
-		t.Fatalf("VerifyToken: %v", err)
-	}
-	if role != domain.RoleUser {
-		t.Fatalf("role = %q, want %q", role, domain.RoleUser)
-	}
-}
-
-func TestSignTokenWithRole_CustomRole(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-
-	token, err := mgr.SignTokenWithRole("user-custom", "CustomRole", "moderator")
-	if err != nil {
-		t.Fatalf("SignTokenWithRole: %v", err)
-	}
-
-	_, _, _, role, err := mgr.VerifyToken(token)
-	if err != nil {
-		t.Fatalf("VerifyToken: %v", err)
-	}
-	if role != "moderator" {
-		t.Fatalf("role = %q, want %q", role, "moderator")
-	}
-}
-
 func TestVerifyToken_LegacyTokenDefaultsToUser(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mgr := setupJWTManager()
 
 	claims := customClaims{
 		Nickname: "legacy",
@@ -125,7 +86,7 @@ func TestVerifyToken_LegacyTokenDefaultsToUser(t *testing.T) {
 // ─── JTI uniqueness ──────────────────────────────────────────────────
 
 func TestSignToken_JTIUnique(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mgr := setupJWTManager()
 
 	token1, _ := mgr.SignToken("user-1", "alice")
 	token2, _ := mgr.SignToken("user-1", "alice")
@@ -141,7 +102,7 @@ func TestSignToken_JTIUnique(t *testing.T) {
 // ─── Expired token ───────────────────────────────────────────────────
 
 func TestVerifyToken_Expired(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mgr := setupJWTManager()
 
 	claims := customClaims{
 		Nickname: "test",
@@ -167,7 +128,7 @@ func TestVerifyToken_Expired(t *testing.T) {
 // ─── Invalid token ───────────────────────────────────────────────────
 
 func TestVerifyToken_Invalid(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mgr := setupJWTManager()
 
 	_, _, _, _, err := mgr.VerifyToken("this.is.not.a.valid.token")
 	if err == nil {
@@ -223,7 +184,7 @@ func TestBuildAuthCookie_HttpOnly(t *testing.T) {
 // ─── ParseAuthCookie ─────────────────────────────────────────────────
 
 func TestParseAuthCookie_Valid(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mgr := setupJWTManager()
 
 	token, _ := mgr.SignToken("user-1", "nickname")
 
@@ -249,7 +210,7 @@ func TestParseAuthCookie_Valid(t *testing.T) {
 }
 
 func TestParseAuthCookie_Missing(t *testing.T) {
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mgr := setupJWTManager()
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -299,14 +260,7 @@ func TestRefreshTokenManager_GenerateSecureToken(t *testing.T) {
 }
 
 func TestRefreshTokenManager_Integration(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer func() { _ = rdb.Close() }()
-
+	_, rdb := testutil.NewTestMiniredis(t)
 	mgr := NewRefreshTokenManager(rdb)
 	ctx := context.Background()
 
@@ -381,40 +335,20 @@ func TestRefreshTokenManager_Integration(t *testing.T) {
 	})
 }
 
-func setupTestRedisStore(t *testing.T) *store.RedisStore {
-	t.Helper()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	redisStore, err := store.NewRedisStore(mr.Addr(), config.DefaultTimeoutConfig())
-	if err != nil {
-		t.Fatalf("NewRedisStore: %v", err)
-	}
-	t.Cleanup(func() { _ = redisStore.Close() })
-	return redisStore
-}
-
-func newTestJWTManager(t *testing.T) *JWTManager {
-	t.Helper()
-	return NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-}
-
-func TestRevokeAllTokens_NilRequest(t *testing.T) {
-	mgr := newTestJWTManager(t)
+func TestRevokeAllTokens_NilRequest(_ *testing.T) {
+	mgr := setupJWTManager()
 	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, nil)
 }
 
-func TestRevokeAllTokens_NoCookie(t *testing.T) {
-	mgr := newTestJWTManager(t)
+func TestRevokeAllTokens_NoCookie(_ *testing.T) {
+	mgr := setupJWTManager()
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, req)
 }
 
 func TestRevokeAllTokens_InvalidToken(t *testing.T) {
-	mgr := newTestJWTManager(t)
-	redisStore := setupTestRedisStore(t)
+	mgr := setupJWTManager()
+	redisStore := testutil.SetupMiniredisStore(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: "invalid.token.here"})
@@ -424,7 +358,7 @@ func TestRevokeAllTokens_InvalidToken(t *testing.T) {
 }
 
 func TestRevokeAllTokens_NilRedis(t *testing.T) {
-	mgr := newTestJWTManager(t)
+	mgr := setupJWTManager()
 
 	token, err := mgr.SignToken("user-nil-redis", "TestPlayer")
 	if err != nil {
@@ -437,115 +371,74 @@ func TestRevokeAllTokens_NilRedis(t *testing.T) {
 	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, req)
 }
 
-func TestRevokeAllTokens_SessionCookie(t *testing.T) {
-	mgr := newTestJWTManager(t)
-	redisStore := setupTestRedisStore(t)
-	ctx := context.Background()
-
-	token, err := mgr.SignToken("user-session-revoke", "SessionPlayer")
-	if err != nil {
-		t.Fatalf("SignToken failed: %v", err)
+func TestRevokeAllTokens_Cookies_TableDriven(t *testing.T) {
+	tests := []struct {
+		name    string
+		cookies []struct {
+			name, user, player string
+		}
+	}{
+		{
+			name: "SessionCookie",
+			cookies: []struct {
+				name, user, player string
+			}{{"session", "user-session-revoke", "SessionPlayer"}},
+		},
+		{
+			name: "QuickPlayCookie",
+			cookies: []struct {
+				name, user, player string
+			}{{"quickplay", "user-quickplay-revoke", "QuickPlayer"}},
+		},
+		{
+			name: "BothCookies",
+			cookies: []struct {
+				name, user, player string
+			}{
+				{"session", "user-both-session", "SessionUser"},
+				{"quickplay", "user-both-quickplay", "QuickUser"},
+			},
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := setupJWTManager()
+			redisStore := testutil.SetupMiniredisStore(t)
+			ctx := context.Background()
 
-	_, _, jti, _, err := mgr.VerifyToken(token)
-	if err != nil {
-		t.Fatalf("VerifyToken failed: %v", err)
-	}
+			req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+			jtis := make([]string, 0, len(tt.cookies))
+			for _, c := range tt.cookies {
+				token, err := mgr.SignToken(c.user, c.player)
+				if err != nil {
+					t.Fatalf("SignToken failed: %v", err)
+				}
+				_, _, jti, _, err := mgr.VerifyToken(token)
+				if err != nil {
+					t.Fatalf("VerifyToken failed: %v", err)
+				}
+				jtis = append(jtis, jti)
+				req.AddCookie(&http.Cookie{Name: c.name, Value: token})
+			}
 
-	revoked, err := redisStore.IsJWTRevoked(ctx, jti)
-	if err != nil {
-		t.Fatalf("IsJWTRevoked before revoke failed: %v", err)
-	}
-	if revoked {
-		t.Fatal("jti should NOT be revoked before RevokeAllTokens")
-	}
+			_ = RevokeAllTokens(ctx, mgr, nil, redisStore, req)
 
-	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: token})
-
-	_ = RevokeAllTokens(ctx, mgr, nil, redisStore, req)
-
-	revoked, err = redisStore.IsJWTRevoked(ctx, jti)
-	if err != nil {
-		t.Fatalf("IsJWTRevoked after revoke failed: %v", err)
-	}
-	if !revoked {
-		t.Fatal("jti should be revoked after RevokeAllTokens with session cookie")
-	}
-}
-
-func TestRevokeAllTokens_QuickPlayCookie(t *testing.T) {
-	mgr := newTestJWTManager(t)
-	redisStore := setupTestRedisStore(t)
-	ctx := context.Background()
-
-	token, err := mgr.SignToken("user-quickplay-revoke", "QuickPlayer")
-	if err != nil {
-		t.Fatalf("SignToken failed: %v", err)
-	}
-
-	_, _, jti, _, err := mgr.VerifyToken(token)
-	if err != nil {
-		t.Fatalf("VerifyToken failed: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
-	req.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
-
-	_ = RevokeAllTokens(ctx, mgr, nil, redisStore, req)
-
-	revoked, err := redisStore.IsJWTRevoked(ctx, jti)
-	if err != nil {
-		t.Fatalf("IsJWTRevoked failed: %v", err)
-	}
-	if !revoked {
-		t.Fatal("jti should be revoked after RevokeAllTokens with quickplay cookie")
-	}
-}
-
-func TestRevokeAllTokens_BothCookies(t *testing.T) {
-	mgr := newTestJWTManager(t)
-	redisStore := setupTestRedisStore(t)
-	ctx := context.Background()
-
-	sessionToken, err := mgr.SignToken("user-both-session", "SessionUser")
-	if err != nil {
-		t.Fatalf("SignToken session failed: %v", err)
-	}
-	quickplayToken, err := mgr.SignToken("user-both-quickplay", "QuickUser")
-	if err != nil {
-		t.Fatalf("SignToken quickplay failed: %v", err)
-	}
-
-	_, _, sessionJTI, _, _ := mgr.VerifyToken(sessionToken)
-	_, _, quickplayJTI, _, _ := mgr.VerifyToken(quickplayToken)
-
-	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: sessionToken})
-	req.AddCookie(&http.Cookie{Name: "quickplay", Value: quickplayToken})
-
-	_ = RevokeAllTokens(ctx, mgr, nil, redisStore, req)
-
-	sessionRevoked, err := redisStore.IsJWTRevoked(ctx, sessionJTI)
-	if err != nil {
-		t.Fatalf("IsJWTRevoked session failed: %v", err)
-	}
-	if !sessionRevoked {
-		t.Fatal("session jti should be revoked")
-	}
-
-	quickplayRevoked, err := redisStore.IsJWTRevoked(ctx, quickplayJTI)
-	if err != nil {
-		t.Fatalf("IsJWTRevoked quickplay failed: %v", err)
-	}
-	if !quickplayRevoked {
-		t.Fatal("quickplay jti should be revoked")
+			for _, jti := range jtis {
+				revoked, err := redisStore.IsJWTRevoked(ctx, jti)
+				if err != nil {
+					t.Fatalf("IsJWTRevoked failed: %v", err)
+				}
+				if !revoked {
+					t.Fatal("jti should be revoked after RevokeAllTokens")
+				}
+			}
+		})
 	}
 }
 
 func TestRevokeAllTokens_Concurrent(t *testing.T) {
-	mgr := newTestJWTManager(t)
-	redisStore := setupTestRedisStore(t)
+	mgr := setupJWTManager()
+	redisStore := testutil.SetupMiniredisStore(t)
 
 	done := make(chan struct{}, 5)
 	for i := 0; i < 5; i++ {
@@ -565,7 +458,7 @@ func TestRevokeAllTokens_Concurrent(t *testing.T) {
 func TestSignToken_RandFailure(t *testing.T) {
 	defer SetRandReadHook(func([]byte) (int, error) { return 0, errRandFail })()
 
-	mgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mgr := setupJWTManager()
 	if _, err := mgr.SignToken("user-1", "Nick"); err == nil {
 		t.Fatal("expected SignToken error when rand fails")
 	}

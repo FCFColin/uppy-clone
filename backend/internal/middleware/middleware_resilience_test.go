@@ -55,204 +55,166 @@ func newAuthRequest(remoteAddr, userID, nickname string) *http.Request {
 
 // ─── rateLimitKey tests ─────────────────────────────────────────────
 
-// TestRateLimitKey_AuthenticatedUsesUserID 验证认证请求的限流 key 包含
-// user_id 而非仅 IP（修复"token cookie 名错误导致 userID 恒空"的缺陷）。
-func TestRateLimitKey_AuthenticatedUsesUserID(t *testing.T) {
-	r := newAuthRequest("1.2.3.4:5678", "user-abc", "alice")
-
-	key := rateLimitKey(r, "registry:create", nil)
-
-	if !strings.Contains(key, "user-abc") {
-		t.Fatalf("authenticated key should contain user_id; got %q", key)
-	}
-	if !strings.HasPrefix(key, "registry:create:user-abc:") {
-		t.Fatalf("authenticated key format = %q; want prefix %q", key, "registry:create:user-abc:")
-	}
-	if !strings.HasSuffix(key, "1.2.3.4") {
-		t.Fatalf("authenticated key should still contain IP; got %q", key)
-	}
-}
-
-// TestRateLimitKey_UnauthenticatedUsesIP 验证未认证请求回退到 IP 维度。
-func TestRateLimitKey_UnauthenticatedUsesIP(t *testing.T) {
-	r := newRequest("5.6.7.8:1234")
-
-	key := rateLimitKey(r, "auth:quickplay", nil)
-
-	want := "auth:quickplay:5.6.7.8"
-	if key != want {
-		t.Fatalf("unauthenticated key = %q; want %q", key, want)
-	}
-}
-
-// TestRateLimitKey_DifferentUsersDifferentKeys 验证同一 IP 下不同用户
-// 得到不同限流 key（用户级隔离生效）。
-func TestRateLimitKey_DifferentUsersDifferentKeys(t *testing.T) {
-	r1 := newAuthRequest("10.0.0.1:1", "user-1", "a")
-	r2 := newAuthRequest("10.0.0.1:1", "user-2", "b")
-
-	k1 := rateLimitKey(r1, "registry:create", nil)
-	k2 := rateLimitKey(r2, "registry:create", nil)
-
-	if k1 == k2 {
-		t.Fatalf("different users must have different keys; both = %q", k1)
-	}
-}
-
-// TestRateLimitKey_SessionCookieFallback 验证当 context 中无 userID 时，
-// 回退到解析 "session" cookie 提取 userID。
-func TestRateLimitKey_SessionCookieFallback(t *testing.T) {
+// TestRateLimitKey_TableDriven 验证 rateLimitKey 在各种认证场景下的行为。
+func TestRateLimitKey_TableDriven(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, err := jwtMgr.SignToken("user-from-session", "alice")
-	if err != nil {
-		t.Fatalf("SignToken: %v", err)
+	sessionToken, _ := jwtMgr.SignToken("user-from-session", "alice")
+	quickplayToken, _ := jwtMgr.SignToken("user-from-quickplay", "bob")
+	sessionUserToken, _ := jwtMgr.SignToken("session-user", "alice")
+	quickplayUserToken, _ := jwtMgr.SignToken("quickplay-user", "bob")
+	contextCookieToken, _ := jwtMgr.SignToken("cookie-user", "dave")
+	oldToken, _ := jwtMgr.SignToken("user-should-be-ignored", "eve")
+	nilMgrToken, _ := jwtMgr.SignToken("should-be-ignored", "eve")
+
+	tests := []struct {
+		name            string
+		remoteAddr      string
+		authUserID      string
+		authNickname    string
+		cookies         []struct{ name, value string }
+		useNilJWTMgr    bool
+		op              string
+		wantExact       string
+		wantContains    []string
+		wantNotContains []string
+		wantPrefix      string
+		wantSuffix      string
+		// 若设置,使用该 userID 构造第二个请求并断言两 key 不相等
+		wantDifferentFromUserID string
+	}{
+		{
+			name:         "AuthenticatedUsesUserID",
+			remoteAddr:   "1.2.3.4:5678",
+			authUserID:   "user-abc",
+			authNickname: "alice",
+			op:           EndpointRegistryCreate,
+			wantContains: []string{"user-abc"},
+			wantPrefix:   "registry:create:user-abc:",
+			wantSuffix:   "1.2.3.4",
+		},
+		{
+			name:       "UnauthenticatedUsesIP",
+			remoteAddr: "5.6.7.8:1234",
+			op:         EndpointAuthQuickplay,
+			wantExact:  "auth:quickplay:5.6.7.8",
+		},
+		{
+			name:                    "DifferentUsersDifferentKeys",
+			remoteAddr:              "10.0.0.1:1",
+			authUserID:              "user-1",
+			authNickname:            "a",
+			op:                      EndpointRegistryCreate,
+			wantDifferentFromUserID: "user-2",
+		},
+		{
+			name:         "SessionCookieFallback",
+			remoteAddr:   "1.2.3.4:5678",
+			cookies:      []struct{ name, value string }{{"session", sessionToken}},
+			op:           EndpointRegistryCreate,
+			wantContains: []string{"user-from-session"},
+			wantPrefix:   "registry:create:user-from-session:",
+		},
+		{
+			name:         "QuickplayCookieFallback",
+			remoteAddr:   "9.8.7.6:1234",
+			cookies:      []struct{ name, value string }{{"quickplay", quickplayToken}},
+			op:           EndpointAuthQuickplay,
+			wantContains: []string{"user-from-quickplay"},
+			wantPrefix:   "auth:quickplay:user-from-quickplay:",
+		},
+		{
+			name:       "NoAuthCookiesFallsBackToIP",
+			remoteAddr: "3.3.3.3:33",
+			op:         EndpointAuthQuickplay,
+			wantExact:  "auth:quickplay:3.3.3.3",
+		},
+		{
+			name:       "OldTokenCookieIgnored",
+			remoteAddr: "4.4.4.4:44",
+			cookies:    []struct{ name, value string }{{"token", oldToken}},
+			op:         EndpointAuthQuickplay,
+			wantExact:  "auth:quickplay:4.4.4.4",
+		},
+		{
+			name:            "SessionPreferredOverQuickplay",
+			remoteAddr:      "5.5.5.5:55",
+			cookies:         []struct{ name, value string }{{"session", sessionUserToken}, {"quickplay", quickplayUserToken}},
+			op:              EndpointRegistryCreate,
+			wantContains:    []string{"session-user"},
+			wantNotContains: []string{"quickplay-user"},
+		},
+		{
+			name:            "ContextTakesPriorityOverCookies",
+			remoteAddr:      "6.6.6.6:66",
+			authUserID:      "context-user",
+			authNickname:    "carol",
+			cookies:         []struct{ name, value string }{{"session", contextCookieToken}},
+			op:              EndpointRegistryCreate,
+			wantContains:    []string{"context-user"},
+			wantNotContains: []string{"cookie-user"},
+		},
+		{
+			name:         "NilJWTMgrSkipsCookieFallback",
+			remoteAddr:   "7.7.7.7:77",
+			cookies:      []struct{ name, value string }{{"session", nilMgrToken}},
+			useNilJWTMgr: true,
+			op:           EndpointAuthQuickplay,
+			wantExact:    "auth:quickplay:7.7.7.7",
+		},
+		{
+			name:       "InvalidJWTCookieFallsBackToIP",
+			remoteAddr: "8.8.8.8:88",
+			cookies:    []struct{ name, value string }{{"session", "invalid-jwt-token"}},
+			op:         EndpointAuthQuickplay,
+			wantExact:  "auth:quickplay:8.8.8.8",
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRequest(tt.remoteAddr)
+			if tt.authUserID != "" {
+				ctx := auth.WithAuthenticatedUser(r.Context(), tt.authUserID, tt.authNickname)
+				r = r.WithContext(ctx)
+			}
+			for _, c := range tt.cookies {
+				r.AddCookie(&http.Cookie{Name: c.name, Value: c.value})
+			}
+			var mgr = jwtMgr
+			if tt.useNilJWTMgr {
+				mgr = nil
+			}
+			key := rateLimitKey(r, tt.op, mgr)
 
-	r := newRequest("1.2.3.4:5678")
-	r.AddCookie(&http.Cookie{Name: "session", Value: token})
-
-	key := rateLimitKey(r, "registry:create", jwtMgr)
-
-	if !strings.Contains(key, "user-from-session") {
-		t.Fatalf("key should contain userID from session cookie; got %q", key)
-	}
-	if !strings.HasPrefix(key, "registry:create:user-from-session:") {
-		t.Fatalf("key format = %q; want prefix %q", key, "registry:create:user-from-session:")
-	}
-}
-
-// TestRateLimitKey_QuickplayCookieFallback 验证当 context 中无 userID 且
-// 无 session cookie 时，回退到解析 "quickplay" cookie 提取 userID。
-func TestRateLimitKey_QuickplayCookieFallback(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, err := jwtMgr.SignToken("user-from-quickplay", "bob")
-	if err != nil {
-		t.Fatalf("SignToken: %v", err)
-	}
-
-	r := newRequest("9.8.7.6:1234")
-	r.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
-
-	key := rateLimitKey(r, "auth:quickplay", jwtMgr)
-
-	if !strings.Contains(key, "user-from-quickplay") {
-		t.Fatalf("key should contain userID from quickplay cookie; got %q", key)
-	}
-	if !strings.HasPrefix(key, "auth:quickplay:user-from-quickplay:") {
-		t.Fatalf("key format = %q; want prefix %q", key, "auth:quickplay:user-from-quickplay:")
-	}
-}
-
-// TestRateLimitKey_NoAuthCookiesFallsBackToIP 验证无任何认证 cookie 时
-// 回退到 IP 维度限流。
-func TestRateLimitKey_NoAuthCookiesFallsBackToIP(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	r := newRequest("3.3.3.3:33")
-
-	key := rateLimitKey(r, "auth:quickplay", jwtMgr)
-
-	want := "auth:quickplay:3.3.3.3"
-	if key != want {
-		t.Fatalf("no cookies: key = %q; want %q", key, want)
-	}
-}
-
-// TestRateLimitKey_OldTokenCookieIgnored 验证名为 "token" 的旧 cookie
-// 不会被识别为有效认证 cookie（修复前的 bug：只读 "token" cookie）。
-func TestRateLimitKey_OldTokenCookieIgnored(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, err := jwtMgr.SignToken("user-should-be-ignored", "eve")
-	if err != nil {
-		t.Fatalf("SignToken: %v", err)
-	}
-
-	r := newRequest("4.4.4.4:44")
-	r.AddCookie(&http.Cookie{Name: "token", Value: token})
-
-	key := rateLimitKey(r, "auth:quickplay", jwtMgr)
-
-	// "token" cookie should NOT be recognized; must fall back to IP-only
-	want := "auth:quickplay:4.4.4.4"
-	if key != want {
-		t.Fatalf("old 'token' cookie should be ignored; key = %q; want %q", key, want)
-	}
-}
-
-// TestRateLimitKey_SessionPreferredOverQuickplay 验证同时存在 session 和
-// quickplay cookie 时，优先使用 session cookie 的 userID。
-func TestRateLimitKey_SessionPreferredOverQuickplay(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-
-	sessionToken, _ := jwtMgr.SignToken("session-user", "alice")
-	quickplayToken, _ := jwtMgr.SignToken("quickplay-user", "bob")
-
-	r := newRequest("5.5.5.5:55")
-	r.AddCookie(&http.Cookie{Name: "session", Value: sessionToken})
-	r.AddCookie(&http.Cookie{Name: "quickplay", Value: quickplayToken})
-
-	key := rateLimitKey(r, "registry:create", jwtMgr)
-
-	if !strings.Contains(key, "session-user") {
-		t.Fatalf("session cookie should take priority; got %q", key)
-	}
-	if strings.Contains(key, "quickplay-user") {
-		t.Fatalf("quickplay userID should not appear when session is valid; got %q", key)
-	}
-}
-
-// TestRateLimitKey_ContextTakesPriorityOverCookies 验证 auth context 中的
-// userID 优先于 cookie 解析结果。
-func TestRateLimitKey_ContextTakesPriorityOverCookies(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-
-	// Context has one userID
-	r := newAuthRequest("6.6.6.6:66", "context-user", "carol")
-
-	// Cookie has a different userID
-	cookieToken, _ := jwtMgr.SignToken("cookie-user", "dave")
-	r.AddCookie(&http.Cookie{Name: "session", Value: cookieToken})
-
-	key := rateLimitKey(r, "registry:create", jwtMgr)
-
-	if !strings.Contains(key, "context-user") {
-		t.Fatalf("context userID should take priority; got %q", key)
-	}
-	if strings.Contains(key, "cookie-user") {
-		t.Fatalf("cookie userID should not appear when context is set; got %q", key)
-	}
-}
-
-// TestRateLimitKey_NilJWTMgrSkipsCookieFallback 验证 jwtMgr 为 nil 时
-// 跳过 cookie 解析，直接回退到 IP 维度。
-func TestRateLimitKey_NilJWTMgrSkipsCookieFallback(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, _ := jwtMgr.SignToken("should-be-ignored", "eve")
-
-	r := newRequest("7.7.7.7:77")
-	r.AddCookie(&http.Cookie{Name: "session", Value: token})
-
-	// Pass nil jwtMgr — cookie fallback should be skipped
-	key := rateLimitKey(r, "auth:quickplay", nil)
-
-	want := "auth:quickplay:7.7.7.7"
-	if key != want {
-		t.Fatalf("nil jwtMgr should skip cookie fallback; key = %q; want %q", key, want)
-	}
-}
-
-// TestRateLimitKey_InvalidJWTCookieFallsBackToIP 验证 cookie 中包含
-// 无效 JWT 时，回退到 IP 维度而非报错。
-func TestRateLimitKey_InvalidJWTCookieFallsBackToIP(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-
-	r := newRequest("8.8.8.8:88")
-	r.AddCookie(&http.Cookie{Name: "session", Value: "invalid-jwt-token"})
-
-	key := rateLimitKey(r, "auth:quickplay", jwtMgr)
-
-	want := "auth:quickplay:8.8.8.8"
-	if key != want {
-		t.Fatalf("invalid JWT cookie should fall back to IP; key = %q; want %q", key, want)
+			if tt.wantDifferentFromUserID != "" {
+				r2 := newRequest(tt.remoteAddr)
+				ctx2 := auth.WithAuthenticatedUser(r2.Context(), tt.wantDifferentFromUserID, tt.authNickname)
+				r2 = r2.WithContext(ctx2)
+				k2 := rateLimitKey(r2, tt.op, mgr)
+				if key == k2 {
+					t.Fatalf("different users must have different keys; both = %q", key)
+				}
+				return
+			}
+			if tt.wantExact != "" && key != tt.wantExact {
+				t.Fatalf("key = %q; want %q", key, tt.wantExact)
+			}
+			for _, s := range tt.wantContains {
+				if !strings.Contains(key, s) {
+					t.Fatalf("key should contain %q; got %q", s, key)
+				}
+			}
+			for _, s := range tt.wantNotContains {
+				if strings.Contains(key, s) {
+					t.Fatalf("key should NOT contain %q; got %q", s, key)
+				}
+			}
+			if tt.wantPrefix != "" && !strings.HasPrefix(key, tt.wantPrefix) {
+				t.Fatalf("key format = %q; want prefix %q", key, tt.wantPrefix)
+			}
+			if tt.wantSuffix != "" && !strings.HasSuffix(key, tt.wantSuffix) {
+				t.Fatalf("key should end with %q; got %q", tt.wantSuffix, key)
+			}
+		})
 	}
 }
 
@@ -262,7 +224,7 @@ func TestRateLimitKey_InvalidJWTCookieFallsBackToIP(t *testing.T) {
 // 使用包含 user_id 的 key 进行限流。
 func TestEndpointRateLimit_AuthenticatedKeyedByUser(t *testing.T) {
 	store := &fakeRateLimiterStore{allow: true}
-	mw := EndpointRateLimit(store, "registry:create", nil)
+	mw := EndpointRateLimit(store, EndpointRegistryCreate, nil)
 
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -286,7 +248,7 @@ func TestEndpointRateLimit_AuthenticatedKeyedByUser(t *testing.T) {
 // 使用 IP-only key。
 func TestEndpointRateLimit_UnauthenticatedKeyedByIP(t *testing.T) {
 	store := &fakeRateLimiterStore{allow: true}
-	mw := EndpointRateLimit(store, "auth:quickplay", nil)
+	mw := EndpointRateLimit(store, EndpointAuthQuickplay, nil)
 
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -304,7 +266,7 @@ func TestEndpointRateLimit_UnauthenticatedKeyedByIP(t *testing.T) {
 // TestEndpointRateLimit_DeniedReturns429 验证超限时返回 429 且不调用下游。
 func TestEndpointRateLimit_DeniedReturns429(t *testing.T) {
 	store := &fakeRateLimiterStore{allow: false}
-	mw := EndpointRateLimit(store, "auth:quickplay", nil)
+	mw := EndpointRateLimit(store, EndpointAuthQuickplay, nil)
 
 	called := false
 	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
@@ -327,7 +289,7 @@ func TestEndpointRateLimit_DeniedReturns429(t *testing.T) {
 // 放行请求（fail-open 策略）。
 func TestEndpointRateLimit_FailOpenOnStoreError(t *testing.T) {
 	store := &fakeRateLimiterStore{allow: false, err: errors.New("redis down")}
-	mw := EndpointRateLimit(store, "registry:create", nil) // not FailClosed
+	mw := EndpointRateLimit(store, EndpointRegistryCreate, nil) // not FailClosed
 
 	called := false
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -348,72 +310,40 @@ func TestEndpointRateLimit_FailOpenOnStoreError(t *testing.T) {
 }
 
 // TestEndpointRateLimit_FailClosedOnStoreError 验证安全敏感端点
-// （FailClosed=true）Redis 出错时拒绝请求。
+// （FailClosed=true）Redis 出错时拒绝请求。覆盖三类 FailClosed 配置：
+//   - auth:quickplay（显式 FailClosed）
+//   - admin:login（显式 FailClosed）
+//   - unknown:endpoint（回退到 default，default 必须 FailClosed，handler-014）
 func TestEndpointRateLimit_FailClosedOnStoreError(t *testing.T) {
-	store := &fakeRateLimiterStore{allow: false, err: errors.New("redis down")}
-	mw := EndpointRateLimit(store, "auth:quickplay", nil) // FailClosed=true in config
-
-	called := false
-	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		called = true
-	}))
-
-	r := newRequest("3.3.3.3:3")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, r)
-
-	if called {
-		t.Fatal("fail-closed: downstream handler must NOT be called on store error")
+	cases := []struct {
+		name     string
+		endpoint string
+		addr     string
+	}{
+		{"AuthQuickplay", EndpointAuthQuickplay, "3.3.3.3:3"},
+		{"AdminLogin", "admin:login", "4.4.4.4:4"},
+		{"DefaultFallback", "unknown:endpoint", "5.5.5.5:5"},
 	}
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("fail-closed status = %d; want %d", w.Code, http.StatusTooManyRequests)
-	}
-}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			store := &fakeRateLimiterStore{allow: false, err: errors.New("redis down")}
+			mw := EndpointRateLimit(store, c.endpoint, nil)
 
-// TestEndpointRateLimit_AdminLoginFailClosed 验证 admin:login 端点
-// Redis 出错时也拒绝请求（FailClosed=true）。
-func TestEndpointRateLimit_AdminLoginFailClosed(t *testing.T) {
-	store := &fakeRateLimiterStore{allow: false, err: errors.New("redis down")}
-	mw := EndpointRateLimit(store, "admin:login", nil) // FailClosed=true in config
+			called := false
+			handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+				called = true
+			}))
 
-	called := false
-	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		called = true
-	}))
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, newRequest(c.addr))
 
-	r := newRequest("4.4.4.4:4")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, r)
-
-	if called {
-		t.Fatal("admin:login fail-closed: handler must NOT be called on store error")
-	}
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("admin:login fail-closed status = %d; want %d", w.Code, http.StatusTooManyRequests)
-	}
-}
-
-// TestEndpointRateLimit_DefaultFailClosed handler-014: the "default" endpoint
-// config must be fail-closed so that unlisted endpoints reject requests when
-// Redis is unavailable.
-func TestEndpointRateLimit_DefaultFailClosed(t *testing.T) {
-	store := &fakeRateLimiterStore{allow: false, err: errors.New("redis down")}
-	mw := EndpointRateLimit(store, "unknown:endpoint", nil) // falls back to default
-
-	called := false
-	handler := mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		called = true
-	}))
-
-	r := newRequest("5.5.5.5:5")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, r)
-
-	if called {
-		t.Fatal("default fail-closed: handler must NOT be called on store error")
-	}
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("default fail-closed status = %d; want %d", w.Code, http.StatusTooManyRequests)
+			if called {
+				t.Fatal("fail-closed: downstream handler must NOT be called on store error")
+			}
+			if w.Code != http.StatusTooManyRequests {
+				t.Fatalf("fail-closed status = %d; want %d", w.Code, http.StatusTooManyRequests)
+			}
+		})
 	}
 }
 
