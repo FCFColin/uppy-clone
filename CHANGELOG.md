@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **BREAKING**: 多区域路由层全删——`backend/internal/handler/resolve.go`、`backend/internal/handler/lobby_ws_proxy.go`、`backend/internal/game/hub_multiregion.go`、`backend/internal/domain/room_directory.go`（ADR-032 豁免裁剪；owner 反向代理 `RouteLocal`/`RouteProxy` 与 `/resolve` 端点、`room_directory` 表、`ClaimRoomOwnership` 租约接管一并移除）
+- **BREAKING**: HMAC 审计链验证器删除——`backend/internal/audit/audit_chain_verifier.go`（ADR-032 豁免裁剪；`VerifyAuditChain` 从未被业务消费方读取，`audit.go` HMAC 链待 ADR-033 简化）
+- **BREAKING**: Idempotency 中间件删除——`backend/internal/middleware/idempotency*.go`（ADR-032 豁免裁剪；balloon 游戏客户端无 POST 创建付费/订单类操作）
+- **BREAKING**: Bulkhead 中间件删除——`backend/internal/middleware/bulkhead.go`（ADR-032 豁免裁剪；rate limiter + WSLimiter 已足够）
+- **BREAKING**: outbox 独立 worker runner 删除——`backend/internal/worker/runner.go`（ADR-032 豁免裁剪；`EnableEmbeddedWorkers` 默认 true 即证据，独立 worker 进程从未被部署）
+- OpenAPI 一致性测试删除（`handler/openapi_consistency_test.go` + `handler/openapi_admin_consistency_test.go`）—— ADR-032 第 6 项授权豁免，ADR-033 再次确认；Task C1 已执行，保留 `swagger-cli validate` CI job 守门
+- **BREAKING**: outbox `publisher.go` 与 `InsertOutboxEvent` 调用链删除（ADR-033 决策 2；游戏结果改为直接写 PG，无下游消费者）
+- **BREAKING**: `audit.go` HMAC 链简化为直接 INSERT（ADR-033 决策 1；删除 `computeHash`/`lastHash`/`prevHash`/`writeDeadLetter`/`loadLastHash`，失去密码学防篡改能力，改为依赖 PostgreSQL 只追加约束）
+- **BREAKING**: `hub.go` `instanceAddress()` 与 Redis registry `Address` 字段删除（ADR-033 决策 4；多区域路由层连带死代码清理）
+- **BREAKING**: `OutboundSource` 接口删除，消费方改为直接接收 `*Room`（ADR-033 决策 6；接口形同虚设，所有实现都返回 `*Room`）
+- `test_seams.go` `newRedisStoreFn` 删除（ADR-033 决策 5；死代码，无调用方）
+- `infra/terraform` 删除 `gke_regions`/`gke_cluster_name_prefix` 变量与多区域输出（G6；-82 行，ADR-014 已废弃）
+- `deploy/` 删除 `sync-alert-rules.sh` 与 `render-overlays.sh` 多区域专用脚本（G7；-149 行，无人调用）
+- `Makefile`/`go-ci.yml` 移除 `./internal/outbox/...` 引用，删除空目录 `backend/internal/outbox/`（G12）
+- **BREAKING**: 保守路径瘦身 spec 执行——`server_debug.go`/`server_metrics.go` 合入 `server_lifecycle.go`、`server_deps.go` 合入 `server_init.go`（B 类）；移除 `RoomHandle`/`TokenSigner`/`userHardDeleter` 接口（C 类）；`internal/domain/` 碎片化整合（D-002）；`internal/store/base` 合入 `internal/store`（B-001）；测试表驱动合并与样板消除（E/F 类）；详见 `execute-conservative-slim-path` spec
+
 ### Added
 - RBAC middleware coverage for user/lobby/registry routes (T18)
 - Admin token revocation via jti + Redis blacklist (T19)
@@ -21,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - EmailWorker HTTP client now uses configured timeouts instead of `http.DefaultClient` (T2)
 - EndpointRateLimit applied to auth/registry/admin endpoints — previously used IP-only rate limiter (T3)
 - Admin login lockout now uses real client IP from `X-Forwarded-For` instead of `r.RemoteAddr` (T4)
-- CORS now allows PATCH method and `Idempotency-Key` header (T6)
+- CORS now allows PATCH method (T6)
 - Audit log auto-extracts `request_id` and `trace_id` from context (T7)
 - OpenTelemetry sampler configured with `ParentBased(TraceIDRatioBased)` — previously `AlwaysSample` (T9)
 - `DBPoolAcquireDuration` metric now observed via delta sampling (T10)

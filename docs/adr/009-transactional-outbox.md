@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受
+已废弃（被 [ADR-033](033-slim-phase2-waiver.md) 豁免裁剪：`outbox/publisher.go` 及下游 `worker/game_result_worker.go` 已删除，事务性 outbox 不再实现）
 
 ## 日期
 

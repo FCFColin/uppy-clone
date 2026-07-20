@@ -1,8 +1,22 @@
 # ADR-014: 多区域拓扑与全局就近路由
 
-## 状态: 已实现
+## 状态: 已废弃（被 ADR-032 豁免裁剪）
 
-> **实现说明**：多区域路由层已落实——owner 反向代理（`RouteLocal`/`RouteProxy`）、`/resolve` 跨区域路由端点、`room_directory` 表与 `ClaimRoomOwnership` 租约接管均已实现。`EnableMultiRegion` 配置默认可在单实例下关闭，但代码完整；生产多实例部署设 true。关联代码：`backend/internal/handler/resolve.go`、`backend/internal/handler/lobby_ws_proxy.go`、`backend/internal/game/hub_multiregion.go`、`backend/internal/domain/room_directory.go`、migration `000017_create_room_directory`。
+> ⚠️ **DEPRECATED（2026-07-18 起）**
+>
+> 本 ADR 描述的多区域路由层已被 [ADR-032 瘦身例外条款豁免](032-slim-exception-waiver.md)
+> 定向裁剪，**不再属于本项目当前架构**。以下文件均已从代码库删除：
+>
+> - `backend/internal/handler/resolve.go`（`/resolve` 跨区域路由端点）
+> - `backend/internal/handler/lobby_ws_proxy.go`（owner 反向代理 `RouteLocal`/`RouteProxy`）
+> - `backend/internal/game/hub_multiregion.go`（多区域 Hub 路由逻辑）
+> - `backend/internal/domain/room_directory.go`（`room_directory` 表与 `ClaimRoomOwnership` 租约接管）
+>
+> 裁剪理由与不可逆性确认见 ADR-032 §2「保留与裁剪的边界」与 §4「BREAKING 项的不可逆性确认」。
+> 本 ADR 保留作为历史决策记录，**不再描述当前现实**——后续若需恢复多区域路由能力须重写。
+> 下文「实现说明」与「决策」小节描述的是裁剪前的目标态，仅供历史追溯。
+
+> **实现说明**（裁剪前目标态，已不反映当前现实）：多区域路由层已落实——owner 反向代理（`RouteLocal`/`RouteProxy`）、`/resolve` 跨区域路由端点、`room_directory` 表与 `ClaimRoomOwnership` 租约接管均已实现。`EnableMultiRegion` 配置默认可在单实例下关闭，但代码完整；生产多实例部署设 true。关联代码：`backend/internal/handler/resolve.go`、`backend/internal/handler/lobby_ws_proxy.go`、`backend/internal/game/hub_multiregion.go`、`backend/internal/domain/room_directory.go`、migration `000017_create_room_directory`。
 
 ## 日期: 2026-06
 

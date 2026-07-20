@@ -54,4 +54,4 @@ tickOnce (Room.mu) → buildSnapshot → outboundCh → runOutboundLoop → WS +
 ## 相关
 
 - ADR-005 Hub 无状态化（tick 仍属单 Room goroutine）
-- ADR-009 Transactional Outbox（EndGame 结果仍经 outbox）
+- ADR-009 Transactional Outbox（已被 ADR-033 决策 2 豁免，EndGame 结果改为直接写 PG，不再经 outbox）

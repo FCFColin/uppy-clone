@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受
+已接受（被 [ADR-032](032-slim-exception-waiver.md) 部分豁免 + [ADR-033](033-slim-phase2-waiver.md) 决策 1 完成 HMAC 链激进版简化：`audit/audit_chain_verifier.go` 与 `audit.go` 中 `computeHash`/`lastHash`/`prevHash`/`writeDeadLetter`/`loadLastHash` 已删除，改为直接 INSERT；audit 表的只追加约束保留）
 
 ## 日期
 

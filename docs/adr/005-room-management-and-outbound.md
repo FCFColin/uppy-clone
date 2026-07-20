@@ -2,6 +2,13 @@
 
 ## 状态: 已接受
 
+> ⚠️ **部分豁免（2026-07-18 起）**
+>
+> 本 ADR 上下文段提及的"多区域路由层（ADR-014：`/resolve` + `room_directory` + owner 反向代理 + `ClaimRoomOwnership`）"
+> 已被 [ADR-032](032-slim-exception-waiver.md) / [ADR-033](033-slim-phase2-waiver.md) 豁免裁剪，
+> 不再属于本项目当前架构；`instanceAddress()` 与 Redis registry 的 `Address` 字段也已被 ADR-033 决策 4 删除。
+> 正文决策（Hub 内存管理、出站管道、异步持久化、慢客户端断开）仍有效。
+
 ## 上下文
 
 Hub 内存管理所有房间状态（`map[string]*Room`），存在单实例限制、故障风险（实例故障房间丢失）、tick 路径阻塞（持锁同步执行 WS 广播 + Redis Pub/Sub + PG 持久化）。高 PG/Redis 延迟或多玩家广播时 tick 与 `HandleMessage` 互相阻塞，导致 mass disconnect 与输入卡顿。多区域路由层已实现（ADR-014：`/resolve` + `room_directory` + owner 反向代理 + `ClaimRoomOwnership`），支持多实例水平扩展。单实例关闭 `EnableMultiRegion` 即可。

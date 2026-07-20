@@ -2,6 +2,13 @@
 
 ## 状态: 已接受
 
+> ⚠️ **部分豁免（ADR-033 决策 2，2026-07-19 起）**
+>
+> 本 ADR 决策 2 中关于"游戏结果 → outbox 写 `game.ended` → Publisher 发布到 `game.events` Stream →
+> `GameResultWorker` 批量消费"的链路已被删除：`outbox/publisher.go`、`worker/game_result_worker.go`
+> 均不存在；游戏结果改为 Room 直接同步写 PG（无下游消费者）。
+> 邮件 Stream（`email:queue` + EmailWorker `XREADGROUP`）消费链路仍有效。
+
 ## 上下文
 
 邮件发送（曾同步阻塞请求 100ms–5s）、游戏结果持久化（同步写入 PG ~20ms/事务）、事件发布（与 PG 写入非原子）需异步化。同步写入导致请求延迟依赖下游、下游不可用时请求失败、无重试机制。
