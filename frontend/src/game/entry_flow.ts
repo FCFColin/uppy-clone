@@ -182,7 +182,14 @@ export function initEntryFlow(): void {
   syncOverlays();
 }
 
-/** Test-only reset */
+/**
+ * Test-only reset of entry-flow module state.
+ * Production code should use {@link resetEntryFlowState} instead — this
+ * variant additionally dispatches a SET_STATE to roll entryStep back to
+ * 'connecting', which only makes sense in test setup.
+ *
+ * @internal Test-only — exported solely for entry_flow*.test.ts; do not call from production.
+ */
 export function resetEntryFlowForTest(): void {
   clearStartCountdown();
   dispatch({ type: 'SET_STATE', partial: { entryStep: 'connecting', lobbyPublished: false, wsConnected: false } });
@@ -211,7 +218,6 @@ export {
   setWaitingInlineError,
   clearWaitingInlineError,
   showLoadingOverlay,
-  hideLoadingOverlay,
   updateWaitingStatusLine,
   syncEntryOverlays,
   setLobbyCodeDisplay,

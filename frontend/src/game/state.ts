@@ -164,10 +164,6 @@ export function getState(): ClientState {
 /** @deprecated Only for test use. Production code must use getState(). */
 export { _state as state };
 
-export function resetStateForTest(): void {
-  Object.assign(_state, createDefaultState());
-}
-
 export function dispatch(action: GameAction): void {
   const state = _state;
   const newState = gameReducer(state, action);
