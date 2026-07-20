@@ -36,7 +36,7 @@ func TestGenerateRoomCode_UsesAlphabet(t *testing.T) {
 	t.Parallel()
 	rng := &fakeRNGSource{values: []int{0, 1, 2, 3, 4}}
 	code := GenerateRoomCode(rng)
-	// roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	// roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // pragma: allowlist secret
 	want := "ABCDE"
 	if code != want {
 		t.Fatalf("code = %q, want %q", code, want)
@@ -46,7 +46,7 @@ func TestGenerateRoomCode_UsesAlphabet(t *testing.T) {
 func TestGenerateRoomCode_AllCharsFromAlphabet(t *testing.T) {
 	t.Parallel()
 	rng := NewSeededRNG(1)
-	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // pragma: allowlist secret
 	for i := 0; i < 100; i++ {
 		code := GenerateRoomCode(rng)
 		for _, c := range code {

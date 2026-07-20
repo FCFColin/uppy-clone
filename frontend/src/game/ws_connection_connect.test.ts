@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MockWebSocket } from '../shared/test/mocks/websocket.js';
 
 const connectMocks = vi.hoisted(() => ({
-  establishGameSession: vi.fn(async (): Promise<import('../shared/network/session.js').SessionResult> => ({ ok: true })),
+  establishGameSession: vi.fn(async (): Promise<import('../shared/network/session.js').SessionResult> => ({
+    ok: true,
+  })),
   validateRoomCode: vi.fn(async (): Promise<import('./lobby_match.js').RoomValidateResult> => ({ ok: true })),
   resolveLobbyCode: vi.fn(async (): Promise<string | null> => 'ROOM2'),
   getLobbyCodeFromUrl: vi.fn((): string | null => 'URL22'),
@@ -33,7 +35,7 @@ vi.mock('./entry_flow.js', () => ({
 }));
 
 vi.mock('./ui_common.js', async () => {
-  const { createUiCommonMock } = await import('./ws_connection_test_setup.js');
+  const { createUiCommonMock } = await import('./ws_handlers_test_setup.js');
   return createUiCommonMock();
 });
 
@@ -97,7 +99,10 @@ describe('connectWebSocket', () => {
   });
 
   it('shows error when session establishment fails', async () => {
-    connectMocks.establishGameSession.mockResolvedValueOnce({ ok: false, reason: 'network' } as import('../shared/network/session.js').SessionResult);
+    connectMocks.establishGameSession.mockResolvedValueOnce({
+      ok: false,
+      reason: 'network',
+    } as import('../shared/network/session.js').SessionResult);
     await connectWebSocket();
     expect(showConnectionErrorUI).toHaveBeenCalled();
   });
@@ -169,7 +174,10 @@ describe('connectWebSocket', () => {
   it('ignores connect while another connect is in flight', async () => {
     let resolveSession: (value: import('../shared/network/session.js').SessionResult) => void = () => {};
     connectMocks.establishGameSession.mockImplementation(
-      () => new Promise((resolve) => { resolveSession = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveSession = resolve;
+        }),
     );
     const first = connectWebSocket();
     await connectWebSocket();

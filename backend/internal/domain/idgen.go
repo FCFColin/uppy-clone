@@ -27,7 +27,7 @@ func NewSeededRNG(seed int64) *seededRNG {
 	return &seededRNG{rng: rand.New(rand.NewPCG(uint64(seed), uint64(seed^0xDEADBEEF)))} //nolint:gosec // G404: game RNG, not crypto
 }
 
-const roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+const roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // pragma: allowlist secret
 
 // GenerateRoomCode generates a config.RoomCodeLen character room code.
 func GenerateRoomCode(rng rngSource) string {

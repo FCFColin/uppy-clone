@@ -1,5 +1,7 @@
 package domain
 
+import "errors"
+
 const (
 	// MaxScore is the hard cap on any player's score contribution.
 	MaxScore = 9999
@@ -16,3 +18,12 @@ const (
 	// MessageRateLimit is the maximum messages per player within the rate-limit window.
 	MessageRateLimit = 100
 )
+
+// ErrDuplicateUser is returned when a user already exists in a game or resource.
+var ErrDuplicateUser = errors.New("duplicate user")
+
+// ErrNotFound is returned when a requested resource does not exist.
+var ErrNotFound = errors.New("resource not found")
+
+// ErrValidation is returned when input fails validation checks.
+var ErrValidation = errors.New("validation failed")

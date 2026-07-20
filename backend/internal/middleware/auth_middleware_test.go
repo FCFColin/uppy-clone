@@ -15,28 +15,14 @@ import (
 
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 	"github.com/uppy-clone/backend/internal/util"
 )
 
-// fakeRevocationChecker is a test double for auth.JWTRevocationChecker.
-type fakeRevocationChecker struct {
-	revoked map[string]bool
-	err     error
-}
-
-func newFakeRevocationChecker() *fakeRevocationChecker {
-	return &fakeRevocationChecker{revoked: make(map[string]bool)}
-}
-
-func (f *fakeRevocationChecker) IsJWTRevoked(_ context.Context, jti string) (bool, error) {
-	if f.err != nil {
-		return false, f.err
-	}
-	return f.revoked[jti], nil
-}
+// fakeRevocationChecker is now provided by internal/testutil (FakeRevocationChecker).
 
 type redisRevoker struct {
-	*fakeRevocationChecker
+	*testutil.FakeRevocationChecker
 	client *redis.Client
 }
 
@@ -118,7 +104,7 @@ func TestDetectMultiIPLogin_SCardError(t *testing.T) {
 
 func TestAuthMiddleware_RevokedTokenRejected(t *testing.T) {
 	mgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := newFakeRevocationChecker()
+	revoker := testutil.NewFakeRevocationChecker()
 
 	token, err := mgr.SignToken("user-123", "TestPlayer")
 	if err != nil {
@@ -130,7 +116,7 @@ func TestAuthMiddleware_RevokedTokenRejected(t *testing.T) {
 		t.Fatalf("VerifyToken failed: %v", err)
 	}
 
-	revoker.revoked[jti] = true
+	revoker.Revoked[jti] = true
 
 	called := false
 	handler := AuthMiddleware(mgr, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -154,7 +140,7 @@ func TestAuthMiddleware_RevokedTokenRejected(t *testing.T) {
 
 func TestAuthMiddleware_NonRevokedTokenAccepted(t *testing.T) {
 	mgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := newFakeRevocationChecker()
+	revoker := testutil.NewFakeRevocationChecker()
 
 	token, err := mgr.SignToken("user-456", "AnotherPlayer")
 	if err != nil {
@@ -238,11 +224,11 @@ func TestAuthMiddleware_JTIInContext(t *testing.T) {
 
 func TestAuthMiddleware_RevokedSessionCookieRejected(t *testing.T) {
 	mgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := newFakeRevocationChecker()
+	revoker := testutil.NewFakeRevocationChecker()
 
 	token, _ := mgr.SignToken("user-session", "SessionPlayer")
 	_, _, jti, _, _ := mgr.VerifyToken(token)
-	revoker.revoked[jti] = true
+	revoker.Revoked[jti] = true
 
 	called := false
 	handler := AuthMiddleware(mgr, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
@@ -308,7 +294,7 @@ func TestAuthMiddleware_InjectsRequestLogger(t *testing.T) {
 
 func TestAuthMiddleware_RevocationCheckError(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := &fakeRevocationChecker{err: context.DeadlineExceeded}
+	revoker := &testutil.FakeRevocationChecker{Err: context.DeadlineExceeded}
 	token, _ := jwtMgr.SignToken("user-err", "Err")
 
 	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
@@ -333,7 +319,7 @@ func TestAuthMiddleware_MultiIPWithRedisProvider(t *testing.T) {
 	defer mr.Close()
 
 	revoker := &redisRevoker{
-		fakeRevocationChecker: newFakeRevocationChecker(),
+		FakeRevocationChecker: testutil.NewFakeRevocationChecker(),
 		client:                redis.NewClient(&redis.Options{Addr: mr.Addr()}),
 	}
 

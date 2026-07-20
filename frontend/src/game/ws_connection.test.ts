@@ -11,15 +11,10 @@ vi.mock('./constants.js', async (importOriginal) => {
   };
 });
 
-import {
-  MAX_PENDING_QUEUE,
-  HEARTBEAT_INTERVAL_MS,
-  HEARTBEAT_TIMEOUT_MS,
-  MAX_RECONNECT_ATTEMPTS,
-} from './constants.js';
+import { MAX_PENDING_QUEUE, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, MAX_RECONNECT_ATTEMPTS } from './constants.js';
 
 vi.mock('./ui_common.js', async () => {
-  const { createUiCommonMock } = await import('./ws_connection_test_setup.js');
+  const { createUiCommonMock } = await import('./ws_handlers_test_setup.js');
   return createUiCommonMock();
 });
 vi.mock('../shared/network/session.js', () => ({
@@ -52,13 +47,26 @@ vi.mock('./seen_seqs.js', () => ({
   clearSeenSeqs: vi.fn(),
 }));
 
-
-import { getWs, setWs, stopHeartbeat, startHeartbeat, handlePong, sendOrQueue, flushPendingQueue, resetReconnectAttempts, scheduleReconnect, waitForWebSocket, showConnectionError, setRoomPreChecked, wasRoomPreChecked, setReconnectTimer, clearReconnectTimer, getWsEverOpened, setWsEverOpened } from './ws_connection.js';
 import {
-  showConnectionError as showConnectionErrorUI,
-  showReconnectBanner,
-  updatePingDisplay,
-} from './ui_common.js';
+  getWs,
+  setWs,
+  stopHeartbeat,
+  startHeartbeat,
+  handlePong,
+  sendOrQueue,
+  flushPendingQueue,
+  resetReconnectAttempts,
+  scheduleReconnect,
+  waitForWebSocket,
+  showConnectionError,
+  setRoomPreChecked,
+  wasRoomPreChecked,
+  setReconnectTimer,
+  clearReconnectTimer,
+  getWsEverOpened,
+  setWsEverOpened,
+} from './ws_connection.js';
+import { showConnectionError as showConnectionErrorUI, showReconnectBanner, updatePingDisplay } from './ui_common.js';
 
 describe('ws_connection', () => {
   beforeEach(() => {
@@ -141,6 +149,9 @@ describe('ws_connection', () => {
   });
 
   it('scheduleReconnect shows banner before max attempts, then connection error after max', async () => {
+    // L-3: scheduleReconnect 触发 connectWebSocket，establishGameSession mock 永远 reject，
+    // reconnect 失败会 console.error('reconnect failed:', e)，属预期行为但日志噪声大
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     scheduleReconnect();
     expect(showReconnectBanner).toHaveBeenCalledWith(1);
     for (let i = 1; i < MAX_RECONNECT_ATTEMPTS; i++) {
