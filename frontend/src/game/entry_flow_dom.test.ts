@@ -2,34 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getEntryMocks, resetEntryMocks } from './entry_flow_test_setup';
 import { createStateJsMockModule } from './ws_handlers_test_setup.js';
 
-vi.hoisted(() => {
-  document.body.innerHTML = `
-    <div id="loading-overlay">
-      <div class="loading-spinner"></div>
-      <div class="loading-text"></div>
-    </div>
-    <div id="loading-error-panel" class="hidden"></div>
-    <div id="loading-error-text"></div>
-    <div id="loading-error-title"></div>
-    <div id="loading-error-actions" class="hidden"></div>
-    <div id="waiting-title"></div>
-    <div id="nickname-connect-status"></div>
-    <div id="waiting-connect-error" class="hidden"></div>
-    <div id="nickname-setup-screen"></div>
-    <div id="waiting-screen"></div>
-    <div id="reconnect-banner" class="hidden"></div>
-    <div id="lobby-code"></div>
-    <div id="hud-code"></div>
-    <div id="loading-back-btn"></div>
-    <div id="loading-match-btn"></div>
-    <div id="game-canvas" style="pointer-events: none;"></div>
-    <div id="game-hud" class="hidden"></div>
-  `;
-});
-
 const mockState = getEntryMocks().state;
 
-vi.mock('./state.js', async (importActual) => createStateJsMockModule(importActual as unknown as () => Promise<unknown>, getEntryMocks().state as unknown as Record<string, unknown>));
+vi.mock('./state.js', async (importActual) =>
+  createStateJsMockModule(
+    importActual as unknown as () => Promise<unknown>,
+    getEntryMocks().state as unknown as Record<string, unknown>,
+  ),
+);
 
 vi.mock('./renderer.js', () => ({
   $canvas: document.getElementById('game-canvas')! as HTMLCanvasElement,
@@ -158,13 +138,12 @@ describe('entry_flow_dom', () => {
       expect(document.getElementById('loading-error-text')!.textContent).toBe('匹配失败，请稍后重试或返回大厅');
 
       vi.mocked(matchNewRoomCode).mockResolvedValue('NEW12');
-      const originalHref = window.location.href;
-      Object.defineProperty(window, 'location', { value: { href: '' }, writable: true });
+      vi.stubGlobal('location', { href: '' });
       renderEntryFullScreenError('匹配失败');
       document.getElementById('loading-match-btn')!.click();
       await new Promise((r) => setTimeout(r, 10));
       expect(window.location.href).toContain('NEW12');
-      Object.defineProperty(window, 'location', { value: { href: originalHref }, writable: true });
+      vi.unstubAllGlobals();
     });
   });
 
@@ -174,7 +153,11 @@ describe('entry_flow_dom', () => {
         const el = document.getElementById(targetId)!;
         el.classList.add('hidden');
         const ctx: EntryOverlayContext = {
-          entryStep: step, wsConnected: false, lobbyCode: 'ABC12', phase: 'waiting', getWaitingTitleText: () => '',
+          entryStep: step,
+          wsConnected: false,
+          lobbyCode: 'ABC12',
+          phase: 'waiting',
+          getWaitingTitleText: () => '',
         };
         syncEntryOverlays(ctx);
         expect(el.classList.contains('hidden')).toBe(false);

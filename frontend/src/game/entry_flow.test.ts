@@ -1,33 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.hoisted(() => {
-  document.body.innerHTML = `
-    <div id="loading-overlay">
-      <div class="loading-spinner"></div>
-      <div class="loading-text"></div>
-    </div>
-    <div id="loading-error-panel" class="hidden"></div>
-    <div id="loading-error-text"></div>
-    <div id="loading-error-title"></div>
-    <div id="loading-error-actions" class="hidden"></div>
-    <div id="waiting-title"></div>
-    <div id="nickname-connect-status"></div>
-    <div id="waiting-connect-error" class="hidden"></div>
-    <div id="nickname-setup-screen"></div>
-    <div id="waiting-screen"></div>
-    <div id="reconnect-banner" class="hidden"></div>
-    <div id="lobby-code"></div>
-    <div id="hud-code"></div>
-    <div id="loading-back-btn"></div>
-    <div id="loading-match-btn"></div>
-    <div id="game-canvas" style="pointer-events: none;"></div>
-    <div id="game-hud" class="hidden"></div>
-  `;
-  const form = document.createElement('form');
-  form.id = 'nickname-entry-form';
-  document.body.appendChild(form);
-});
-
 vi.mock('./renderer.js', () => ({
   $canvas: document.getElementById('game-canvas') as HTMLCanvasElement,
 }));
@@ -37,6 +9,11 @@ vi.mock('./ui_common.js', () => ({
   $hudCode: document.getElementById('hud-code')!,
 }));
 
+vi.mock('./lobby_match.js', () => ({
+  matchNewRoomCode: vi.fn().mockResolvedValue(null),
+}));
+
+import './entry_flow_test_setup';
 import { state } from './state.js';
 import {
   applyEntryStep,
@@ -122,11 +99,15 @@ describe('entry_flow', () => {
     onLobbyCodeReady('ABC12');
     const onSubmit = vi.fn();
     bindEntryUI(onSubmit);
-    document.getElementById('nickname-entry-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    document
+      .getElementById('nickname-entry-form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(onSubmit).toHaveBeenCalledOnce();
     // Past nickname step: ignored
     onNicknameSubmit();
-    document.getElementById('nickname-entry-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    document
+      .getElementById('nickname-entry-form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
@@ -194,9 +175,9 @@ describe('entry_flow', () => {
   });
 
   it('showEntryFullScreenError maps message titles and binds retry actions', async () => {
-    const replace = vi.fn();
-    vi.stubGlobal('location', { ...window.location, href: '', replace });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ lobbyCode: 'NEW99' }), { status: 200 })));
+    const { matchNewRoomCode } = await import('./lobby_match.js');
+    vi.mocked(matchNewRoomCode).mockResolvedValue('NEW99');
+    vi.stubGlobal('location', { href: '' });
 
     showEntryFullScreenError('房间不存在', { showActions: true });
     expect(document.getElementById('loading-error-title')!.textContent).toBe('无法进入房间');
@@ -214,7 +195,7 @@ describe('entry_flow', () => {
 
     resetEntryFlowForTest();
     initEntryFlow();
-    vi.mocked(fetch).mockResolvedValueOnce(new Response('', { status: 500 }));
+    vi.mocked(matchNewRoomCode).mockResolvedValue(null);
     showEntryFullScreenError('匹配失败', { showActions: true });
     document.getElementById('loading-match-btn')!.click();
     await vi.waitFor(() => {

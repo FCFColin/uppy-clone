@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +18,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/store"
-	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
@@ -64,40 +62,36 @@ func TestRequestMagicLink_MissingEmail(t *testing.T) {
 	}
 }
 
-func TestCheckAuth_Unauthenticated(t *testing.T) {
+func TestCheckAuth_NoMiddleware(t *testing.T) {
 	t.Parallel()
 
-	h := newTestAuthHandler()
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
-
-	h.CheckAuth(w, r)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
-}
-
-func TestCheckAuth_AuthenticatedViaCookieWithoutMiddleware(t *testing.T) {
-	t.Parallel()
-
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, err := jwtMgr.SignToken("user-456", "CookiePlayer")
-	if err != nil {
-		t.Fatalf("SignToken() error = %v", err)
-	}
-
+	jwtMgr := newTestJWTManager()
+	token := signTestToken(t, jwtMgr, "user-456", "CookiePlayer")
 	h := NewAuthHandler(nil, nil, jwtMgr, nil, &Config{})
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
-	r.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
+	tests := []struct {
+		name   string
+		cookie *http.Cookie
+		want   int
+	}{
+		{"unauthenticated", nil, http.StatusUnauthorized},
+		{"authenticated via cookie", &http.Cookie{Name: "quickplay", Value: token}, http.StatusOK},
+	}
 
-	h.CheckAuth(w, r)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
+			if tt.cookie != nil {
+				r.AddCookie(tt.cookie)
+			}
+			h.CheckAuth(w, r)
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d; body = %s", w.Code, tt.want, w.Body.String())
+			}
+		})
 	}
 }
 
@@ -105,10 +99,7 @@ func TestCheckAuth_RevokedSession(t *testing.T) {
 	t.Parallel()
 
 	h, redisStore, jwtMgr := newTestAuthHandlerWithRedis(t)
-	token, err := jwtMgr.SignToken("user-revoked", "Revoked")
-	if err != nil {
-		t.Fatalf("SignToken: %v", err)
-	}
+	token := signTestToken(t, jwtMgr, "user-revoked", "Revoked")
 	_, _, jti, _, err := jwtMgr.VerifyToken(token)
 	if err != nil {
 		t.Fatalf("VerifyToken: %v", err)
@@ -129,12 +120,8 @@ func TestCheckAuth_RevokedSession(t *testing.T) {
 func TestCheckAuth_Authenticated(t *testing.T) {
 	t.Parallel()
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, err := jwtMgr.SignToken("user-123", "TestPlayer")
-	if err != nil {
-		t.Fatalf("SignToken() error = %v", err)
-	}
-
+	jwtMgr := newTestJWTManager()
+	token := signTestToken(t, jwtMgr, "user-123", "TestPlayer")
 	h := NewAuthHandler(nil, nil, jwtMgr, nil, &Config{})
 
 	// Use the actual auth middleware to set context
@@ -177,12 +164,8 @@ func TestRefreshToken_BadRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var bodyReader io.Reader
-			if tt.body != "" {
-				bodyReader = strings.NewReader(tt.body)
-			}
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bodyReader)
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", strings.NewReader(tt.body))
 			if tt.body != "" {
 				r.Header.Set("Content-Type", "application/json")
 			}
@@ -220,10 +203,7 @@ func TestQuickPlay_ServiceError(t *testing.T) {
 
 	h := newTestAuthHandler()
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", strings.NewReader(`{"nickname":"Test"}`))
-	r.Header.Set("Content-Type", "application/json")
-
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/quickplay", `{"nickname":"Test"}`)
 	h.QuickPlay(w, r)
 
 	if w.Code != http.StatusInternalServerError {
@@ -249,14 +229,11 @@ func TestQuickPlay_MissingBody(t *testing.T) {
 func TestLogout_ClearsCookies(t *testing.T) {
 	t.Parallel()
 
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr := newTestJWTManager()
 	h := NewAuthHandler(nil, nil, jwtMgr, nil, &Config{})
 
 	// Test logout without refresh_token (avoids nil refreshMgr)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(`{}`))
-	r.Header.Set("Content-Type", "application/json")
-
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/logout", `{}`)
 	h.Logout(w, r)
 
 	if w.Code != http.StatusOK {
@@ -280,9 +257,7 @@ func TestLogout_ClearsCookies(t *testing.T) {
 }
 
 func TestQuickPlay_WithDB(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-
+	mock, db := newTestUserRepo(t)
 	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
 
 	mock.ExpectBegin()
@@ -303,22 +278,11 @@ func TestQuickPlay_WithDB(t *testing.T) {
 }
 
 func TestExportUserData_WithDB(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	h := NewAuthHandler(db, nil, jwtMgr, nil, &Config{})
-
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("user-1").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
-			AddRow("user-1", "user-1@quickplay", "Nick", 0, int64(1), nil))
-	mock.ExpectQuery("SELECT id, session_id, user_id, score_contribution, taps_count, created_at FROM game_results").
-		WithArgs("user-1").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "session_id", "user_id", "score_contribution", "taps_count", "created_at"}))
+	h, mock, _ := newAuthHandlerWithDB(t)
+	expectGetUserByID(mock, "user-1", "user-1@quickplay", "Nick")
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil)
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "Nick"))
+	r := withAuthUser(httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil), "user-1", "Nick")
 	h.ExportUserData(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
@@ -326,12 +290,10 @@ func TestExportUserData_WithDB(t *testing.T) {
 }
 
 func TestDeleteUserData_Success(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-
+	mock, db := newTestUserRepo(t)
 	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
 
-	// AnonymizeUser uses pool.Exec directly (non-transactional, via withRetryWrite circuit breaker)
+	// AnonymizeUser uses pool.Exec directly (non-transactional, via withRetry circuit breaker)
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-del").
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
@@ -341,8 +303,7 @@ func TestDeleteUserData_Success(t *testing.T) {
 		WillReturnResult(pgconn.NewCommandTag("UPDATE 0"))
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodDelete, "/api/v1/user/data", nil)
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-del", "Nick"))
+	r := withAuthUser(httptest.NewRequest(http.MethodDelete, "/api/v1/user/data", nil), "user-del", "Nick")
 	h.DeleteUserData(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
@@ -350,19 +311,16 @@ func TestDeleteUserData_Success(t *testing.T) {
 }
 
 func TestDeleteUserData_DBError(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-
+	mock, db := newTestUserRepo(t)
 	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
 
-	// AnonymizeUser uses pool.Exec directly (non-transactional, via withRetryWrite circuit breaker)
+	// AnonymizeUser uses pool.Exec directly (non-transactional, via withRetry circuit breaker)
 	mock.ExpectExec("UPDATE users SET email").
 		WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), "user-err").
 		WillReturnError(context.Canceled)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodDelete, "/api/v1/user/data", nil)
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-err", "Nick"))
+	r := withAuthUser(httptest.NewRequest(http.MethodDelete, "/api/v1/user/data", nil), "user-err", "Nick")
 	h.DeleteUserData(w, r)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
@@ -374,7 +332,7 @@ func TestRequestMagicLink_Success(t *testing.T) {
 		t.Fatalf("crypto.Init: %v", err)
 	}
 	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr := newTestJWTManager()
 	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
 	w := httptest.NewRecorder()
@@ -388,19 +346,11 @@ func TestRequestMagicLink_Success(t *testing.T) {
 }
 
 func TestCheckAuth_WithDB(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, err := jwtMgr.SignToken("user-db", "CookieNick")
-	if err != nil {
-		t.Fatalf("SignToken: %v", err)
-	}
-	h := NewAuthHandler(db, nil, jwtMgr, nil, &Config{})
+	t.Parallel()
 
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("user-db").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
-			AddRow("user-db", "user@example.com", "DbNick", 0, int64(1), nil))
+	h, mock, jwtMgr := newAuthHandlerWithDB(t)
+	token := signTestToken(t, jwtMgr, "user-db", "CookieNick")
+	expectGetUserByID(mock, "user-db", "user@example.com", "DbNick")
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
@@ -425,7 +375,7 @@ func TestCheckAuth_WithDB(t *testing.T) {
 func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 	_, rdb := testutil.NewTestMiniredis(t)
 	redisStore := store.NewRedisStoreFromClient(rdb)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr := newTestJWTManager()
 	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
 	ctx := context.Background()
@@ -434,9 +384,7 @@ func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 		_, _ = redisStore.CheckRateLimit(ctx, "ml:"+email, 5, config.MagicLinkTTL)
 	}
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(`{"email":"`+email+`"}`))
-	r.Header.Set("Content-Type", "application/json")
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/request", `{"email":"`+email+`"}`)
 	h.RequestMagicLink(w, r)
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429", w.Code)
@@ -446,9 +394,7 @@ func TestRequestMagicLink_TooManyRequests(t *testing.T) {
 func TestRequestMagicLink_InvalidEmail(t *testing.T) {
 	h, _, _ := newTestAuthHandlerWithRedis(t)
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(`{"email":"bad-email"}`))
-	r.Header.Set("Content-Type", "application/json")
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/request", `{"email":"bad-email"}`)
 	h.RequestMagicLink(w, r)
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422", w.Code)
@@ -459,9 +405,11 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 	if err := crypto.Init("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"); err != nil {
 		t.Fatalf("crypto.Init: %v", err)
 	}
-	redisStore := testutil.SetupMiniredisStore(t)
-	ctx := context.Background()
 
+	mock, db := newTestUserRepo(t)
+	h, redisStore, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
+
+	ctx := context.Background()
 	token := strings.Repeat("c", config.MagicLinkTokenLen)
 	hashed := auth.HashToken(token)
 	encEmail, err := crypto.EncryptPIIForStorage("verify-handler@example.com")
@@ -475,15 +423,8 @@ func TestVerifyMagicLinkToken_Success(t *testing.T) {
 		t.Fatalf("StoreMagicToken: %v", err)
 	}
 
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-
-	_, rdb := testutil.NewTestMiniredis(t)
-	refreshMgr := auth.NewRefreshTokenManager(rdb)
-
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
-
+	// VerifyMagicLink looks up the user by email (not by ID), so the SQL
+	// pattern and arg count differ from expectGetUserByID.
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
 		WithArgs(pgxmock.AnyArg(), "verify-handler@example.com").
 		WillReturnRows(pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
@@ -513,9 +454,7 @@ func TestVerifyMagicLinkToken_InvalidToken(t *testing.T) {
 }
 
 func TestRefreshToken_Success(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-
+	mock, db := newTestUserRepo(t)
 	h, _, _, refreshMgr := newTestAuthHandlerWithRefreshMgr(t, db)
 
 	ctx := context.Background()
@@ -524,14 +463,9 @@ func TestRefreshToken_Success(t *testing.T) {
 		t.Fatalf("Generate refresh: %v", err)
 	}
 
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("user-refresh").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
-			AddRow("user-refresh", "user-refresh@quickplay", "Nick", 0, int64(1), nil))
+	expectGetUserByID(mock, "user-refresh", "user-refresh@quickplay", "Nick")
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", strings.NewReader(`{"refresh_token":"`+refreshToken+`"}`))
-	r.Header.Set("Content-Type", "application/json")
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/refresh", `{"refresh_token":"`+refreshToken+`"}`)
 	h.RefreshToken(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
@@ -539,25 +473,15 @@ func TestRefreshToken_Success(t *testing.T) {
 }
 
 func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	mock, db := newTestUserRepo(t)
 	refreshMgr := auth.NewRefreshTokenManager(testutil.SetupMiniredisStore(t).Client())
+	jwtMgr := newTestJWTManager()
 	h := NewAuthHandler(db, nil, jwtMgr, refreshMgr, &Config{})
 
-	token, err := jwtMgr.SignToken("user-qp-err", "Nick")
-	if err != nil {
-		t.Fatalf("SignToken: %v", err)
-	}
+	token := signTestToken(t, jwtMgr, "user-qp-err", "Nick")
+	expectGetUserByIDError(mock, "user-qp-err", context.Canceled)
 
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("user-qp-err").
-		WillReturnError(context.Canceled)
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", strings.NewReader(`{"nickname":"Test"}`))
-	r.Header.Set("Content-Type", "application/json")
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/quickplay", `{"nickname":"Test"}`)
 	r.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
 	h.QuickPlay(w, r)
 	if w.Code != http.StatusInternalServerError {
@@ -566,12 +490,10 @@ func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
 }
 
 func TestExportUserData_NilDB(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	h := NewAuthHandler(nil, nil, jwtMgr, nil, &Config{})
+	h := NewAuthHandler(nil, nil, newTestJWTManager(), nil, &Config{})
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil)
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "Nick"))
+	r := withAuthUser(httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil), "user-1", "Nick")
 	h.ExportUserData(w, r)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", w.Code)
@@ -579,18 +501,11 @@ func TestExportUserData_NilDB(t *testing.T) {
 }
 
 func TestExportUserData_NotFound(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	h := NewAuthHandler(db, nil, jwtMgr, nil, &Config{})
-
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("missing-user").
-		WillReturnError(domain.ErrNotFound)
+	h, mock, _ := newAuthHandlerWithDB(t)
+	expectGetUserByIDError(mock, "missing-user", domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil)
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "missing-user", "Nick"))
+	r := withAuthUser(httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil), "missing-user", "Nick")
 	h.ExportUserData(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", w.Code)
@@ -598,18 +513,11 @@ func TestExportUserData_NotFound(t *testing.T) {
 }
 
 func TestCheckAuth_DBErrorDegraded(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, err := jwtMgr.SignToken("user-db-err", "Nick")
-	if err != nil {
-		t.Fatalf("SignToken: %v", err)
-	}
-	h := NewAuthHandler(db, nil, jwtMgr, nil, &Config{})
+	t.Parallel()
 
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
-		WithArgs("user-db-err").
-		WillReturnError(context.Canceled)
+	h, mock, jwtMgr := newAuthHandlerWithDB(t)
+	token := signTestToken(t, jwtMgr, "user-db-err", "Nick")
+	expectGetUserByIDError(mock, "user-db-err", context.Canceled)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
@@ -624,13 +532,10 @@ func TestCheckAuth_DBErrorDegraded(t *testing.T) {
 }
 
 func TestRefreshToken_InvalidToken(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewUserRepository(mock)
+	_, db := newTestUserRepo(t)
 	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", strings.NewReader(`{"refresh_token":"invalid-token"}`))
-	r.Header.Set("Content-Type", "application/json")
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/refresh", `{"refresh_token":"invalid-token"}`)
 	h.RefreshToken(w, r)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", w.Code)
@@ -642,12 +547,10 @@ func TestRequestMagicLink_InternalError(t *testing.T) {
 	if err := redisStore.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr := newTestJWTManager()
 	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(`{"email":"user@example.com"}`))
-	r.Header.Set("Content-Type", "application/json")
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/request", `{"email":"user@example.com"}`)
 	h.RequestMagicLink(w, r)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", w.Code)
@@ -657,7 +560,7 @@ func TestRequestMagicLink_InternalError(t *testing.T) {
 func TestLogout_RevokesRefreshToken(t *testing.T) {
 	_, rdb := testutil.NewTestMiniredis(t)
 	redisStore := store.NewRedisStoreFromClient(rdb)
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr := newTestJWTManager()
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	h := NewAuthHandler(nil, redisStore, jwtMgr, refreshMgr, &Config{})
 
@@ -667,9 +570,7 @@ func TestLogout_RevokesRefreshToken(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(`{"refresh_token":"`+refreshToken+`"}`))
-	r.Header.Set("Content-Type", "application/json")
+	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/logout", `{"refresh_token":"`+refreshToken+`"}`)
 	r.TLS = &tls.ConnectionState{}
 	h.Logout(w, r)
 	if w.Code != http.StatusOK {

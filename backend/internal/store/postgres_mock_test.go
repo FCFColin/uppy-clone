@@ -3,6 +3,7 @@ package store
 import (
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
 )
 
@@ -26,6 +27,32 @@ func newMockRepo[T any](t *testing.T, newFn func(pgPool, ...Deps) T) (T, pgxmock
 	}
 	t.Cleanup(func() { mock.Close() })
 	return newFn(mock), mock
+}
+
+// expectExecResult configures a mock ExpectExec to return either an error or
+// a success result. Consolidates the repeated
+// `if tt.execErr != nil { exec.WillReturnError(...) } else { exec.WillReturnResult(...) }`
+// pattern across store unit tests (F-001).
+func expectExecResult(exec *pgxmock.ExpectedExec, execErr error, successTag string) {
+	if execErr != nil {
+		exec.WillReturnError(execErr)
+	} else {
+		exec.WillReturnResult(pgconn.NewCommandTag(successTag))
+	}
+}
+
+// assertWantErr checks the error result against the test's wantErr expectation.
+// Consolidates the repeated
+// `if tt.wantErr && err == nil { t.Fatal(...) }; if !tt.wantErr && err != nil { t.Fatalf(...) }`
+// pattern across store unit tests (F-001).
+func assertWantErr(t *testing.T, err error, wantErr bool, methodName string) {
+	t.Helper()
+	if wantErr && err == nil {
+		t.Fatal("expected error")
+	}
+	if !wantErr && err != nil {
+		t.Fatalf("%s: %v", methodName, err)
+	}
 }
 
 func TestNewPostgresStoreWithPool(t *testing.T) {
