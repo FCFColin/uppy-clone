@@ -69,18 +69,26 @@ type EndpointRateLimitConfig struct {
 // endpoint rejects requests when Redis is unavailable (safer default).
 var rateLimitMu sync.RWMutex
 
+// Rate limit endpoint constants (goconst-compliant).
+const (
+	// EndpointAuthQuickplay is the rate limit key for the quickplay auth endpoint.
+	EndpointAuthQuickplay = "auth:quickplay"
+	// EndpointRegistryCreate is the rate limit key for the registry create endpoint.
+	EndpointRegistryCreate = "registry:create"
+)
+
 // DefaultEndpointRateLimits defines per-endpoint rate limit configurations.
 var DefaultEndpointRateLimits = map[string]EndpointRateLimitConfig{
-	"auth:quickplay":    {Requests: 10, Window: time.Minute, FailClosed: true},
-	"auth:request":      {Requests: 5, Window: time.Minute, FailClosed: true},
-	"auth:verify":       {Requests: 10, Window: time.Minute, FailClosed: true}, // handler-014: security-critical auth endpoint
-	"registry:create":   {Requests: 5, Window: time.Minute},
-	"registry:check":    {Requests: 30, Window: time.Minute},
-	"registry:lobbies":  {Requests: 30, Window: time.Minute},
-	"registry:match":    {Requests: 10, Window: time.Minute},
-	"stats:leaderboard": {Requests: 60, Window: time.Minute},
-	"admin:login":       {Requests: 5, Window: time.Minute, FailClosed: true},
-	"default":           {Requests: 60, Window: time.Minute, FailClosed: true}, // handler-014: fail-closed default
+	EndpointAuthQuickplay:  {Requests: 10, Window: time.Minute, FailClosed: true},
+	"auth:request":         {Requests: 5, Window: time.Minute, FailClosed: true},
+	"auth:verify":          {Requests: 10, Window: time.Minute, FailClosed: true}, // handler-014: security-critical auth endpoint
+	EndpointRegistryCreate: {Requests: 5, Window: time.Minute},
+	"registry:check":       {Requests: 30, Window: time.Minute},
+	"registry:lobbies":     {Requests: 30, Window: time.Minute},
+	"registry:match":       {Requests: 10, Window: time.Minute},
+	"stats:leaderboard":    {Requests: 60, Window: time.Minute},
+	"admin:login":          {Requests: 5, Window: time.Minute, FailClosed: true},
+	"default":              {Requests: 60, Window: time.Minute, FailClosed: true}, // handler-014: fail-closed default
 }
 
 // RateLimit returns middleware that checks Redis-based rate limits.

@@ -81,7 +81,7 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *s
 // Rate limiting uses the ephemeral Redis (ADR-029); auth/session uses stateful Redis.
 func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:quickplay", jwtMgr), appMiddleware.RecordAuthMetrics("quickplay")).Post("/quickplay", authHandler.QuickPlay)
+		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, appMiddleware.EndpointAuthQuickplay, jwtMgr), appMiddleware.RecordAuthMetrics("quickplay")).Post("/quickplay", authHandler.QuickPlay)
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:request", jwtMgr), appMiddleware.RecordAuthMetrics("request")).Post("/request", authHandler.RequestMagicLink)
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Get("/verify", authHandler.VerifyMagicLink)
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Post("/verify", authHandler.VerifyMagicLinkPost)
@@ -119,7 +119,7 @@ func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, cluster *s
 func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/registry", func(r chi.Router) {
 		r.With(
-			appMiddleware.EndpointRateLimit(cluster.Ephemeral, "registry:create", jwtMgr),
+			appMiddleware.EndpointRateLimit(cluster.Ephemeral, appMiddleware.EndpointRegistryCreate, jwtMgr),
 			authMiddlewareWrapper(jwtMgr, cluster.Stateful),
 			rbacEnforcer.Middleware("lobby", "create"),
 		).Post("/create", lobbyHandler.CreateRoom)

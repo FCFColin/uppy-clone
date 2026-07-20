@@ -3,15 +3,17 @@ package server
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/uppy-clone/backend/internal/auth"
+	"github.com/uppy-clone/backend/internal/bootstrap"
 	appConfig "github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/handler"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
-	"github.com/uppy-clone/backend/internal/outbox"
 	"github.com/uppy-clone/backend/internal/rbac"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/worker"
@@ -81,10 +83,10 @@ func startWorker(ctx context.Context, wg *sync.WaitGroup, name string, fn func(c
 	slog.Info(name + " worker started")
 }
 
-// startWorkers starts async workers (EmailWorker, GameResultWorker, Outbox Publisher).
-// All workers receive the Stateful Redis client (ADR-029): email queue, game results,
-// and outbox are stateful data that must survive Redis restarts. Using the ephemeral
-// instance here would cause data loss on Redis restart.
+// startWorkers starts async workers (EmailWorker, GDPRCleanupWorker).
+// All workers receive the Stateful Redis client (ADR-029): email queue is
+// stateful data that must survive Redis restarts. Using the ephemeral instance
+// here would cause data loss on Redis restart.
 func startWorkers(ctx context.Context, wg *sync.WaitGroup, cfg *handler.Config, redis *store.RedisStore, db *store.PostgresStore, timeouts appConfig.TimeoutConfig) {
 	// ADR-029: redis is cluster.Stateful — workers must NOT use ephemeral Redis.
 	// If you need to pass the cluster instead, use cluster.Stateful.Client() explicitly.
@@ -93,15 +95,12 @@ func startWorkers(ctx context.Context, wg *sync.WaitGroup, cfg *handler.Config, 
 		startWorker(ctx, wg, "email worker", worker.NewEmailWorker(statefulClient, cfg.ResendAPIKey, cfg.EmailFrom, timeouts).Start)
 	}
 
-	// ENABLE_EMBEDDED_WORKERS=false (opt-out): GameResult/Outbox/GDPR
+	// ENABLE_EMBEDDED_WORKERS=false (opt-out): GDPR
 	// workers are skipped. Default is true (in-process; standalone game-worker
 	if !cfg.EnableEmbeddedWorkers {
 		slog.Info("embedded workers disabled (ENABLE_EMBEDDED_WORKERS=false, opt-out)")
 		return
 	}
-
-	startWorker(ctx, wg, "game result worker", worker.NewGameResultWorker(statefulClient, db.Pool()).Start)
-	startWorker(ctx, wg, "outbox publisher", outbox.NewPublisher(db.Pool(), statefulClient).Start)
 
 	retentionDays := getEnvInt("GDPR_RETENTION_DAYS", 30)
 	cleanupInterval := time.Duration(getEnvInt("GDPR_CLEANUP_INTERVAL_HOURS", 24)) * time.Hour
@@ -132,4 +131,32 @@ func initHandlers(jwtMgr *auth.JWTManager, adminJwtMgr *auth.JWTManager, pg *sto
 // initRBAC initializes the RBAC enforcer.
 func initRBAC() *rbac.Enforcer {
 	return rbac.NewEnforcer()
+}
+
+// ─── Server Deps ────────────────────────────────────────────────────
+
+// ServerDeps holds injectable dependencies for the server lifecycle.
+// Production code uses DefaultServerDeps(); tests construct custom instances
+// to inject mocks without mutating package-level globals.
+//
+// Shared fields (InitTracer, NewPostgresStore, ShutdownSignals, Exit) live
+// in the embedded bootstrap.Deps (spec remediate-structural-debt C3).
+// Server-specific fields (ServerShutdown, FilepathAbs) are declared below.
+type ServerDeps struct {
+	bootstrap.Deps
+
+	// ServerShutdown gracefully shuts down the HTTP server.
+	ServerShutdown func(srv *http.Server, ctx context.Context) error
+
+	// FilepathAbs resolves absolute paths (used for static-file path-traversal checks).
+	FilepathAbs func(string) (string, error)
+}
+
+// DefaultServerDeps returns production-ready dependencies.
+func DefaultServerDeps() ServerDeps {
+	return ServerDeps{
+		Deps:           bootstrap.DefaultDeps(),
+		ServerShutdown: bootstrap.HTTPShutdown,
+		FilepathAbs:    filepath.Abs,
+	}
 }

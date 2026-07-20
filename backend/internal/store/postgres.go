@@ -17,32 +17,30 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/migrateutil"
-	"github.com/uppy-clone/backend/internal/store/base"
 )
 
 // ErrDuplicateUser indicates a unique constraint violation on user creation.
 var ErrDuplicateUser = domain.ErrDuplicateUser
 
-// pgPool is an alias for base.PGPool kept for backward compatibility with
-// existing repository constructors. The canonical interface lives in base.
-type pgPool = base.PGPool
+// pgPool is an alias for PGPool kept for backward compatibility with
+// existing repository constructors.
+type pgPool = PGPool
 
 // PostgresStore provides PostgreSQL-backed persistence.
 type PostgresStore struct {
-	pool base.PGPool
+	pool PGPool
 	cb   *gobreaker.CircuitBreaker[any]
 	deps Deps
 
 	lobby  *LobbyRepository
 	result *ResultRepository
-	outbox *OutboxRepository
 
 	lastAcquireDuration atomic.Value // float64
 	lastAcquireCount    atomic.Value // int64
 }
 
 // pgxNewWithConfigFn is replaceable in unit tests to avoid a live PostgreSQL instance.
-var pgxNewWithConfigFn = func(ctx context.Context, cfg *pgxpool.Config) (base.PGPool, error) {
+var pgxNewWithConfigFn = func(ctx context.Context, cfg *pgxpool.Config) (PGPool, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("nil pool config")
 	}
@@ -91,12 +89,11 @@ func NewPostgresStore(connString string, timeouts config.TimeoutConfig, deps ...
 		deps:   d,
 		lobby:  NewLobbyRepository(pool, d),
 		result: NewResultRepository(pool, d),
-		outbox: NewOutboxRepository(pool, d),
 	}, nil
 }
 
 // NewPostgresStoreWithPool wraps an existing pool (pgxmock-backed unit tests).
-func NewPostgresStoreWithPool(pool base.PGPool, deps ...Deps) *PostgresStore {
+func NewPostgresStoreWithPool(pool PGPool, deps ...Deps) *PostgresStore {
 	d := depsOrZero(deps...)
 	return &PostgresStore{
 		pool:   pool,
@@ -104,7 +101,6 @@ func NewPostgresStoreWithPool(pool base.PGPool, deps ...Deps) *PostgresStore {
 		deps:   d,
 		lobby:  NewLobbyRepository(pool, d),
 		result: NewResultRepository(pool, d),
-		outbox: NewOutboxRepository(pool, d),
 	}
 }
 
@@ -146,11 +142,6 @@ func (s *PostgresStore) CreateGameSession(ctx context.Context, gs *domain.GameSe
 // RecordGameResult records final game results via the ResultRepository.
 func (s *PostgresStore) RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error {
 	return s.result.RecordGameResult(ctx, sessionID, roomCode, endedAt, finalScore, results)
-}
-
-// InsertOutboxEvent inserts an outbox event via the OutboxRepository.
-func (s *PostgresStore) InsertOutboxEvent(ctx context.Context, aggregateType, aggregateID string, payload []byte) error {
-	return s.outbox.InsertOutboxEvent(ctx, aggregateType, aggregateID, payload)
 }
 
 // Pool returns the underlying connection pool.

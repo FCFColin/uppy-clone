@@ -171,8 +171,7 @@ describe('ws_handlers_events', () => {
     expect(mocks.state.ripples.some((r) => r.rejected)).toBe(true);
     expect(pushFloatingText).toHaveBeenCalledWith(0.4, 0.6, '太远了');
   });
-
-  });
+});
 
 describe('handleGameStateChange', () => {
   beforeEach(() => {
@@ -241,8 +240,7 @@ describe('handleGameStateChange', () => {
       expect(document.getElementById('personal-best')?.textContent).toContain('新纪录');
     });
   });
-
-  });
+});
 
 describe('handleRestartStatus', () => {
   beforeEach(() => {
@@ -306,26 +304,46 @@ describe('handleSnapshot', () => {
     const buf = new ArrayBuffer(80);
     const dv = new DataView(buf);
     let o = 1;
-    dv.setUint32(o, 500, true); o += 4;
-    dv.setUint32(o, 99, true); o += 4;
-    dv.setUint8(o, 2); o += 1;
-    dv.setFloat32(o, 0.5, true); o += 4;
-    dv.setFloat32(o, 0.6, true); o += 4;
-    dv.setFloat32(o, 0, true); o += 4;
-    dv.setFloat32(o, 0, true); o += 4;
-    dv.setUint8(o, 0); o += 1;
-    dv.setUint8(o, 0); o += 1;
-    dv.setUint8(o, 1); o += 1;
-    dv.setUint16(o, 4, true); o += 2;
-    dv.setUint32(o, 100, true); o += 4;
-    dv.setUint32(o, 1, true); o += 4;
-    dv.setUint32(o, 20, true); o += 4;
-    dv.setUint8(o, nickBytes.length); o += 1;
-    new Uint8Array(buf, o).set(nickBytes); o += nickBytes.length;
-    dv.setUint8(o, 1); o += 1;
-    dv.setUint16(o, 4, true); o += 2;
-    dv.setFloat32(o, 0.2, true); o += 4;
-    dv.setFloat32(o, 0.3, true); o += 4;
+    dv.setUint32(o, 500, true);
+    o += 4;
+    dv.setUint32(o, 99, true);
+    o += 4;
+    dv.setUint8(o, 2);
+    o += 1;
+    dv.setFloat32(o, 0.5, true);
+    o += 4;
+    dv.setFloat32(o, 0.6, true);
+    o += 4;
+    dv.setFloat32(o, 0, true);
+    o += 4;
+    dv.setFloat32(o, 0, true);
+    o += 4;
+    dv.setUint8(o, 0);
+    o += 1;
+    dv.setUint8(o, 0);
+    o += 1;
+    dv.setUint8(o, 1);
+    o += 1;
+    dv.setUint16(o, 4, true);
+    o += 2;
+    dv.setUint32(o, 100, true);
+    o += 4;
+    dv.setUint32(o, 1, true);
+    o += 4;
+    dv.setUint32(o, 20, true);
+    o += 4;
+    dv.setUint8(o, nickBytes.length);
+    o += 1;
+    new Uint8Array(buf, o).set(nickBytes);
+    o += nickBytes.length;
+    dv.setUint8(o, 1);
+    o += 1;
+    dv.setUint16(o, 4, true);
+    o += 2;
+    dv.setFloat32(o, 0.2, true);
+    o += 4;
+    dv.setFloat32(o, 0.3, true);
+    o += 4;
     dv.setFloat32(o, -0.4, true);
 
     handleSnapshot(new DataView(buf, 0, o + 4));

@@ -12,7 +12,13 @@ repos:
     rev: v2.1.6
     hooks:
       - id: golangci-lint
-        args: [--new-from-rev=HEAD]
+        # go.mod 位于 backend/,需 cd 到 backend 再运行;flag 内嵌于 entry 以避免 bash -c 透传参数问题
+        # Windows 环境下 pre-commit 的 bash 走 WSL,需用 .exe 后缀才能调用 Windows 安装的 golangci-lint
+        # 使用 language: system 跳过 pre-commit 的隔离安装,直接调用系统 golangci-lint(在 PATH 中)
+        language: system
+        entry: bash -c 'cd backend && golangci-lint.exe run --new-from-rev=HEAD ./...'
+        pass_filenames: false
+        files: ^backend/.*\.go$
         # Only lint new changes, not entire codebase
 
   - repo: local
