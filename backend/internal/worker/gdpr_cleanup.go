@@ -31,31 +31,30 @@ func init() {
 const defaultGDPRRetentionDays = 30
 const defaultGDPRCleanupInterval = 24 * time.Hour
 
-// userHardDeleter permanently removes soft-deleted users past retention.
-type userHardDeleter interface {
-	HardDeleteExpiredUsers(ctx context.Context, retentionDays int) (int64, error)
-}
-
 // GDPRCleanupWorker hard-deletes users past the GDPR retention window.
 type GDPRCleanupWorker struct {
-	db            userHardDeleter
+	hardDelete    func(ctx context.Context, retentionDays int) (int64, error)
 	retentionDays int
 	interval      time.Duration
 }
 
-// NewGDPRCleanupWorker creates a GDPR hard-delete worker.
-func NewGDPRCleanupWorker(db userHardDeleter, retentionDays int, interval time.Duration) *GDPRCleanupWorker {
+// NewGDPRCleanupWorker creates a GDPR hard-delete worker. db may be nil in
+// tests that only inspect retention/interval defaults.
+func NewGDPRCleanupWorker(db *store.UserRepository, retentionDays int, interval time.Duration) *GDPRCleanupWorker {
 	if retentionDays <= 0 {
 		retentionDays = defaultGDPRRetentionDays
 	}
 	if interval <= 0 {
 		interval = defaultGDPRCleanupInterval
 	}
-	return &GDPRCleanupWorker{
-		db:            db,
+	w := &GDPRCleanupWorker{
 		retentionDays: retentionDays,
 		interval:      interval,
 	}
+	if db != nil {
+		w.hardDelete = db.HardDeleteExpiredUsers
+	}
+	return w
 }
 
 // Start runs the cleanup loop until ctx is canceled.
@@ -90,7 +89,7 @@ func (w *GDPRCleanupWorker) runOnce(ctx context.Context) {
 	var deleted int64
 	if err := retry.Do(runCtx, store.DefaultDBRetry(), func(ctx context.Context) error {
 		var err error
-		deleted, err = w.db.HardDeleteExpiredUsers(ctx, w.retentionDays)
+		deleted, err = w.hardDelete(ctx, w.retentionDays)
 		return store.MaybeRetryable(err)
 	}); err != nil {
 		logger.Error("gdpr cleanup failed after retries", "error", err)

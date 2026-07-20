@@ -12,16 +12,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// ─── RoomHandle Interface ────────────────────────────────────────────
-
-// RoomHandle is the narrow interface exposed to packages that only need to run
-// a WebSocket session on a room (e.g. the handler package). Returning this
-// interface from Hub.GetRoom decouples callers from the concrete *Room type and
-// its internal fields.
-type RoomHandle interface {
-	RunSession(reqCtx context.Context, playerID string, conn *websocket.Conn) error
-}
-
 // ─── WSSession (extracted from Room to reduce God-object surface) ────
 
 // wsStaticSpanAttr is the pre-allocated static attribute shared by all WebSocket
@@ -33,6 +23,10 @@ var wsStaticSpanAttr = attribute.String("messaging.system", "websocket")
 type WSSession struct {
 	room *Room
 }
+
+// NewWSSession constructs a WSSession bound to room for external callers
+// (e.g. handler package) that need to drive a WebSocket session.
+func NewWSSession(room *Room) *WSSession { return &WSSession{room: room} }
 
 // RunSession drives a single player's WebSocket session: it joins the player to
 // the room, then runs the read/write pumps until the connection closes. It

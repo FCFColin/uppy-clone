@@ -133,20 +133,15 @@ func (h *Hub) CreateRoom(ctx context.Context) (string, error) {
 	return code, nil
 }
 
-// GetRoom retrieves a room (loading from DB if not in memory) and returns it
-// as a RoomHandle so callers depend only on the interface, not the concrete
-// *Room type. Returns nil if the room cannot be found.
-func (h *Hub) GetRoom(code string) RoomHandle {
-	room := h.getRoom(code)
-	if room == nil {
-		return nil
-	}
-	return room
+// GetRoom retrieves a room (loading from DB if not in memory) and returns the
+// concrete *Room. Returns nil if the room cannot be found.
+func (h *Hub) GetRoom(code string) *Room {
+	return h.getRoom(code)
 }
 
 // getRoom is the internal accessor returning the concrete *Room for package
-// callers (CheckRoom, MatchRoom, tests) that need fields/methods beyond the
-// RoomHandle interface.
+// callers (CheckRoom, MatchRoom, tests) that need fields/methods beyond what
+// Hub.GetRoom exposes.
 func (h *Hub) getRoom(code string) *Room {
 	h.mu.RLock()
 	room, ok := h.rooms[code]

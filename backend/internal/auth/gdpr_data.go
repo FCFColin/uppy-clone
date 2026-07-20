@@ -18,16 +18,8 @@ const (
 	gdprFieldLastLogin = "last_login"
 )
 
-// UserDataStore abstracts GDPR user data operations.
-type UserDataStore interface {
-	GetUserByID(ctx context.Context, id string) (*domain.User, error)
-	AnonymizeUser(ctx context.Context, id string) error
-	GetGameResultsByUserID(ctx context.Context, userID string) ([]domain.GameResult, error)
-	GetGameSessionsByUserID(ctx context.Context, userID string) ([]domain.GameSession, error)
-}
-
 // ExportUserData builds the GDPR export payload for a user.
-func ExportUserData(ctx context.Context, dataStore UserDataStore, userID string) (map[string]interface{}, error) {
+func ExportUserData(ctx context.Context, dataStore UserDB, userID string) (map[string]interface{}, error) {
 	user, err := dataStore.GetUserByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
@@ -64,7 +56,7 @@ func ExportUserData(ctx context.Context, dataStore UserDataStore, userID string)
 }
 
 // DeleteUserData revokes sessions and anonymizes PII for GDPR erasure.
-func DeleteUserData(ctx context.Context, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, tokens TokenStore, dataStore UserDataStore, userID string, r *http.Request) error {
+func DeleteUserData(ctx context.Context, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, tokens TokenStore, dataStore UserDB, userID string, r *http.Request) error {
 	if refreshMgr != nil {
 		_ = refreshMgr.RevokeAllForUser(ctx, userID)
 	}
@@ -93,7 +85,7 @@ type RefreshSessionResult struct {
 
 // RefreshSession validates and rotates refresh tokens atomically,
 // detecting token reuse (theft) and revoking all tokens for the compromised user.
-func RefreshSession(ctx context.Context, refreshMgr *RefreshTokenManager, jwtMgr *JWTManager, dataStore UserDataStore, oldToken string) (*RefreshSessionResult, error) {
+func RefreshSession(ctx context.Context, refreshMgr *RefreshTokenManager, jwtMgr *JWTManager, dataStore UserDB, oldToken string) (*RefreshSessionResult, error) {
 	result, err := refreshMgr.ConsumeRefreshToken(ctx, oldToken)
 	if err != nil {
 		return nil, fmt.Errorf("consume refresh token: %w", err)

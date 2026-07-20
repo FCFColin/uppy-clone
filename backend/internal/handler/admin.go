@@ -21,8 +21,8 @@ const adminRole = "admin"
 const maskedKey = "••••••••"
 
 const (
-	adminPasswordKey     = "admin_password"
-	resendAPIKey         = "resend_api_key" //nolint:gosec // false positive: JSON config field name, not a credential
+	adminPasswordKey     = "admin_password" // pragma: allowlist secret
+	resendAPIKey         = "resend_api_key" //nolint:gosec // false positive: JSON config field name, not a real credential // pragma: allowlist secret
 	adminSessionResource = "admin/session"
 	jsonMessage          = "message"
 	jsonUserID           = "userId"
@@ -36,17 +36,14 @@ const (
 	jwtExpClaim          = "exp"
 )
 
-// TokenSigner creates admin JWTs. Replaceable in tests.
-type TokenSigner interface {
-	SignToken() (token, jti string, err error)
-}
-
 // AdminHandler handles admin endpoints.
 type AdminHandler struct {
 	db          *store.ConfigRepository
 	adminJwtMgr *auth.JWTManager
 	redis       *store.RedisStore
-	tokenSigner TokenSigner
+	// tokenSigner, when non-nil, overrides the default admin JWT signing path.
+	// Used only in tests to inject sign failures.
+	tokenSigner func() (token, jti string, err error)
 }
 
 // NewAdminHandler creates a new AdminHandler.
@@ -114,7 +111,7 @@ func maskSensitiveFields(cfg map[string]interface{}) map[string]interface{} {
 // Returns the signed token string and its jti for session tracking (H5).
 func (h *AdminHandler) signAdminToken() (string, string, error) {
 	if h.tokenSigner != nil {
-		return h.tokenSigner.SignToken()
+		return h.tokenSigner()
 	}
 	return h.signAdminTokenDefault()
 }
@@ -136,6 +133,18 @@ func (h *AdminHandler) signAdminTokenDefault() (string, string, error) {
 	return signed, jti, nil
 }
 
+// revokeAdminJTI revokes a single admin JWT and removes it from the active set.
+// Errors are logged and swallowed; callers don't need to act on them.
+// Caller must guard with `h.redis != nil` check.
+func (h *AdminHandler) revokeAdminJTI(ctx context.Context, jti string) {
+	if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
+		slog.Warn("failed to revoke admin jwt", "jti", jti, "error", err)
+	}
+	if err := h.redis.RemoveAdminJTI(ctx, jti); err != nil {
+		slog.Warn("failed to remove admin jti from active set", "jti", jti, "error", err)
+	}
+}
+
 // revokeAllAdminSessions revokes all active admin JWTs by iterating the
 // tracked jtis in Redis. Called on password change to force re-login (H5).
 // Caller must guard with `h.redis != nil` check.
@@ -146,12 +155,7 @@ func (h *AdminHandler) revokeAllAdminSessions(ctx context.Context) {
 		return
 	}
 	for _, jti := range jtis {
-		if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
-			slog.Warn("failed to revoke admin jti", "jti", jti, "error", err)
-		}
-		if err := h.redis.RemoveAdminJTI(ctx, jti); err != nil {
-			slog.Warn("failed to remove admin jti from active set", "jti", jti, "error", err)
-		}
+		h.revokeAdminJTI(ctx, jti)
 	}
 }
 
@@ -228,12 +232,7 @@ func (h *AdminHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	jti := getJTI(r)
 	if jti != "" && h.redis != nil {
-		if err := h.redis.RevokeJWT(ctx, jti, config.AdminTokenTTL); err != nil {
-			slog.Warn("failed to revoke admin jwt on logout", "jti", jti, "error", err)
-		}
-		if err := h.redis.RemoveAdminJTI(ctx, jti); err != nil {
-			slog.Warn("failed to remove admin jti from active set", "jti", jti, "error", err)
-		}
+		h.revokeAdminJTI(ctx, jti)
 	}
 
 	secure := isSecure(r)

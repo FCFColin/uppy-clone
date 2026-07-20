@@ -20,7 +20,8 @@ func (m *mockGDPRDeleter) HardDeleteExpiredUsers(_ context.Context, _ int) (int6
 
 func TestGDPRCleanupWorker_RunOnce_DeletesUsers(t *testing.T) {
 	deleter := &mockGDPRDeleter{deleted: 2}
-	w := NewGDPRCleanupWorker(deleter, 30, time.Hour)
+	w := NewGDPRCleanupWorker(nil, 30, time.Hour)
+	w.hardDelete = deleter.HardDeleteExpiredUsers
 	w.runOnce(context.Background())
 
 	if deleter.calls != 1 {
@@ -30,7 +31,8 @@ func TestGDPRCleanupWorker_RunOnce_DeletesUsers(t *testing.T) {
 
 func TestGDPRCleanupWorker_RunOnce_Error(t *testing.T) {
 	deleter := &mockGDPRDeleter{err: errors.New("delete failed")}
-	w := NewGDPRCleanupWorker(deleter, 30, time.Hour)
+	w := NewGDPRCleanupWorker(nil, 30, time.Hour)
+	w.hardDelete = deleter.HardDeleteExpiredUsers
 	w.runOnce(context.Background())
 	if deleter.calls != 1 {
 		t.Fatal("expected cleanup attempt")
@@ -39,7 +41,8 @@ func TestGDPRCleanupWorker_RunOnce_Error(t *testing.T) {
 
 func TestGDPRCleanupWorker_Start_Cancelled(t *testing.T) {
 	deleter := &mockGDPRDeleter{}
-	w := NewGDPRCleanupWorker(deleter, 30, 10*time.Millisecond)
+	w := NewGDPRCleanupWorker(nil, 30, 10*time.Millisecond)
+	w.hardDelete = deleter.HardDeleteExpiredUsers
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})

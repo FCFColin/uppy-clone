@@ -129,7 +129,7 @@ func TestRoom_RunSession_HandleJoinFailure(t *testing.T) {
 		if err != nil {
 			return
 		}
-		_ = room.RunSession(r.Context(), "user2", c)
+		_ = (&WSSession{room: room}).RunSession(r.Context(), "user2", c)
 	}))
 	defer server.Close()
 

@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/domain"
+	"github.com/uppy-clone/backend/internal/game"
 	"github.com/uppy-clone/backend/internal/metrics"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 )
@@ -52,7 +53,7 @@ func (h *LobbyHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 
 	established = true
 	metrics.RecordWSConnection("established")
-	_ = room.RunSession(r.Context(), userId, conn)
+	_ = game.NewWSSession(room).RunSession(r.Context(), userId, conn)
 	h.hub.DecrementWSConnection()
 }
 

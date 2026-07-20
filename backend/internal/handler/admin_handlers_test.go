@@ -21,6 +21,64 @@ import (
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
+func newAdminHandlerWithDB(t *testing.T) (*AdminHandler, pgxmock.PgxPoolIface, *store.RedisStore) {
+	t.Helper()
+	mock := testutil.NewPgxMock(t)
+	db := store.NewConfigRepository(mock)
+	redisStore := testutil.SetupMiniredisStore(t)
+	h := NewAdminHandler(db, newTestJWTManager(), redisStore)
+	return h, mock, redisStore
+}
+
+func expectAdminConfigQuery(mock pgxmock.PgxPoolIface, configJSON string, empty ...bool) {
+	rows := pgxmock.NewRows([]string{"id", "config", "updated_at"})
+	if len(empty) == 0 || !empty[0] {
+		rows.AddRow("global", configJSON, int64(1000))
+	}
+	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
+		WithArgs("global").
+		WillReturnRows(rows)
+}
+
+func expectAdminConfigQueryError(mock pgxmock.PgxPoolIface, err error) {
+	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
+		WithArgs("global").
+		WillReturnError(err)
+}
+
+func expectAdminConfigSave(mock pgxmock.PgxPoolIface) {
+	mock.ExpectExec(`INSERT INTO admin_config`).
+		WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+}
+
+func hashMustPwd(pwd string) string {
+	hashed, _ := hashAdminPassword(pwd)
+	return hashed
+}
+
+func mustCloseRedis(t *testing.T, redisStore *store.RedisStore) {
+	t.Helper()
+	if err := redisStore.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+func newAdminTokenRequest(t *testing.T, h *AdminHandler) *http.Request {
+	t.Helper()
+	token, _, err := h.signAdminToken()
+	if err != nil {
+		t.Fatalf("signAdminToken: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "admin_token", Value: token})
+	return req
+}
+
+func mockTokenSignerFn(err error) func() (string, string, error) {
+	return func() (string, string, error) { return "", "", err }
+}
+
 func TestAdminHandler_Logout(t *testing.T) {
 	t.Parallel()
 
@@ -32,28 +90,12 @@ func TestAdminHandler_Logout(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
 	}
-	cleared := false
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "admin_token" && c.MaxAge < 0 {
-			cleared = true
+			return
 		}
 	}
-	if !cleared {
-		t.Error("expected admin_token cookie to be cleared")
-	}
-}
-
-func TestAdminHandler_Login_PasswordTooLong(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAdminHandler()
-	longPassword := strings.Repeat("x", config.BcryptMaxLen+1)
-	w := httptest.NewRecorder()
-	body := `{"password":"` + longPassword + `"}`
-	h.Login(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(body)))
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
+	t.Error("expected admin_token cookie to be cleared")
 }
 
 func TestAdminHandler_ParseConfigUpdates_InvalidJSON(t *testing.T) {
@@ -85,50 +127,6 @@ func TestMaskSensitiveFields(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_VerifyAdminTokenClaims(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAdminHandler()
-	token, _, err := h.signAdminToken()
-	if err != nil {
-		t.Fatalf("signAdminToken: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", nil)
-	req.AddCookie(&http.Cookie{Name: "admin_token", Value: token})
-	claims, ok := h.VerifyAdminTokenClaims(req)
-	if !ok || claims == nil || claims.Role != adminRole {
-		t.Fatalf("VerifyAdminTokenClaims = (%v, %v)", claims, ok)
-	}
-}
-
-func TestAdminHandler_UpdateConfig_InvalidBody(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAdminHandler()
-	w := httptest.NewRecorder()
-	h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader("{bad")))
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
-}
-
-func newAdminHandlerWithDB(t *testing.T) (*AdminHandler, pgxmock.PgxPoolIface, *store.RedisStore) {
-	t.Helper()
-	mock := testutil.NewPgxMock(t)
-	db := store.NewConfigRepository(mock)
-	redisStore := testutil.SetupMiniredisStore(t)
-	h := NewAdminHandler(db, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), redisStore)
-	return h, mock, redisStore
-}
-
-func expectAdminConfigQuery(mock pgxmock.PgxPoolIface, configJSON string) {
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("global").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "config", "updated_at"}).
-			AddRow("global", configJSON, int64(1000)))
-}
-
 func TestAdminHandler_getStoredAdminPassword(t *testing.T) {
 	t.Parallel()
 
@@ -153,9 +151,7 @@ func TestAdminHandler_getStoredAdminPassword(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h, mock, _ := newAdminHandlerWithDB(t)
 			if tt.dbError {
-				mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-					WithArgs("global").
-					WillReturnError(context.Canceled)
+				expectAdminConfigQueryError(mock, context.Canceled)
 			} else {
 				expectAdminConfigQuery(mock, tt.cfgJSON)
 			}
@@ -165,7 +161,7 @@ func TestAdminHandler_getStoredAdminPassword(t *testing.T) {
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
-			if tt.wantOK && pwd != tt.wantPwd {
+			if tt.wantOK && pwd != tt.wantPwd { // pragma: allowlist secret
 				t.Fatalf("pwd = %q, want %q", pwd, tt.wantPwd)
 			}
 			if !tt.wantOK && w.Code != tt.wantStatus {
@@ -175,63 +171,94 @@ func TestAdminHandler_getStoredAdminPassword(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_Login_Success(t *testing.T) {
-	password := "admin-pass"
-	hashed, _ := hashAdminPassword(password)
-	cfgJSON, _ := json.Marshal(map[string]string{"admin_password": hashed})
+// Login uses switch-based setup to mirror getStoredAdminPassword's style.
+func TestAdminHandler_Login(t *testing.T) {
+	t.Parallel()
 
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, string(cfgJSON))
+	correctHashed, _ := hashAdminPassword("correct")
+	cfgCorrect, _ := json.Marshal(map[string]string{"admin_password": correctHashed})
 
-	body := `{"password":"` + password + `"}`
-	w := httptest.NewRecorder()
-	h.Login(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(body)))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	tests := []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{"password too long", `{"password":"` + strings.Repeat("x", config.BcryptMaxLen+1) + `"}`, http.StatusBadRequest},
+		{"invalid body", "{bad", http.StatusBadRequest},
+		{"success", `{"password":"correct"}`, http.StatusOK},
+		{"wrong password", `{"password":"wrong"}`, http.StatusUnauthorized},
+		{"config not found", `{"password":"x"}`, http.StatusForbidden},
+		// handler-001: nil Redis → fail-closed → 503 (login denied for security).
+		{"nil redis", `{"password":"correct"}`, http.StatusServiceUnavailable},
+		{"locked ip", `{"password":"correct"}`, http.StatusTooManyRequests},
 	}
-}
 
-func TestAdminHandler_Login_WrongPassword(t *testing.T) {
-	hashed, _ := hashAdminPassword("correct")
-	cfgJSON, _ := json.Marshal(map[string]string{"admin_password": hashed})
-
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, string(cfgJSON))
-
-	w := httptest.NewRecorder()
-	h.Login(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"wrong"}`)))
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d", w.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var h *AdminHandler
+			var r *http.Request
+			var mock pgxmock.PgxPoolIface
+			var redisStore *store.RedisStore
+			switch tt.name {
+			case "password too long", "invalid body":
+				h = newTestAdminHandler()
+			case "nil redis":
+				mock = testutil.NewPgxMock(t)
+				db := store.NewConfigRepository(mock)
+				h = NewAdminHandler(db, newTestJWTManager(), nil)
+				expectAdminConfigQuery(mock, string(cfgCorrect))
+			case "locked ip":
+				h, mock, redisStore = newAdminHandlerWithDB(t)
+				expectAdminConfigQuery(mock, string(cfgCorrect))
+				_ = redisStore.SetLoginLock(context.Background(), "203.0.113.50", "admin", time.Minute)
+				r = httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(tt.body))
+				r.RemoteAddr = "203.0.113.50:1234"
+			default:
+				h, mock, _ = newAdminHandlerWithDB(t)
+				if tt.name == "config not found" {
+					expectAdminConfigQueryError(mock, context.Canceled)
+				} else {
+					expectAdminConfigQuery(mock, string(cfgCorrect))
+				}
+			}
+			if r == nil {
+				r = httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(tt.body))
+			}
+			w := httptest.NewRecorder()
+			h.Login(w, r)
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d body=%s", w.Code, tt.wantCode, w.Body.String())
+			}
+		})
 	}
 }
 
 func TestAdminHandler_isLoginLocked(t *testing.T) {
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	ctx := context.Background()
-	clientIP := "203.0.113.1"
-	_ = redisStore.SetLoginLock(ctx, clientIP, "admin", config.AdminTokenTTL)
-
-	w := httptest.NewRecorder()
-	if !h.isLoginLocked(ctx, w, clientIP, "admin") {
-		t.Fatal("expected locked")
-	}
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("status = %d", w.Code)
-	}
-}
-
-func TestAdminHandler_isLoginLocked_RedisErrorFailClosed(t *testing.T) {
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T, redisStore *store.RedisStore)
+		wantCode int
+	}{
+		{"locked", func(_ *testing.T, redisStore *store.RedisStore) {
+			_ = redisStore.SetLoginLock(context.Background(), "203.0.113.1", "admin", config.AdminTokenTTL)
+		}, http.StatusTooManyRequests},
+		{"redis error fail closed", func(t *testing.T, redisStore *store.RedisStore) {
+			mustCloseRedis(t, redisStore)
+		}, http.StatusServiceUnavailable},
 	}
 
-	w := httptest.NewRecorder()
-	if !h.isLoginLocked(context.Background(), w, "203.0.113.3", "admin") {
-		t.Fatal("expected fail-closed on redis error")
-	}
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", w.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, _, redisStore := newAdminHandlerWithDB(t)
+			tt.setup(t, redisStore)
+			w := httptest.NewRecorder()
+			if !h.isLoginLocked(context.Background(), w, "203.0.113.1", "admin") {
+				t.Fatal("expected locked")
+			}
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantCode)
+			}
+		})
 	}
 }
 
@@ -242,8 +269,7 @@ func TestAdminHandler_handleFailedLogin_LocksAfterMax(t *testing.T) {
 	for i := 0; i < maxFailedLoginAttempts; i++ {
 		h.handleFailedLogin(ctx, clientIP, "admin")
 	}
-	locked, _ := h.redis.IsLoginLocked(ctx, clientIP, "admin")
-	if !locked {
+	if locked, _ := h.redis.IsLoginLocked(ctx, clientIP, "admin"); !locked {
 		t.Fatal("expected IP locked after max failures")
 	}
 }
@@ -254,312 +280,93 @@ func TestAdminHandler_GetConfig(t *testing.T) {
 		t.Fatalf("crypto init: %v", err)
 	}
 	enc, _ := crypto.Encrypt("re_secret")
-	cfgJSON, _ := json.Marshal(map[string]interface{}{
-		"email_enabled":  true,
-		"resend_api_key": enc,
-		"email_from":     "a@b.com",
-	})
 
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, string(cfgJSON))
-
-	w := httptest.NewRecorder()
-	h.GetConfig(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	mkCfg := func(apiKey interface{}) string {
+		b, _ := json.Marshal(map[string]interface{}{
+			"email_enabled":  true,
+			"resend_api_key": apiKey,
+			"email_from":     "a@b.com",
+		})
+		return string(b)
 	}
-	if !strings.Contains(w.Body.String(), `"emailEnabled":true`) {
-		t.Fatalf("body = %s", w.Body.String())
-	}
-}
 
-func TestAdminHandler_GetConfig_NotFound(t *testing.T) {
-	h, mock, _ := newAdminHandlerWithDB(t)
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("global").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "config", "updated_at"}))
-
-	w := httptest.NewRecorder()
-	h.GetConfig(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", nil))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d", w.Code)
-	}
-}
-
-func TestAdminHandler_UpdateConfig_Success(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-	_ = crypto.InitFromEnv()
-
-	h, mock, _ := newAdminHandlerWithDB(t)
-	stored := `{"email_enabled":false,"email_from":"old@b.com"}`
-	expectAdminConfigQuery(mock, stored)
-	mock.ExpectExec(`INSERT INTO admin_config`).
-		WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
-		WillReturnResult(pgxmock.NewResult("INSERT", 1))
-
-	body := `{"emailEnabled":true,"emailFrom":"new@b.com"}`
-	w := httptest.NewRecorder()
-	h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader(body)))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
-	}
-}
-
-func TestAdminHandler_UpdateConfig_ResendApiKey(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-	_ = crypto.InitFromEnv()
-
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, `{"email_enabled":true}`)
-	mock.ExpectExec(`INSERT INTO admin_config`).
-		WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
-		WillReturnResult(pgxmock.NewResult("INSERT", 1))
-
-	body := `{"resendApiKey":"re_live_secret_key"}`
-	w := httptest.NewRecorder()
-	h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader(body)))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
-	}
-}
-
-func TestAdminHandler_UpdateConfig_NotFound(t *testing.T) {
-	h, mock, _ := newAdminHandlerWithDB(t)
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("global").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "config", "updated_at"})) // no rows → nil config
-
-	w := httptest.NewRecorder()
-	h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader(`{"emailEnabled":true}`)))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", w.Code)
-	}
-}
-
-func TestAdminHandler_applyConfigUpdates_PasswordFailures(t *testing.T) {
 	tests := []struct {
-		name       string
-		storedPwd  string // empty means no stored password
-		newPwd     string
-		oldPwd     string
-		wantStatus int
+		name      string
+		cfgJSON   string
+		emptyRows bool
+		wantCode  int
+		wantBody  string
 	}{
-		{"old password required", "", "new", "", http.StatusBadRequest},
-		{"wrong old password", hashMustPwd("correct"), "new", "wrong", http.StatusUnauthorized},
+		{"success", mkCfg(enc), false, http.StatusOK, `"emailEnabled":true`},
+		{"not found", "", true, http.StatusNotFound, ""},
+		{"invalid stored json", `{invalid`, false, http.StatusInternalServerError, ""},
+		{"decrypt fallback", mkCfg("not-valid-ciphertext"), false, http.StatusOK, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h, _, _ := newAdminHandlerWithDB(t)
+			h, mock, _ := newAdminHandlerWithDB(t)
+			if tt.emptyRows {
+				expectAdminConfigQuery(mock, "", true)
+			} else {
+				expectAdminConfigQuery(mock, tt.cfgJSON)
+			}
 			w := httptest.NewRecorder()
-			stored := map[string]interface{}{}
-			if tt.storedPwd != "" {
-				stored["admin_password"] = tt.storedPwd
+			h.GetConfig(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", nil))
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d body=%s", w.Code, tt.wantCode, w.Body.String())
 			}
-			updates := &configUpdates{AdminPassword: &tt.newPwd}
-			if tt.oldPwd != "" {
-				updates.OldPassword = &tt.oldPwd
-			}
-			if h.applyConfigUpdates(context.Background(), w, httptest.NewRequest(http.MethodPatch, "/", nil), stored, updates) {
-				t.Fatal("expected failure")
-			}
-			if w.Code != tt.wantStatus {
-				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			if tt.wantBody != "" && !strings.Contains(w.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %s, want %q", w.Body.String(), tt.wantBody)
 			}
 		})
 	}
 }
 
-func hashMustPwd(pwd string) string {
-	hashed, _ := hashAdminPassword(pwd)
-	return hashed
-}
-
-func TestAdminHandler_applyConfigUpdates_ChangePassword(t *testing.T) {
-	hashed, _ := hashAdminPassword("old-pwd")
-	h, _, _ := newAdminHandlerWithDB(t)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPatch, "/", nil)
-	r = r.WithContext(auth.WithJTI(r.Context(), "jti-1"))
-	stored := map[string]interface{}{"admin_password": hashed}
-	newPwd := "new-pwd-123"
-	oldPwd := "old-pwd"
-	updates := &configUpdates{AdminPassword: &newPwd, OldPassword: &oldPwd}
-	if !h.applyConfigUpdates(context.Background(), w, r, stored, updates) {
-		t.Fatal("expected success")
-	}
-	if !compareAdminPassword(newPwd, stored["admin_password"].(string)) {
-		t.Fatal("password not updated")
-	}
-}
-
-func TestAdminHandler_GetConfig_InvalidStoredJSON(t *testing.T) {
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, `{invalid`)
-
-	w := httptest.NewRecorder()
-	h.GetConfig(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", nil))
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
-	}
-}
-
-func TestAdminHandler_VerifyAdminToken_Revoked(t *testing.T) {
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	token, _, err := h.signAdminToken()
-	if err != nil {
-		t.Fatalf("signAdminToken: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "admin_token", Value: token})
-	claims, ok := h.VerifyAdminTokenClaims(req)
-	if !ok {
-		t.Fatal("expected valid token before revocation")
-	}
-	if err := redisStore.RevokeJWT(context.Background(), claims.ID, time.Minute); err != nil {
-		t.Fatalf("RevokeJWT: %v", err)
-	}
-	if h.VerifyAdminToken(req) {
-		t.Fatal("revoked token should fail verification")
-	}
-}
-
-func TestAdminHandler_Login_InvalidBody(t *testing.T) {
-	h, _, _ := newAdminHandlerWithDB(t)
-	w := httptest.NewRecorder()
-	h.Login(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader("{bad")))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestAdminHandler_Login_ConfigNotFound(t *testing.T) {
-	h, mock, _ := newAdminHandlerWithDB(t)
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("global").
-		WillReturnError(context.Canceled)
-
-	w := httptest.NewRecorder()
-	h.Login(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"x"}`)))
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", w.Code)
-	}
-}
-
-func TestAdminHandler_Login_NilRedis(t *testing.T) {
-	password := "admin-pass"
-	hashed, _ := hashAdminPassword(password)
-	cfgJSON, _ := json.Marshal(map[string]string{"admin_password": hashed})
-
-	mock := testutil.NewPgxMock(t)
-	db := store.NewConfigRepository(mock)
-	h := NewAdminHandler(db, auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), nil)
-	expectAdminConfigQuery(mock, string(cfgJSON))
-
-	w := httptest.NewRecorder()
-	h.Login(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"`+password+`"}`)))
-	// handler-001: nil Redis → fail-closed → 503 (login denied for security)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d body=%s, want 503", w.Code, w.Body.String())
-	}
-}
-
-func TestAdminHandler_Logout_RevokeError(t *testing.T) {
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/admin/logout", nil)
-	r = r.WithContext(auth.WithJTI(r.Context(), "jti-logout"))
-	h.Logout(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-}
-
-func TestAdminHandler_VerifyAdminTokenClaims_RedisError(t *testing.T) {
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	token, _, err := h.signAdminToken()
-	if err != nil {
-		t.Fatalf("signAdminToken: %v", err)
-	}
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "admin_token", Value: token})
-	if _, ok := h.VerifyAdminTokenClaims(req); ok {
-		t.Fatal("expected verification failure when redis unavailable")
-	}
-}
-
-func TestAdminHandler_GetConfig_DecryptFallback(t *testing.T) {
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-	if err := crypto.InitFromEnv(); err != nil {
-		t.Fatalf("crypto init: %v", err)
-	}
-	cfgJSON, _ := json.Marshal(map[string]interface{}{
-		"email_enabled":  true,
-		"resend_api_key": "not-valid-ciphertext",
-		"email_from":     "a@b.com",
-	})
-
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, string(cfgJSON))
-
-	w := httptest.NewRecorder()
-	h.GetConfig(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
-	}
-}
-
-func TestAdminHandler_UpdateConfig_InvalidStoredJSON(t *testing.T) {
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, `{invalid`)
-	mock.ExpectExec(`INSERT INTO admin_config`).
-		WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
-		WillReturnResult(pgxmock.NewResult("INSERT", 1))
-
-	w := httptest.NewRecorder()
-	h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader(`{"emailEnabled":true}`)))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
-	}
-}
-
-func TestAdminHandler_UpdateConfig_SaveError(t *testing.T) {
+func TestAdminHandler_UpdateConfig(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	_ = crypto.InitFromEnv()
 
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, `{"email_enabled":false}`)
-	mock.ExpectExec(`INSERT INTO admin_config`).
-		WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
-		WillReturnError(context.Canceled)
-
-	w := httptest.NewRecorder()
-	h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader(`{"emailEnabled":true}`)))
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
+	tests := []struct {
+		name      string
+		body      string
+		storedCfg string
+		emptyRows bool
+		saveErr   error
+		wantCode  int
+	}{
+		{"invalid body", "{bad", "", false, nil, http.StatusBadRequest},
+		{"success", `{"emailEnabled":true,"emailFrom":"new@b.com"}`, `{"email_enabled":false,"email_from":"old@b.com"}`, false, nil, http.StatusOK},
+		{"resend api key", `{"resendApiKey":"re_live_secret_key"}`, `{"email_enabled":true}`, false, nil, http.StatusOK},
+		{"not found", `{"emailEnabled":true}`, "", true, nil, http.StatusNotFound},
+		{"invalid stored json", `{"emailEnabled":true}`, `{invalid`, false, nil, http.StatusOK},
+		{"save error", `{"emailEnabled":true}`, `{"email_enabled":false}`, false, context.Canceled, http.StatusInternalServerError},
+		{"skip masked api key", `{"resendApiKey":"` + maskedKey + `"}`, `{"email_enabled":true,"resend_api_key":"old"}`, false, nil, http.StatusOK},
 	}
-}
 
-func TestAdminHandler_UpdateConfig_SkipMaskedApiKey(t *testing.T) {
-	h, mock, _ := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, `{"email_enabled":true,"resend_api_key":"old"}`)
-	mock.ExpectExec(`INSERT INTO admin_config`).
-		WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
-		WillReturnResult(pgxmock.NewResult("INSERT", 1))
-
-	body := `{"resendApiKey":"` + maskedKey + `"}`
-	w := httptest.NewRecorder()
-	h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader(body)))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, mock, _ := newAdminHandlerWithDB(t)
+			if tt.emptyRows {
+				expectAdminConfigQuery(mock, "", true)
+			} else {
+				expectAdminConfigQuery(mock, tt.storedCfg)
+			}
+			// Save is expected only for success (200) or save-error (500) paths;
+			// invalid-body (400) and not-found (404) short-circuit before save.
+			if tt.wantCode == http.StatusOK {
+				expectAdminConfigSave(mock)
+			} else if tt.saveErr != nil {
+				mock.ExpectExec(`INSERT INTO admin_config`).
+					WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
+					WillReturnError(tt.saveErr)
+			}
+			w := httptest.NewRecorder()
+			h.UpdateConfig(w, httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader(tt.body)))
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d body=%s", w.Code, tt.wantCode, w.Body.String())
+			}
+		})
 	}
 }
 
@@ -579,22 +386,94 @@ func TestAdminHandler_UpdateConfig_EncryptError(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_applyConfigUpdates_RevokeJWTError(t *testing.T) {
-	hashed, _ := hashAdminPassword("old-pwd")
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+func TestAdminHandler_applyConfigUpdates(t *testing.T) {
+	tests := []struct {
+		name       string
+		storedPwd  string // empty means no stored password
+		newPwd     string
+		oldPwd     string
+		jti        string // empty = no JTI in context
+		setup      func(t *testing.T, h *AdminHandler, redisStore *store.RedisStore)
+		wantStatus int // 0 means success (applyConfigUpdates returns true)
+	}{
+		{"old password required", "", "new", "", "", nil, http.StatusBadRequest},
+		{"wrong old password", hashMustPwd("correct"), "new", "wrong", "", nil, http.StatusUnauthorized},
+		{"change password", hashMustPwd("old-pwd"), "new-pwd-123", "old-pwd", "jti-1", nil, 0},
+		{"revoke jwt error tolerated", hashMustPwd("old-pwd"), "new-pwd-123", "old-pwd", "jti-revoke-err", func(t *testing.T, _ *AdminHandler, redisStore *store.RedisStore) {
+			mustCloseRedis(t, redisStore)
+		}, 0},
+		{"hash error", hashMustPwd("old-pwd"), "new-pwd", "old-pwd", "", func(t *testing.T, _ *AdminHandler, _ *store.RedisStore) {
+			orig := bcryptGenerate
+			bcryptGenerate = func(_ []byte, _ int) ([]byte, error) { return nil, errors.New("hash failed") }
+			t.Cleanup(func() { bcryptGenerate = orig })
+		}, http.StatusInternalServerError},
 	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, _, redisStore := newAdminHandlerWithDB(t)
+			if tt.setup != nil {
+				tt.setup(t, h, redisStore)
+			}
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPatch, "/", nil)
+			if tt.jti != "" {
+				r = r.WithContext(auth.WithJTI(r.Context(), tt.jti))
+			}
+			stored := map[string]interface{}{}
+			if tt.storedPwd != "" {
+				stored["admin_password"] = tt.storedPwd // pragma: allowlist secret
+			}
+			updates := &configUpdates{AdminPassword: &tt.newPwd}
+			if tt.oldPwd != "" {
+				updates.OldPassword = &tt.oldPwd
+			}
+			ok := h.applyConfigUpdates(context.Background(), w, r, stored, updates)
+			if tt.wantStatus == 0 {
+				if !ok || !compareAdminPassword(tt.newPwd, stored["admin_password"].(string)) {
+					t.Fatal("expected success with password updated")
+				}
+			} else if ok || w.Code != tt.wantStatus {
+				t.Fatalf("ok=%v status = %d, want %d", ok, w.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestAdminHandler_VerifyAdminToken_Revoked(t *testing.T) {
+	h, _, redisStore := newAdminHandlerWithDB(t)
+	req := newAdminTokenRequest(t, h)
+	claims, ok := h.VerifyAdminTokenClaims(req)
+	if !ok {
+		t.Fatal("expected valid token before revocation")
+	}
+	if err := redisStore.RevokeJWT(context.Background(), claims.ID, time.Minute); err != nil {
+		t.Fatalf("RevokeJWT: %v", err)
+	}
+	if h.VerifyAdminToken(req) {
+		t.Fatal("revoked token should fail verification")
+	}
+}
+
+func TestAdminHandler_Logout_RevokeError(t *testing.T) {
+	h, _, redisStore := newAdminHandlerWithDB(t)
+	mustCloseRedis(t, redisStore)
+
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPatch, "/", nil)
-	r = r.WithContext(auth.WithJTI(r.Context(), "jti-revoke-err"))
-	stored := map[string]interface{}{"admin_password": hashed}
-	newPwd := "new-pwd-123"
-	oldPwd := "old-pwd"
-	updates := &configUpdates{AdminPassword: &newPwd, OldPassword: &oldPwd}
-	if !h.applyConfigUpdates(context.Background(), w, r, stored, updates) {
-		t.Fatal("expected password change despite revoke error")
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/admin/logout", nil)
+	r = r.WithContext(auth.WithJTI(r.Context(), "jti-logout"))
+	h.Logout(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestAdminHandler_VerifyAdminTokenClaims_RedisError(t *testing.T) {
+	h, _, redisStore := newAdminHandlerWithDB(t)
+	req := newAdminTokenRequest(t, h)
+	mustCloseRedis(t, redisStore)
+	if _, ok := h.VerifyAdminTokenClaims(req); ok {
+		t.Fatal("expected verification failure when redis unavailable")
 	}
 }
 
@@ -607,89 +486,46 @@ func TestAdminHandler_saveConfig_MarshalError(t *testing.T) {
 	}
 }
 
-func TestAdminHandler_Login_LockedIP(t *testing.T) {
-	hashed, _ := hashAdminPassword("secret")
-	cfgJSON, _ := json.Marshal(map[string]string{"admin_password": hashed})
-	h, mock, redisStore := newAdminHandlerWithDB(t)
-	expectAdminConfigQuery(mock, string(cfgJSON))
-	clientIP := "203.0.113.50"
-	_ = redisStore.SetLoginLock(context.Background(), clientIP, "admin", time.Minute)
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"secret"}`))
-	r.RemoteAddr = clientIP + ":1234"
-	h.Login(w, r)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("status = %d, want 429", w.Code)
+func TestAdminHandler_completeAdminLogin(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(t *testing.T) (*AdminHandler, *http.Request)
+		wantCode    int
+		checkSecure bool
+	}{
+		{"reset error tolerated", func(t *testing.T) (*AdminHandler, *http.Request) {
+			h, _, redisStore := newAdminHandlerWithDB(t)
+			mustCloseRedis(t, redisStore)
+			return h, httptest.NewRequest(http.MethodPost, "/", nil)
+		}, http.StatusOK, false},
+		{"sign error", func(_ *testing.T) (*AdminHandler, *http.Request) {
+			h := newTestAdminHandler()
+			h.tokenSigner = mockTokenSignerFn(errors.New("sign failed"))
+			return h, httptest.NewRequest(http.MethodPost, "/", nil)
+		}, http.StatusInternalServerError, false},
+		{"secure cookie on https", func(_ *testing.T) (*AdminHandler, *http.Request) {
+			h := newTestAdminHandler()
+			r := httptest.NewRequest(http.MethodPost, "https://example.com/", nil)
+			r.TLS = &tls.ConnectionState{}
+			return h, r
+		}, http.StatusOK, true},
 	}
-}
 
-func TestAdminHandler_completeAdminLogin_ResetError(t *testing.T) {
-	h, _, redisStore := newAdminHandlerWithDB(t)
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	h.completeAdminLogin(w, r, context.Background(), "127.0.0.1", "admin")
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
-	}
-}
-
-type mockTokenSigner struct {
-	err error
-}
-
-func (m *mockTokenSigner) SignToken() (string, string, error) {
-	return "", "", m.err
-}
-
-func TestAdminHandler_completeAdminLogin_SignError(t *testing.T) {
-	h := newTestAdminHandler()
-	h.tokenSigner = &mockTokenSigner{err: errors.New("sign failed")}
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/", nil)
-	h.completeAdminLogin(w, r, context.Background(), "127.0.0.1", "admin")
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
-	}
-}
-
-func TestAdminHandler_completeAdminLogin_SecureCookie(t *testing.T) {
-	h := newTestAdminHandler()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "https://example.com/", nil)
-	r.TLS = &tls.ConnectionState{}
-	h.completeAdminLogin(w, r, context.Background(), "127.0.0.1", "admin")
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "admin_token" && !c.Secure {
-			t.Fatal("expected secure admin_token cookie for HTTPS request")
-		}
-	}
-}
-
-func TestAdminHandler_applyConfigUpdates_HashError(t *testing.T) {
-	hashed, _ := hashAdminPassword("old-pwd")
-	h, _, _ := newAdminHandlerWithDB(t)
-	orig := bcryptGenerate
-	bcryptGenerate = func(_ []byte, _ int) ([]byte, error) { return nil, errors.New("hash failed") }
-	t.Cleanup(func() { bcryptGenerate = orig })
-
-	stored := map[string]interface{}{"admin_password": hashed}
-	newPwd := "new-pwd"
-	oldPwd := "old-pwd"
-	updates := &configUpdates{AdminPassword: &newPwd, OldPassword: &oldPwd}
-	w := httptest.NewRecorder()
-	if h.applyConfigUpdates(context.Background(), w, httptest.NewRequest(http.MethodPatch, "/", nil), stored, updates) {
-		t.Fatal("expected hash error to fail")
-	}
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, r := tt.setup(t)
+			w := httptest.NewRecorder()
+			h.completeAdminLogin(w, r, context.Background(), "127.0.0.1", "admin")
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantCode)
+			}
+			if tt.checkSecure {
+				for _, c := range w.Result().Cookies() {
+					if c.Name == "admin_token" && !c.Secure {
+						t.Fatal("expected secure admin_token cookie for HTTPS request")
+					}
+				}
+			}
+		})
 	}
 }

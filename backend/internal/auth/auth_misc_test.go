@@ -8,13 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
-
-	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
-	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 type mockUserDataStore struct {
@@ -30,6 +25,12 @@ type mockUserDataStore struct {
 func (m *mockUserDataStore) GetUserByID(_ context.Context, _ string) (*domain.User, error) {
 	return m.user, m.userErr
 }
+
+func (m *mockUserDataStore) CreateUser(_ context.Context, _ *domain.User) error { return nil }
+func (m *mockUserDataStore) GetUserByEmail(_ context.Context, _ string) (*domain.User, error) {
+	return nil, nil
+}
+func (m *mockUserDataStore) UpdateUserLastLogin(_ context.Context, _ string) error { return nil }
 
 func (m *mockUserDataStore) AnonymizeUser(_ context.Context, _ string) error {
 	return m.anonymizeErr
@@ -140,13 +141,7 @@ func TestDeleteUserData_AnonymizeSuccess(t *testing.T) {
 
 func TestDeleteUserData_WithRefreshManager(t *testing.T) {
 	t.Parallel()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()
 	if _, err := refreshMgr.Generate(ctx, "u1"); err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -160,21 +155,8 @@ func TestDeleteUserData_WithRefreshManager(t *testing.T) {
 
 func TestDeleteUserData_RevokesTokensFromRequest(t *testing.T) {
 	t.Parallel()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	timeouts := config.DefaultTimeoutConfig()
-	redisStore, err := store.NewRedisStore(mr.Addr(), timeouts)
-	if err != nil {
-		t.Fatalf("NewRedisStore: %v", err)
-	}
-	defer func() { _ = redisStore.Close() }()
-
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	redisStore := testutil.SetupMiniredisStore(t)
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()
 
 	token, err := jwtMgr.SignToken("u1", "Nick")
@@ -257,24 +239,9 @@ func TestIsSecure(t *testing.T) {
 	}
 }
 
-// fakeRevocationChecker is a test double for JWTRevocationChecker.
-type fakeRevocationChecker struct {
-	revoked map[string]bool
-	err     error
-}
-
-func newFakeRevocationChecker() *fakeRevocationChecker {
-	return &fakeRevocationChecker{
-		revoked: make(map[string]bool),
-	}
-}
-
-func (f *fakeRevocationChecker) IsJWTRevoked(_ context.Context, jti string) (bool, error) {
-	if f.err != nil {
-		return false, f.err
-	}
-	return f.revoked[jti], nil
-}
+// fakeRevocationChecker is provided by internal/testutil (FakeRevocationChecker).
+// The shared type is used by both auth and middleware package tests to avoid
+// duplication.
 
 // TestGetJTI_NoJTI verifies GetJTI returns empty string when no jti is in context.
 func TestGetJTI_NoJTI(t *testing.T) {
