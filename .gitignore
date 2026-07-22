@@ -71,3 +71,6 @@ backend/internal/audit/*.jsonl
 backend/*.txt
 backend/*.log
 backend/*.ps1
+
+# Runtime data
+cookies.txt
