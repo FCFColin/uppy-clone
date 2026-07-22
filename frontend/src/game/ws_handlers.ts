@@ -1,4 +1,4 @@
-import { MSG_TYPE } from '../shared/game/constants.js';
+import { MSG_TYPE, NICKNAME_REJECT_REASON } from '../shared/game/constants.js';
 import { handlePong } from './ws_connection.js';
 import { dispatch, getState } from './state.js';
 import { pushFloatingText } from './visual_helpers.js';
@@ -6,12 +6,12 @@ import { codeToPhase, applySnapshot, decodeSnapshot } from './message_codec.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateUI, updateScoresOnly } from './ui_update.js';
 import { updateWindIndicator } from './ui_common.js';
-import { runTutorialIfNeeded } from './tutorial.js';
 import { playGameOverSound, vibrate } from '../shared/ui/audio.js';
 import { updateBestScore, fetchUserBestScore } from '../shared/data/cookies.js';
 import { syncRestartVoteUI } from './restart_vote_ui.js';
 import { updateInterpolation, freezeInterpolation } from './state_interp.js';
 import { isDuplicateSeq } from './seen_seqs.js';
+import { revertEntryStepToNickname, clearStartCountdown, setNicknameStatus } from './entry_flow.js';
 
 // ─── Binary Message Dispatcher ───────────────────────────────────────
 
@@ -39,6 +39,9 @@ export function handleBinaryMessage(buffer: ArrayBuffer): void {
     case MSG_TYPE.RESTART_STATUS:
       handleRestartStatus(view);
       break;
+    case MSG_TYPE.NICKNAME_REJECTED:
+      handleNicknameRejected(view);
+      break;
     case MSG_TYPE.PONG:
       handlePong();
       break;
@@ -64,7 +67,7 @@ export function handleSnapshot(view: DataView): void {
 
     if (isDuplicateSeq(decoded.timestamp)) return;
 
-    const optimisticRipples = getState().ripples.filter(r => r.isOptimistic);
+    const optimisticRipples = getState().ripples.filter((r) => r.isOptimistic);
     const snapshotUpdate = applySnapshot(decoded);
     dispatch({ type: 'SET_STATE', partial: snapshotUpdate });
 
@@ -73,9 +76,12 @@ export function handleSnapshot(view: DataView): void {
     }
 
     if (decoded.ripples.length > 0) {
-      dispatch({ type: 'SET_STATE', partial: {
-        ripples: [...optimisticRipples, ...decoded.ripples],
-      }});
+      dispatch({
+        type: 'SET_STATE',
+        partial: {
+          ripples: [...optimisticRipples, ...decoded.ripples],
+        },
+      });
     }
 
     if (decoded.wind !== undefined) {
@@ -112,27 +118,20 @@ export function handleGameStateChange(view: DataView): void {
 
   if (!shouldApplySnapshotPhase(nextPhase)) return;
 
-  if (nextPhase === 'ended' && view.byteLength >= 3) {
-    dispatch({ type: 'SET_END_REASON', reason: view.getUint8(2) });
-    playGameOverSound();
-    vibrate(200);
-    void updateEndScreenRecords();
-  }
-
   let countdownSeconds = 3;
   if (nextPhase === 'countdown' && view.byteLength >= 6) {
     const remainingMs: number = view.getUint32(2, true);
     countdownSeconds = Math.max(1, Math.ceil(remainingMs / 1000));
   }
 
-  if (nextPhase === 'countdown') {
-    void runTutorialIfNeeded().then(() => {
-      applyPhaseChange(nextPhase, countdownSeconds);
-    });
-    return;
-  }
+  const applied = applyPhaseChange(nextPhase, countdownSeconds);
 
-  applyPhaseChange(nextPhase, countdownSeconds);
+  if (applied && nextPhase === 'ended' && view.byteLength >= 3) {
+    dispatch({ type: 'SET_END_REASON', reason: view.getUint8(2) });
+    playGameOverSound();
+    vibrate(200);
+    void updateEndScreenRecords();
+  }
 }
 
 async function updateEndScreenRecords(): Promise<void> {
@@ -144,7 +143,9 @@ async function updateEndScreenRecords(): Promise<void> {
   try {
     const serverBest = await fetchUserBestScore();
     if (serverBest > best) best = serverBest;
-  } catch { /* use cookie */ }
+  } catch {
+    /* use cookie */
+  }
   const parts = [`本局 ${score}`, `个人最佳 ${Math.max(best, score)}`];
   if (cookieBest.isNewRecord || score > best) parts.push('新纪录！');
   bestEl.textContent = parts.join(' · ');
@@ -159,9 +160,12 @@ export function handleRestartStatus(view: DataView): void {
   const yes: number = view.getUint8(1);
   const total: number = view.getUint8(2);
   const countdownMs: number = view.getUint32(3, true);
-  dispatch({ type: 'SET_STATE', partial: {
-    restartVotes: { yes, total, countdownMs, receivedAt: Date.now() },
-  }});
+  dispatch({
+    type: 'SET_STATE',
+    partial: {
+      restartVotes: { yes, total, countdownMs, receivedAt: Date.now() },
+    },
+  });
   syncRestartVoteUI();
   updateUI({ force: true });
 }
@@ -174,23 +178,31 @@ export function handleTapAccepted(view: DataView): void {
     return;
   }
   let o: number = 1;
-  const playerIndex: number = view.getUint16(o, true); o += 2;
-  const cooldownRemainingMs: number = view.getUint32(o, true); o += 4;
-  const _balloonX: number = view.getFloat32(o, true); o += 4;
+  const playerIndex: number = view.getUint16(o, true);
+  o += 2;
+  const cooldownRemainingMs: number = view.getUint32(o, true);
+  o += 4;
+  const _balloonX: number = view.getFloat32(o, true);
+  o += 4;
   const _balloonY: number = view.getFloat32(o, true);
   dispatch({ type: 'SET_STATE', partial: { myCooldownEnd: Date.now() + cooldownRemainingMs } });
   const tapX = getState().lastTapX ?? _balloonX;
   const tapY = getState().lastTapY ?? _balloonY;
-  dispatch({ type: 'SET_STATE', partial: {
-    ripples: [...getState().ripples.filter(r => !r.isOptimistic), { playerIndex, x: tapX, y: tapY, time: Date.now() }],
-    explosionEffect: { x: tapX, y: tapY, startTime: Date.now() },
-  }});
+  dispatch({
+    type: 'SET_STATE',
+    partial: {
+      ripples: [
+        ...getState().ripples.filter((r) => !r.isOptimistic),
+        { playerIndex, x: tapX, y: tapY, time: Date.now() },
+      ],
+    },
+  });
 }
 
 export function handleTapRejected(): void {
   const lastTapX = getState().lastTapX;
   const lastTapY = getState().lastTapY;
-  const remaining = getState().ripples.filter(r => !r.isOptimistic);
+  const remaining = getState().ripples.filter((r) => !r.isOptimistic);
   if (lastTapX !== null && lastTapY !== null) {
     remaining.push({
       playerIndex: -1,
@@ -202,4 +214,38 @@ export function handleTapRejected(): void {
     pushFloatingText(lastTapX, lastTapY, '太远了');
   }
   dispatch({ type: 'SET_STATE', partial: { myCooldownEnd: 0, ripples: remaining } });
+}
+
+// ─── Nickname Rejected ───────────────────────────────────────────────
+
+export function handleNicknameRejected(view: DataView): void {
+  if (view.byteLength < 2) {
+    console.warn('[ws] NICKNAME_REJECTED too short, ignoring');
+    return;
+  }
+  const reasonCode: number = view.getUint8(1);
+
+  dispatch({ type: 'SET_STATE', partial: { nicknameSubmitted: false, pendingNickname: null } });
+  revertEntryStepToNickname();
+  clearStartCountdown();
+
+  const message: string = nicknameRejectMessage(reasonCode);
+  setNicknameStatus(message);
+
+  updateUI({ force: true });
+}
+
+function nicknameRejectMessage(reasonCode: number): string {
+  switch (reasonCode) {
+    case NICKNAME_REJECT_REASON.EMPTY:
+      return '昵称不能为空';
+    case NICKNAME_REJECT_REASON.DUPLICATE:
+      return '昵称已被占用';
+    case NICKNAME_REJECT_REASON.COOLDOWN:
+      return '昵称冷却中，请稍后';
+    case NICKNAME_REJECT_REASON.DECODE_ERROR:
+      return '昵称格式无效';
+    default:
+      return '昵称被拒绝，请重试';
+  }
 }

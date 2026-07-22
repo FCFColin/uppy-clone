@@ -1,8 +1,6 @@
 import { PHYSICS } from '../shared/game/constants.js';
 import { getState } from './state.js';
 
-
-
 export const TICK_MS: number = PHYSICS.TICK_INTERVAL;
 export const INTERP_DELAY_MS: number = PHYSICS.INTERP_DELAY_MS;
 export const MAX_SNAPSHOT_BUFFER = 12;
@@ -62,7 +60,14 @@ export function getRenderTime(): number {
 export function pushAnchors(tickCount: number): void {
   const receivedAt = Date.now();
   const s = getState();
-  pushAnchor(balloonBuffer, { tick: tickCount, receivedAt, x: s.balloon.x, y: s.balloon.y, vx: s.balloon.vx, vy: s.balloon.vy });
+  pushAnchor(balloonBuffer, {
+    tick: tickCount,
+    receivedAt,
+    x: s.balloon.x,
+    y: s.balloon.y,
+    vx: s.balloon.vx,
+    vy: s.balloon.vy,
+  });
   pushAnchor(ghostBuffer, { tick: tickCount, receivedAt, x: s.ghost.x, y: s.ghost.y, active: s.ghost.active });
   pushAnchor(birdBuffer, { tick: tickCount, receivedAt, x: s.bird.x, y: s.bird.y, active: s.bird.active });
 }
@@ -102,10 +107,7 @@ export function tryBalloonFromDelayBuffer(): InterpPoint | null {
   };
 }
 
-export function tryEntityFromDelayBuffer(
-  buffer: EntityAnchor[],
-  renderTime: number,
-): InterpPoint | null {
+export function tryEntityFromDelayBuffer(buffer: EntityAnchor[], renderTime: number): InterpPoint | null {
   if (buffer.length === 0) return null;
   const i = findAnchorIndex(buffer, renderTime);
   if (i < 0) return null;

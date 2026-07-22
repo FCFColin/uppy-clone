@@ -12,6 +12,7 @@ import {
   nicknameReadyStatus,
   resetEntryDomState,
 } from './entry_ui.js';
+import { runTutorialIfNeeded } from './tutorial.js';
 
 let entryUiBound = false;
 
@@ -24,6 +25,7 @@ const STEP_RANK: Record<EntryStep, number> = {
 };
 
 function canAdvanceTo(next: EntryStep): boolean {
+  if (next === 'error') return true;
   return STEP_RANK[next] >= STEP_RANK[getState().entryStep];
 }
 
@@ -63,6 +65,19 @@ export function applyEntryStep(next: EntryStep): void {
   }
 }
 
+/**
+ * Force-revert entry step to 'nickname'. Used by the NICKNAME_REJECTED handler
+ * to let the user retry nickname submission. Bypasses the canAdvanceTo guard
+ * because this is an explicit server-driven recovery action, not a forward
+ * progression. Only reverts when the current step is 'waiting' (i.e. the user
+ * is stuck after submitting a nickname); other states are left untouched.
+ */
+export function revertEntryStepToNickname(): void {
+  if (getState().entryStep !== 'waiting') return;
+  dispatch({ type: 'SET_STATE', partial: { entryStep: 'nickname' } });
+  syncOverlays();
+}
+
 /** First lobby code resolved — idempotent after waiting/handoff. */
 export function onLobbyCodeReady(lobbyCode: string): void {
   const s = getState();
@@ -80,9 +95,29 @@ export function onNicknameSubmit(): void {
   dispatch({ type: 'SET_STATE', partial: { nicknameSubmitted: true, lobbyPublished: true } });
   applyEntryStep('waiting');
   startStartCountdown();
+  startWaitingTimeout();
+}
+
+/** Start a timeout that shows an error if the server doesn't respond while in 'waiting'. */
+function startWaitingTimeout(): void {
+  clearWaitingTimeout();
+  waitingTimeoutTimer = setTimeout(() => {
+    waitingTimeoutTimer = null;
+    if (getState().entryStep !== 'waiting') return;
+    clearStartCountdown();
+    routeConnectionError('未收到服务器响应，请重试', { showActions: true });
+  }, 15000);
+}
+
+function clearWaitingTimeout(): void {
+  if (waitingTimeoutTimer !== null) {
+    clearTimeout(waitingTimeoutTimer);
+    waitingTimeoutTimer = null;
+  }
 }
 
 let startCountdownTimer: ReturnType<typeof setInterval> | null = null;
+let waitingTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 function startStartCountdown(): void {
   clearStartCountdown();
@@ -115,7 +150,13 @@ export function bindEntryUI(onSubmit: () => void): void {
   form?.addEventListener('submit', (e: Event) => {
     e.preventDefault();
     if (getState().entryStep !== 'nickname') return;
-    onSubmit();
+    // Tutorial is a pre-condition for nickname submission: new players see it
+    // before SET_NICKNAME is sent; returning players (cookie set) skip it
+    // inside runTutorialIfNeeded and resolve immediately.
+    void runTutorialIfNeeded().then(() => {
+      if (getState().entryStep !== 'nickname') return;
+      onSubmit();
+    });
   });
 }
 
@@ -143,10 +184,11 @@ export function onWebSocketClosed(): void {
   }
 }
 
-/** Enter handoff when server phase moves into active gameplay. */
+/** Enter handoff when server phase moves into active gameplay or ended room. */
 export function tryEntryHandoff(phase: GamePhase): void {
   if (!getState().nicknameSubmitted) return;
-  if (phase === 'countdown' || phase === 'playing') {
+  if (phase === 'countdown' || phase === 'playing' || phase === 'ended') {
+    clearWaitingTimeout();
     applyEntryStep('handoff');
   }
 }
@@ -204,6 +246,7 @@ export function resetEntryFlowForTest(): void {
  */
 export function resetEntryFlowState(): void {
   clearStartCountdown();
+  clearWaitingTimeout();
   entryUiBound = false;
   resetEntryDomState();
 }

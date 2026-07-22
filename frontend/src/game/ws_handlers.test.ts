@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MSG_TYPE, PHASE_CODE } from '../shared/game/constants.js';
+import { MSG_TYPE, PHASE_CODE, NICKNAME_REJECT_REASON } from '../shared/game/constants.js';
 import { buildMinimalSnapshot } from './test_fixtures/snapshot.js';
 import { getMocks, resetWsHandlersMocks, createStateJsMockModule } from './ws_handlers_test_setup.js';
 
@@ -54,6 +54,15 @@ vi.mock('./message_codec.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./message_codec.js')>();
   return { ...actual, decodeSnapshot: vi.fn(actual.decodeSnapshot) };
 });
+vi.mock('./entry_flow.js', async () => {
+  const m = getMocks();
+  return {
+    applyEntryStep: m.applyEntryStep,
+    revertEntryStepToNickname: m.revertEntryStepToNickname,
+    clearStartCountdown: m.clearStartCountdown,
+    setNicknameStatus: m.setNicknameStatus,
+  };
+});
 
 import {
   handleBinaryMessage,
@@ -62,6 +71,7 @@ import {
   handleGameStateChange,
   handleRestartStatus,
   handleSnapshot,
+  handleNicknameRejected,
 } from './ws_handlers.js';
 import { decodeSnapshot } from './message_codec.js';
 import { playGameOverSound } from '../shared/ui/audio.js';
@@ -131,6 +141,18 @@ describe('handleBinaryMessage routing', () => {
     expect(mocks.syncRestartVoteUI).toHaveBeenCalled();
   });
 
+  it('routes nickname rejected messages to handler', () => {
+    const buf = new ArrayBuffer(2);
+    const dv = new DataView(buf);
+    dv.setUint8(0, MSG_TYPE.NICKNAME_REJECTED);
+    dv.setUint8(1, NICKNAME_REJECT_REASON.EMPTY);
+    handleBinaryMessage(buf);
+    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
+    expect(mocks.clearStartCountdown).toHaveBeenCalled();
+    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称不能为空');
+    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
+  });
+
   it('warns on unknown message types', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const buf = new ArrayBuffer(1);
@@ -194,15 +216,26 @@ describe('handleGameStateChange', () => {
     expect(mocks.applyPhaseChange).not.toHaveBeenCalled();
   });
 
-  it('derives countdown seconds from remaining ms', async () => {
+  it('derives countdown seconds from remaining ms and applies phase synchronously', () => {
     const buf = new ArrayBuffer(6);
     const dv = new DataView(buf);
     dv.setUint8(1, 3);
     dv.setUint32(2, 5500, true);
     handleGameStateChange(dv);
-    await vi.waitFor(() => {
-      expect(mocks.applyPhaseChange).toHaveBeenCalledWith('countdown', 6);
-    });
+    expect(mocks.applyPhaseChange).toHaveBeenCalledWith('countdown', 6);
+  });
+
+  it('countdown phase change does not trigger tutorial', async () => {
+    const { runTutorialIfNeeded } = await import('./tutorial.js');
+    vi.mocked(runTutorialIfNeeded).mockClear();
+    const buf = new ArrayBuffer(6);
+    const dv = new DataView(buf);
+    dv.setUint8(0, MSG_TYPE.GAME_STATE_CHANGE);
+    dv.setUint8(1, PHASE_CODE.COUNTDOWN);
+    dv.setUint32(2, 3000, true);
+    handleGameStateChange(dv);
+    expect(mocks.applyPhaseChange).toHaveBeenCalledWith('countdown', 3);
+    expect(runTutorialIfNeeded).not.toHaveBeenCalled();
   });
 
   it('handles ended phase with end reason and score banner, skips update when personal-best element is missing', async () => {
@@ -351,5 +384,78 @@ describe('handleSnapshot', () => {
     expect(mocks.state.ripples.some((r) => r.playerIndex === 4)).toBe(true);
     expect(mocks.state.pendingNickname).toBeNull();
     expect(mocks.freezeInterpolation).toHaveBeenCalled();
+  });
+});
+
+describe('handleNicknameRejected', () => {
+  beforeEach(() => {
+    resetWsHandlersMocks();
+    mocks.state.nicknameSubmitted = true;
+    mocks.state.pendingNickname = 'Alice';
+  });
+
+  function buildNicknameRejectedBuf(reason: number): DataView {
+    const buf = new ArrayBuffer(2);
+    const dv = new DataView(buf);
+    dv.setUint8(0, MSG_TYPE.NICKNAME_REJECTED);
+    dv.setUint8(1, reason);
+    return dv;
+  }
+
+  it('resets nickname state, regresses to nickname step, clears countdown, and shows empty-nickname message on EMPTY', () => {
+    handleNicknameRejected(buildNicknameRejectedBuf(NICKNAME_REJECT_REASON.EMPTY));
+    expect(mocks.state.nicknameSubmitted).toBe(false);
+    expect(mocks.state.pendingNickname).toBeNull();
+    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
+    expect(mocks.clearStartCountdown).toHaveBeenCalled();
+    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称不能为空');
+    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
+  });
+
+  it('shows duplicate-nickname message on DUPLICATE', () => {
+    handleNicknameRejected(buildNicknameRejectedBuf(NICKNAME_REJECT_REASON.DUPLICATE));
+    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称已被占用');
+    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
+    expect(mocks.clearStartCountdown).toHaveBeenCalled();
+    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
+  });
+
+  it('shows cooldown message on COOLDOWN', () => {
+    handleNicknameRejected(buildNicknameRejectedBuf(NICKNAME_REJECT_REASON.COOLDOWN));
+    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称冷却中，请稍后');
+    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
+    expect(mocks.clearStartCountdown).toHaveBeenCalled();
+    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
+  });
+
+  it('shows invalid-format message on DECODE_ERROR', () => {
+    handleNicknameRejected(buildNicknameRejectedBuf(NICKNAME_REJECT_REASON.DECODE_ERROR));
+    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称格式无效');
+    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
+    expect(mocks.clearStartCountdown).toHaveBeenCalled();
+    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
+  });
+
+  it('shows generic message on unknown reason code', () => {
+    handleNicknameRejected(buildNicknameRejectedBuf(0xff));
+    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称被拒绝，请重试');
+    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
+    expect(mocks.clearStartCountdown).toHaveBeenCalled();
+    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
+  });
+
+  it('ignores messages shorter than 2 bytes and warns', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const buf = new ArrayBuffer(1);
+    new DataView(buf).setUint8(0, MSG_TYPE.NICKNAME_REJECTED);
+    handleNicknameRejected(new DataView(buf));
+    expect(warn).toHaveBeenCalledWith('[ws] NICKNAME_REJECTED too short, ignoring');
+    expect(mocks.revertEntryStepToNickname).not.toHaveBeenCalled();
+    expect(mocks.clearStartCountdown).not.toHaveBeenCalled();
+    expect(mocks.setNicknameStatus).not.toHaveBeenCalled();
+    expect(mocks.updateUI).not.toHaveBeenCalled();
+    expect(mocks.state.nicknameSubmitted).toBe(true);
+    expect(mocks.state.pendingNickname).toBe('Alice');
+    warn.mockRestore();
   });
 });

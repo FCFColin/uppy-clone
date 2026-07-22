@@ -24,23 +24,26 @@ describe('ui_wind', () => {
     [-0.5, '←', '77%', false, true],
     [0.02, '·', '3%', true, false],
     [0.6, '→', '92%', false, true],
-  ] as const)('wind=%f shows direction=%s strength=%s calm=%s strong=%s', (wind, expectedDir, expectedStrength, isCalm, isStrong) => {
-    updateWindIndicator(wind);
-    const indicator = document.getElementById('wind-indicator')!;
-    const direction = document.getElementById('wind-direction') as HTMLElement;
-    const strength = document.getElementById('wind-strength') as HTMLElement;
-    const fill = document.getElementById('wind-meter-fill') as HTMLElement;
+  ] as const)(
+    'wind=%f shows direction=%s strength=%s calm=%s strong=%s',
+    (wind, expectedDir, expectedStrength, isCalm, isStrong) => {
+      updateWindIndicator(wind);
+      const indicator = document.getElementById('wind-indicator')!;
+      const direction = document.getElementById('wind-direction') as HTMLElement;
+      const strength = document.getElementById('wind-strength') as HTMLElement;
+      const fill = document.getElementById('wind-meter-fill') as HTMLElement;
 
-    expect(indicator.classList.contains('hidden')).toBe(false);
-    expect(direction.textContent).toBe(expectedDir);
-    expect(strength.textContent).toBe(expectedStrength);
-    if (isCalm) {
-      expect(fill.style.width).toBe('0%');
-    }
-    if (isStrong) {
-      expect(fill.classList.contains('strong')).toBe(true);
-    }
-  });
+      expect(indicator.classList.contains('hidden')).toBe(false);
+      expect(direction.textContent).toBe(expectedDir);
+      expect(strength.textContent).toBe(expectedStrength);
+      if (isCalm) {
+        expect(fill.style.width).toBe('0%');
+      }
+      if (isStrong) {
+        expect(fill.classList.contains('strong')).toBe(true);
+      }
+    },
+  );
 
   it('hides indicator outside playing phase', () => {
     state.phase = 'waiting';

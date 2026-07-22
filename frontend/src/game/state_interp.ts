@@ -112,11 +112,7 @@ export function updateInterpolation(tickCount: number): void {
   pushAnchors(tickCount);
 }
 
-function getInterpolatedEntityPrevCurr(
-  curr: ActivePoint,
-  prev: ActivePoint | null,
-  now: number,
-): ActivePoint | null {
+function getInterpolatedEntityPrevCurr(curr: ActivePoint, prev: ActivePoint | null, now: number): ActivePoint | null {
   if (!curr.active) return null;
   if (prev === null) return curr;
   const pos = interpolatePointPrevCurr(prev, curr, now);

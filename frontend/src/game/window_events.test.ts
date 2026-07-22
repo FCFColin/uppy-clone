@@ -33,7 +33,11 @@ vi.mock('./renderer.js', () => ({
   renderOnce: mockRenderOnce,
   $canvas: mockCanvas,
 }));
-vi.mock('./ws_connection.js', () => ({ stopHeartbeat: mockStopHeartbeat, getWs: mockGetWs, connectWebSocket: mockConnectWebSocket }));
+vi.mock('./ws_connection.js', () => ({
+  stopHeartbeat: mockStopHeartbeat,
+  getWs: mockGetWs,
+  connectWebSocket: mockConnectWebSocket,
+}));
 
 import { bindWindowEvents } from './window_events.js';
 
@@ -59,10 +63,17 @@ describe('windowEvents', () => {
     bindWindowEvents();
     const windowEvents = windowSpy.mock.calls.map((c) => c[0]);
     const docEvents = docSpy.mock.calls.map((c) => c[0]);
-    expect(windowEvents).toEqual(expect.arrayContaining([
-      'resize', 'orientationchange', 'error', 'unhandledrejection',
-      'online', 'offline', 'beforeunload',
-    ]));
+    expect(windowEvents).toEqual(
+      expect.arrayContaining([
+        'resize',
+        'orientationchange',
+        'error',
+        'unhandledrejection',
+        'online',
+        'offline',
+        'beforeunload',
+      ]),
+    );
     expect(docEvents).toEqual(expect.arrayContaining(['visibilitychange', 'keydown']));
   });
 });

@@ -1,9 +1,7 @@
 import { apiFetch } from '../shared/network/api_fetch.js';
 
 export type RoomValidateResult =
-  | { ok: true }
-  | { ok: false; reason: 'not_found' | 'ended' }
-  | { ok: true; degraded: true };
+  { ok: true } | { ok: false; reason: 'not_found' } | { ok: true; degraded: true };
 
 interface RoomCheckResponse {
   phase?: string;
@@ -28,7 +26,9 @@ export async function matchNewRoomCode(): Promise<string | null> {
       retries: 0,
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as { lobbyCode: string };
+    // Clone before reading body so the original Response stays usable
+    // (prevents "Body has already been read" when callers retry with the same Response).
+    const data = (await res.clone().json()) as { lobbyCode: string };
     return data.lobbyCode ?? null;
   } catch (e: unknown) {
     console.error('Failed to match room:', e);
@@ -60,12 +60,9 @@ export async function validateRoomCode(code: string): Promise<RoomValidateResult
     if (!res.ok) {
       return { ok: true, degraded: true };
     }
-    const data = (await res.json()) as RoomCheckResponse;
+    const data = (await res.clone().json()) as RoomCheckResponse;
     if (data.degraded) {
       return { ok: true, degraded: true };
-    }
-    if (data.phase === 'ended') {
-      return { ok: false, reason: 'ended' };
     }
     return { ok: true };
   } catch {
@@ -73,6 +70,6 @@ export async function validateRoomCode(code: string): Promise<RoomValidateResult
   }
 }
 
-export function roomErrorMessage(reason: 'not_found' | 'ended'): string {
-  return reason === 'ended' ? '房间已结束' : '房间不存在或已关闭';
+export function roomErrorMessage(reason: 'not_found'): string {
+  return '房间不存在或已关闭';
 }

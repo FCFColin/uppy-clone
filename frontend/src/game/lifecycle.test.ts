@@ -18,7 +18,8 @@ const mockBindEntryUI = vi.hoisted(() => vi.fn());
 const mockOnNicknameSubmit = vi.hoisted(() => vi.fn());
 const mockOnWebSocketOpen = vi.hoisted(() => vi.fn());
 const mockGetEntryStep = vi.hoisted(() => vi.fn(() => 'connecting'));
-
+const mockRouteConnectionError = vi.hoisted(() => vi.fn());
+const mockClearStartCountdown = vi.hoisted(() => vi.fn());
 
 vi.mock('./message_codec.js', () => ({ encodeSetNickname: mockEncodeSetNickname }));
 vi.mock('./state.js', () => ({ dispatch: mockDispatch }));
@@ -28,8 +29,17 @@ vi.mock('../shared/ui/utils.js', () => ({
   safeGetItem: (k: string) => localStorage.getItem(k),
   safeSetItem: (k: string, v: string) => localStorage.setItem(k, v),
 }));
-vi.mock('./renderer.js', () => ({ resizeCanvas: mockResizeCanvas, gameLoop: mockGameLoop, startGameLoop: mockStartGameLoop, renderOnce: mockRenderOnce }));
-vi.mock('./ws_connection.js', () => ({ sendOrQueue: mockSendOrQueue, connectWebSocket: mockConnectWebSocket, showConnectionError: mockShowConnectionError }));
+vi.mock('./renderer.js', () => ({
+  resizeCanvas: mockResizeCanvas,
+  gameLoop: mockGameLoop,
+  startGameLoop: mockStartGameLoop,
+  renderOnce: mockRenderOnce,
+}));
+vi.mock('./ws_connection.js', () => ({
+  sendOrQueue: mockSendOrQueue,
+  connectWebSocket: mockConnectWebSocket,
+  showConnectionError: mockShowConnectionError,
+}));
 vi.mock('./ui_common.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./ui_common.js')>();
   return {
@@ -44,6 +54,8 @@ vi.mock('./entry_flow.js', () => ({
   onNicknameSubmit: mockOnNicknameSubmit,
   onWebSocketOpen: mockOnWebSocketOpen,
   getEntryStep: mockGetEntryStep,
+  routeConnectionError: mockRouteConnectionError,
+  clearStartCountdown: mockClearStartCountdown,
 }));
 
 import { boot, resetBootBound } from './lifecycle.js';
@@ -55,9 +67,9 @@ describe('lifecycle', () => {
     resetBootBound();
   });
 
-  it('boot saves game url to localStorage', () => {
+  it('boot does NOT save game url to localStorage (in-game leaderboard is an overlay)', () => {
     boot();
-    expect(localStorage.getItem('uppy-game-url')).toBe(window.location.href);
+    expect(localStorage.getItem('uppy-game-url')).toBeNull();
   });
 
   it.each([
@@ -83,6 +95,39 @@ describe('lifecycle', () => {
     vi.advanceTimersByTime(8000);
     expect(mockShowConnectionError).toHaveBeenCalledWith('连接超时，请检查网络或稍后重试', { showActions: true });
     vi.useRealTimers();
+  });
+
+  it('waiting timeout fires routeConnectionError when entryStep is waiting', () => {
+    mockGetEntryStep.mockReturnValue('waiting');
+    vi.useFakeTimers();
+    boot();
+    vi.advanceTimersByTime(15000);
+    expect(mockClearStartCountdown).toHaveBeenCalled();
+    expect(mockRouteConnectionError).toHaveBeenCalledWith('未收到服务器响应，请重试', { showActions: true });
+    vi.useRealTimers();
+    mockGetEntryStep.mockReturnValue('connecting');
+  });
+
+  it('waiting timeout is no-op when entryStep is handoff', () => {
+    mockGetEntryStep.mockReturnValue('handoff');
+    vi.useFakeTimers();
+    boot();
+    vi.advanceTimersByTime(15000);
+    expect(mockClearStartCountdown).not.toHaveBeenCalled();
+    expect(mockRouteConnectionError).not.toHaveBeenCalled();
+    vi.useRealTimers();
+    mockGetEntryStep.mockReturnValue('connecting');
+  });
+
+  it('waiting timeout is no-op when entryStep is nickname', () => {
+    mockGetEntryStep.mockReturnValue('nickname');
+    vi.useFakeTimers();
+    boot();
+    vi.advanceTimersByTime(15000);
+    expect(mockClearStartCountdown).not.toHaveBeenCalled();
+    expect(mockRouteConnectionError).not.toHaveBeenCalled();
+    vi.useRealTimers();
+    mockGetEntryStep.mockReturnValue('connecting');
   });
 
   it('boot registers game-ws-open listener', () => {

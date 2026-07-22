@@ -8,7 +8,6 @@ import {
 } from './constants.js';
 import {
   showReconnectBanner,
-  updatePingDisplay,
   showConnectionError as showConnectionErrorUI,
   hideReconnectBanner,
   type ConnectionErrorOptions,
@@ -113,9 +112,6 @@ export function handlePong(): void {
   if (connectionState.heartbeatTimeout) {
     clearTimeout(connectionState.heartbeatTimeout);
     connectionState.heartbeatTimeout = null;
-  }
-  if (connectionState.lastPingTime > 0) {
-    updatePingDisplay(Date.now() - connectionState.lastPingTime);
   }
 }
 
@@ -242,7 +238,7 @@ async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
       if (!check.ok) {
         showConnectionError(roomErrorMessage(check.reason), {
           showActions: true,
-          title: check.reason === 'ended' ? '房间已结束' : '无法进入房间',
+          title: '无法进入房间',
         });
         return null;
       }
@@ -289,11 +285,20 @@ function setupSocketHandlers(socket: WebSocket): void {
     enqueueBinaryMessage(event.data);
   };
 
-  socket.onclose = () => {
+  socket.onclose = (event?: CloseEvent) => {
     stopHeartbeat();
     onWebSocketClosed();
     if (!getWsEverOpened()) {
-      const message = wasRoomPreChecked() ? '无法连接房间，请稍后重试' : '连接失败，请检查网络后重试';
+      let message: string;
+      if (wasRoomPreChecked()) {
+        const code = event?.code;
+        if (code === 1006) message = '连接中断，请检查网络后重试';
+        else if (code === 1008) message = '认证失败，请刷新页面重试';
+        else if (code === 1011) message = '服务器内部错误，请稍后重试';
+        else message = '无法连接房间，请稍后重试';
+      } else {
+        message = '连接失败，请检查网络后重试';
+      }
       showConnectionError(message, { showActions: true });
       return;
     }
@@ -331,10 +336,6 @@ export async function connectWebSocket(): Promise<void> {
   const urlCode = getLobbyCodeFromUrl();
   let lobbyCode: string | null = urlCode;
 
-  if (lobbyCode && getEntryStep() === 'connecting') {
-    onLobbyCodeReady(lobbyCode);
-  }
-
   if (lobbyCode && shouldSkipConnect(lobbyCode)) {
     return;
   }
@@ -346,11 +347,18 @@ export async function connectWebSocket(): Promise<void> {
     const [session, resolvedCode] = await Promise.all([establishGameSession(), resolveRoomCode(urlCode)]);
 
     if (!session.ok) {
-      showConnectionError(sessionErrorMessage(session));
+      showConnectionError(sessionErrorMessage(session), { showActions: true });
       return;
     }
     lobbyCode = resolvedCode;
     if (!lobbyCode) return;
+
+    // 推迟 onLobbyCodeReady 到 establishGameSession/resolveRoomCode 都成功：
+    // 失败时 entryStep 保持 'connecting'，showConnectionError 才能正确显示错误面板
+    // 而不被 nickname-setup-screen 的 entry-overlay-active 盖住。
+    if (urlCode && getEntryStep() === 'connecting') {
+      onLobbyCodeReady(lobbyCode);
+    }
 
     if (shouldSkipConnect(lobbyCode)) {
       return;

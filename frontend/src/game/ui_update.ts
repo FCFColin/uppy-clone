@@ -4,10 +4,19 @@ import { truncateNickname } from './message_codec.js';
 import type { GamePhase } from './state.js';
 import { dispatch, getState } from './state.js';
 import {
-  $waitingScreen, $endedScreen, $gameHud, $cooldownIndicator,
-  $hudScore, $hudPlayers, $finalScore, $hudPlayerList,
-  $endPlayerList, $playerListWaiting,
+  $waitingScreen,
+  $endedScreen,
+  $gameHud,
+  $cooldownIndicator,
+  $hudScore,
+  $hudPlayers,
+  $finalScore,
+  $hudPlayerList,
+  $endPlayerList,
+  $playerListWaiting,
   $nicknameSetupScreen,
+  updateHudTimer,
+  onGamePhaseChange,
 } from './ui_common.js';
 import { updateWindIndicator, hideWindIndicator } from './ui_common.js';
 import { resizeCanvas } from './renderer.js';
@@ -22,14 +31,14 @@ let lastPlayerListKey = '';
 let lastEndListKey = '';
 
 function playerListKey(): string {
-  return getState().players
-    .map(p => `${p.playerIndex}:${p.nickname}:${p.palette}`)
+  return getState()
+    .players.map((p) => `${p.playerIndex}:${p.nickname}:${p.palette}`)
     .join('|');
 }
 
 function endListKey(): string {
-  return getState().players
-    .map(p => `${p.playerIndex}:${p.scoreContribution}:${p.nickname}:${p.palette}`)
+  return getState()
+    .players.map((p) => `${p.playerIndex}:${p.scoreContribution}:${p.nickname}:${p.palette}`)
     .sort()
     .join('|');
 }
@@ -91,9 +100,10 @@ function setOverlayVisibility(): void {
 function displayNickname(p: { playerIndex: number; nickname: string }): string {
   const players = getState().players;
   const pending = getState().pendingNickname;
-  const raw = (pending && players.length === 1 && players[0]?.playerIndex === p.playerIndex)
-    ? pending
-    : (p.nickname || 'P' + p.playerIndex);
+  const raw =
+    pending && players.length === 1 && players[0]?.playerIndex === p.playerIndex
+      ? pending
+      : p.nickname || 'P' + p.playerIndex;
   // game-022: Truncate nickname for display to prevent layout overflow.
   // The backend also truncates, but the pending nickname (being typed) may
   // temporarily exceed the limit before the SET_NICKNAME message is sent.
@@ -102,11 +112,7 @@ function displayNickname(p: { playerIndex: number; nickname: string }): string {
   return name;
 }
 
-function renderPlayerItems(
-  container: HTMLElement,
-  includeScore: boolean,
-  players = getState().players,
-): void {
+function renderPlayerItems(container: HTMLElement, includeScore: boolean, players = getState().players): void {
   container.textContent = '';
   for (const p of players) {
     const color: string = PALETTE_COLORS[p.palette % PALETTE_COLORS.length]!;
@@ -177,9 +183,11 @@ export function updateUI(opts?: { force?: boolean }): void {
   if (phaseChanged || force) {
     lastPhase = getState().phase;
     setOverlayVisibility();
+    if (phaseChanged) onGamePhaseChange();
   }
 
   updateScoreHud();
+  updateHudTimer();
 
   if (getState().phase === 'ended') {
     $finalScore.textContent = String(getState().score);

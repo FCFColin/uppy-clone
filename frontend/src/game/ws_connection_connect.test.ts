@@ -104,10 +104,12 @@ describe('connectWebSocket', () => {
       reason: 'network',
     } as import('../shared/network/session.js').SessionResult);
     await connectWebSocket();
-    expect(showConnectionErrorUI).toHaveBeenCalled();
+    expect(showConnectionErrorUI).toHaveBeenCalledWith('auth failed', { showActions: true });
   });
 
-  it('calls onLobbyCodeReady before session when URL has code', async () => {
+  it('calls onLobbyCodeReady after session succeeds when URL has code', async () => {
+    // 回归：onLobbyCodeReady 必须在 establishGameSession 成功后才调用，
+    // 否则失败时 entryStep 已推进到 'nickname'，错误面板会被 nickname-setup-screen 盖住。
     const order: string[] = [];
     connectMocks.onLobbyCodeReady.mockImplementation((code: string) => {
       order.push(`ready:${code}`);
@@ -117,8 +119,19 @@ describe('connectWebSocket', () => {
       return { ok: true as const };
     });
     await connectWebSocket();
-    expect(order[0]).toBe('ready:URL22');
-    expect(order[1]).toBe('session');
+    expect(order[0]).toBe('session');
+    expect(order[1]).toBe('ready:URL22');
+  });
+
+  it('does not call onLobbyCodeReady when session fails', async () => {
+    // 失败时 entryStep 必须保持 'connecting'，不能调用 onLobbyCodeReady 推进到 'nickname'
+    connectMocks.establishGameSession.mockResolvedValueOnce({
+      ok: false,
+      reason: 'network',
+    } as import('../shared/network/session.js').SessionResult);
+    await connectWebSocket();
+    expect(connectMocks.onLobbyCodeReady).not.toHaveBeenCalled();
+    expect(showConnectionErrorUI).toHaveBeenCalled();
   });
 
   it('does not call onLobbyCodeReady again when already past connecting', async () => {
@@ -128,11 +141,11 @@ describe('connectWebSocket', () => {
   });
 
   it('shows error when room validation fails', async () => {
-    connectMocks.validateRoomCode.mockResolvedValueOnce({ ok: false, reason: 'ended' });
+    connectMocks.validateRoomCode.mockResolvedValueOnce({ ok: false, reason: 'not_found' });
     await connectWebSocket();
     expect(showConnectionErrorUI).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ title: '房间已结束' }),
+      expect.objectContaining({ title: '无法进入房间' }),
     );
   });
 

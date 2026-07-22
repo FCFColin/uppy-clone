@@ -35,6 +35,10 @@ export interface WsHandlersMocks {
   updateInterpolation: ReturnType<typeof vi.fn>;
   freezeInterpolation: ReturnType<typeof vi.fn>;
   isDuplicateSeq: ReturnType<typeof vi.fn>;
+  applyEntryStep: ReturnType<typeof vi.fn>;
+  revertEntryStepToNickname: ReturnType<typeof vi.fn>;
+  clearStartCountdown: ReturnType<typeof vi.fn>;
+  setNicknameStatus: ReturnType<typeof vi.fn>;
 }
 
 function createMocks(): WsHandlersMocks {
@@ -69,6 +73,10 @@ function createMocks(): WsHandlersMocks {
     updateInterpolation: vi.fn(),
     freezeInterpolation: vi.fn(),
     isDuplicateSeq: vi.fn(() => false),
+    applyEntryStep: vi.fn(),
+    revertEntryStepToNickname: vi.fn(),
+    clearStartCountdown: vi.fn(),
+    setNicknameStatus: vi.fn(),
   };
 }
 
@@ -136,7 +144,6 @@ export function createUiCommonMock() {
   return {
     hideReconnectBanner: vi.fn(),
     showReconnectBanner: vi.fn(),
-    updatePingDisplay: vi.fn(),
     showConnectionError: vi.fn(),
   };
 }

@@ -145,6 +145,21 @@ describe('entry_flow_dom', () => {
       expect(window.location.href).toContain('NEW12');
       vi.unstubAllGlobals();
     });
+
+    it('strips entry-overlay-active from nickname-setup-screen and waiting-screen (defense-in-depth)', () => {
+      // 回归：即使 applyEntryStep('error') 未触发 syncOverlays，renderEntryFullScreenError
+      // 自身也要主动清理 entry-overlay-active，否则 nickname-setup-screen/waiting-screen
+      // (z-index 10100) 会盖住 loading-overlay 错误面板 (z-index 9999)。
+      const $nickname = document.getElementById('nickname-setup-screen')!;
+      const $waiting = document.getElementById('waiting-screen')!;
+      $nickname.classList.add('entry-overlay-active');
+      $waiting.classList.add('entry-overlay-active');
+
+      renderEntryFullScreenError('连接失败');
+
+      expect($nickname.classList.contains('entry-overlay-active')).toBe(false);
+      expect($waiting.classList.contains('entry-overlay-active')).toBe(false);
+    });
   });
 
   describe('syncEntryOverlays', () => {
@@ -165,6 +180,27 @@ describe('entry_flow_dom', () => {
       showTarget('connecting', 'loading-overlay');
       showTarget('nickname', 'nickname-setup-screen');
       showTarget('waiting', 'waiting-screen');
+    });
+
+    it('syncEntryOverlays error step strips entry-overlay-active so loading-overlay error panel stays visible', () => {
+      // 回归：entryStep='error' 时 nickname-setup-screen/waiting-screen 不能带
+      // entry-overlay-active (z-index 10100)，否则会盖住 loading-overlay 错误面板 (z-index 10000)。
+      const $nickname = document.getElementById('nickname-setup-screen')!;
+      const $waiting = document.getElementById('waiting-screen')!;
+      $nickname.classList.add('entry-overlay-active');
+      $waiting.classList.add('entry-overlay-active');
+
+      const ctx: EntryOverlayContext = {
+        entryStep: 'error',
+        wsConnected: false,
+        lobbyCode: 'ABC12',
+        phase: 'waiting',
+        getWaitingTitleText: () => '',
+      };
+      syncEntryOverlays(ctx);
+
+      expect($nickname.classList.contains('entry-overlay-active')).toBe(false);
+      expect($waiting.classList.contains('entry-overlay-active')).toBe(false);
     });
   });
 });

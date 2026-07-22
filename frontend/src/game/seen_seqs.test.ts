@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  isDuplicateSeq,
-  clearSeenSeqs,
-  getSeenSeqsSize,
-} from './seen_seqs.js';
+import { isDuplicateSeq, clearSeenSeqs, getSeenSeqsSize } from './seen_seqs.js';
 import { MAX_SEEN_SEQS } from './constants.js';
 
 describe('seen_seqs', () => {

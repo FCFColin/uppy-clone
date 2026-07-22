@@ -4,7 +4,13 @@ import { resetInterpolation, freezeInterpolation } from './state_interp.js';
 import { clearSeenSeqs } from './seen_seqs.js';
 import { resetRoundClientState } from './state_interp.js';
 import { updateUI } from './ui_update.js';
-import { startCountdownTimer, hideCountdownOverlay, showCountdownOverlay, startCooldownUpdater, stopCooldownUpdater } from './ui_common.js';
+import {
+  startCountdownTimer,
+  hideCountdownOverlay,
+  showCountdownOverlay,
+  startCooldownUpdater,
+  stopCooldownUpdater,
+} from './ui_common.js';
 import { clearRestartCountdownTimer as clearVoteCountdownTimer } from './restart_vote_ui.js';
 import { tryEntryHandoff } from './entry_flow.js';
 /**
@@ -15,23 +21,7 @@ import { tryEntryHandoff } from './entry_flow.js';
  * We must allow every forward/backward transition so the client can re-sync.
  */
 export function shouldApplySnapshotPhase(snapshotPhase: GamePhase): boolean {
-  const client = getState().phase;
-  if (snapshotPhase === client) return true;
-
-  switch (client) {
-    case 'waiting':
-      return snapshotPhase === 'countdown' || snapshotPhase === 'playing' || snapshotPhase === 'ended';
-    case 'countdown':
-      return snapshotPhase === 'playing';
-    case 'playing':
-      // Allow transition to 'ended' (normal game over), 'countdown' (new round
-      // after server restart or auto-restart), and 'waiting' (server reset).
-      return snapshotPhase === 'ended' || snapshotPhase === 'countdown' || snapshotPhase === 'waiting';
-    case 'ended':
-      return snapshotPhase === 'countdown' || snapshotPhase === 'waiting';
-    default:
-      return true;
-  }
+  return true;
 }
 
 /** Hide nickname UI once the round begins — nickname belongs to setup only. */
@@ -77,7 +67,10 @@ function onEnterEnded(): void {
   hideCountdownOverlay();
   hideNicknameUI();
   freezeInterpolation();
-  dispatch({ type: 'SET_STATE', partial: { restartVotes: { yes: 0, total: getState().players.length, countdownMs: 0 } } });
+  dispatch({
+    type: 'SET_STATE',
+    partial: { restartVotes: { yes: 0, total: getState().players.length, countdownMs: 0 } },
+  });
 }
 
 function onEnterWaiting(): void {
@@ -102,9 +95,9 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
 
   // Don't enter gameplay (or ended) until the player clicked「进入游戏」.
   if (
-    !getState().nicknameSubmitted
-    && prevPhase === 'waiting'
-    && (nextPhase === 'countdown' || nextPhase === 'playing' || nextPhase === 'ended')
+    !getState().nicknameSubmitted &&
+    prevPhase === 'waiting' &&
+    (nextPhase === 'countdown' || nextPhase === 'playing' || nextPhase === 'ended')
   ) {
     return false;
   }

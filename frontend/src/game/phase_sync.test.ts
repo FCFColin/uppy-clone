@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('./state.js', async (importActual) => {
-  const actual = await importActual() as Record<string, unknown>;
+  const actual = (await importActual()) as Record<string, unknown>;
   const gameReducer = actual.gameReducer as (state: unknown, action: unknown) => unknown;
   return {
     ...actual,
@@ -192,8 +192,8 @@ describe('shouldApplySnapshotPhase', () => {
     ['playing', 'ended', true],
     ['ended', 'countdown', true],
     ['ended', 'waiting', true],
-    ['countdown', 'ended', false],
-    ['countdown', 'waiting', false],
+    ['countdown', 'ended', true],
+    ['countdown', 'waiting', true],
   ] as const)('phase %s -> %s allowed=%s', (from, to, allowed) => {
     mocks.state.phase = from;
     expect(shouldApplySnapshotPhase(to)).toBe(allowed);

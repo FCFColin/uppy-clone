@@ -12,7 +12,7 @@ const inputMockState = vi.hoisted(() => ({
   balloon: { x: 0.5, y: 0.5 },
 }));
 vi.mock('./state.js', async (importActual) => {
-  const actual = await importActual() as Record<string, unknown>;
+  const actual = (await importActual()) as Record<string, unknown>;
   const gameReducer = actual.gameReducer as (state: unknown, action: unknown) => unknown;
   return {
     ...actual,
@@ -120,8 +120,15 @@ describe('input', () => {
     document.body.innerHTML = '<canvas id="game-canvas" width="100" height="100"></canvas>';
     const canvas = document.getElementById('game-canvas')!;
     canvas.getBoundingClientRect = () => ({
-      left: 0, top: 0, width: 100, height: 100,
-      right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}),
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 100,
+      right: 100,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
     });
     tapAtBalloonCenter();
     expect(sendOrQueue).toHaveBeenCalledOnce();

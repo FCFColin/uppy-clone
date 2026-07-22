@@ -34,26 +34,61 @@ export function bindWindowEvents(): void {
     if ('ontouchstart' in window) return;
     handleTapWithDedup(e.clientX, e.clientY);
   });
-  $canvas.addEventListener('touchstart', (e: TouchEvent) => {
-    e.preventDefault();
-    const touch: Touch = e.touches[0]!;
-    handleTapWithDedup(touch.clientX, touch.clientY);
-  }, { passive: false });
+  $canvas.addEventListener(
+    'touchstart',
+    (e: TouchEvent) => {
+      e.preventDefault();
+      if (!e.touches || !e.touches[0]) return;
+      const touch: Touch = e.touches[0];
+      handleTapWithDedup(touch.clientX, touch.clientY);
+    },
+    { passive: false },
+  );
 
   window.addEventListener('resize', handleResize);
   window.addEventListener('orientationchange', handleResize);
 
-  if ($copyCodeBtn) $copyCodeBtn.addEventListener('click', () => { void copyCode(); });
-  if ($hudCopyBtn) $hudCopyBtn.addEventListener('click', () => { void copyCode(); });
+  if ($copyCodeBtn)
+    $copyCodeBtn.addEventListener('click', () => {
+      void copyCode();
+    });
+  if ($hudCopyBtn)
+    $hudCopyBtn.addEventListener('click', () => {
+      void copyCode();
+    });
 
   document.getElementById('random-nickname-btn')?.addEventListener('click', () => {
-    if ($setupNicknameInput) $setupNicknameInput.value = pickRandomNickname();
+    if ($setupNicknameInput) {
+      $setupNicknameInput.value = pickRandomNickname();
+      $setupNicknameInput.dispatchEvent(new Event('input'));
+    }
   });
+  const $validCheck = document.getElementById('nickname-valid-check');
+  const $nicknameInput = $setupNicknameInput;
+  if ($nicknameInput && $validCheck) {
+    $nicknameInput.addEventListener('input', () => {
+      const len = $nicknameInput.value.trim().length;
+      $validCheck.classList.toggle('hidden', len < 2 || len > 12);
+    });
+  }
+  const $nicknameForm = document.getElementById('nickname-entry-form') as HTMLFormElement | null;
+  if ($nicknameForm && $nicknameInput) {
+    $nicknameForm.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && document.activeElement === $nicknameInput) {
+        e.preventDefault();
+        $nicknameForm.requestSubmit();
+      }
+    });
+  }
   document.getElementById('restart-btn')?.addEventListener('click', requestRestart);
 
   document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === ' ' || e.key === 'Enter') {
-      if (getState().phase === 'playing' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+      if (
+        getState().phase === 'playing' &&
+        document.activeElement?.tagName !== 'INPUT' &&
+        document.activeElement?.tagName !== 'TEXTAREA'
+      ) {
         e.preventDefault();
         tapAtBalloonCenter();
       }

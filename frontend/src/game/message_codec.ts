@@ -6,7 +6,6 @@ import { CLIENT_MSG } from '../shared/game/constants.js';
 const _textEncoder = new TextEncoder();
 const _textDecoder = new TextDecoder();
 
-
 const phaseByCode: Record<number, GamePhase> = {
   [PHASE_CODE.WAITING]: 'waiting',
   [PHASE_CODE.PLAYING]: 'playing',
@@ -29,7 +28,7 @@ export function codeToPhase(code: number): GamePhase {
 export function calculateCooldown(playerCount: number): number {
   return Math.min(
     COOLDOWN.MAX_MS,
-    Math.round(COOLDOWN.BASE_MS + COOLDOWN.LOG_COEFFICIENT * Math.log2(Math.max(1, playerCount)))
+    Math.round(COOLDOWN.BASE_MS + COOLDOWN.LOG_COEFFICIENT * Math.log2(Math.max(1, playerCount))),
   );
 }
 
@@ -73,8 +72,10 @@ export interface DecodedSnapshot {
 function readBalloon(view: DataView, offset: number) {
   return {
     balloon: {
-      x: view.getFloat32(offset, true), y: view.getFloat32(offset + 4, true),
-      vx: view.getFloat32(offset + 8, true), vy: view.getFloat32(offset + 12, true),
+      x: view.getFloat32(offset, true),
+      y: view.getFloat32(offset + 4, true),
+      vx: view.getFloat32(offset + 8, true),
+      vy: view.getFloat32(offset + 12, true),
     },
     bytesRead: 16,
   };
@@ -102,7 +103,15 @@ function readGhost(view: DataView, offset: number) {
   if (!active || view.byteLength < offset + 11) {
     return { ghost: { active, x: 0, y: 0, repelTimer: 0 }, bytesRead: 1 };
   }
-  return { ghost: { active, x: view.getFloat32(offset + 1, true), y: view.getFloat32(offset + 5, true), repelTimer: view.getUint16(offset + 9, true) }, bytesRead: 11 };
+  return {
+    ghost: {
+      active,
+      x: view.getFloat32(offset + 1, true),
+      y: view.getFloat32(offset + 5, true),
+      repelTimer: view.getUint16(offset + 9, true),
+    },
+    bytesRead: 11,
+  };
 }
 
 function clampedNickLength(view: DataView, offset: number): number {
@@ -120,11 +129,16 @@ function readPlayers(view: DataView, offset: number) {
   const now = Date.now();
   for (let i = 0; i < playerCount; i++) {
     if (view.byteLength < o + 15) break;
-    const playerIndex = view.getUint16(o, true); o += 2;
-    const cooldownRemainingMs = view.getUint32(o, true); o += 4;
-    const palette = view.getUint32(o, true); o += 4;
-    const scoreContribution = view.getUint32(o, true); o += 4;
-    const nickLen = clampedNickLength(view, o); o += 1;
+    const playerIndex = view.getUint16(o, true);
+    o += 2;
+    const cooldownRemainingMs = view.getUint32(o, true);
+    o += 4;
+    const palette = view.getUint32(o, true);
+    o += 4;
+    const scoreContribution = view.getUint32(o, true);
+    o += 4;
+    const nickLen = clampedNickLength(view, o);
+    o += 1;
     let nickname = nickLen > 0 ? _textDecoder.decode(new Uint8Array(view.buffer, view.byteOffset + o, nickLen)) : '';
     nickname = truncateNickname(nickname);
     o += nickLen;
@@ -139,9 +153,12 @@ export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
   }
 
   let o = 1;
-  const timestamp = view.getUint32(o, true); o += 4;
-  const score = view.getUint32(o, true); o += 4;
-  const phaseCode = view.getUint8(o); o += 1;
+  const timestamp = view.getUint32(o, true);
+  o += 4;
+  const score = view.getUint32(o, true);
+  o += 4;
+  const phaseCode = view.getUint8(o);
+  o += 1;
   const phase = codeToPhase(phaseCode);
 
   const balloonResult = readBalloon(view, o);
@@ -163,12 +180,16 @@ export function decodeSnapshot(view: DataView): DecodedSnapshot | null {
 
   const ripples: DecodedSnapshot['ripples'] = [];
   if (o < view.byteLength) {
-    const rippleCount = view.getUint8(o); o += 1;
+    const rippleCount = view.getUint8(o);
+    o += 1;
     for (let i = 0; i < rippleCount; i++) {
       if (o + 10 > view.byteLength) break;
-      const pIdx = view.getUint16(o, true); o += 2;
-      const rx = view.getFloat32(o, true); o += 4;
-      const ry = view.getFloat32(o, true); o += 4;
+      const pIdx = view.getUint16(o, true);
+      o += 2;
+      const rx = view.getFloat32(o, true);
+      o += 4;
+      const ry = view.getFloat32(o, true);
+      o += 4;
       ripples.push({ playerIndex: pIdx, x: rx, y: ry, time: Date.now() });
     }
   }
@@ -195,7 +216,7 @@ export function applySnapshot(decoded: DecodedSnapshot, target?: SnapshotApplyTa
     balloon: { ...decoded.balloon },
     bird: { ...decoded.bird },
     ghost: { ...decoded.ghost },
-    players: decoded.players.map(p => ({ ...p })),
+    players: decoded.players.map((p) => ({ ...p })),
   };
   if (target) {
     Object.assign(target, snapshot);

@@ -40,8 +40,22 @@ describe('bestScoreCookie', () => {
     ['falls back to cookie on API failure', 'reject', null, 99, 99, 'uppy-best-score=99'],
     ['returns API value on success', 'resolve-ok', { bestScore: 200 }, 0, 200, null],
     ['returns 0 when API omits bestScore', 'resolve-ok', {}, 0, 0, null],
-    ['writes API score back to cookie when higher than cookie', 'resolve-ok', { bestScore: 200 }, 50, 200, 'uppy-best-score=200'],
-    ['does not overwrite cookie when API score is lower', 'resolve-ok', { bestScore: 100 }, 300, 100, 'uppy-best-score=300'],
+    [
+      'writes API score back to cookie when higher than cookie',
+      'resolve-ok',
+      { bestScore: 200 },
+      50,
+      200,
+      'uppy-best-score=200',
+    ],
+    [
+      'does not overwrite cookie when API score is lower',
+      'resolve-ok',
+      { bestScore: 100 },
+      300,
+      100,
+      'uppy-best-score=300',
+    ],
   ] as const)('fetchUserBestScore %s', async (_label, mode, apiBody, cookieInitial, expectedScore, expectedCookie) => {
     if (cookieInitial) document.cookie = `uppy-best-score=${cookieInitial}`;
     if (mode === 'reject') {

@@ -5,11 +5,9 @@ import { calculateCooldown } from './message_codec.js';
 import { isTutorialDone } from '../shared/data/cookies.js';
 import { PHYSICS } from '../shared/game/constants.js';
 import { routeConnectionError, type EntryFullScreenErrorOptions } from './entry_flow.js';
+import { icons } from '../icons.js';
 
-import {
-  NICKNAME_ADJECTIVES,
-  NICKNAME_CATEGORIES,
-} from '../shared/assets/nickname_pools_gen.js';
+import { NICKNAME_ADJECTIVES, NICKNAME_CATEGORIES } from '../shared/assets/nickname_pools_gen.js';
 
 export const $waitingScreen: HTMLElement = document.getElementById('waiting-screen')!;
 export const $endedScreen: HTMLElement = document.getElementById('ended-screen')!;
@@ -20,6 +18,7 @@ export const $cooldownText: HTMLElement = document.getElementById('cooldown-text
 export const $lobbyCode: HTMLElement = document.getElementById('lobby-code')!;
 export const $hudCode: HTMLElement = document.getElementById('hud-code')!;
 export const $hudScore: HTMLElement = document.getElementById('hud-score')!;
+export const $hudTimer: HTMLElement | null = document.getElementById('hud-timer');
 export const $hudPlayers: HTMLElement = document.getElementById('hud-players')!;
 export const $hudPlayerList: HTMLElement = document.getElementById('hud-player-list')!;
 export const $finalScore: HTMLElement = document.getElementById('final-score')!;
@@ -27,8 +26,14 @@ export const $endPlayerList: HTMLElement = document.getElementById('end-player-l
 export const $playerListWaiting: HTMLElement = document.getElementById('player-list-waiting')!;
 export const $copyCodeBtn: HTMLElement | null = document.getElementById('copy-code-btn');
 export const $hudCopyBtn: HTMLElement | null = document.getElementById('hud-copy-btn');
+export const $leaveGameBtn: HTMLElement | null = document.getElementById('leave-game-btn');
 export const $nicknameSetupScreen: HTMLElement | null = document.getElementById('nickname-setup-screen');
-export const $setupNicknameInput: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
+export const $setupNicknameInput: HTMLInputElement | null = document.getElementById(
+  'setup-nickname-input',
+) as HTMLInputElement | null;
+
+let gameStartTime: number | null = null;
+let hudBound = false;
 
 export function pickRandomNickname(): string {
   const adj: string = NICKNAME_ADJECTIVES[Math.floor(Math.random() * NICKNAME_ADJECTIVES.length)]!;
@@ -89,7 +94,6 @@ export function showCountdownOverlay(): void {
   document.getElementById('countdown-overlay')?.classList.remove('hidden');
 }
 
-
 // ===== Nickname / copy / layout / fallback (from ui_utils) =====
 
 export async function copyCode(): Promise<void> {
@@ -106,7 +110,8 @@ export function showFallbackErrorScreen(message: string): void {
   if (document.getElementById('game-fallback-error')) return;
   const overlay: HTMLDivElement = document.createElement('div');
   overlay.id = 'game-fallback-error';
-  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-family:sans-serif;';
+  overlay.style.cssText =
+    'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-family:sans-serif;';
 
   const h2: HTMLHeadingElement = document.createElement('h2');
   h2.style.marginBottom = '1rem';
@@ -117,7 +122,8 @@ export function showFallbackErrorScreen(message: string): void {
   p.textContent = message;
 
   const btn: HTMLButtonElement = document.createElement('button');
-  btn.style.cssText = 'padding:0.8rem 2rem;font-size:1rem;cursor:pointer;border:none;border-radius:8px;background:#0f3460;color:#fff;';
+  btn.style.cssText =
+    'padding:0.8rem 2rem;font-size:1rem;cursor:pointer;border:none;border-radius:8px;background:#0f3460;color:#fff;';
   btn.textContent = '刷新页面';
   btn.onclick = () => location.reload();
 
@@ -126,7 +132,6 @@ export function showFallbackErrorScreen(message: string): void {
   overlay.appendChild(btn);
   document.body.appendChild(overlay);
 }
-
 
 // ===== Cooldown bar (from ui_cooldown) =====
 
@@ -172,7 +177,6 @@ export function updateCooldownBar(): void {
   }
 }
 
-
 // ===== Wind indicator (from ui_wind) =====
 
 const WIND_CLAMP = PHYSICS.WIND_CLAMP;
@@ -182,6 +186,7 @@ let $windIndicator: HTMLElement | null = null;
 let $windDirection: HTMLElement | null = null;
 let $windMeterFill: HTMLElement | null = null;
 let $windStrength: HTMLElement | null = null;
+let $windPercent: HTMLElement | null = null;
 let $windFirstHint: HTMLElement | null = null;
 let windHintShown = false;
 
@@ -191,12 +196,14 @@ function ensureWindElements(): void {
     $windDirection = null;
     $windMeterFill = null;
     $windStrength = null;
+    $windPercent = null;
     $windFirstHint = null;
   }
   if (!$windIndicator) $windIndicator = document.getElementById('wind-indicator');
   if (!$windDirection) $windDirection = document.getElementById('wind-direction');
   if (!$windMeterFill) $windMeterFill = document.getElementById('wind-meter-fill');
   if (!$windStrength) $windStrength = document.getElementById('wind-strength');
+  if (!$windPercent) $windPercent = document.getElementById('wind-percent');
   if (!$windFirstHint) $windFirstHint = document.getElementById('wind-first-hint');
 }
 
@@ -214,8 +221,9 @@ export function updateWindIndicator(wind: number): void {
   const isCalm = magnitude < 0.08;
 
   $windDirection.textContent = windDirArrow(clamped, isCalm);
-  $windDirection.style.color = magnitude >= STRONG_WIND_THRESHOLD ? '#ffb4c4' : '#a8d4ff';
+  $windDirection.style.color = magnitude >= STRONG_WIND_THRESHOLD ? '#ffb4c4' : '#7dd3fc';
   $windStrength.textContent = `${pct}%`;
+  if ($windPercent) $windPercent.textContent = `${pct}%`;
 
   $windMeterFill.classList.toggle('strong', magnitude >= STRONG_WIND_THRESHOLD);
   applyWindMeterStyle($windMeterFill, clamped, magnitude, isCalm);
@@ -265,7 +273,6 @@ export function resetWindHint(): void {
   windHintShown = false;
 }
 
-
 // ===== Connection UI (from connection_ui) =====
 
 export type ConnectionErrorOptions = EntryFullScreenErrorOptions;
@@ -288,24 +295,12 @@ export function showReconnectBanner(attempt: number): void {
   if ($banner) $banner.classList.remove('hidden');
 }
 
-export function updatePingDisplay(rttMs: number): void {
-  if (!Number.isFinite(rttMs)) return;
-  const $ping: HTMLElement | null = document.getElementById('ping-display');
-  if (!$ping) return;
-  $ping.classList.toggle('hidden', rttMs <= 150);
-  if (rttMs > 150) {
-    $ping.textContent = `${rttMs}ms`;
-    $ping.classList.toggle('ping-unstable', rttMs > 200);
-  }
-}
-
 export function bindReconnectRetry(retryFn: () => void): void {
   if (retryBound) return;
   retryBound = true;
   const btn = document.getElementById('reconnect-retry-btn');
   btn?.addEventListener('click', () => retryFn());
 }
-
 
 // ===== Waiting tips (from waiting_tips) =====
 
@@ -328,4 +323,92 @@ export function initWaitingTips(): () => void {
   }, 500);
 
   return () => clearInterval(intervalId);
+}
+
+// ===== HUD Icons & Timer =====
+
+function formatGameTime(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+export function updateHudTimer(): void {
+  if (!$hudTimer) return;
+  if (getState().phase !== 'playing' || gameStartTime === null) {
+    $hudTimer.textContent = '00:00';
+    return;
+  }
+  const elapsed = Date.now() - gameStartTime;
+  $hudTimer.textContent = formatGameTime(elapsed);
+}
+
+export function onGamePhaseChange(): void {
+  if (getState().phase === 'playing' && gameStartTime === null) {
+    gameStartTime = Date.now();
+  } else if (getState().phase === 'waiting' || getState().phase === 'ended') {
+    if (getState().phase === 'waiting') {
+      gameStartTime = null;
+    }
+  }
+}
+
+function injectHudIcons(): void {
+  const scoreIcon = document.querySelector('.hud-icon-score');
+  if (scoreIcon) scoreIcon.innerHTML = icons.Trophy({ size: 18, color: '#fbbf24' });
+
+  const timerIcon = document.querySelector('.hud-icon-timer');
+  if (timerIcon) timerIcon.innerHTML = icons.Timer({ size: 18 });
+
+  const playersIcon = document.querySelector('.hud-icon-users');
+  if (playersIcon) playersIcon.innerHTML = icons.Users({ size: 18 });
+
+  if ($hudCopyBtn) $hudCopyBtn.innerHTML = icons.Copy({ size: 18 });
+  if ($leaveGameBtn) $leaveGameBtn.innerHTML = icons.LogOut({ size: 18 });
+  if ($copyCodeBtn && !$copyCodeBtn.innerHTML.trim()) {
+    $copyCodeBtn.innerHTML = icons.Copy({ size: 18 });
+  }
+
+  const trophyIcon = document.querySelector('.ended-trophy-icon');
+  if (trophyIcon) trophyIcon.innerHTML = icons.Trophy({ size: 48, color: '#fbbf24' });
+
+  const restartBtnIcon = document.querySelector('.restart-btn-icon');
+  if (restartBtnIcon) restartBtnIcon.innerHTML = icons.RotateCcw({ size: 20 });
+
+  const homeBtnIcon = document.querySelector('.home-btn-icon');
+  if (homeBtnIcon) homeBtnIcon.innerHTML = icons.Home({ size: 20 });
+
+  const muteBtn = document.getElementById('mute-toggle');
+  if (muteBtn) muteBtn.innerHTML = icons.Volume2({ size: 18 });
+
+  const leaderboardBtn = document.getElementById('view-leaderboard-btn');
+  if (leaderboardBtn) leaderboardBtn.innerHTML = icons.Trophy({ size: 18, color: '#a78bfa' });
+
+  const menuBtn = document.getElementById('hud-menu-btn');
+  if (menuBtn && !menuBtn.innerHTML.trim()) {
+    menuBtn.innerHTML = icons.Menu({ size: 18 });
+  }
+}
+
+function bindHudEvents(): void {
+  if (hudBound) return;
+  hudBound = true;
+
+  if ($leaveGameBtn) {
+    $leaveGameBtn.addEventListener('click', () => {
+      window.location.href = '/';
+    });
+  }
+}
+
+export function initHud(): void {
+  injectHudIcons();
+  bindHudEvents();
+  gameStartTime = null;
+}
+
+export function resetHudState(): void {
+  gameStartTime = null;
+  hudBound = false;
 }

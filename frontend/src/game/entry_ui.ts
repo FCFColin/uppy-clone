@@ -97,6 +97,13 @@ function ensureEntryOverlayOnTop(entryStep: EntryStep): void {
   if ($loadingOverlay && !isEntryStepLoading(entryStep)) {
     $loadingOverlay.style.pointerEvents = 'none';
   }
+  // error 状态下强制移除 entry-overlay-active，确保 loading-overlay 错误面板
+  // (z-index 10000) 不被 nickname-setup-screen/waiting-screen (z-index 10100) 盖住。
+  if (entryStep === 'error') {
+    document.getElementById('nickname-setup-screen')?.classList.remove('entry-overlay-active');
+    document.getElementById('waiting-screen')?.classList.remove('entry-overlay-active');
+    return;
+  }
   const inEntry = entryStep === 'nickname' || entryStep === 'waiting';
   document.getElementById('nickname-setup-screen')?.classList.toggle('entry-overlay-active', inEntry);
   document.getElementById('waiting-screen')?.classList.toggle('entry-overlay-active', inEntry);
@@ -158,6 +165,11 @@ function errorTitleForMessage(message: string, midGameDisconnect?: boolean): str
 }
 
 export function renderEntryFullScreenError(message: string, options?: EntryFullScreenErrorOptions): void {
+  // 双保险：即使 applyEntryStep('error') 未触发 syncOverlays，也主动清理
+  // nickname-setup-screen/waiting-screen 的 entry-overlay-active 类，
+  // 否则它们 (z-index 10100) 会盖住 loading-overlay 错误面板 (z-index 9999)。
+  document.getElementById('nickname-setup-screen')?.classList.remove('entry-overlay-active');
+  document.getElementById('waiting-screen')?.classList.remove('entry-overlay-active');
   if (!$loadingOverlay) return;
   $loadingOverlay.classList.remove('hidden');
   $loadingOverlay.dataset.error = 'true';

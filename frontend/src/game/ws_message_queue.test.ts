@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('./ws_handlers.js', () => ({
   handleBinaryMessage: vi.fn(),
@@ -11,6 +11,12 @@ describe('ws_message_queue', () => {
   beforeEach(() => {
     drainPendingMessages(64);
     vi.mocked(handleBinaryMessage).mockClear();
+    // L-4: 队列超限 (32) 时 enqueueBinaryMessage 会 console.warn "queue full"，属预期行为
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('drains enqueued messages up to budget, handles budget larger than queue', () => {

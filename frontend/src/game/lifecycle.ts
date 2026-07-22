@@ -5,13 +5,12 @@ import { showToast } from '../shared/ui/utils.js';
 import { resizeCanvas, startGameLoop, renderOnce } from './renderer.js';
 import { updateUI } from './ui_update.js';
 import { pickRandomNickname, $setupNicknameInput } from './ui_common.js';
-import { initWaitingTips, bindReconnectRetry } from './ui_common.js';
+import { initWaitingTips, bindReconnectRetry, initHud } from './ui_common.js';
 import { connectWebSocket, showConnectionError } from './ws_connection.js';
 import { sendOrQueue } from './ws_connection.js';
-import {
-  initEntryFlow, bindEntryUI, onNicknameSubmit, onWebSocketOpen, getEntryStep,
-} from './entry_flow.js';
+import { initEntryFlow, bindEntryUI, onNicknameSubmit, onWebSocketOpen, getEntryStep, routeConnectionError, clearStartCountdown } from './entry_flow.js';
 import { safeGetItem, safeSetItem } from '../shared/ui/utils.js';
+import { initMuteToggle } from '../shared/ui/mute_toggle.js';
 
 function submitSetupNickname(): void {
   const input: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
@@ -37,6 +36,7 @@ function initNickname(): void {
   } else if ($setupNicknameInput) {
     $setupNicknameInput.value = pickRandomNickname();
   }
+  $setupNicknameInput?.dispatchEvent(new Event('input'));
 }
 
 function initConnection(): void {
@@ -59,11 +59,12 @@ export function boot(): void {
   bootBound = true;
 
   normalizeAuthHost();
-  safeSetItem('uppy-game-url', window.location.href);
   initNickname();
 
   initEntryFlow();
   bindEntryUI(submitSetupNickname);
+  initMuteToggle();
+  initHud();
 
   initWaitingTips();
   bindReconnectRetry(() => {

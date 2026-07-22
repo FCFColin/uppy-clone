@@ -131,9 +131,7 @@ describe('interp_buffers', () => {
 
   it('returns null when render time precedes all anchors', () => {
     expect(tryEntityFromDelayBuffer([], 100)).toBeNull();
-    ghostBuffer.push(
-      { tick: 1, receivedAt: 1000, x: 0.1, y: 0.2, active: true },
-    );
+    ghostBuffer.push({ tick: 1, receivedAt: 1000, x: 0.1, y: 0.2, active: true });
     expect(tryEntityFromDelayBuffer(ghostBuffer, 50)).toBeNull();
     expect(tryBalloonFromDelayBuffer()).toBeNull();
   });

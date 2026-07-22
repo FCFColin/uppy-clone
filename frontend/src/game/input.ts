@@ -34,7 +34,10 @@ export function handleTap(clientX: number, clientY: number): void {
   const optimisticCooldown: number = calculateCooldown(getState().players.length || 1);
   dispatch({ type: 'SET_STATE', partial: { myCooldownEnd: now + optimisticCooldown } });
 
-  dispatch({ type: 'ADD_RIPPLE', ripple: { playerIndex: PLAYER_INDEX_OPTIMISTIC, x, y, time: now, isOptimistic: true } });
+  dispatch({
+    type: 'ADD_RIPPLE',
+    ripple: { playerIndex: PLAYER_INDEX_OPTIMISTIC, x, y, time: now, isOptimistic: true },
+  });
 
   sendOrQueue(createTapMessage(x, y));
   playTapSound();

@@ -8,11 +8,7 @@ vi.mock('./state.js', () => ({
   getState: () => mockState,
 }));
 
-import {
-  syncRestartVoteProgress,
-  syncRestartVoteUI,
-  clearRestartCountdownTimer,
-} from './restart_vote_ui.js';
+import { syncRestartVoteProgress, syncRestartVoteUI, clearRestartCountdownTimer } from './restart_vote_ui.js';
 
 describe('restart_vote_ui', () => {
   beforeEach(() => {

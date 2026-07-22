@@ -66,7 +66,7 @@ import {
   getWsEverOpened,
   setWsEverOpened,
 } from './ws_connection.js';
-import { showConnectionError as showConnectionErrorUI, showReconnectBanner, updatePingDisplay } from './ui_common.js';
+import { showConnectionError as showConnectionErrorUI, showReconnectBanner } from './ui_common.js';
 
 describe('ws_connection', () => {
   beforeEach(() => {
@@ -162,15 +162,6 @@ describe('ws_connection', () => {
     await vi.waitFor(() => {
       expect(showConnectionErrorUI).toHaveBeenCalled();
     });
-  });
-
-  it('handlePong updates ping display when ping was sent', () => {
-    const socket = new MockWebSocket() as unknown as WebSocket;
-    setWs(socket);
-    startHeartbeat();
-    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS);
-    handlePong();
-    expect(vi.mocked(updatePingDisplay)).toHaveBeenCalled();
   });
 
   it('showConnectionError delegates to connection UI', () => {
