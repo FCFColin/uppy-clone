@@ -12,24 +12,61 @@ function ctx(): AudioContext | null {
   return audioCtx;
 }
 
-function beep(freq: number, durationMs: number, gain = 0.08): void {
-  const ac = ctx();
-  if (!ac) return;
-  const osc = ac.createOscillator();
-  const g = ac.createGain();
-  osc.type = 'sine';
-  osc.frequency.value = freq;
-  g.gain.value = gain;
-  osc.connect(g);
-  g.connect(ac.destination);
-  osc.start();
-  osc.stop(ac.currentTime + durationMs / 1000);
+const MUTE_STORAGE_KEY = 'uppy-audio-muted';
+
+export function isMuted(): boolean {
+  try {
+    return localStorage.getItem(MUTE_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
-export function playTapSound(): void { beep(520, 60, 0.06); }
-export function playReadySound(): void { beep(880, 80, 0.07); }
-export function playGameOverSound(): void { beep(220, 200, 0.1); }
-export function playCountdownTick(): void { beep(440, 50, 0.05); }
+export function setMuted(muted: boolean): void {
+  try {
+    if (muted) {
+      localStorage.setItem(MUTE_STORAGE_KEY, '1');
+    } else {
+      localStorage.removeItem(MUTE_STORAGE_KEY);
+    }
+  } catch {
+    // localStorage 不可用时静默失败
+  }
+}
+
+export function toggleMute(): boolean {
+  const newMuted = !isMuted();
+  setMuted(newMuted);
+  return newMuted;
+}
+
+function playSoundFile(path: string): void {
+  try {
+    const audio = new Audio(path);
+    audio.play().catch(() => {
+      // 自动播放被阻止或文件加载失败，静默处理
+    });
+  } catch {
+    // Audio 构造失败，静默处理
+  }
+}
+
+export function playTapSound(): void {
+  if (isMuted()) return;
+  playSoundFile('/assets/sounds/tap.ogg');
+}
+export function playReadySound(): void {
+  if (isMuted()) return;
+  playSoundFile('/assets/sounds/ready.ogg');
+}
+export function playGameOverSound(): void {
+  if (isMuted()) return;
+  playSoundFile('/assets/sounds/gameover.ogg');
+}
+export function playCountdownTick(): void {
+  if (isMuted()) return;
+  playSoundFile('/assets/sounds/countdown.ogg');
+}
 
 export function vibrate(pattern: number | number[]): void {
   if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;

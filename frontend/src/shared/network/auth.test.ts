@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  refreshAccessToken,
-  logout,
-} from './auth.js';
+import { refreshAccessToken, logout } from './auth.js';
 
 describe('auth token refresh', () => {
   beforeEach(() => {
@@ -18,10 +15,13 @@ describe('auth token refresh', () => {
     if (mode === 'reject') {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     } else if (response) {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: response.ok,
-        json: async () => (response as Record<string, unknown>).jsonBody,
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: response.ok,
+          json: async () => (response as Record<string, unknown>).jsonBody,
+        }),
+      );
     }
     expect(await refreshAccessToken()).toBe(expected);
   });
@@ -29,7 +29,10 @@ describe('auth token refresh', () => {
   it('refreshAccessToken deduplicates concurrent refresh calls', async () => {
     let resolveRefresh: (value: Response) => void = () => {};
     const fetchMock = vi.fn().mockImplementation(
-      () => new Promise<Response>((resolve) => { resolveRefresh = resolve; }),
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -47,7 +50,7 @@ describe('auth token refresh', () => {
 
   it('logout redirects to home', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
-    Object.defineProperty(window, 'location', { value: { href: '' }, writable: true });
+    vi.stubGlobal('location', { href: '' });
     await logout();
     expect(window.location.href).toBe('/');
   });

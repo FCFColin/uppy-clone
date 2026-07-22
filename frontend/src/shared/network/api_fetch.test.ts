@@ -13,10 +13,7 @@ describe('apiFetch', () => {
     vi.stubGlobal('fetch', vi.fn());
     refreshMock.mockReset();
     // Prevent window.location.href mutation from polluting other tests.
-    Object.defineProperty(window, 'location', {
-      value: { href: '' },
-      writable: true,
-    });
+    vi.stubGlobal('location', { href: '' });
   });
 
   afterEach(() => {
@@ -42,8 +39,28 @@ describe('apiFetch', () => {
   });
 
   it.each([
-    ['retries once on network failure then succeeds', 1, [['reject', null], ['resolve', { ok: true, status: 200 }]], 2, 200, false],
-    ['throws when retries exhausted', 1, [['reject', null], ['reject', null]], 2, null, true],
+    [
+      'retries once on network failure then succeeds',
+      1,
+      [
+        ['reject', null],
+        ['resolve', { ok: true, status: 200 }],
+      ],
+      2,
+      200,
+      false,
+    ],
+    [
+      'throws when retries exhausted',
+      1,
+      [
+        ['reject', null],
+        ['reject', null],
+      ],
+      2,
+      null,
+      true,
+    ],
     ['does not retry when retries is 0', 0, [['reject', null]], 1, null, true],
   ] as const)('%s', async (_label, retries, fetchSequence, expectedCalls, expectedStatus, shouldThrow) => {
     const mockFetch = vi.mocked(fetch);
@@ -110,9 +127,7 @@ describe('apiFetch', () => {
     });
     const controller = new AbortController();
     controller.abort();
-    await expect(
-      apiFetch('/api/v1/test', { signal: controller.signal, retries: 0 }),
-    ).rejects.toThrow();
+    await expect(apiFetch('/api/v1/test', { signal: controller.signal, retries: 0 })).rejects.toThrow();
   });
 
   it('propagates abort when external signal aborts mid-request', async () => {

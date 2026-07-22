@@ -13,6 +13,20 @@
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError';
+}
+
+async function authFetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * 尝试用 HttpOnly refresh cookie 刷新 access token
  *
@@ -27,19 +41,22 @@ export async function refreshAccessToken(): Promise<boolean> {
   isRefreshing = true;
   refreshPromise = (async () => {
     try {
-      const res = await fetch('/api/v1/auth/refresh', {
+      const res = await authFetchWithTimeout('/api/v1/auth/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-      });
+      }, 10_000);
 
       if (!res.ok) {
         return false;
       }
 
-      const data = await res.json() as { refreshed?: boolean };
+      const data = (await res.json()) as { refreshed?: boolean };
       return data.refreshed === true;
-    } catch {
+    } catch (e) {
+      if (isAbortError(e)) {
+        return false;
+      }
       return false;
     } finally {
       isRefreshing = false;
@@ -55,13 +72,12 @@ export async function refreshAccessToken(): Promise<boolean> {
  */
 export async function logout(): Promise<void> {
   try {
-    await fetch('/api/v1/auth/logout', {
+    await authFetchWithTimeout('/api/v1/auth/logout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-    });
+    }, 5_000);
   } catch {
-    // 忽略网络错误
   }
   window.location.href = '/';
 }

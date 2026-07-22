@@ -1,9 +1,11 @@
 import { refreshAccessToken } from './auth.js';
 import { apiFetch } from './api_fetch.js';
 
-export type SessionResult =
-  | { ok: true }
-  | { ok: false; status?: number; reason: 'rate_limit' | 'network' | 'server' };
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError';
+}
+
+export type SessionResult = { ok: true } | { ok: false; status?: number; reason: 'rate_limit' | 'network' | 'server' };
 
 export function normalizeAuthHost(): void {
   // Redirect 127.0.0.1 to localhost to match cookie domain expectations.
@@ -22,7 +24,9 @@ export function normalizeAuthHost(): void {
 
 // Allow CI environments to suppress the 127.0.0.1 → localhost redirect.
 declare global {
-  interface Window { __CI?: boolean; }
+  interface Window {
+    __CI?: boolean;
+  }
 }
 
 export async function establishGameSession(): Promise<SessionResult> {
@@ -62,7 +66,10 @@ export async function establishGameSession(): Promise<SessionResult> {
       return { ok: false, status: res.status, reason: 'server' };
     }
     return { ok: true };
-  } catch {
+  } catch (e) {
+    if (isAbortError(e)) {
+      return { ok: false, reason: 'network' };
+    }
     return { ok: false, reason: 'network' };
   }
 }

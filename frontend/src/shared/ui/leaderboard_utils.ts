@@ -3,7 +3,7 @@ import { apiFetch } from '../network/api_fetch.js';
 export interface LeaderboardEntry {
   rank: number;
   score: number;
-  lobbyCode: string;
+  name: string;
 }
 
 export type Scope = 'global' | 'weekly';
@@ -22,7 +22,7 @@ export function renderLeaderboardEntry(parent: HTMLElement, e: LeaderboardEntry)
 
   const code = document.createElement('span');
   code.className = 'lb-code';
-  code.textContent = e.lobbyCode;
+  code.textContent = e.name;
 
   li.append(rank, score, code);
   parent.appendChild(li);

@@ -22,6 +22,10 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRIES = 1;
 const RETRY_DELAY_MS = 500;
 
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError';
+}
+
 export interface ApiFetchOptions extends RequestInit {
   /** Number of retries for transient network failures (default: 1). 0 = no retry. */
   retries?: number;
@@ -72,7 +76,6 @@ export async function apiFetch(url: string, options: ApiFetchOptions = {}): Prom
     init.credentials = 'include';
   }
 
-
   let hasRefreshed = false;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -94,6 +97,9 @@ export async function apiFetch(url: string, options: ApiFetchOptions = {}): Prom
 
       return res;
     } catch (e) {
+      if (isAbortError(e)) {
+        throw e;
+      }
       if (attempt < retries) {
         console.warn(`Request to ${url} failed, retrying... (${attempt + 1}/${retries})`);
         await new Promise<void>((r) => setTimeout(r, RETRY_DELAY_MS));
