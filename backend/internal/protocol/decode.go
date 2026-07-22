@@ -25,6 +25,8 @@ func WSMessageTypeName(msgType byte) string {
 		return "restart_vote"
 	case MsgPing:
 		return "ping"
+	case MsgNicknameRejected:
+		return "nickname_rejected"
 	default:
 		return "unknown" //nolint:goconst // protocol message-type label
 	}

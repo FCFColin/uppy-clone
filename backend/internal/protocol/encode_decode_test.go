@@ -48,6 +48,34 @@ func TestEncodeSingleByteMessages(t *testing.T) {
 	}
 }
 
+// ─── EncodeNicknameRejected ─────────────────────────────────────────
+
+func TestEncodeNicknameRejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		reason uint8
+	}{
+		{"empty", NickRejectEmpty},
+		{"duplicate", NickRejectDuplicate},
+		{"cooldown", NickRejectCooldown},
+		{"decode_error", NickRejectDecodeError},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			data := EncodeNicknameRejected(c.reason)
+			if len(data) != 2 {
+				t.Fatalf("expected 2 bytes, got %d", len(data))
+			}
+			if data[0] != MsgNicknameRejected {
+				t.Fatalf("首字节应为 MsgNicknameRejected=0x08，got=0x%02x", data[0])
+			}
+			if data[1] != c.reason {
+				t.Fatalf("reason 不匹配: got=0x%02x, want=0x%02x", data[1], c.reason)
+			}
+		})
+	}
+}
+
 // ─── EncodeGameStateChange ───────────────────────────────────────────
 
 func TestEncodeGameStateChange_AllPhases(t *testing.T) {

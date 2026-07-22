@@ -3,10 +3,12 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
@@ -119,4 +121,85 @@ func newTestAuthHandlerWithRefreshMgr(t *testing.T, db auth.UserDB) (*AuthHandle
 	refreshMgr := auth.NewRefreshTokenManager(redisStore.Client())
 	h := NewAuthHandler(db, redisStore, jwtMgr, refreshMgr, &Config{})
 	return h, redisStore, jwtMgr, refreshMgr
+}
+
+// signTestToken signs a token with jwtMgr; fails the test on error.
+// E1: consolidates the SignToken + t.Fatalf pattern (6+ call sites).
+func signTestToken(t *testing.T, jwtMgr *auth.JWTManager, userID, role string) string {
+	t.Helper()
+	token, err := jwtMgr.SignToken(userID, role)
+	if err != nil {
+		t.Fatalf("SignToken: %v", err)
+	}
+	return token
+}
+
+// newTestJWTManager creates a JWT manager with the test private key.
+// E1: wraps `auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)` (9+ sites).
+func newTestJWTManager() *auth.JWTManager {
+	return auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+}
+
+// newTestUserRepo creates a pgxmock pool + UserRepository with t.Cleanup.
+// E1: consolidates `mock := testutil.NewPgxMock(t); db := store.NewUserRepository(mock)` (10+ sites).
+func newTestUserRepo(t *testing.T) (pgxmock.PgxPoolIface, *store.UserRepository) {
+	t.Helper()
+	mock := testutil.NewPgxMock(t)
+	return mock, store.NewUserRepository(mock)
+}
+
+// expectGetUserByID sets a successful GetUserByID mock expectation.
+// Returned row: id, email, nickname, palette=0, created_at=1, last_login=nil.
+// E1: consolidates the 4-line ExpectQuery + NewRows + AddRow pattern.
+func expectGetUserByID(mock pgxmock.PgxPoolIface, userID, email, nickname string) {
+	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
+		WithArgs(userID).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
+			AddRow(userID, email, nickname, 0, int64(1), nil))
+}
+
+// expectGetUserByIDError sets a failing GetUserByID mock expectation.
+// E1: error variant of expectGetUserByID.
+func expectGetUserByIDError(mock pgxmock.PgxPoolIface, userID string, err error) {
+	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id").
+		WithArgs(userID).
+		WillReturnError(err)
+}
+
+// newAuthHandlerWithDB builds an AuthHandler with a pgxmock-backed user repo
+// and default Config. Returns handler, mock, and jwtMgr for signing tokens.
+// E1: consolidates jwtMgr+NewAuthHandler construction (5+ sites).
+func newAuthHandlerWithDB(t *testing.T) (*AuthHandler, pgxmock.PgxPoolIface, *auth.JWTManager) {
+	t.Helper()
+	mock, db := newTestUserRepo(t)
+	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	h := NewAuthHandler(db, nil, jwtMgr, nil, &Config{})
+	return h, mock, jwtMgr
+}
+
+// withAuthUser sets the authenticated-user context on r.
+// E1: consolidates `r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), ...))` (4+ sites).
+func withAuthUser(r *http.Request, userID, nickname string) *http.Request {
+	return r.WithContext(auth.WithAuthenticatedUser(r.Context(), userID, nickname))
+}
+
+// newJSONRequest creates a ResponseRecorder + Request with Content-Type:
+// application/json preset.
+// E1: consolidates NewRecorder + NewRequest + Header.Set (9+ sites).
+func newJSONRequest(method, path, body string) (*httptest.ResponseRecorder, *http.Request) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	return w, r
+}
+
+// newStatsHandlerWithDB returns a StatsHandler backed by a pgxmock pool plus
+// the mock for setting expectations. E5: consolidates the
+// `mock := testutil.NewPgxMock(t); db := store.NewResultRepository(mock); h := NewStatsHandler(db)`
+// pattern (5 sites in stats_handler_test.go).
+func newStatsHandlerWithDB(t *testing.T) (*StatsHandler, pgxmock.PgxPoolIface) {
+	t.Helper()
+	mock := testutil.NewPgxMock(t)
+	db := store.NewResultRepository(mock)
+	return NewStatsHandler(db, nil), mock
 }

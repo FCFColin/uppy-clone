@@ -13,6 +13,7 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/game"
+	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
@@ -31,9 +32,7 @@ func TestQuickPlayRoundTrip(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	refreshMgr := auth.NewRefreshTokenManager(rdb.Client())
 
-	timeouts := config.DefaultTimeoutConfig()
-	authSvc := newMockAuthSvc(jwtMgr, refreshMgr, rdb, db, "", "", timeouts)
-	authHandler := NewAuthHandler(db, rdb, authSvc, &Config{})
+	authHandler := NewAuthHandler(db.NewUserRepository(), rdb, jwtMgr, refreshMgr, &Config{})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", strings.NewReader(`{"nickname":"IntegrationPlayer"}`))
@@ -53,7 +52,7 @@ func TestQuickPlayRoundTrip(t *testing.T) {
 	}
 
 	// Verify the user was persisted in PostgreSQL.
-	user, err := db.GetUserByID(context.Background(), resp.UserID)
+	user, err := db.NewUserRepository().GetUserByID(context.Background(), resp.UserID)
 	if err != nil {
 		t.Fatalf("GetUserByID: %v", err)
 	}
@@ -80,9 +79,8 @@ func TestMagicLinkRequestVerify(t *testing.T) {
 	_, rdb := testutil.SetupRedisStore(t)
 
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	timeouts := config.DefaultTimeoutConfig()
-	authSvc := newMockAuthSvc(jwtMgr, nil, rdb, db, "re_test", "test@test.com", timeouts)
-	authHandler := NewAuthHandler(db, rdb, authSvc, &Config{
+	refreshMgr := auth.NewRefreshTokenManager(rdb.Client())
+	authHandler := NewAuthHandler(db.NewUserRepository(), rdb, jwtMgr, refreshMgr, &Config{
 		ResendAPIKey: "re_test",
 		EmailFrom:    "test@test.com",
 	})
@@ -191,7 +189,7 @@ func TestLeaderboardAfterGameEnd(t *testing.T) {
 		t.Fatalf("CreateGameSession: %v", err)
 	}
 
-	statsHandler := NewStatsHandler(db)
+	statsHandler := NewStatsHandler(store.NewResultRepository(db.Pool()), nil)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard?scope=global&limit=10", nil)

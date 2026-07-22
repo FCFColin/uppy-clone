@@ -187,6 +187,13 @@ func EncodeTapRejected() []byte {
 	return []byte{MsgTapRejected}
 }
 
+// EncodeNicknameRejected encodes a nickname-rejected message with a reason code.
+//
+// Binary layout: msgType(1) + reason(1)
+func EncodeNicknameRejected(reason uint8) []byte {
+	return []byte{MsgNicknameRejected, reason}
+}
+
 // EncodeGameStateChange encodes a game state change notification.
 //
 // Binary layout:

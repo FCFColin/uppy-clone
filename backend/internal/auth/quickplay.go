@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -31,6 +32,7 @@ func QuickPlay(db UserDB, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, r
 	if uid, nick, ok := AuthenticatedUserFromRequestWithRevocation(r, jwtMgr, revoker); ok {
 		user, err := db.GetUserByID(ctx, uid)
 		if err != nil {
+			slog.Error("quickplay lookup existing user failed", "error", err)
 			return nil, nil, fmt.Errorf("lookup existing user: %w", err)
 		}
 		if user != nil {
@@ -56,6 +58,7 @@ func QuickPlay(db UserDB, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, r
 	if err := db.CreateUser(ctx, user); err != nil {
 		// INSERT OR IGNORE equivalent — try to continue on duplicate
 		if !errors.Is(err, domain.ErrDuplicateUser) {
+			slog.Error("quickplay create user failed", "error", err)
 			return nil, nil, fmt.Errorf("create user: %w", err)
 		}
 	}
@@ -78,6 +81,7 @@ func prepareQuickPlayNickname(nickname string) string {
 func issueQuickPlayCredentials(ctx context.Context, jwtMgr *JWTManager, refreshMgr *RefreshTokenManager, userID, nickname string, r *http.Request) (*http.Cookie, *QuickPlayResponse, error) {
 	token, err := jwtMgr.SignToken(userID, nickname)
 	if err != nil {
+		slog.Error("quickplay sign token failed", "error", err)
 		return nil, nil, fmt.Errorf("sign token: %w", err)
 	}
 
@@ -86,6 +90,7 @@ func issueQuickPlayCredentials(ctx context.Context, jwtMgr *JWTManager, refreshM
 
 	refreshToken, err := refreshMgr.Generate(ctx, userID)
 	if err != nil {
+		slog.Error("quickplay generate refresh token failed", "error", err)
 		return nil, nil, fmt.Errorf("generate refresh token: %w", err)
 	}
 

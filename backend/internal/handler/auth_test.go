@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,8 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/auth"
-	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/crypto"
 	"github.com/uppy-clone/backend/internal/domain"
 	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/store"
@@ -28,37 +25,6 @@ func newTestAuthHandler() *AuthHandler {
 		db:     nil,
 		redis:  nil,
 		config: &Config{ResendAPIKey: "test", EmailFrom: "test@test.com"},
-	}
-}
-
-func TestRequestMagicLink_MissingEmail(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAuthHandler()
-
-	tests := []struct {
-		name string
-		body string
-	}{
-		{name: "empty body", body: ""},
-		{name: "empty email", body: `{"email":""}`},
-		{name: "invalid json", body: `{invalid}`},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(tt.body))
-			r.Header.Set("Content-Type", "application/json")
-
-			h.RequestMagicLink(w, r)
-
-			if w.Code != http.StatusBadRequest {
-				t.Errorf("status = %d, want %d; body = %s", w.Code, http.StatusBadRequest, w.Body.String())
-			}
-		})
 	}
 }
 
@@ -327,24 +293,6 @@ func TestDeleteUserData_DBError(t *testing.T) {
 	}
 }
 
-func TestRequestMagicLink_Success(t *testing.T) {
-	if err := crypto.Init("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"); err != nil {
-		t.Fatalf("crypto.Init: %v", err)
-	}
-	redisStore := testutil.SetupMiniredisStore(t)
-	jwtMgr := newTestJWTManager()
-	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "https://example.com/api/v1/auth/request", strings.NewReader(`{"email":"user@example.com"}`))
-	r.Host = "example.com"
-	r.Header.Set("Content-Type", "application/json")
-	h.RequestMagicLink(w, r)
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
-	}
-}
-
 func TestCheckAuth_WithDB(t *testing.T) {
 	t.Parallel()
 
@@ -369,87 +317,6 @@ func TestCheckAuth_WithDB(t *testing.T) {
 	}
 	if degraded, _ := body["degraded"].(bool); degraded {
 		t.Fatal("should not be degraded with successful DB lookup")
-	}
-}
-
-func TestRequestMagicLink_TooManyRequests(t *testing.T) {
-	_, rdb := testutil.NewTestMiniredis(t)
-	redisStore := store.NewRedisStoreFromClient(rdb)
-	jwtMgr := newTestJWTManager()
-	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
-
-	ctx := context.Background()
-	email := strings.Repeat("a", 20) + "@example.com"
-	for i := 0; i < 6; i++ {
-		_, _ = redisStore.CheckRateLimit(ctx, "ml:"+email, 5, config.MagicLinkTTL)
-	}
-
-	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/request", `{"email":"`+email+`"}`)
-	h.RequestMagicLink(w, r)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("status = %d, want 429", w.Code)
-	}
-}
-
-func TestRequestMagicLink_InvalidEmail(t *testing.T) {
-	h, _, _ := newTestAuthHandlerWithRedis(t)
-
-	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/request", `{"email":"bad-email"}`)
-	h.RequestMagicLink(w, r)
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422", w.Code)
-	}
-}
-
-func TestVerifyMagicLinkToken_Success(t *testing.T) {
-	if err := crypto.Init("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"); err != nil {
-		t.Fatalf("crypto.Init: %v", err)
-	}
-
-	mock, db := newTestUserRepo(t)
-	h, redisStore, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
-
-	ctx := context.Background()
-	token := strings.Repeat("c", config.MagicLinkTokenLen)
-	hashed := auth.HashToken(token)
-	encEmail, err := crypto.EncryptPIIForStorage("verify-handler@example.com")
-	if err != nil {
-		t.Fatalf("EncryptPIIForStorage: %v", err)
-	}
-	tokenData, _ := json.Marshal(map[string]interface{}{
-		"email": encEmail, "createdAt": time.Now().UnixMilli(),
-	})
-	if err := redisStore.StoreMagicToken(ctx, hashed, tokenData, config.MagicLinkTTL); err != nil {
-		t.Fatalf("StoreMagicToken: %v", err)
-	}
-
-	// VerifyMagicLink looks up the user by email (not by ID), so the SQL
-	// pattern and arg count differ from expectGetUserByID.
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
-		WithArgs(pgxmock.AnyArg(), "verify-handler@example.com").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "email", "nickname", "palette", "created_at", "last_login"}).
-			AddRow("user-vh", "verify-handler@example.com", "Nick", 0, int64(1), nil))
-	mock.ExpectExec("UPDATE users SET last_login").
-		WithArgs("user-vh").
-		WillReturnResult(pgconn.NewCommandTag("UPDATE 1"))
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify?token="+token, nil)
-	h.VerifyMagicLink(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
-	}
-}
-
-func TestVerifyMagicLinkToken_InvalidToken(t *testing.T) {
-	h, _, _ := newTestAuthHandlerWithRedis(t)
-
-	token := strings.Repeat("b", config.MagicLinkTokenLen)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify?token="+token, nil)
-	h.VerifyMagicLink(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
 	}
 }
 
@@ -539,21 +406,6 @@ func TestRefreshToken_InvalidToken(t *testing.T) {
 	h.RefreshToken(w, r)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", w.Code)
-	}
-}
-
-func TestRequestMagicLink_InternalError(t *testing.T) {
-	redisStore := testutil.SetupMiniredisStore(t)
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	jwtMgr := newTestJWTManager()
-	h := NewAuthHandler(nil, redisStore, jwtMgr, nil, &Config{ResendAPIKey: "re_test", EmailFrom: "test@test.com"})
-
-	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/request", `{"email":"user@example.com"}`)
-	h.RequestMagicLink(w, r)
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
 	}
 }
 

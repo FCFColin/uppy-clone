@@ -25,7 +25,6 @@ type AuthHandler struct {
 	config     *Config
 	jwtMgr     *auth.JWTManager
 	refreshMgr *auth.RefreshTokenManager
-	magicLink  *auth.MagicLinkService
 }
 
 // NewAuthHandler creates a new AuthHandler.
@@ -35,7 +34,6 @@ func NewAuthHandler(db auth.UserDB, redis auth.TokenStore, jwtMgr *auth.JWTManag
 		redis:      redis,
 		jwtMgr:     jwtMgr,
 		refreshMgr: refreshMgr,
-		magicLink:  auth.NewMagicLinkService(),
 		config:     config,
 	}
 }
@@ -254,90 +252,6 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessage: "Logged out"})
-}
-
-// ─── Magic Link ──────────────────────────────────────────────────────
-
-// RequestMagicLink handles POST /api/v1/auth/request
-func (h *AuthHandler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Email string `json:"email"`
-	}
-	if err := decodeJSONBody(w, r, &body); err != nil {
-		domain.BadRequest("Invalid request body").Write(w)
-		return
-	}
-
-	if body.Email == "" {
-		domain.BadRequest("Email is required").Write(w)
-		return
-	}
-
-	err := h.magicLink.RequestMagicLink(h.redis, body.Email, r)
-	if err != nil {
-		switch {
-		case errors.Is(err, auth.ErrTooManyRequests):
-			domain.TooManyRequests(err.Error()).Write(w)
-		case errors.Is(err, auth.ErrInvalidEmail):
-			domain.UnprocessableEntity(err.Error()).Write(w)
-		default:
-			slog.Error("magic link request failed", "error", err)
-			domain.InternalError("Internal server error").Write(w)
-		}
-		return
-	}
-
-	writeJSON(w, http.StatusAccepted, map[string]string{jsonMessage: "Magic link sent"})
-}
-
-// VerifyMagicLink handles GET /api/v1/auth/verify?token=...
-func (h *AuthHandler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	h.verifyMagicLinkToken(w, r, token)
-}
-
-// VerifyMagicLinkPost handles POST /api/v1/auth/verify with JSON body.
-func (h *AuthHandler) VerifyMagicLinkPost(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Token string `json:"token"`
-	}
-	if err := decodeJSONBody(w, r, &body); err != nil {
-		domain.BadRequest("Invalid request body").Write(w)
-		return
-	}
-	h.verifyMagicLinkToken(w, r, body.Token)
-}
-
-func (h *AuthHandler) verifyMagicLinkToken(w http.ResponseWriter, r *http.Request, token string) {
-	if token == "" {
-		domain.BadRequest("Token is required").Write(w)
-		return
-	}
-
-	if len(token) != config.MagicLinkTokenLen {
-		domain.BadRequest("invalid token").Write(w)
-		return
-	}
-
-	if !RequireRedis(h.redis, w) {
-		return
-	}
-
-	cookie, resp, err := auth.VerifyMagicLink(h.redis, h.db, h.jwtMgr, h.refreshMgr, token, r)
-	if err != nil {
-		slog.Error("magic link verification failed", "error", err)
-		domain.Unauthorized("Invalid or expired token").Write(w)
-		return
-	}
-
-	accessToken := ""
-	if cookie != nil {
-		accessToken = cookie.Value
-	}
-	secure := isSecure(r)
-	writeAuthCookies(w, r, auth.BuildAuthCookie(auth.SessionCookie, accessToken, config.CookieMaxAge, secure), resp.RefreshToken)
-
-	writeJSON(w, http.StatusOK, map[string]string{jsonUserID: resp.UserID})
 }
 
 // ─── GDPR Data Export & Delete ───────────────────────────────────────

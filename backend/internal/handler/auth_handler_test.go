@@ -20,7 +20,7 @@ func TestNewAuthHandler(t *testing.T) {
 	if h == nil {
 		t.Fatal("NewAuthHandler returned nil")
 	}
-	if h.jwtMgr == nil || h.magicLink == nil || h.config != cfg {
+	if h.jwtMgr == nil || h.config != cfg {
 		t.Error("NewAuthHandler did not wire dependencies")
 	}
 }
@@ -58,51 +58,6 @@ func TestWriteAuthCookies_AccessOnly(t *testing.T) {
 		if c.Name == "refresh" {
 			t.Error("refresh cookie should be omitted when refresh token is empty")
 		}
-	}
-}
-
-func TestVerifyMagicLinkPost_BadRequest(t *testing.T) {
-	h := newTestAuthHandler()
-	tests := []struct {
-		name string
-		body string
-	}{
-		{"invalid body", "{bad"},
-		{"missing token", `{"token":""}`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(tt.body))
-			r.Header.Set("Content-Type", "application/json")
-			h.VerifyMagicLinkPost(w, r)
-			if w.Code != http.StatusBadRequest {
-				t.Errorf("status = %d, want 400", w.Code)
-			}
-		})
-	}
-}
-
-func TestVerifyMagicLinkPost_NilRedis_Degraded(t *testing.T) {
-	h := newTestAuthHandler()
-	token := strings.Repeat("a", config.MagicLinkTokenLen)
-	w := httptest.NewRecorder()
-	body := `{"token":"` + token + `"}`
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(body))
-	r.Header.Set("Content-Type", "application/json")
-	h.VerifyMagicLinkPost(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", w.Code)
-	}
-}
-
-func TestVerifyMagicLink_InvalidTokenLength(t *testing.T) {
-	h := newTestAuthHandler()
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify?token=short", nil)
-	h.VerifyMagicLink(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/testsecrets"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestGetAuthenticatedUser_FromContext(t *testing.T) {
@@ -43,10 +44,10 @@ func TestAuthenticatedUserFromRequest_Cookie(t *testing.T) {
 
 func TestAuthenticatedUserFromRequestWithRevocation_Revoked(t *testing.T) {
 	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := newFakeRevocationChecker()
+	revoker := testutil.NewFakeRevocationChecker()
 	token, _ := jwtMgr.SignToken("user-rev", "Revoked")
 	_, _, jti, _, _ := jwtMgr.VerifyToken(token)
-	revoker.revoked[jti] = true
+	revoker.Revoked[jti] = true
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
@@ -68,7 +69,7 @@ func TestWithRoleAndRoleFromContext(t *testing.T) {
 
 func TestAuthenticatedUserFromRequestWithRevocation_RevokerError(t *testing.T) {
 	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := &fakeRevocationChecker{err: errors.New("redis down")}
+	revoker := &testutil.FakeRevocationChecker{Err: errors.New("redis down")}
 	token, _ := jwtMgr.SignToken("user-rev-err", "Nick")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -89,10 +90,10 @@ func TestAuthenticatedUserFromRequest_NilJWTManager(t *testing.T) {
 
 func TestAuthenticatedUserFromCookies_RevokedSkipped(t *testing.T) {
 	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := newFakeRevocationChecker()
+	revoker := testutil.NewFakeRevocationChecker()
 	token, _ := jwtMgr.SignToken("revoked-user", "Revoked")
 	_, _, jti, _, _ := jwtMgr.VerifyToken(token)
-	revoker.revoked[jti] = true
+	revoker.Revoked[jti] = true
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
@@ -119,11 +120,11 @@ func TestWithJTI(t *testing.T) {
 
 func TestAuthenticatedUserFromRequestWithRevocation_RevokedContinues(t *testing.T) {
 	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := newFakeRevocationChecker()
+	revoker := testutil.NewFakeRevocationChecker()
 	revokedToken, _ := jwtMgr.SignToken("revoked-user", "Revoked")
 	validToken, _ := jwtMgr.SignToken("valid-user", "Valid")
 	_, _, revokedJTI, _, _ := jwtMgr.VerifyToken(revokedToken)
-	revoker.revoked[revokedJTI] = true
+	revoker.Revoked[revokedJTI] = true
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: revokedToken})

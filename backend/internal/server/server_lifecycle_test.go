@@ -105,47 +105,16 @@ func TestRunServer_MockDeps(t *testing.T) {
 
 	pool := newMockPool(t)
 	withMockPostgresStore(t, pool)
-	withMockRedisStore(t, redisStore)
 	withMigrationsHook(t, nil)
 
-	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
-	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
-	t.Setenv("REDIS_URL", addr)
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-
-	prevEnv := serverEnv
-	serverEnv = appConfig.Load()
-	serverEnv.EnableHSTS = false
-	serverEnv.MigrationsDir = "migrations"
-	serverEnv.AllowedOrigins = "http://localhost"
-	t.Cleanup(func() { serverEnv = prevEnv })
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	t.Setenv("PORT", strconv.Itoa(port))
-
-	sigCh := make(chan os.Signal, 1)
-	prev := shutdownSignals
-	shutdownSignals = func() <-chan os.Signal { return sigCh }
-	t.Cleanup(func() { shutdownSignals = prev })
+	setupRunServerEnv(t, "postgres://mock/mock?sslmode=disable", addr)
+	port := bindFreePort(t)
+	sigCh := injectShutdownSignal(t)
 
 	done := make(chan error, 1)
 	go func() { done <- runServer(slog.Default()) }()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
-		if err == nil {
-			_ = resp.Body.Close()
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	waitForHealthLive(t, port)
 
 	sigCh <- syscall.SIGTERM
 	select {
@@ -171,34 +140,11 @@ func TestRun_SuccessMocked(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	pool := newMockPool(t)
 	withMockPostgresStore(t, pool)
-	withMockRedisStore(t, redisStore)
 	withMigrationsHook(t, nil)
 
-	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
-	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
-	t.Setenv("REDIS_URL", redisStore.Client().Options().Addr)
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-
-	prevEnv := serverEnv
-	serverEnv = appConfig.Load()
-	serverEnv.EnableHSTS = false
-	serverEnv.MigrationsDir = "migrations"
-	serverEnv.AllowedOrigins = "http://localhost"
-	t.Cleanup(func() { serverEnv = prevEnv })
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	t.Setenv("PORT", strconv.Itoa(port))
-
-	sigCh := make(chan os.Signal, 1)
-	prev := shutdownSignals
-	shutdownSignals = func() <-chan os.Signal { return sigCh }
-	t.Cleanup(func() { shutdownSignals = prev })
+	setupRunServerEnv(t, "postgres://mock/mock?sslmode=disable", redisStore.Client().Options().Addr)
+	port := bindFreePort(t)
+	sigCh := injectShutdownSignal(t)
 
 	done := make(chan struct{})
 	go func() {
@@ -206,15 +152,7 @@ func TestRun_SuccessMocked(t *testing.T) {
 		close(done)
 	}()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
-		if err == nil {
-			_ = resp.Body.Close()
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	waitForHealthLive(t, port)
 	sigCh <- syscall.SIGTERM
 
 	select {
@@ -229,44 +167,14 @@ func TestRunServer_FullHappyPath(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	addr := redisStore.Client().Options().Addr
 
-	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
-	t.Setenv("DATABASE_URL", dbURL)
-	t.Setenv("REDIS_URL", addr)
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-
-	prevEnv := serverEnv
-	serverEnv = appConfig.Load()
-	serverEnv.EnableHSTS = false
-	serverEnv.MigrationsDir = "migrations"
-	serverEnv.AllowedOrigins = "http://localhost"
-	t.Cleanup(func() { serverEnv = prevEnv })
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	t.Setenv("PORT", strconv.Itoa(port))
-
-	sigCh := make(chan os.Signal, 1)
-	prev := shutdownSignals
-	shutdownSignals = func() <-chan os.Signal { return sigCh }
-	t.Cleanup(func() { shutdownSignals = prev })
+	setupRunServerEnv(t, dbURL, addr)
+	port := bindFreePort(t)
+	sigCh := injectShutdownSignal(t)
 
 	done := make(chan error, 1)
 	go func() { done <- runServer(slog.Default()) }()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
-		if err == nil {
-			_ = resp.Body.Close()
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	waitForHealthLive(t, port)
 
 	sigCh <- syscall.SIGTERM
 	select {
@@ -280,16 +188,7 @@ func TestRunServer_FullHappyPath(t *testing.T) {
 }
 
 func TestRunServer_InvalidDatabase(t *testing.T) {
-	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
-	t.Setenv("DATABASE_URL", "postgres://invalid-host:59999/nodb?sslmode=disable&connect_timeout=1")
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-	t.Setenv("REDIS_URL", "127.0.0.1:6379")
-
-	prevEnv := serverEnv
-	t.Cleanup(func() { serverEnv = prevEnv })
-	serverEnv = appConfig.Load()
-	serverEnv.EnableHSTS = false
+	setupRunServerEnv(t, "postgres://invalid-host:59999/nodb?sslmode=disable&connect_timeout=1", "127.0.0.1:6379")
 
 	err := runServer(slog.Default())
 	if err == nil {
@@ -336,25 +235,9 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 	pool := newMockPool(t)
 	withMockPostgresStore(t, pool)
 
-	origRedis := newRedisStoreFn
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
-		return nil, errors.New("redis unavailable")
-	}
-	t.Cleanup(func() { newRedisStoreFn = origRedis })
-
 	withMigrationsHook(t, nil)
 
-	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
-	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
-	t.Setenv("REDIS_URL", "127.0.0.1:59999")
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-
-	prevEnv := serverEnv
-	t.Cleanup(func() { serverEnv = prevEnv })
-	serverEnv = appConfig.Load()
-	serverEnv.EnableHSTS = false
-	serverEnv.MigrationsDir = "migrations"
+	setupRunServerEnv(t, "postgres://mock/mock?sslmode=disable", "127.0.0.1:59999")
 
 	err := runServer(slog.Default())
 	if err == nil {
@@ -363,10 +246,7 @@ func TestRunServer_RedisInitFail(t *testing.T) {
 }
 
 func TestWaitForShutdown_Graceful(t *testing.T) {
-	sigCh := make(chan os.Signal, 1)
-	prev := shutdownSignals
-	shutdownSignals = func() <-chan os.Signal { return sigCh }
-	t.Cleanup(func() { shutdownSignals = prev })
+	sigCh := injectShutdownSignal(t)
 
 	redisStore := testutil.SetupMiniredisStore(t)
 	hub := game.NewHub(nil, redisStore, appConfig.DefaultTimeoutConfig(), 10, 8)
@@ -402,10 +282,7 @@ func TestServe_StartsAndStops(t *testing.T) {
 	serverLifecycleMu.Lock()
 	t.Cleanup(func() { serverLifecycleMu.Unlock() })
 
-	sigCh := make(chan os.Signal, 1)
-	prev := shutdownSignals
-	shutdownSignals = func() <-chan os.Signal { return sigCh }
-	t.Cleanup(func() { shutdownSignals = prev })
+	sigCh := injectShutdownSignal(t)
 
 	mock := testutil.NewPgxMock(t)
 	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
@@ -482,21 +359,9 @@ func TestRunServer_TracerInitError(t *testing.T) {
 	redisStore := testutil.SetupMiniredisStore(t)
 	pool := newMockPool(t)
 	withMockPostgresStore(t, pool)
-	withMockRedisStore(t, redisStore)
 	withMigrationsHook(t, nil)
 
-	t.Setenv("ENABLE_HSTS", "false")
-	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
-	t.Setenv("DATABASE_URL", "postgres://mock/mock?sslmode=disable")
-	t.Setenv("REDIS_URL", redisStore.Client().Options().Addr)
-	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
-
-	prevEnv := serverEnv
-	serverEnv = appConfig.Load()
-	serverEnv.EnableHSTS = false
-	serverEnv.MigrationsDir = "migrations"
-	serverEnv.AllowedOrigins = "http://localhost"
-	t.Cleanup(func() { serverEnv = prevEnv })
+	setupRunServerEnv(t, "postgres://mock/mock?sslmode=disable", redisStore.Client().Options().Addr)
 
 	done := make(chan error, 1)
 	go func() { done <- runServer(slog.Default()) }()

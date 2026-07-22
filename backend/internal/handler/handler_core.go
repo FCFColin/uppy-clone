@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"reflect"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sony/gobreaker/v2"
@@ -89,8 +90,10 @@ func WriteDegradedJSON(w http.ResponseWriter, status int, data interface{}, mess
 }
 
 // RequireDB returns false and writes a degraded response when db is nil.
+// Handles Go's typed-nil trap: a (*T)(nil) boxed into interface{} is non-nil
+// at the interface level but represents a nil pointer that must be guarded.
 func RequireDB(db interface{}, w http.ResponseWriter) bool {
-	if db != nil {
+	if !isNilPointer(db) {
 		return true
 	}
 	WriteDegradedJSON(w, http.StatusServiceUnavailable, nil, "Database temporarily unavailable")
@@ -99,11 +102,21 @@ func RequireDB(db interface{}, w http.ResponseWriter) bool {
 
 // RequireRedis returns false and writes a degraded response when redis is nil.
 func RequireRedis(redis interface{}, w http.ResponseWriter) bool {
-	if redis != nil {
+	if !isNilPointer(redis) {
 		return true
 	}
 	WriteDegradedJSON(w, http.StatusServiceUnavailable, nil, "Cache temporarily unavailable")
 	return false
+}
+
+// isNilPointer reports whether v is an untyped nil interface OR a nil
+// pointer behind a non-nil interface (Go's typed-nil trap).
+func isNilPointer(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 // RequireHub returns false and writes 503 when hub is nil.

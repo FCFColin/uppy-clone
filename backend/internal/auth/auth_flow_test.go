@@ -2,13 +2,10 @@
 package auth
 
 import (
-	"crypto/tls"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/nicknames"
@@ -62,90 +59,6 @@ func TestHashToken(t *testing.T) {
 	hash3 := HashToken("different-token")
 	if hash1 == hash3 {
 		t.Error("HashToken should produce different hashes for different inputs")
-	}
-}
-
-func TestGetOrigin(t *testing.T) {
-	tests := []struct {
-		name  string
-		setup func(r *http.Request)
-		want  string
-	}{
-		{
-			name:  "plain HTTP",
-			setup: func(r *http.Request) { r.Host = "localhost:8080" },
-			want:  "http://localhost:8080",
-		},
-		{
-			name: "TLS connection",
-			setup: func(r *http.Request) {
-				r.Host = "example.com"
-				r.TLS = &tls.ConnectionState{}
-			},
-			want: "https://example.com",
-		},
-		{
-			name: "X-Forwarded-Proto and X-Forwarded-Host",
-			setup: func(r *http.Request) {
-				*r = *r.WithContext(domain.WithTrustedProxy(r.Context(), true))
-				r.Host = "internal-host"
-				r.Header.Set("X-Forwarded-Proto", "https")
-				r.Header.Set("X-Forwarded-Host", "public.example.com")
-			},
-			want: "https://public.example.com",
-		},
-		{
-			name: "X-Forwarded-Proto only",
-			setup: func(r *http.Request) {
-				*r = *r.WithContext(domain.WithTrustedProxy(r.Context(), true))
-				r.Host = "myhost"
-				r.Header.Set("X-Forwarded-Proto", "https")
-			},
-			want: "https://myhost",
-		},
-		{
-			name: "spoofed X-Forwarded-Proto ignored when untrusted",
-			setup: func(r *http.Request) {
-				r.Host = "myhost"
-				r.Header.Set("X-Forwarded-Proto", "https")
-			},
-			want: "http://myhost",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
-			tt.setup(r)
-			got := getOrigin(r)
-			if got != tt.want {
-				t.Errorf("getOrigin() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMagicTokenData_Serialization(t *testing.T) {
-	data := magicTokenData{
-		Email:     "user@example.com",
-		CreatedAt: time.Now().UnixMilli(),
-	}
-
-	bytes, err := json.Marshal(data)
-	if err != nil {
-		t.Fatalf("marshal error: %v", err)
-	}
-
-	var parsed magicTokenData
-	if err := json.Unmarshal(bytes, &parsed); err != nil {
-		t.Fatalf("unmarshal error: %v", err)
-	}
-
-	if parsed.Email != data.Email {
-		t.Errorf("email = %q, want %q", parsed.Email, data.Email)
-	}
-	if parsed.CreatedAt != data.CreatedAt {
-		t.Errorf("createdAt = %d, want %d", parsed.CreatedAt, data.CreatedAt)
 	}
 }
 

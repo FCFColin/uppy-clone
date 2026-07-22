@@ -179,27 +179,24 @@ func TestGameSessionLifecycle(t *testing.T) {
 		t.Fatalf("CreateGameSession: %v", err)
 	}
 
-	// End the game session and record results.
+	// End the game session and record results via RecordGameResult (replaces the
+	// deleted EndGameAndRecordResults wrapper).
 	endedAt := time.Now().UnixMilli()
-	results := []domain.GameResult{
+	results := []domain.GameResultPlayer{
 		{
-			ID:                uuid.NewString(),
-			SessionID:         sessionID,
 			UserID:            uuid.NewString(),
+			Nickname:          "TestPlayer1",
 			ScoreContribution: 100,
 			TapsCount:         10,
-			CreatedAt:         endedAt,
 		},
 		{
-			ID:                uuid.NewString(),
-			SessionID:         sessionID,
 			UserID:            uuid.NewString(),
+			Nickname:          "TestPlayer2",
 			ScoreContribution: 75,
 			TapsCount:         8,
-			CreatedAt:         endedAt,
 		},
 	}
-	if err := resultRepo.EndGameAndRecordResults(ctx, sessionID, endedAt, 175, results); err != nil {
-		t.Fatalf("EndGameAndRecordResults: %v", err)
+	if err := resultRepo.RecordGameResult(ctx, sessionID, lobbyCode, endedAt, 175, results); err != nil {
+		t.Fatalf("RecordGameResult: %v", err)
 	}
 }

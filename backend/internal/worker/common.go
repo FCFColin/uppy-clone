@@ -9,7 +9,7 @@ import (
 )
 
 // claimLoopConfig parameterizes the shared XAUTOCLAIM background loop used by
-// both EmailWorker and GameResultWorker to reclaim zombie consumer messages.
+// EmailWorker to reclaim zombie consumer messages.
 type claimLoopConfig struct {
 	stream     string // Redis stream name (e.g. "email:queue")
 	group      string // consumer group name
@@ -18,18 +18,15 @@ type claimLoopConfig struct {
 
 // Redis stream and consumer-group names used by the workers.
 const (
-	emailQueueStream   = "email:queue"
-	emailWorkersGroup  = "email-workers"
-	gameEventsStream   = "game.events"
-	resultWorkersGroup = "result-workers"
+	emailQueueStream  = "email:queue"
+	emailWorkersGroup = "email-workers"
 )
 
 // runClaimPendingMessages periodically runs XAUTOCLAIM to reclaim messages
 // stuck in the PEL (Pending Entries List) of consumers that crashed or became
 // unresponsive, ensuring at-least-once delivery as required by ADR-007/009/010.
 //
-// Extracted from EmailWorker.claimPendingMessages and
-// GameResultWorker.claimPendingMessages to eliminate duplication (dupl).
+// Extracted from EmailWorker.claimPendingMessages to eliminate duplication (dupl).
 func runClaimPendingMessages(
 	ctx context.Context,
 	rdb RedisStreamConsumer,
@@ -73,22 +70,4 @@ func runClaimPendingMessages(
 			}
 		}
 	}
-}
-
-// backoffSleep sleeps for the current backoff duration, then doubles it (capped
-// at maxDur). Returns false if ctx is canceled during the sleep. Used by worker
-// consume loops to avoid hammering Redis when it is degraded (v2-R-43).
-func backoffSleep(ctx context.Context, backoff *time.Duration, maxDur time.Duration) bool {
-	timer := time.NewTimer(*backoff)
-	select {
-	case <-ctx.Done():
-		timer.Stop()
-		return false
-	case <-timer.C:
-	}
-	*backoff *= 2
-	if *backoff > maxDur {
-		*backoff = maxDur
-	}
-	return true
 }

@@ -124,7 +124,7 @@ func initHandlers(jwtMgr *auth.JWTManager, adminJwtMgr *auth.JWTManager, pg *sto
 	allowedOrigins := appMiddleware.AllowedOriginsFromEnv(serverEnv.AllowedOrigins)
 	lobbyHandler := handler.NewLobbyHandler(hub, allowedOrigins)
 	adminHandler := handler.NewAdminHandler(configs, adminJwtMgr, redis)
-	statsHandler := handler.NewStatsHandler(results)
+	statsHandler := handler.NewStatsHandler(results, hub)
 	return authHandler, lobbyHandler, adminHandler, statsHandler
 }
 

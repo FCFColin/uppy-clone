@@ -11,7 +11,7 @@ import (
 )
 
 // RedisStreamConsumer is the narrow subset of *redis.Client methods used by
-// EmailWorker and GameResultWorker for Redis Stream consumption (RO-051).
+// EmailWorker for Redis Stream consumption (RO-051).
 // Abstracting behind an interface prevents raw *redis.Client penetration —
 // workers receive a contract, not the full client. *redis.Client satisfies
 // this interface automatically, so no adapter is needed.

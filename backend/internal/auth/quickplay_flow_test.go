@@ -7,16 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
-	"github.com/redis/go-redis/v9"
 
 	"strings"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
-	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
@@ -28,14 +25,7 @@ func newQuickPlayPostgresStore(t *testing.T) (*store.UserRepository, pgxmock.Pgx
 
 func TestQuickPlay_NewUser(t *testing.T) {
 	db, mock := newQuickPlayPostgresStore(t)
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO users").
@@ -58,14 +48,7 @@ func TestQuickPlay_NewUser(t *testing.T) {
 
 func TestQuickPlay_ExistingCookie(t *testing.T) {
 	db, mock := newQuickPlayPostgresStore(t)
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 	token, _ := jwtMgr.SignToken("existing-user", "Existing")
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
@@ -90,14 +73,7 @@ func TestQuickPlay_ExistingCookie(t *testing.T) {
 
 func TestQuickPlay_CreateUserDuplicateContinues(t *testing.T) {
 	db, mock := newQuickPlayPostgresStore(t)
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO users").
@@ -106,7 +82,7 @@ func TestQuickPlay_CreateUserDuplicateContinues(t *testing.T) {
 	mock.ExpectRollback()
 
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/quickplay", nil)
-	_, _, err = QuickPlay(db, jwtMgr, refreshMgr, nil, "Bob", req)
+	_, _, err := QuickPlay(db, jwtMgr, refreshMgr, nil, "Bob", req)
 	if err != nil {
 		t.Fatalf("QuickPlay duplicate should continue: %v", err)
 	}
@@ -114,7 +90,7 @@ func TestQuickPlay_CreateUserDuplicateContinues(t *testing.T) {
 
 func TestQuickPlay_ExistingCookieLookupError(t *testing.T) {
 	db, mock := newQuickPlayPostgresStore(t)
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr := setupJWTManager()
 	token, _ := jwtMgr.SignToken("existing-user", "Existing")
 
 	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
@@ -132,7 +108,7 @@ func TestQuickPlay_ExistingCookieLookupError(t *testing.T) {
 
 func TestQuickPlay_CreateUserError(t *testing.T) {
 	db, mock := newQuickPlayPostgresStore(t)
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr := setupJWTManager()
 
 	mock.ExpectBegin().WillReturnError(errors.New("db down"))
 
@@ -144,14 +120,7 @@ func TestQuickPlay_CreateUserError(t *testing.T) {
 }
 
 func TestRefreshSession_Success(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()
 
 	oldRefresh, err := refreshMgr.Generate(ctx, "user-refresh")
@@ -173,66 +142,38 @@ func TestRefreshSession_Success(t *testing.T) {
 }
 
 func TestRefreshSession_InvalidToken(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-
-	_, err = RefreshSession(context.Background(), refreshMgr, jwtMgr, &mockUserDataStore{}, "bad-token")
+	_, err := RefreshSession(context.Background(), refreshMgr, jwtMgr, &mockUserDataStore{}, "bad-token")
 	if err == nil {
 		t.Fatal("expected error for invalid refresh token")
 	}
 }
 
 func TestRefreshSession_GetUserError(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()
 
 	token, _ := refreshMgr.Generate(ctx, "ghost-user")
-	_, err = RefreshSession(ctx, refreshMgr, jwtMgr, &mockUserDataStore{userErr: errors.New("db down")}, token)
+	_, err := RefreshSession(ctx, refreshMgr, jwtMgr, &mockUserDataStore{userErr: errors.New("db down")}, token)
 	if err == nil {
 		t.Fatal("expected error when user lookup fails")
 	}
 }
 
 func TestRefreshSession_UserNotFound(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()
 
 	token, _ := refreshMgr.Generate(ctx, "ghost-user")
-	_, err = RefreshSession(ctx, refreshMgr, jwtMgr, &mockUserDataStore{user: nil}, token)
+	_, err := RefreshSession(ctx, refreshMgr, jwtMgr, &mockUserDataStore{user: nil}, token)
 	if err == nil {
 		t.Fatal("expected error when user not found")
 	}
 }
 
 func TestRefreshSession_GenerateError(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()
 
 	oldRefresh, err := refreshMgr.Generate(ctx, "user-refresh-gen-err")
@@ -261,10 +202,7 @@ func TestRefreshSession_GenerateError(t *testing.T) {
 }
 
 func TestRefreshSession_SignTokenError(t *testing.T) {
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	refreshMgr := NewRefreshTokenManager(rdb)
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 
 	ctx := context.Background()
 	userID := "user-sign-err"
@@ -286,9 +224,7 @@ func TestRefreshSession_SignTokenError(t *testing.T) {
 }
 
 func TestRefreshSession_RevokesOldToken(t *testing.T) {
-	mr := miniredis.RunT(t)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
+	jwtMgr, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()
 
 	oldRefresh, err := refreshMgr.Generate(ctx, "user-refresh")
@@ -312,8 +248,7 @@ func TestRefreshSession_RevokesOldToken(t *testing.T) {
 }
 
 func TestRefreshSession_ReuseDetection(t *testing.T) {
-	mr := miniredis.RunT(t)
-	refreshMgr := NewRefreshTokenManager(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()
 
 	token, err := refreshMgr.Generate(ctx, "user-reuse")

@@ -214,7 +214,7 @@ func TestStartWSPumps_JoinFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
-	room := hub.GetRoom(code).(*game.Room)
+	room := hub.GetRoom(code)
 	if err := room.HandleJoin("existing", nil); err != nil {
 		t.Fatal(err)
 	}

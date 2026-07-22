@@ -4,19 +4,40 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sethvargo/go-retry"
 	"github.com/sony/gobreaker/v2"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/uppy-clone/backend/internal/audit"
-	"github.com/uppy-clone/backend/internal/store/base"
 )
 
 // AuditEntry is an alias for audit.AuditEntry so callers constructing
 // store.Deps (e.g. server_init, bootstrap) can reference the type without
 // importing the audit package directly.
 type AuditEntry = audit.AuditEntry
+
+// ─── Pool & Metrics ──────────────────────────────────────────────────
+
+// PGPool abstracts pgxpool for store operations (enables pgxmock in unit tests).
+type PGPool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Close()
+	Ping(ctx context.Context) error
+}
+
+// PoolMetricsRecorder abstracts Prometheus metrics for the PG connection pool.
+type PoolMetricsRecorder interface {
+	IncAcquireCount()
+	SetIdleConns(val float64)
+	SetInUseConns(val float64)
+	ObserveAcquireDuration(val float64)
+}
 
 type noopPoolMetrics struct{}
 
@@ -36,7 +57,7 @@ type Deps struct {
 	RedisRetryPolicy       retry.Backoff
 	MaybeRetryableFn       func(err error) error
 	Tracer                 trace.Tracer
-	PoolMetrics            base.PoolMetricsRecorder
+	PoolMetrics            PoolMetricsRecorder
 	AuditLogFn             func(context.Context, AuditEntry)
 }
 

@@ -82,9 +82,6 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *s
 func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, appMiddleware.EndpointAuthQuickplay, jwtMgr), appMiddleware.RecordAuthMetrics("quickplay")).Post("/quickplay", authHandler.QuickPlay)
-		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:request", jwtMgr), appMiddleware.RecordAuthMetrics("request")).Post("/request", authHandler.RequestMagicLink)
-		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Get("/verify", authHandler.VerifyMagicLink)
-		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:verify", jwtMgr), appMiddleware.RecordAuthMetrics("verify")).Post("/verify", authHandler.VerifyMagicLinkPost)
 		r.With(appMiddleware.RecordAuthMetrics("check")).Get("/check", authHandler.CheckAuth)
 		r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "auth:refresh", jwtMgr), appMiddleware.RecordAuthMetrics("refresh")).Post("/refresh", authHandler.RefreshToken)
 		r.With(appMiddleware.RecordAuthMetrics("logout")).Post("/logout", authHandler.Logout)
@@ -104,6 +101,8 @@ func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, cluster *s
 	if statsHandler == nil {
 		return
 	}
+	// Public stats — unauthenticated, shown on the landing page.
+	r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "stats:public", jwtMgr)).Get("/api/v1/stats/public", statsHandler.GetPublicStats)
 	r.With(appMiddleware.EndpointRateLimit(cluster.Ephemeral, "stats:leaderboard", jwtMgr)).Get("/api/v1/leaderboard", statsHandler.GetLeaderboard)
 	r.With(
 		appMiddleware.EndpointRateLimit(cluster.Ephemeral, "user:stats", jwtMgr),

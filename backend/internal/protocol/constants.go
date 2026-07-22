@@ -50,6 +50,10 @@ const (
 	// MsgRestartStatus is the server message type for restart status updates.
 	// @ts MSG_TYPE.RESTART_STATUS
 	MsgRestartStatus = 0x07
+	// MsgNicknameRejected is the server message type for rejected nickname
+	// submissions. The 2nd byte carries a NickReject* reason code.
+	// @ts MSG_TYPE.NICKNAME_REJECTED
+	MsgNicknameRejected = 0x08
 	// MsgPong is the server message type for pong responses.
 	// @ts MSG_TYPE.PONG
 	MsgPong = 0x21
@@ -79,6 +83,18 @@ const (
 	EndReasonBird = 2
 	// @ts END_REASON.GHOST
 	EndReasonGhost = 3
+)
+
+// Nickname reject reason codes (sent as 2nd byte on MsgNicknameRejected).
+const (
+	// @ts NICKNAME_REJECT_REASON.EMPTY
+	NickRejectEmpty = 0x01
+	// @ts NICKNAME_REJECT_REASON.DUPLICATE
+	NickRejectDuplicate = 0x02
+	// @ts NICKNAME_REJECT_REASON.COOLDOWN
+	NickRejectCooldown = 0x03
+	// @ts NICKNAME_REJECT_REASON.DECODE_ERROR
+	NickRejectDecodeError = 0x04
 )
 
 // ─── 游戏阶段类型 ────────────────────────────────────────────────────
@@ -179,8 +195,10 @@ const (
 	BirdSpawnMax = 30 // 2s x 15Hz
 	// @ts PHYSICS.BIRD_SPEED
 	BirdSpeed = 0.003
-	// @ts PHYSICS.BIRD_COLLISION_RADIUS
-	BirdCollisionRadius = 0.035
+	// @ts PHYSICS.BIRD_COLLISION_RADIUS_X
+	BirdCollisionRadiusX = 0.020
+	// @ts PHYSICS.BIRD_COLLISION_RADIUS_Y
+	BirdCollisionRadiusY = 0.035
 
 	// @ts PHYSICS.GHOST_SPAWN_MIN
 	GhostSpawnMin = 15 // 1s x 15Hz
@@ -194,6 +212,8 @@ const (
 	GhostCollisionRadiusX = 0.035
 	// @ts PHYSICS.GHOST_COLLISION_RADIUS_Y
 	GhostCollisionRadiusY = 0.045
+	// @ts PHYSICS.BALLOON_COLLISION_RADIUS
+	BalloonCollisionRadius = 0.06
 	// @ts PHYSICS.GHOST_REPEL_RADIUS
 	GhostRepelRadius = 0.15
 	// @ts PHYSICS.GHOST_REPEL_DURATION
@@ -227,7 +247,7 @@ const (
 	WindEdgeSoftZone = 0.12
 
 	// @ts PHYSICS.HORIZONTAL_DRAG
-	HorizontalDrag = 0.98
+	HorizontalDrag = 0.99
 
 	// @ts PHYSICS.INTERP_DELAY_MS
 	InterpDelayMs = 100

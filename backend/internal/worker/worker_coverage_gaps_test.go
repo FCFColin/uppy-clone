@@ -10,75 +10,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 )
-
-type beginFailDB struct{}
-
-func (beginFailDB) Begin(context.Context) (pgx.Tx, error) {
-	return nil, errors.New("begin failed")
-}
-
-func TestGameResultWorker_processMessage_BeginError(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	ctx := context.Background()
-	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
-
-	w := &GameResultWorker{rdb: rdb, db: beginFailDB{}}
-	payload := wrapGameResultEnvelope(GameResultPayload{GameID: testGameID, RoomCode: "R1"})
-	w.processMessage(ctx, redis.XMessage{
-		ID: "20-0", Values: map[string]interface{}{"payload": payload},
-	})
-}
-
-func TestGameResultWorker_Start_FlushFullBatch(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	ctx := context.Background()
-
-	_ = rdb.XGroupCreateMkStream(ctx, "game.events", "result-workers", "0").Err()
-	for i := 0; i < 100; i++ {
-		if err := rdb.XAdd(ctx, &redis.XAddArgs{
-			Stream: "game.events",
-			Values: map[string]interface{}{"payload": "not-json"},
-		}).Err(); err != nil {
-			t.Fatalf("XAdd: %v", err)
-		}
-	}
-
-	workerCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		NewGameResultWorker(rdb, nil).Start(workerCtx)
-		close(done)
-	}()
-
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		pending, _ := rdb.XPending(ctx, "game.events", "result-workers").Result()
-		if pending.Count == 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("Start did not exit")
-	}
-}
 
 func TestEmailWorker_Start_MultipleMessages(t *testing.T) {
 	mr, err := miniredis.Run()
