@@ -128,24 +128,6 @@ services:
       - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
-  # Optional single-node CockroachDB for local multi-region dialect testing (ADR-015).
-  # Start with: docker compose --profile cockroach up cockroach
-  # Then point the app at it: DB_DIALECT=cockroach DATABASE_URL=postgresql://root@localhost:26257/defaultdb?sslmode=disable
-  cockroach:
-    image: cockroachdb/cockroach:v23.2.6@sha256:20ef1af8b41e763f1e7521e2d85ca35b1594143ba00cfd295aacd068270c156a
-    profiles: ["cockroach"]
-    command: ["start-single-node", "--insecure"]
-    ports:
-      - "26257:26257"  # SQL
-      - "8081:8080"    # CRDB admin UI (host 8081 to avoid app 8080)
-    volumes:
-      - crdbdata:/cockroach/cockroach-data
-    healthcheck:
-      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 volumes:
   pgdata:
   redisdata:
-  crdbdata:

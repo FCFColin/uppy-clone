@@ -30,14 +30,6 @@ data "google_compute_network" "balloon_vpc" {
   project = var.project_id
 }
 
-# GKE 集群手动管理，Terraform 仅 data 引用（v2-C-01/ADR-014）：控制平面误删代价极高、多区域 apply 复杂、node pool autoscaler 与 TF 生命周期冲突。
-data "google_container_cluster" "balloon_game" {
-  for_each = toset(var.gke_regions)
-  name     = "${var.gke_cluster_name_prefix}-${each.value}"
-  location = each.value
-  project  = var.project_id
-}
-
 # Reserved IP range for private services (VPC peering with Google services).
 resource "google_compute_global_address" "private_ip_range" {
   name          = "balloon-game-private-ip-range"
@@ -157,7 +149,7 @@ resource "google_secret_manager_secret" "admin_password" {
   }
 }
 
-# GKE Workload Identity SA (ADR-014/005/013/016): Pod 以此 GSA 身份访问 Secret Manager / Cloud SQL / CRDB，免长期密钥。
+# GKE Workload Identity SA: Pod 以此 GSA 身份访问 Secret Manager / Cloud SQL，免长期密钥。
 resource "google_service_account" "balloon_game" {
   account_id   = "balloon-game"
   display_name = "Balloon Game GKE Workload Identity SA (legacy umbrella SA)"
@@ -166,7 +158,7 @@ resource "google_service_account" "balloon_game" {
 # infra-028: 拆分最小权限 GSA——server 独立身份（worker/migrator 已删），原 balloon-game SA 作为遗留 umbrella 保留。
 resource "google_service_account" "balloon_game_server" {
   account_id   = "balloon-game-server"
-  display_name = "Balloon Game WebSocket/Game server GSA (ADR-014)"
+  display_name = "Balloon Game WebSocket/Game server GSA"
 }
 
 # Secret Manager access granted to the GKE Workload Identity GSA (not Cloud Run).
@@ -183,14 +175,14 @@ resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   member    = "serviceAccount:${google_service_account.balloon_game.email}"
 }
 
-# Bind K8s SA (balloon-game) to GSA via Workload Identity; 每区域集群共用同一 GSA，overlay 注解 iam.gke.io/gcp-service-account 指向它。
+# Bind K8s SA (balloon-game) to GSA via Workload Identity; overlay 注解 iam.gke.io/gcp-service-account 指向它。
 resource "google_service_account_iam_member" "workload_identity" {
   service_account_id = google_service_account.balloon_game.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[balloon-game/balloon-game]"
 }
 
-# Cloud SQL client access for the GKE Workload Identity GSA (single-region PostgreSQL; multi-region CRDB uses its own client certs).
+# Cloud SQL client access for the GKE Workload Identity GSA (single-region PostgreSQL).
 resource "google_project_iam_member" "cloudsql_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"

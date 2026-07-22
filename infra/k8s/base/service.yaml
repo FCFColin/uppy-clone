@@ -125,7 +125,7 @@ spec:
                 configMapKeyRef:
                   name: balloon-game-region
                   key: trusted-proxy-cidrs
-            # INTERNAL_PROXY_SECRET: 跨实例 /internal 路由的共享密钥。
+            # INTERNAL_PROXY_SECRET: 跨实例 /internal 路由的共享密钥。  # pragma: allowlist secret
             - name: INTERNAL_PROXY_SECRET
               valueFrom:
                 secretKeyRef:

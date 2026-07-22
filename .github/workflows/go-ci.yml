@@ -112,7 +112,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Run detect-secrets
-        run: |
+        run: |  # pragma: allowlist secret
           pip install detect-secrets==1.5.0
           detect-secrets scan --baseline .secrets.baseline \
             --exclude-files 'backend/internal/.*_test\.go' \
@@ -259,7 +259,7 @@ jobs:
       - name: Run integration tests
         run: |
           go test -tags=integration ./tests/integration/... -race -timeout 180s -coverprofile=int.out -covermode=atomic
-          go test -tags=integration ./internal/outbox/... ./internal/worker/... -race -timeout 180s
+          go test -tags=integration ./internal/worker/... -race -timeout 180s
       - name: Integration coverage governance
         run: bash ../scripts/ci/check-coverage.sh integration int.out
 

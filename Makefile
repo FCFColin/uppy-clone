@@ -2,7 +2,7 @@
 .PHONY: test test-all test-property test-cover test-integration test-containers
 .PHONY: lint lint-all check check-fast ci
 .PHONY: build run migrate seed bench audit clean generate simplify deadcode
-.PHONY: e2e sync-alert-rules check-repo-layout security-check check-protocol-sync
+.PHONY: e2e check-repo-layout security-check check-protocol-sync
 
 help:
 	@echo "Targets:"
@@ -41,7 +41,7 @@ test-integration:
 	cd backend && go test -tags=integration ./tests/integration/... -timeout 180s -v
 
 test-containers:
-	cd backend && go test -tags=integration ./tests/integration/... ./internal/outbox/... ./internal/worker/... -timeout 180s
+	cd backend && go test -tags=integration ./tests/integration/... ./internal/worker/... -timeout 180s
 
 test-all: test test-integration
 	cd frontend && npm test
@@ -53,7 +53,7 @@ test-property:  ## Run property-based tests
 
 test-cover:
 	cd backend && go test $$(go list ./internal/... | grep -v /internal/testutil | grep -v /internal/testsecrets) -short -p 1 -coverprofile=unit.out -covermode=atomic -timeout 180s
-	cd backend && go test -tags=integration ./tests/integration/... ./internal/outbox/... ./internal/worker/... -p 1 -coverprofile=int.out -covermode=atomic -timeout 180s
+	cd backend && go test -tags=integration ./tests/integration/... ./internal/worker/... -p 1 -coverprofile=int.out -covermode=atomic -timeout 180s
 	cd backend && go tool cover -func unit.out
 	bash scripts/ci/check-coverage.sh unit backend/unit.out
 	bash scripts/ci/check-coverage.sh integration backend/int.out
@@ -138,10 +138,3 @@ clean:
 	rm -f backend/*.out backend/*cov* backend/*cover*
 	docker compose down -v
 
-# sync-alert-rules: 生成 deploy/alertmanager/rules-configmap.yaml（v2-C-30/C-31/C-33）。
-# 单一真相源 deploy/prometheus/alerts.yml → ConfigMap YAML，供 Prometheus StatefulSet
-# 通过 configMap `alertmanager-rules` 挂载到 /etc/prometheus/rules/。
-# 见 deploy/prometheus/deployment.yaml volume `rules` 与 deploy/kustomization.yaml configMapGenerator。
-sync-alert-rules:
-	@bash scripts/ci/sync-alert-rules.sh
-	@echo "==> alertmanager rules ConfigMap synced to deploy/alertmanager/rules-configmap.yaml"

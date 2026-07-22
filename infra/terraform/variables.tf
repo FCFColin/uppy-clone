@@ -8,7 +8,7 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "GCP primary region for regional resources (Cloud SQL / Redis). Multi-region GKE clusters see var.gke_regions."
+  description = "GCP primary region for regional resources (Cloud SQL / Redis)."
   type        = string
   default     = "us-central1"
   validation {
@@ -57,26 +57,5 @@ variable "trusted_proxy_cidrs" {
       for cidr in var.trusted_proxy_cidrs : can(regex("^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$", cidr))
     ])
     error_message = "Each entry in trusted_proxy_cidrs must be a valid IPv4 CIDR (e.g. 10.0.0.0/8)."
-  }
-}
-
-# v2-R-23：多区域 GKE 集群（ADR-014），与 ci-cd.yml deploy matrix 对齐。
-variable "gke_regions" {
-  description = "GCP regions where balloon-game GKE clusters exist (managed manually, referenced via data). Must match ci-cd.yml deploy matrix."
-  type        = list(string)
-  default     = ["us-east1", "europe-west1", "asia-southeast1"]
-  validation {
-    condition     = length(var.gke_regions) > 0
-    error_message = "gke_regions must contain at least one region."
-  }
-}
-
-variable "gke_cluster_name_prefix" {
-  description = "Name prefix for existing GKE clusters; actual cluster name is <prefix>-<region> (e.g. balloon-game-us-east1)."
-  type        = string
-  default     = "balloon-game"
-  validation {
-    condition     = can(regex("^[a-z][a-z0-9-]*$", var.gke_cluster_name_prefix))
-    error_message = "gke_cluster_name_prefix must be lowercase alphanumeric with hyphens."
   }
 }

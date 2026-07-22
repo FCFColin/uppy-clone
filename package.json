@@ -4,9 +4,9 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:frontend": "cd frontend && npm run dev",
-    "dev:backend": "cd backend && go run ./cmd/server",
+    "dev": "powershell -File scripts/dev/start-dev.ps1",
+    "dev:frontend": "powershell -File scripts/dev/run-frontend.ps1",
+    "dev:backend": "powershell -File scripts/dev/run-backend.ps1",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && go build ./cmd/server",
     "test:backend": "make test",
