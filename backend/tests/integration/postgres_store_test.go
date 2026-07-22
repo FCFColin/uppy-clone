@@ -25,7 +25,7 @@ func TestPostgresStore_Integration(t *testing.T) {
 	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
 	userRepo := store.NewUserRepository(db.Pool())
-	gameStore := store.NewGameStore(db.Pool())
+	gameStore := db
 
 	t.Run("CreateUserAndGetByEmail", func(t *testing.T) {
 		email := fmt.Sprintf("test-%d@example.com", time.Now().UnixNano())

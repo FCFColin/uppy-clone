@@ -106,7 +106,7 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 
 	emailHash := crypto.EmailHMAC(email)
 	var u *domain.User
-	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		// store-020: Wrap OR branch in parentheses so deleted_at IS NULL applies
 		// to the entire WHERE clause. Previously AND bound tighter than OR,
 		// causing soft-deleted users (email_hash match) to bypass the filter.
@@ -144,7 +144,7 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 	defer span.End()
 
 	var u *domain.User
-	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		row := r.pool.QueryRow(ctx,
 			`SELECT id, email, nickname, palette, created_at, last_login FROM users WHERE id = $1 AND deleted_at IS NULL`, id)
 
@@ -178,7 +178,7 @@ func (r *UserRepository) UpdateUserLastLogin(ctx context.Context, id string) err
 	)
 	defer span.End()
 
-	return r.withRetryWrite(ctx, func(ctx context.Context) error {
+	return r.withRetry(ctx, func(ctx context.Context) error {
 		_, execErr := r.pool.Exec(ctx,
 			`UPDATE users SET last_login = (EXTRACT(EPOCH FROM NOW()) * 1000)::bigint WHERE id = $1`, id)
 		if execErr != nil {
@@ -205,7 +205,7 @@ func (r *UserRepository) AnonymizeUser(ctx context.Context, userID string) error
 	if err != nil {
 		return fmt.Errorf("encrypt anonymized email: %w", err)
 	}
-	err = r.withRetryWrite(ctx, func(ctx context.Context) error {
+	err = r.withRetry(ctx, func(ctx context.Context) error {
 		_, execErr := r.pool.Exec(ctx,
 			`UPDATE users SET email = $1, email_hash = $2, nickname = 'Deleted User', deleted_at = $3, email_anonymized = true WHERE id = $4`,
 			storedAnon, anonHash, now, userID)
@@ -241,7 +241,7 @@ func (r *UserRepository) HardDeleteExpiredUsers(ctx context.Context, retentionDa
 	defer span.End()
 
 	var deleted int64
-	err := r.withRetryWrite(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		tag, execErr := r.pool.Exec(ctx,
 			`DELETE FROM users WHERE deleted_at IS NOT NULL AND deleted_at < $1`, cutoff)
 		if execErr != nil {
@@ -259,7 +259,7 @@ func (r *UserRepository) GetGameResultsByUserID(ctx context.Context, userID stri
 	defer span.End()
 
 	var results []domain.GameResult
-	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx,
 			`SELECT id, session_id, user_id, score_contribution, taps_count, created_at FROM game_results WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`, userID)
 		if err != nil {
@@ -289,7 +289,7 @@ func (r *UserRepository) GetGameSessionsByUserID(ctx context.Context, userID str
 	defer span.End()
 
 	var sessions []domain.GameSession
-	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx,
 			`SELECT id, lobby_code, created_by, status, started_at, ended_at, final_score
 			 FROM game_sessions WHERE created_by = $1 ORDER BY COALESCE(started_at, 0) DESC`,

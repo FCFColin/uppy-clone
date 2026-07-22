@@ -27,9 +27,6 @@ var filepathAbsFn = filepath.Abs
 // pgxmock-backed stores.
 var newPostgresStoreFn = store.NewPostgresStore
 
-// Test seam: newRedisStoreFn is replaceable in unit tests.
-var newRedisStoreFn = store.NewRedisStore
-
 // Test seam: shutdownSignals returns the OS signal channel used for
 // graceful shutdown. Tests may replace this to inject signals without
 // sending real SIGTERM.

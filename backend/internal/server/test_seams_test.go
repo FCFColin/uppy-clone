@@ -40,17 +40,6 @@ func withMockPostgresStore(t *testing.T, pool *pgxpool.Pool) {
 	t.Cleanup(func() { newPostgresStoreFn = orig })
 }
 
-// withMockRedisStore replaces newRedisStoreFn with a function that returns
-// the given redisStore. The original function is restored via t.Cleanup.
-func withMockRedisStore(t *testing.T, redisStore *store.RedisStore) {
-	t.Helper()
-	orig := newRedisStoreFn
-	newRedisStoreFn = func(_ string, _ appConfig.TimeoutConfig, _ ...store.Deps) (*store.RedisStore, error) {
-		return redisStore, nil
-	}
-	t.Cleanup(func() { newRedisStoreFn = orig })
-}
-
 // withMigrationsHook installs the given migrations hook and registers
 // cleanup to restore the original. Pass nil to install a no-op hook
 // (migrations succeed silently).

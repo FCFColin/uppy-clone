@@ -10,14 +10,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestPostgresStore_AnonymizeUser(t *testing.T) {
 	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
-	userRepo := store.NewUserRepository(db.Pool())
+	userRepo := db.NewUserRepository()
 
 	email := fmt.Sprintf("gdpr-%d@example.com", time.Now().UnixNano())
 	user := &domain.User{
@@ -46,7 +45,7 @@ func TestPostgresStore_AnonymizeUser(t *testing.T) {
 func TestPostgresStore_LoadAllActiveLobbiesCursor(t *testing.T) {
 	db := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
 	ctx := context.Background()
-	gameStore := store.NewGameStore(db.Pool())
+	gameStore := db
 
 	for i, code := range []string{"AAAAA", "BBBBB", "CCCCC"} {
 		ls := &domain.LobbyState{

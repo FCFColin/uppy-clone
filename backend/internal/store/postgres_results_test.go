@@ -114,8 +114,8 @@ func TestRecordGameResult_Success(t *testing.T) {
 	ctx := context.Background()
 
 	results := []domain.GameResultPlayer{
-		{UserID: "u1", ScoreContribution: 50, TapsCount: 5},
-		{UserID: "u2", ScoreContribution: 30, TapsCount: 3},
+		{UserID: "u1", Nickname: "Alice", ScoreContribution: 50, TapsCount: 5},
+		{UserID: "u2", Nickname: "Bob", ScoreContribution: 30, TapsCount: 3},
 	}
 
 	mock.ExpectBegin()
@@ -123,7 +123,7 @@ func TestRecordGameResult_Success(t *testing.T) {
 		WithArgs("sess-1", "CODE1", int64(200), 100).
 		WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
 	mock.ExpectExec("INSERT INTO game_results").
-		WithArgs(pgxmock.AnyArg(), "sess-1", "u1", 50, 5, int64(200), pgxmock.AnyArg(), "sess-1", "u2", 30, 3, int64(200)).
+		WithArgs(pgxmock.AnyArg(), "sess-1", "u1", "Alice", 50, 5, int64(200), pgxmock.AnyArg(), "sess-1", "u2", "Bob", 30, 3, int64(200)).
 		WillReturnResult(pgconn.NewCommandTag("INSERT 2"))
 	mock.ExpectCommit()
 

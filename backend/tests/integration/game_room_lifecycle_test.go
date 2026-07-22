@@ -9,13 +9,12 @@ import (
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/game"
-	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestGameRoom_FullLifecycle(t *testing.T) {
 	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
-	gameStore := store.NewGameStore(pgStore.Pool())
+	gameStore := pgStore
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
@@ -56,7 +55,7 @@ func TestGameRoom_FullLifecycle(t *testing.T) {
 
 func TestGameRoom_CheckNonExistentRoom(t *testing.T) {
 	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
-	gameStore := store.NewGameStore(pgStore.Pool())
+	gameStore := pgStore
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
@@ -72,7 +71,7 @@ func TestGameRoom_CheckNonExistentRoom(t *testing.T) {
 
 func TestGameRoom_ConcurrentCreate(t *testing.T) {
 	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
-	gameStore := store.NewGameStore(pgStore.Pool())
+	gameStore := pgStore
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
@@ -120,7 +119,7 @@ func TestGameRoom_ConcurrentCreate(t *testing.T) {
 
 func TestGameRoom_MatchRoom(t *testing.T) {
 	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
-	gameStore := store.NewGameStore(pgStore.Pool())
+	gameStore := pgStore
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
@@ -175,7 +174,7 @@ func TestGameRoom_NilStore(t *testing.T) {
 
 func TestGameRoom_RemoveRoom(t *testing.T) {
 	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
-	gameStore := store.NewGameStore(pgStore.Pool())
+	gameStore := pgStore
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
@@ -199,7 +198,7 @@ func TestGameRoom_RemoveRoom(t *testing.T) {
 
 func TestGameRoom_RemoveNonExistent(t *testing.T) {
 	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
-	gameStore := store.NewGameStore(pgStore.Pool())
+	gameStore := pgStore
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
@@ -211,7 +210,7 @@ func TestGameRoom_RemoveNonExistent(t *testing.T) {
 
 func TestGameRoom_CodeConflictHook(t *testing.T) {
 	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
-	gameStore := store.NewGameStore(pgStore.Pool())
+	gameStore := pgStore
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 
@@ -237,7 +236,7 @@ func TestGameRoom_CodeConflictHook(t *testing.T) {
 
 func TestGameRoom_DefaultTimeoutConfig(t *testing.T) {
 	pgStore := testutil.SetupPostgres(t, testutil.WithStore(), testutil.WithMigrations()).Store
-	gameStore := store.NewGameStore(pgStore.Pool())
+	gameStore := pgStore
 	redisStore := testutil.SetupMiniredisStore(t)
 	timeouts := config.DefaultTimeoutConfig()
 

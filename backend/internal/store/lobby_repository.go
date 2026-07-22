@@ -30,7 +30,7 @@ func (r *LobbyRepository) SaveLobbyState(ctx context.Context, ls *domain.LobbySt
 	)
 	defer span.End()
 
-	err := r.withRetryWrite(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		_, execErr := r.pool.Exec(ctx,
 			`INSERT INTO lobby_states (id, code, state, updated_at, created_at) VALUES ($1, $2, $3, $4, $5)
 			 ON CONFLICT (code) DO UPDATE SET state = EXCLUDED.state, updated_at = EXCLUDED.updated_at`,
@@ -56,7 +56,7 @@ func (r *LobbyRepository) LoadLobbyState(ctx context.Context, code string) (*dom
 	defer span.End()
 
 	var ls *domain.LobbyState
-	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		row := r.pool.QueryRow(ctx,
 			`SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code = $1`, code)
 
@@ -85,7 +85,7 @@ func (r *LobbyRepository) DeleteLobbyState(ctx context.Context, code string) err
 	)
 	defer span.End()
 
-	return r.withRetryWrite(ctx, func(ctx context.Context) error {
+	return r.withRetry(ctx, func(ctx context.Context) error {
 		_, execErr := r.pool.Exec(ctx, `DELETE FROM lobby_states WHERE code = $1`, code)
 		if execErr != nil {
 			return fmt.Errorf("delete lobby state: %w", execErr)
@@ -136,7 +136,7 @@ func (r *LobbyRepository) LoadAllActiveLobbies(ctx context.Context, limit int, c
 // for tables with < ~1000 rows the estimate is typically exact.
 func (r *LobbyRepository) countAllLobbies(ctx context.Context) (int, error) {
 	var total int
-	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		if countErr := r.pool.QueryRow(ctx,
 			`SELECT COALESCE(reltuples, 0)::int FROM pg_class WHERE relname = 'lobby_states'`).Scan(&total); countErr != nil {
 			return fmt.Errorf("estimate lobby count: %w", countErr)
@@ -148,7 +148,7 @@ func (r *LobbyRepository) countAllLobbies(ctx context.Context) (int, error) {
 
 func (r *LobbyRepository) fetchLobbiesPage(ctx context.Context, fetchLimit int, cursorUpdatedAt int64, cursorCode string) ([]domain.LobbyState, error) {
 	var lobbies []domain.LobbyState
-	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		rows, queryErr := r.queryLobbies(ctx, fetchLimit, cursorUpdatedAt, cursorCode)
 		if queryErr != nil {
 			return fmt.Errorf("load all lobbies: %w", queryErr)

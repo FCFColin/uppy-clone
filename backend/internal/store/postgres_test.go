@@ -25,7 +25,7 @@ func TestPostgresStore_NewInvalidInputs(t *testing.T) {
 	}{
 		{"empty database URL", "", ""},
 		{"invalid connection string", "://not-a-valid-dsn", "parse config"},
-		{"unreachable ping", "postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable&connect_timeout=1", "ping"},
+		{"unreachable ping", "postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable&connect_timeout=1", "ping"}, // pragma: allowlist secret
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestPostgresStore_NewPoolConfigError(t *testing.T) {
 	})
 
 	_, err := NewPostgresStore(
-		"postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable&connect_timeout=1",
+		"postgres://user:pass@127.0.0.1:1/dbname?sslmode=disable&connect_timeout=1", // pragma: allowlist secret
 		config.DefaultTimeoutConfig(),
 	)
 	if err == nil {
@@ -64,7 +64,7 @@ func TestPostgresStore_NewPoolConfigError(t *testing.T) {
 func TestPostgresStore_NewPostgresStore_Success(t *testing.T) {
 	connStr := os.Getenv("TEST_DATABASE_URL")
 	if connStr == "" {
-		connStr = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=2"
+		connStr = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=2" // pragma: allowlist secret
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -105,7 +105,7 @@ func TestPostgresStore_NewPostgresStore_MockPool(t *testing.T) {
 	t.Cleanup(func() { pgxNewWithConfigFn = orig })
 
 	db, err := NewPostgresStore(
-		"postgres://user:pass@127.0.0.1:5432/dbname?sslmode=disable",
+		"postgres://user:pass@127.0.0.1:5432/dbname?sslmode=disable", // pragma: allowlist secret
 		config.DefaultTimeoutConfig(),
 	)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestPostgresStore_NewPostgresStore_CreatePoolError(t *testing.T) {
 	t.Cleanup(func() { pgxNewWithConfigFn = orig })
 
 	_, err := NewPostgresStore(
-		"postgres://user:pass@127.0.0.1:5432/dbname?sslmode=disable",
+		"postgres://user:pass@127.0.0.1:5432/dbname?sslmode=disable", // pragma: allowlist secret
 		config.DefaultTimeoutConfig(),
 	)
 	if err == nil || !strings.Contains(err.Error(), "create pool") {

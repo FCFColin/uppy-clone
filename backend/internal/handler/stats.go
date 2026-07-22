@@ -11,14 +11,24 @@ import (
 	"github.com/uppy-clone/backend/internal/store"
 )
 
-// StatsHandler serves public leaderboard and optional user stats.
-type StatsHandler struct {
-	db *store.ResultRepository
+// PlayerCounter returns live player/room counts (implemented by *game.Hub).
+// Declared as an interface here to avoid importing the game package, which
+// would create an import cycle (game depends on handler for other helpers).
+type PlayerCounter interface {
+	PlayerCount() int
+	RoomCount() int
 }
 
-// NewStatsHandler creates a StatsHandler backed by the given leaderboard store.
-func NewStatsHandler(db *store.ResultRepository) *StatsHandler {
-	return &StatsHandler{db: db}
+// StatsHandler serves public leaderboard and optional user stats.
+type StatsHandler struct {
+	db  *store.ResultRepository
+	hub PlayerCounter
+}
+
+// NewStatsHandler creates a StatsHandler backed by the given leaderboard store
+// and an optional live PlayerCounter (typically *game.Hub) for online counts.
+func NewStatsHandler(db *store.ResultRepository, hub PlayerCounter) *StatsHandler {
+	return &StatsHandler{db: db, hub: hub}
 }
 
 // GetLeaderboard handles GET /api/v1/leaderboard?scope=global|weekly&limit=50
@@ -86,4 +96,42 @@ func (h *StatsHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
 		"gamesPlayed": gamesPlayed,
 		"hasHistory":  gamesPlayed > 0,
 	})
+}
+
+// GetPublicStats handles GET /api/v1/stats/public — returns live, non-authenticated stats.
+func (h *StatsHandler) GetPublicStats(w http.ResponseWriter, r *http.Request) {
+	if !RequireDB(h.db, w) {
+		return
+	}
+
+	type publicStats struct {
+		OnlinePlayers int `json:"onlinePlayers"`
+		GamesToday    int `json:"gamesToday"`
+		BestScore     int `json:"bestScore"`
+		ActiveRooms   int `json:"activeRooms"`
+	}
+
+	var stats publicStats
+	if h.hub != nil {
+		stats.OnlinePlayers = h.hub.PlayerCount()
+		stats.ActiveRooms = h.hub.RoomCount()
+	}
+
+	gamesToday, err := h.db.GetGamesTodayCount(r.Context())
+	if err != nil {
+		slog.Error("failed to load games today count", "error", err)
+		domain.InternalError("failed to load stats").Write(w)
+		return
+	}
+	stats.GamesToday = gamesToday
+
+	best, err := h.db.GetBestScore(r.Context())
+	if err != nil {
+		slog.Error("failed to load best score", "error", err)
+		domain.InternalError("failed to load stats").Write(w)
+		return
+	}
+	stats.BestScore = best
+
+	writeJSON(w, http.StatusOK, stats)
 }

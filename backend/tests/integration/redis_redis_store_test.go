@@ -24,9 +24,10 @@ func TestRedisStore_RegisterRoom_Smoke(t *testing.T) {
 		t.Fatalf("RegisterRoom failed: %v", err)
 	}
 
-	rooms, err := roomRegistry.ListActiveRooms(ctx)
+	// ListActiveRooms was deleted; query the room:index SET directly (maintained by RegisterRoom).
+	rooms, err := rdb.Client().SMembers(ctx, "room:index").Result()
 	if err != nil {
-		t.Fatalf("ListActiveRooms failed: %v", err)
+		t.Fatalf("SMembers room:index failed: %v", err)
 	}
 	for _, r := range rooms {
 		if r == code {

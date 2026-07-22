@@ -32,7 +32,7 @@ func (r *ConfigRepository) GetConfig(ctx context.Context, id string) (*domain.Ap
 	defer span.End()
 
 	var c *domain.AppConfig
-	err := r.withRetryRead(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		row := r.pool.QueryRow(ctx, `SELECT id, config, updated_at FROM admin_config WHERE id = $1`, id)
 
 		var cfg domain.AppConfig
@@ -66,7 +66,7 @@ func (r *ConfigRepository) SaveConfig(ctx context.Context, c *domain.AppConfig) 
 	ctx, span := withSpan(ctx, r.deps.Tracer, "config_repo.SaveConfig")
 	defer span.End()
 
-	err := r.withRetryWrite(ctx, func(ctx context.Context) error {
+	err := r.withRetry(ctx, func(ctx context.Context) error {
 		_, execErr := r.pool.Exec(ctx,
 			`INSERT INTO admin_config (id, config, updated_at) VALUES ($1, $2, $3)
 			 ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config, updated_at = EXCLUDED.updated_at`,

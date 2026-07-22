@@ -12,9 +12,9 @@ import (
 
 type mockLeaderboardRows struct {
 	mockRowsBase
-	scores   []int
-	codes    []string
-	endedAts []int64
+	scores       []int
+	displayNames []string
+	endedAts     []int64
 }
 
 func (m *mockLeaderboardRows) Next() bool { return m.next(len(m.scores)) }
@@ -27,7 +27,7 @@ func (m *mockLeaderboardRows) Scan(dest ...interface{}) error {
 	}
 	i := m.pos - 1
 	*dest[0].(*int) = m.scores[i]
-	*dest[1].(*string) = m.codes[i]
+	*dest[1].(*string) = m.displayNames[i]
 	*dest[2].(*int64) = m.endedAts[i]
 	return nil
 }
@@ -37,9 +37,9 @@ func TestScanLeaderboardRows(t *testing.T) {
 
 	t.Run("assigns ranks", func(t *testing.T) {
 		rows := &mockLeaderboardRows{
-			scores:   []int{900, 800},
-			codes:    []string{"A", "B"},
-			endedAts: []int64{100, 200},
+			scores:       []int{900, 800},
+			displayNames: []string{"Alice", "Bob"},
+			endedAts:     []int64{100, 200},
 		}
 		entries, err := scanLeaderboardRows(rows)
 		if err != nil {
@@ -48,10 +48,10 @@ func TestScanLeaderboardRows(t *testing.T) {
 		if len(entries) != 2 {
 			t.Fatalf("got %d entries, want 2", len(entries))
 		}
-		if entries[0].Rank != 1 || entries[0].Score != 900 || entries[0].LobbyCode != "A" {
+		if entries[0].Rank != 1 || entries[0].Score != 900 || entries[0].Name != "Alice" {
 			t.Errorf("entry[0] = %+v", entries[0])
 		}
-		if entries[1].Rank != 2 || entries[1].Score != 800 || entries[1].LobbyCode != "B" {
+		if entries[1].Rank != 2 || entries[1].Score != 800 || entries[1].Name != "Bob" {
 			t.Errorf("entry[1] = %+v", entries[1])
 		}
 	})
@@ -59,7 +59,7 @@ func TestScanLeaderboardRows(t *testing.T) {
 	t.Run("scan error propagates", func(t *testing.T) {
 		rows := &mockLeaderboardRows{
 			scores:       []int{100},
-			codes:        []string{"C"},
+			displayNames: []string{"C"},
 			mockRowsBase: mockRowsBase{scanErr: errors.New("field type mismatch")},
 		}
 		_, err := scanLeaderboardRows(rows)
@@ -71,7 +71,7 @@ func TestScanLeaderboardRows(t *testing.T) {
 	t.Run("rows.Err propagates", func(t *testing.T) {
 		rows := &mockLeaderboardRows{
 			scores:       []int{100},
-			codes:        []string{"D"},
+			displayNames: []string{"D"},
 			mockRowsBase: mockRowsBase{err: errors.New("connection lost")},
 		}
 		_, err := scanLeaderboardRows(rows)
@@ -82,9 +82,9 @@ func TestScanLeaderboardRows(t *testing.T) {
 
 	t.Run("single row", func(t *testing.T) {
 		rows := &mockLeaderboardRows{
-			scores:   []int{500},
-			codes:    []string{"X"},
-			endedAts: []int64{300},
+			scores:       []int{500},
+			displayNames: []string{"X"},
+			endedAts:     []int64{300},
 		}
 		entries, err := scanLeaderboardRows(rows)
 		if err != nil {
@@ -105,8 +105,11 @@ func TestLeaderboardQuery(t *testing.T) {
 		if args[0] != 10 {
 			t.Errorf("global limit = %v", args[0])
 		}
-		if strings.Contains(query, "ended_at >=") {
+		if strings.Contains(query, "created_at >=") {
 			t.Error("global query should not have time filter")
+		}
+		if !strings.Contains(query, "gr.user_id::text") {
+			t.Error("global query should cast user_id to text to avoid VARCHAR/UUID COALESCE type mismatch")
 		}
 	})
 
@@ -118,35 +121,51 @@ func TestLeaderboardQuery(t *testing.T) {
 		if args[1] != 5 {
 			t.Errorf("weekly limit = %v", args[1])
 		}
-		if !strings.Contains(query, "ended_at >=") {
+		if !strings.Contains(query, "created_at >=") {
 			t.Error("weekly query should have time filter")
+		}
+		if !strings.Contains(query, "gr.user_id::text") {
+			t.Error("weekly query should cast user_id to text to avoid VARCHAR/UUID COALESCE type mismatch")
 		}
 	})
 }
 
 func TestGetLeaderboard(t *testing.T) {
 	tests := []struct {
-		name        string
-		scope       string
-		limit       int
-		queryErr    error
-		rows        *pgxmock.Rows
-		wantEntries int
-		wantErr     bool
+		name          string
+		scope         string
+		limit         int
+		queryErr      error
+		rows          *pgxmock.Rows
+		wantEntries   int
+		wantFirstName string
+		wantErr       bool
 	}{
 		{
-			name:        "success",
-			scope:       "all",
-			limit:       50,
-			rows:        pgxmock.NewRows([]string{"final_score", "lobby_code", "ended_at"}).AddRow(1000, "CODE1", int64(100)).AddRow(800, "CODE2", int64(200)),
-			wantEntries: 2,
+			name:          "success",
+			scope:         "all",
+			limit:         50,
+			rows:          pgxmock.NewRows([]string{"best_score", "display_name", "best_at"}).AddRow(1000, "Alice", int64(100)).AddRow(800, "Bob", int64(200)),
+			wantEntries:   2,
+			wantFirstName: "Alice",
 		},
 		{
 			name:        "empty returns slice",
 			scope:       "all",
 			limit:       0, // internally replaced with 50
-			rows:        pgxmock.NewRows([]string{"final_score", "lobby_code", "ended_at"}),
+			rows:        pgxmock.NewRows([]string{"best_score", "display_name", "best_at"}),
 			wantEntries: 0,
+		},
+		{
+			// Regression: when nickname is empty, COALESCE falls back to
+			// gr.user_id::text. The mock returns a UUID-like string as
+			// display_name, simulating the DB-side COALESCE result.
+			name:          "no nickname falls back to user_id text",
+			scope:         "all",
+			limit:         50,
+			rows:          pgxmock.NewRows([]string{"best_score", "display_name", "best_at"}).AddRow(700, "550e8400-e29b-41d4-a716-446655440000", int64(150)),
+			wantEntries:   1,
+			wantFirstName: "550e8400-e29b-41d4-a716-446655440000",
 		},
 		{
 			name:     "query error",
@@ -168,9 +187,9 @@ func TestGetLeaderboard(t *testing.T) {
 			}
 
 			if tt.queryErr != nil {
-				mock.ExpectQuery("SELECT final_score, lobby_code, ended_at FROM game_sessions").WillReturnError(tt.queryErr)
+				mock.ExpectQuery(`SELECT MAX\(gr\.score_contribution\)`).WillReturnError(tt.queryErr)
 			} else {
-				mock.ExpectQuery("SELECT final_score, lobby_code, ended_at FROM game_sessions").WithArgs(effectiveLimit).WillReturnRows(tt.rows)
+				mock.ExpectQuery(`SELECT MAX\(gr\.score_contribution\)`).WithArgs(effectiveLimit).WillReturnRows(tt.rows)
 			}
 
 			entries, err := repo.GetLeaderboard(ctx, tt.scope, tt.limit)
@@ -190,6 +209,9 @@ func TestGetLeaderboard(t *testing.T) {
 			}
 			if len(entries) != tt.wantEntries {
 				t.Fatalf("got %d entries, want %d", len(entries), tt.wantEntries)
+			}
+			if tt.wantFirstName != "" && len(entries) > 0 && entries[0].Name != tt.wantFirstName {
+				t.Fatalf("entries[0].Name = %q, want %q", entries[0].Name, tt.wantFirstName)
 			}
 		})
 	}

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/domain"
 )
@@ -25,18 +24,9 @@ func TestSaveLobbyState(t *testing.T) {
 			repo, mock := newMockRepo(t, NewLobbyRepository)
 			exec := mock.ExpectExec("INSERT INTO lobby_states").
 				WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg())
-			if tt.execErr != nil {
-				exec.WillReturnError(tt.execErr)
-			} else {
-				exec.WillReturnResult(pgconn.NewCommandTag("INSERT 1"))
-			}
+			expectExecResult(exec, tt.execErr, "INSERT 1")
 			err := repo.SaveLobbyState(context.Background(), &domain.LobbyState{ID: "l1", Code: "ABCD1", State: "waiting", UpdatedAt: 100, CreatedAt: 50})
-			if tt.wantErr && err == nil {
-				t.Fatal("expected error")
-			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("SaveLobbyState: %v", err)
-			}
+			assertWantErr(t, err, tt.wantErr, "SaveLobbyState")
 		})
 	}
 }
@@ -114,18 +104,9 @@ func TestDeleteLobbyState(t *testing.T) {
 			repo, mock := newMockRepo(t, NewLobbyRepository)
 			exec := mock.ExpectExec("DELETE FROM lobby_states WHERE code").
 				WithArgs("ABCD1")
-			if tt.execErr != nil {
-				exec.WillReturnError(tt.execErr)
-			} else {
-				exec.WillReturnResult(pgconn.NewCommandTag("DELETE 1"))
-			}
+			expectExecResult(exec, tt.execErr, "DELETE 1")
 			err := repo.DeleteLobbyState(context.Background(), "ABCD1")
-			if tt.wantErr && err == nil {
-				t.Fatal("expected error")
-			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("DeleteLobbyState: %v", err)
-			}
+			assertWantErr(t, err, tt.wantErr, "DeleteLobbyState")
 		})
 	}
 }

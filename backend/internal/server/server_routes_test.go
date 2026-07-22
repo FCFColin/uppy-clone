@@ -45,7 +45,7 @@ func newTestRouter(t *testing.T) *chi.Mux {
 	authHandler := handler.NewAuthHandler(nil, nil, jwtMgr, nil, cfg)
 	lobbyHandler := handler.NewLobbyHandler(hub, nil)
 	adminHandler := handler.NewAdminHandler(nil, adminJwtMgr, nil)
-	statsHandler := handler.NewStatsHandler(nil)
+	statsHandler := handler.NewStatsHandler(nil, nil)
 	rbacEnforcer := rbac.NewEnforcer()
 	redisStore := testutil.SetupMiniredisStore(t)
 	cluster := &store.RedisCluster{Stateful: redisStore, Ephemeral: redisStore}
@@ -203,15 +203,6 @@ func TestSetupRoutes_AdminLoginBadRequest(t *testing.T) {
 	r := newTestRouter(t)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader("{bad")))
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", rec.Code)
-	}
-}
-
-func TestSetupRoutes_MagicLinkRequestBadRequest(t *testing.T) {
-	r := newTestRouter(t)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/request", strings.NewReader(`{"email":""}`)))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}

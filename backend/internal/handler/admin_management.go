@@ -222,7 +222,7 @@ func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 	maskedApiKey := ""
 	if storedConfig.ResendApiKey != "" {
-		maskedApiKey = maskedKey
+		maskedApiKey = maskedKey // pragma: allowlist secret
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -279,19 +279,19 @@ func (h *AdminHandler) applyConfigUpdates(ctx context.Context, w http.ResponseWr
 	if updates.EmailEnabled != nil {
 		storedConfig["email_enabled"] = *updates.EmailEnabled
 	}
-	if updates.ResendApiKey != nil && *updates.ResendApiKey != maskedKey {
+	if updates.ResendApiKey != nil && *updates.ResendApiKey != maskedKey { // pragma: allowlist secret
 		encrypted, err := crypto.Encrypt(*updates.ResendApiKey)
 		if err != nil {
 			domain.InternalError("Failed to encrypt API key").Write(w)
 			return false
 		}
-		storedConfig[resendAPIKey] = encrypted
+		storedConfig[resendAPIKey] = encrypted // pragma: allowlist secret
 	}
 	if updates.EmailFrom != nil {
 		storedConfig["email_from"] = *updates.EmailFrom
 	}
-	if updates.AdminPassword != nil {
-		if updates.OldPassword == nil {
+	if updates.AdminPassword != nil { // pragma: allowlist secret
+		if updates.OldPassword == nil { // pragma: allowlist secret
 			domain.BadRequest("oldPassword required to change adminPassword").Write(w)
 			return false
 		}
@@ -305,7 +305,7 @@ func (h *AdminHandler) applyConfigUpdates(ctx context.Context, w http.ResponseWr
 			domain.InternalError("Failed to hash password").Write(w)
 			return false
 		}
-		storedConfig["admin_password"] = hashed
+		storedConfig["admin_password"] = hashed // pragma: allowlist secret
 		AuditPasswordChange(ctx, middleware.ExtractClientIP(r))
 
 		// Revoke ALL admin sessions, not just the current one (H5).
