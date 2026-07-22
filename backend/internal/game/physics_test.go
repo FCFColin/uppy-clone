@@ -158,7 +158,8 @@ func TestCheckGhostCollision_Edge(t *testing.T) {
 	state.Ghost.Active = true
 	state.Ghost.X = 0.5
 	state.Ghost.Y = 0.5
-	state.Balloon.X = 0.5 + protocol.GhostCollisionRadiusX*0.9
+	// 鬼 X 方向有效碰撞半径 = GhostCollisionRadiusX + BalloonCollisionRadius = 0.035 + 0.06 = 0.095
+	state.Balloon.X = 0.5 + (protocol.GhostCollisionRadiusX+protocol.BalloonCollisionRadius)*0.9
 	state.Balloon.Y = 0.5
 
 	if !CheckGhostCollision(state) {
@@ -171,7 +172,8 @@ func TestCheckGhostCollision_Outside(t *testing.T) {
 	state.Ghost.Active = true
 	state.Ghost.X = 0.5
 	state.Ghost.Y = 0.5
-	state.Balloon.X = 0.5 + protocol.GhostCollisionRadiusX*2
+	// 鬼 X 方向有效碰撞半径 = GhostCollisionRadiusX + BalloonCollisionRadius = 0.035 + 0.06 = 0.095
+	state.Balloon.X = 0.5 + (protocol.GhostCollisionRadiusX+protocol.BalloonCollisionRadius)*2
 	state.Balloon.Y = 0.5
 
 	if CheckGhostCollision(state) {
@@ -235,6 +237,12 @@ func TestCheckBirdCollision(t *testing.T) {
 		{"Overlap", domain.BirdState{X: 0.5, Y: 0.5, Active: true}, domain.BalloonState{X: 0.5, Y: 0.5}, true},
 		{"Inactive", domain.BirdState{X: 0.5, Y: 0.5, Active: false}, domain.BalloonState{X: 0.5, Y: 0.5}, false},
 		{"Far", domain.BirdState{X: 0.1, Y: 0.1, Active: true}, domain.BalloonState{X: 0.9, Y: 0.9}, false},
+		// 鸟 X 方向有效碰撞半径 = BirdCollisionRadiusX + BalloonCollisionRadius = 0.020 + 0.06 = 0.080
+		{"EdgeXInside", domain.BirdState{X: 0.575, Y: 0.5, Active: true}, domain.BalloonState{X: 0.5, Y: 0.5}, true},
+		{"EdgeXOutside", domain.BirdState{X: 0.585, Y: 0.5, Active: true}, domain.BalloonState{X: 0.5, Y: 0.5}, false},
+		// 鸟 Y 方向有效碰撞半径 = BirdCollisionRadiusY + BalloonCollisionRadius = 0.035 + 0.06 = 0.095
+		{"EdgeYInside", domain.BirdState{X: 0.5, Y: 0.59, Active: true}, domain.BalloonState{X: 0.5, Y: 0.5}, true},
+		{"EdgeYOutside", domain.BirdState{X: 0.5, Y: 0.60, Active: true}, domain.BalloonState{X: 0.5, Y: 0.5}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

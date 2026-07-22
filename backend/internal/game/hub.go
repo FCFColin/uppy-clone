@@ -168,7 +168,7 @@ func (h *Hub) CheckRoom(code string) (*RoomInfo, error) {
 		Code:        string(room.state.LobbyCode),
 		Phase:       string(room.state.Phase),
 		PlayerCount: len(room.state.Players),
-		CreatedAt:   room.state.StartedAt,
+		CreatedAt:   room.state.CreatedAt,
 	}, nil
 }
 

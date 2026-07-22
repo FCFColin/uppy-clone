@@ -112,7 +112,7 @@ func TestReadyHandler_PostgresOK(t *testing.T) {
 func TestReadyHandler_PostgresOKIntegration(t *testing.T) {
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=1"
+		dbURL = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=1" // pragma: allowlist secret
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

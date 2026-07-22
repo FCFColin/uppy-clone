@@ -25,22 +25,6 @@ type connTarget struct {
 	connClose         func()
 }
 
-// OutboundSource is the narrow interface OutboundManager needs from its owning
-// Room. Declared with public methods so it can be satisfied across package
-// boundaries — this replaces the previous source *Room field which called
-// private methods (e.g. observer()) and therefore could not actually be
-// extracted to a separate package despite the comment claiming otherwise.
-//
-// *Room satisfies this interface via:
-//   - SnapshotTargets        (promoted from embedded RoomConnections)
-//   - RemovePendingDisconnects
-//   - Observer               (public wrapper around the former observer())
-type OutboundSource interface {
-	SnapshotTargets(excludePlayerID string) []connTarget
-	RemovePendingDisconnects()
-	Observer() GameObserver
-}
-
 // OutboundManager handles per-room WebSocket message delivery.
 type OutboundManager struct {
 	ch        chan outboundMsg
@@ -52,14 +36,13 @@ type OutboundManager struct {
 	syncOutbound *bool
 
 	lobbyCode string
-	source    OutboundSource
+	source    *Room
 	logger    *slog.Logger
 	asyncWG   *sync.WaitGroup
 }
 
 // NewOutboundManager creates an OutboundManager for a room.
-// source must implement OutboundSource (*Room does).
-func NewOutboundManager(lobbyCode string, syncOutbound *bool, source OutboundSource, logger *slog.Logger, asyncWG *sync.WaitGroup) *OutboundManager {
+func NewOutboundManager(lobbyCode string, syncOutbound *bool, source *Room, logger *slog.Logger, asyncWG *sync.WaitGroup) *OutboundManager {
 	return &OutboundManager{
 		ch:           make(chan outboundMsg, outboundQueueSize),
 		syncOutbound: syncOutbound,

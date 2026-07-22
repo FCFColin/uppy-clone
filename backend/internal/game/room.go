@@ -337,11 +337,6 @@ func (r *Room) Code() string {
 	return string(r.state.LobbyCode)
 }
 
-// RunSession delegates to WSSession to keep Room focused on game state.
-func (r *Room) RunSession(reqCtx context.Context, playerID string, conn *websocket.Conn) error {
-	return (&WSSession{room: r}).RunSession(reqCtx, playerID, conn)
-}
-
 // Close cleans up the room, ensuring the tick goroutine exits and state is persisted.
 func (r *Room) Close() {
 	_, span := tracer.Start(context.Background(), "game.room_close")
@@ -425,7 +420,6 @@ func (r *Room) LobbyCode() string { return r.lobbyCode }
 func (r *Room) Timeouts() config.TimeoutConfig { return r.timeouts }
 
 // Observer returns the GameObserver from the owning Hub.
-// Satisfies the OutboundSource interface.
 func (r *Room) Observer() GameObserver {
 	if r.hub != nil {
 		return r.hub.Observer()

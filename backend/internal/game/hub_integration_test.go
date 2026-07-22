@@ -44,10 +44,10 @@ func TestHubCreateRoomRedisRegistry(t *testing.T) {
 		t.Fatal("expected non-empty instance ID in registry")
 	}
 
-	// Verify room appears in active rooms list.
-	rooms, err := rdb.ListActiveRooms(ctx)
+	// Verify room appears in active rooms list (room:index SET maintained by RegisterRoom).
+	rooms, err := rdb.Client().SMembers(ctx, "room:index").Result()
 	if err != nil {
-		t.Fatalf("ListActiveRooms: %v", err)
+		t.Fatalf("SMembers room:index: %v", err)
 	}
 	found := false
 	for _, r := range rooms {
@@ -187,10 +187,10 @@ func TestHubConcurrentRoomCreation(t *testing.T) {
 		t.Fatalf("expected %d rooms, got %d", concurrency, len(created))
 	}
 
-	// Verify all rooms are registered in Redis.
-	activeRooms, err := rdb.ListActiveRooms(ctx)
+	// Verify all rooms are registered in Redis (room:index SET maintained by RegisterRoom).
+	activeRooms, err := rdb.Client().SMembers(ctx, "room:index").Result()
 	if err != nil {
-		t.Fatalf("ListActiveRooms: %v", err)
+		t.Fatalf("SMembers room:index: %v", err)
 	}
 	activeSet := make(map[string]bool, len(activeRooms))
 	for _, r := range activeRooms {

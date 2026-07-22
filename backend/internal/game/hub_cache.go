@@ -5,30 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-// ─── Instance Address & Cache Invalidation ───────────────────────────
-
-// instanceAddress returns the network address other instances should use to
-// reach this instance. It is recorded in the Redis room registry by
-// registerRoomInRedis. The owner-reverse-proxy routing layer that originally
-// consumed this address was never implemented (see ADR-005); the value is
-// still stored for diagnostic purposes and future use.
-func instanceAddress() string {
-	if addr := os.Getenv("INSTANCE_ADDR"); addr != "" {
-		return addr
-	}
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = config.DefaultPort
-	}
-	return fmt.Sprintf("127.0.0.1:%s", port)
-}
+// ─── Cache Invalidation ──────────────────────────────────────────────
 
 // invalidateLobbyReadCaches clears ADR-006 read caches after room mutations.
 func (h *Hub) invalidateLobbyReadCaches(code string) {
@@ -81,7 +63,6 @@ func (h *Hub) registerRoomInRedis(code string) {
 		data, _ := json.Marshal(domain.RoomRegistryInfo{
 			Code:      code,
 			Instance:  h.instanceID,
-			Address:   instanceAddress(),
 			CreatedAt: time.Now().UnixMilli(),
 		})
 		return h.cache.RegisterRoom(ctx, code, data, roomRegistryTTL)

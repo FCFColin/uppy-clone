@@ -430,3 +430,193 @@ func TestRoom_handleSetNicknameMsg(t *testing.T) {
 }
 
 // encodeTapTestPayload helper: creates a mock tap payload for testing decodeTapPayload.
+
+// encodeNicknamePayload builds a MsgSetNickname payload (without msgType prefix)
+// for testing: nickLen(1) + nickname(bytes). Caller must ensure len(nick) <= 255.
+func encodeNicknamePayload(nick string) []byte {
+	return append([]byte{byte(len(nick))}, []byte(nick)...) //nolint:gosec // G115: test helper, short nicknames only
+}
+
+// drainNicknameRejected drains ch until timeout and returns the reason code of
+// the first NICKNAME_REJECTED message found. Returns (0, false) if none found.
+func drainNicknameRejected(ch <-chan []byte, timeout time.Duration) (uint8, bool) {
+	deadline := time.After(timeout)
+	for {
+		select {
+		case msg := <-ch:
+			if len(msg) >= 2 && msg[0] == protocol.MsgNicknameRejected {
+				return msg[1], true
+			}
+			// Ignore other messages (snapshot, player join, etc.)
+		case <-deadline:
+			return 0, false
+		}
+	}
+}
+
+// TestRoom_handleSetNicknameMsg_RejectReasons covers the three rejection
+// paths in handleSetNicknameMsg (decode_error, empty, duplicate, cooldown) and
+// verifies each sends NICKNAME_REJECTED with the correct reason code. Also
+// verifies the accept path does NOT send NICKNAME_REJECTED and still broadcasts
+// a snapshot.
+func TestRoom_handleSetNicknameMsg_RejectReasons(t *testing.T) {
+	t.Run("DecodeError_NilPayload", func(t *testing.T) {
+		r := NewRoom("REJ1", nil, nil, config.DefaultTimeoutConfig(), 0)
+		ch := make(chan []byte, 4)
+		r.mu.Lock()
+		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
+		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
+		r.handleSetNicknameMsg(r.state.Players["p1"], nil)
+		r.mu.Unlock()
+
+		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
+		if !ok {
+			t.Fatal("expected NICKNAME_REJECTED, got none")
+		}
+		if reason != protocol.NickRejectDecodeError {
+			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectDecodeError)", reason, protocol.NickRejectDecodeError)
+		}
+	})
+
+	t.Run("DecodeError_TruncatedPayload", func(t *testing.T) {
+		r := NewRoom("REJ2", nil, nil, config.DefaultTimeoutConfig(), 0)
+		ch := make(chan []byte, 4)
+		r.mu.Lock()
+		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
+		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
+		// nickLen=5 but only 2 bytes follow → decode failure
+		r.handleSetNicknameMsg(r.state.Players["p1"], []byte{5, 'a', 'b'})
+		r.mu.Unlock()
+
+		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
+		if !ok {
+			t.Fatal("expected NICKNAME_REJECTED, got none")
+		}
+		if reason != protocol.NickRejectDecodeError {
+			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectDecodeError)", reason, protocol.NickRejectDecodeError)
+		}
+	})
+
+	t.Run("Empty_WhitespaceOnly", func(t *testing.T) {
+		r := NewRoom("REJ3", nil, nil, config.DefaultTimeoutConfig(), 0)
+		ch := make(chan []byte, 4)
+		r.mu.Lock()
+		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
+		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
+		// SanitizeNickname trims whitespace → empty
+		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("   "))
+		r.mu.Unlock()
+
+		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
+		if !ok {
+			t.Fatal("expected NICKNAME_REJECTED, got none")
+		}
+		if reason != protocol.NickRejectEmpty {
+			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectEmpty)", reason, protocol.NickRejectEmpty)
+		}
+	})
+
+	t.Run("Empty_ControlCharsOnly", func(t *testing.T) {
+		r := NewRoom("REJ4", nil, nil, config.DefaultTimeoutConfig(), 0)
+		ch := make(chan []byte, 4)
+		r.mu.Lock()
+		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
+		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
+		// Control chars stripped by SanitizeNickname → empty
+		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("\x01\x02\x03"))
+		r.mu.Unlock()
+
+		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
+		if !ok {
+			t.Fatal("expected NICKNAME_REJECTED, got none")
+		}
+		if reason != protocol.NickRejectEmpty {
+			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectEmpty)", reason, protocol.NickRejectEmpty)
+		}
+	})
+
+	t.Run("Duplicate_AlreadyTaken", func(t *testing.T) {
+		r := NewRoom("REJ5", nil, nil, config.DefaultTimeoutConfig(), 0)
+		ch := make(chan []byte, 4)
+		r.mu.Lock()
+		// Another player has already taken "Taken"
+		r.state.Players["p2"] = &domain.PlayerState{ID: "p2", Nickname: "Taken"}
+		r.usedNames["Taken"] = true
+		// Our player
+		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
+		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
+		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("Taken"))
+		r.mu.Unlock()
+
+		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
+		if !ok {
+			t.Fatal("expected NICKNAME_REJECTED, got none")
+		}
+		if reason != protocol.NickRejectDuplicate {
+			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectDuplicate)", reason, protocol.NickRejectDuplicate)
+		}
+	})
+
+	t.Run("Cooldown_WithinWindow", func(t *testing.T) {
+		r := NewRoom("REJ6", nil, nil, config.DefaultTimeoutConfig(), 0)
+		ch := make(chan []byte, 4)
+		r.mu.Lock()
+		r.state.Players["p1"] = &domain.PlayerState{
+			ID:                 "p1",
+			Nickname:           "Old",
+			LastNicknameChange: time.Now().UnixMilli(), // just changed → in cooldown
+		}
+		r.usedNames["Old"] = true
+		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
+		// "Fresh" is not in usedNames → duplicate check passes;
+		// HandleSetNickname returns false due to cooldown.
+		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("Fresh"))
+		r.mu.Unlock()
+
+		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
+		if !ok {
+			t.Fatal("expected NICKNAME_REJECTED, got none")
+		}
+		if reason != protocol.NickRejectCooldown {
+			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectCooldown)", reason, protocol.NickRejectCooldown)
+		}
+	})
+
+	t.Run("Accept_NoRejectSent_SnapshotBroadcast", func(t *testing.T) {
+		r := NewRoom("ACC1", nil, nil, config.DefaultTimeoutConfig(), 0)
+		r.syncOutbound = true // synchronous broadcast for deterministic test
+		ch := make(chan []byte, 8)
+		r.mu.Lock()
+		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
+		r.usedNames["Old"] = true
+		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
+		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("New"))
+		confirmed := r.state.Players["p1"].NicknameConfirmed
+		r.mu.Unlock()
+
+		if !confirmed {
+			t.Fatal("expected NicknameConfirmed = true for valid nickname")
+		}
+
+		// Drain all messages: none should be NICKNAME_REJECTED,
+		// and a snapshot should be present (proving broadcast still works).
+		deadline := time.After(200 * time.Millisecond)
+		gotSnapshot := false
+		for {
+			select {
+			case msg := <-ch:
+				if len(msg) >= 1 && msg[0] == protocol.MsgNicknameRejected {
+					t.Fatalf("expected no NICKNAME_REJECTED, got reason 0x%02x", msg[1])
+				}
+				if len(msg) >= 1 && msg[0] == protocol.MsgSnapshot {
+					gotSnapshot = true
+				}
+			case <-deadline:
+				if !gotSnapshot {
+					t.Fatal("expected snapshot to be broadcast on accept path")
+				}
+				return
+			}
+		}
+	})
+}

@@ -314,7 +314,12 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 		sanitized = domain.SanitizeNickname(nickname)
 	}
 	if sanitized == "" {
+		reason := uint8(protocol.NickRejectEmpty)
+		if !ok {
+			reason = protocol.NickRejectDecodeError
+		}
 		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
+		r.sendToPlayer(player.ID, protocol.EncodeNicknameRejected(reason))
 		return
 	}
 
@@ -324,11 +329,19 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 		r.requestPersist()
 		r.broadcast(r.buildSnapshot(), "")
 		r.tryStartWhenAllReady()
+		r.triggerAutoRestartIfEnded()
+		return
+	}
+
+	if r.usedNames[sanitized] {
+		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
+		r.sendToPlayer(player.ID, protocol.EncodeNicknameRejected(protocol.NickRejectDuplicate))
 		return
 	}
 
 	if !HandleSetNickname(r.state, player, sanitized, r.usedNames) {
 		metrics.NicknameConfirmTotal.WithLabelValues("rejected").Inc()
+		r.sendToPlayer(player.ID, protocol.EncodeNicknameRejected(protocol.NickRejectCooldown))
 		return
 	}
 
@@ -338,6 +351,21 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 	r.requestPersist()
 	r.broadcast(r.buildSnapshot(), "")
 	r.tryStartWhenAllReady()
+	r.triggerAutoRestartIfEnded()
+}
+
+// triggerAutoRestartIfEnded triggers auto-restart when the game is in ended
+// phase and all connected players have confirmed their nicknames. This handles
+// the case where a player rejoins after a game ends but before the auto-restart
+// timer fires.
+func (r *Room) triggerAutoRestartIfEnded() {
+	if r.state.Phase != domain.PhaseEnded {
+		return
+	}
+	if !r.allConnectedPlayersReady() {
+		return
+	}
+	r.handleAutoRestart()
 }
 
 func (r *Room) handleRestartVoteMsg(player *domain.PlayerState, playerID string) {

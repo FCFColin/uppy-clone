@@ -3,7 +3,6 @@ package audit
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sethvargo/go-retry"
@@ -84,27 +82,15 @@ func TestCloseDBLogger_DrainsQueue(t *testing.T) {
 	CloseDBLogger()
 }
 
-func TestDBAuditLogger_loadLastHash_QueryError(t *testing.T) {
-	pool := unreachableAuditPool(t)
-	l := &dbAuditLogger{pool: pool, secret: []byte("audit-secret-key-for-hmac-chain!!")}
-	l.loadLastHash()
-	if l.lastHash != "" {
-		t.Fatalf("expected empty lastHash on query error, got %q", l.lastHash)
-	}
-}
-
 func TestDBAuditLogger_writeToDB_ExecError(t *testing.T) {
 	pool := unreachableAuditPool(t)
 	l := &dbAuditLogger{
-		pool:     pool,
-		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
-		retry:    testRetryPolicy(),
-		lastHash: "prev-hash",
+		pool:   pool,
+		secret: []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:  testRetryPolicy(),
 	}
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.write", ActorID: "u1"})
-	if l.lastHash != "prev-hash" {
-		t.Fatalf("lastHash should remain unchanged on exec error, got %q", l.lastHash)
-	}
+	// No panic / no hang is the success criteria; the unreachable pool errors out.
 }
 
 func TestLog_AsyncChannelWrite(t *testing.T) {
@@ -173,7 +159,7 @@ func tryAuditPostgresPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	connStr := os.Getenv("TEST_DATABASE_URL")
 	if connStr == "" {
-		connStr = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=2"
+		connStr = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=2" // pragma: allowlist secret
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -185,31 +171,8 @@ func tryAuditPostgresPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-type fakeAuditRow struct {
-	hash string
-	err  error
-}
-
-func (r fakeAuditRow) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
-	}
-	if len(dest) > 0 {
-		if ptr, ok := dest[0].(*string); ok {
-			*ptr = r.hash
-		}
-	}
-	return nil
-}
-
 type fakeAuditPool struct {
-	queryHash string
-	queryErr  error
-	execErr   error
-}
-
-func (f *fakeAuditPool) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
-	return fakeAuditRow{hash: f.queryHash, err: f.queryErr}
+	execErr error
 }
 
 func (f *fakeAuditPool) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
@@ -219,29 +182,14 @@ func (f *fakeAuditPool) Exec(_ context.Context, _ string, _ ...any) (pgconn.Comm
 	return pgconn.NewCommandTag("INSERT 1"), nil
 }
 
-func (f *fakeAuditPool) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-	return nil, fmt.Errorf("fakeAuditPool: Query not implemented")
-}
-
-func TestDBAuditLogger_loadLastHash_SuccessMocked(t *testing.T) {
-	l := &dbAuditLogger{pool: &fakeAuditPool{queryHash: "chain-hash"}, secret: []byte("audit-secret-key-for-hmac-chain!!")}
-	l.loadLastHash()
-	if l.lastHash != "chain-hash" {
-		t.Fatalf("lastHash = %q, want chain-hash", l.lastHash)
-	}
-}
-
-func TestDBAuditLogger_writeToDB_SuccessMocked(t *testing.T) {
+func TestDBAuditLogger_writeToDB_SuccessMocked(_ *testing.T) {
 	l := &dbAuditLogger{
-		pool:     &fakeAuditPool{},
-		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
-		retry:    testRetryPolicy(),
-		lastHash: "prev-hash",
+		pool:   &fakeAuditPool{},
+		secret: []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:  testRetryPolicy(),
 	}
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.success", ActorID: "u1", Resource: "r"})
-	if l.lastHash == "" || l.lastHash == "prev-hash" {
-		t.Fatalf("expected lastHash updated on success, got %q", l.lastHash)
-	}
+	// No panic, no error path taken: INSERT audit record path works.
 }
 
 // flakyAuditPool fails the first failN Exec calls with failErr, then succeeds.
@@ -252,10 +200,6 @@ type flakyAuditPool struct {
 	failErr error
 }
 
-func (f *flakyAuditPool) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
-	return fakeAuditRow{}
-}
-
 func (f *flakyAuditPool) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 	n := atomic.AddInt32(&f.calls, 1)
 	if n <= f.failN {
@@ -264,19 +208,14 @@ func (f *flakyAuditPool) Exec(_ context.Context, _ string, _ ...any) (pgconn.Com
 	return pgconn.NewCommandTag("INSERT 1"), nil
 }
 
-func (f *flakyAuditPool) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-	return nil, fmt.Errorf("flakyAuditPool: Query not implemented")
-}
-
 // TestDBAuditLogger_writeToDB_RetriesAndSucceeds verifies that writeToDB retries
-// transient failures and updates the hash chain on eventual success (v2-R-37).
+// transient failures and eventually succeeds (v2-R-37).
 func TestDBAuditLogger_writeToDB_RetriesAndSucceeds(t *testing.T) {
 	pool := &flakyAuditPool{failN: 2, failErr: io.EOF}
 	l := &dbAuditLogger{
-		pool:     pool,
-		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
-		retry:    testRetryPolicy(),
-		lastHash: "prev-hash",
+		pool:   pool,
+		secret: []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:  testRetryPolicy(),
 	}
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.retry", ActorID: "u1"})
 
@@ -284,20 +223,16 @@ func TestDBAuditLogger_writeToDB_RetriesAndSucceeds(t *testing.T) {
 	if calls != 3 {
 		t.Fatalf("expected 3 Exec calls (2 failed + 1 success), got %d", calls)
 	}
-	if l.lastHash == "" || l.lastHash == "prev-hash" {
-		t.Fatalf("expected lastHash updated after retry success, got %q", l.lastHash)
-	}
 }
 
-// TestDBAuditLogger_writeToDB_RetriesExhaustedChainIntact verifies that when all
-// retries are exhausted, the audit chain is preserved (lastHash unchanged) (v2-R-37).
-func TestDBAuditLogger_writeToDB_RetriesExhaustedChainIntact(t *testing.T) {
+// TestDBAuditLogger_writeToDB_RetriesExhausted verifies that when all retries are
+// exhausted, writeToDB exits cleanly without panicking (v2-R-37).
+func TestDBAuditLogger_writeToDB_RetriesExhausted(t *testing.T) {
 	pool := &flakyAuditPool{failN: 100, failErr: io.EOF}
 	l := &dbAuditLogger{
-		pool:     pool,
-		secret:   []byte("audit-secret-key-for-hmac-chain!!"),
-		retry:    testRetryPolicy(),
-		lastHash: "prev-hash",
+		pool:   pool,
+		secret: []byte("audit-secret-key-for-hmac-chain!!"),
+		retry:  testRetryPolicy(),
 	}
 	l.writeToDB(context.Background(), AuditEntry{Action: "test.exhaust", ActorID: "u1"})
 
@@ -305,9 +240,6 @@ func TestDBAuditLogger_writeToDB_RetriesExhaustedChainIntact(t *testing.T) {
 	calls := atomic.LoadInt32(&pool.calls)
 	if calls != 4 {
 		t.Fatalf("expected 4 Exec calls (1 initial + 3 retries), got %d", calls)
-	}
-	if l.lastHash != "prev-hash" {
-		t.Fatalf("lastHash must remain unchanged when all retries fail, got %q", l.lastHash)
 	}
 }
 

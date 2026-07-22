@@ -211,11 +211,6 @@ var (
 		Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1.0},
 	}, []string{"msg_type"})
 
-	// GameResultsStreamLen tracks pending messages in the game.events Redis Stream.
-	GameResultsStreamLen = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "game_results_stream_length",
-		Help: "Number of pending messages in game.events Redis Stream",
-	})
 	// EmailQueueStreamLen tracks pending messages in the email queue Redis Stream.
 	EmailQueueStreamLen = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "email_queue_stream_length",

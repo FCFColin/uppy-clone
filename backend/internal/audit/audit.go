@@ -1,4 +1,4 @@
-// Package audit provides tamper-proof audit logging.
+// Package audit provides audit logging.
 package audit
 
 import (
@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sethvargo/go-retry"
 	"go.opentelemetry.io/otel/trace"
@@ -24,8 +22,6 @@ import (
 
 // auditDBPool is the subset of pgxpool.Pool used by the audit logger (mockable in tests).
 type auditDBPool interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
@@ -35,9 +31,6 @@ type RetryPolicy struct {
 	MaybeRetryable func(error) error
 }
 
-// Audit logs are tamper-proof immutable records for SOC2/ISO27001 compliance.
-// HMAC chain: this_hash = HMAC(secret, prev_hash || payload).
-
 var (
 	auditLogger *slog.Logger
 	dbLogger    *dbAuditLogger
@@ -45,13 +38,11 @@ var (
 )
 
 type dbAuditLogger struct {
-	pool     auditDBPool
-	secret   []byte
-	retry    RetryPolicy
-	ch       chan dbEntry
-	done     chan struct{}
-	mu       sync.Mutex
-	lastHash string
+	pool   auditDBPool
+	secret []byte
+	retry  RetryPolicy
+	ch     chan dbEntry
+	done   chan struct{}
 }
 
 type dbEntry struct {
@@ -92,7 +83,7 @@ type AuditEntry struct {
 }
 
 // InitDBLogger 初始化数据库审计日志。必须在 DB 连接建立后调用。
-// secret 用于 HMAC 链哈希。
+// secret 用于 HMAC-SHA256 哈希 actor_ip（隐私合规）。
 func InitDBLogger(pool auditDBPool, secret string, retryPolicy RetryPolicy) {
 	if pool == nil || secret == "" {
 		return
@@ -109,8 +100,6 @@ func InitDBLogger(pool auditDBPool, secret string, retryPolicy RetryPolicy) {
 		ch:     make(chan dbEntry, 1024),
 		done:   make(chan struct{}),
 	}
-	// Load the last hash from DB to continue the chain
-	dbLogger.loadLastHash()
 	go dbLogger.processLoop()
 }
 
@@ -132,23 +121,6 @@ func closeDBLoggerLocked() {
 	dbLogger = nil
 }
 
-func (l *dbAuditLogger) loadLastHash() {
-	// v2-R-36: 5s timeout to prevent blocking startup when DB is unreachable.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Get the most recent this_hash to continue the chain
-	row := l.pool.QueryRow(ctx,
-		`SELECT this_hash FROM audit_logs ORDER BY id DESC LIMIT 1`)
-	var hash string
-	if err := row.Scan(&hash); err == nil {
-		l.lastHash = hash
-	} else if err != pgx.ErrNoRows {
-		// Empty table is expected on first run; other errors (incl. timeout) warrant a warning.
-		slog.Warn("audit loadLastHash failed", "error", err)
-	}
-}
-
 func (l *dbAuditLogger) processLoop() {
 	defer close(l.done)
 	for entry := range l.ch {
@@ -164,82 +136,25 @@ func (l *dbAuditLogger) processLoop() {
 }
 
 func (l *dbAuditLogger) writeToDB(ctx context.Context, entry AuditEntry) {
-	l.mu.Lock()
-	prevHash := l.lastHash
-
-	// Compute payload for hashing
-	payload, err := json.Marshal(entry)
-	if err != nil {
-		slog.Error("failed to marshal audit entry", "error", err, "action", entry.Action)
-		l.mu.Unlock()
-		return
-	}
-	thisHash := computeHash(l.secret, prevHash, payload)
-
 	// v2-R-37: retry transient failures (3 retries, exponential backoff + jitter).
-	// Retry happens inside the lock to preserve audit chain integrity:
-	// prevHash/thisHash are captured before the loop, and lastHash is only
-	// updated on success, so concurrent writers cannot break the HMAC chain.
-	err = retry.Do(ctx, l.retry.DBRetry, func(ctx context.Context) error {
+	err := retry.Do(ctx, l.retry.DBRetry, func(ctx context.Context) error {
 		_, execErr := l.pool.Exec(ctx,
 			`INSERT INTO audit_logs (action, actor_type, actor_id, actor_ip, resource, before, after, request_id, trace_id, prev_hash, this_hash)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 			entry.Action, entry.ActorType, entry.ActorID, entry.ActorIP, entry.Resource,
 			entry.Before, entry.After, entry.RequestID, entry.TraceID,
-			prevHash, thisHash)
+			"", "")
 		if execErr != nil {
 			return l.retry.MaybeRetryable(fmt.Errorf("write audit log: %w", execErr))
 		}
 		return nil
 	})
 	if err != nil {
-		l.mu.Unlock()
-		// audit-001: Increment metric for monitoring/alerting and write to
-		// dead-letter file so compliance-critical records are not silently lost.
+		// audit-001: Increment metric for monitoring/alerting.
 		metrics.AuditWriteFailures.Inc()
-		slog.Error("audit writeToDB failed after retries, writing to dead-letter",
+		slog.Error("audit writeToDB failed after retries",
 			"error", err, "action", entry.Action, "trace_id", entry.TraceID, "request_id", entry.RequestID)
-		l.writeDeadLetter(entry, err)
-		return
 	}
-
-	l.lastHash = thisHash
-	l.mu.Unlock()
-}
-
-// writeDeadLetter writes a failed audit entry to a local JSONL file as a
-// last-resort fallback (audit-001). This ensures compliance-critical audit
-// records survive DB outages and can be replayed manually.
-// Best-effort: if the file write also fails, the entry is lost (but the
-// metric has already been incremented for alerting).
-func (l *dbAuditLogger) writeDeadLetter(entry AuditEntry, writeErr error) {
-	dl := map[string]interface{}{
-		"entry":     entry,
-		"error":     writeErr.Error(),
-		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	data, err := json.Marshal(dl)
-	if err != nil {
-		slog.Error("audit dead-letter marshal failed", "error", err)
-		return
-	}
-	f, err := os.OpenFile("audit_deadletter.jsonl", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		slog.Error("audit dead-letter file open failed", "error", err)
-		return
-	}
-	defer func() { _ = f.Close() }()
-	if _, err := f.Write(append(data, '\n')); err != nil {
-		slog.Error("audit dead-letter file write failed", "error", err)
-	}
-}
-
-// computeHash = HMAC-SHA256(secret, prevHash || payload)。独立函数便于单元测试。
-func computeHash(secret []byte, prevHash string, payload []byte) string {
-	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(prevHash))
-	mac.Write(payload)
-	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // hashActorIP computes HMAC-SHA256 of the actor IP before storage.

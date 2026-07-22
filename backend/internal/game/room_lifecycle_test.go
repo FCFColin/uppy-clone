@@ -443,3 +443,163 @@ func TestRoom_reconnectPlayer_PlayingPhase(t *testing.T) {
 	}
 	r.stopTick()
 }
+
+// TestRoom_reconnectPlayer_EndedPhase_TriggersAutoRestart verifies that when a
+// player reconnects during the ended phase and all connected players have
+// confirmed their nicknames, reconnectPlayer invokes triggerAutoRestartIfEnded
+// which calls handleAutoRestart → RestartAndStart, transitioning the room out
+// of the ended phase.
+func TestRoom_reconnectPlayer_EndedPhase_TriggersAutoRestart(t *testing.T) {
+	r := NewRoom("RPE1", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseEnded
+	player := &domain.PlayerState{
+		ID:                "p1",
+		Nickname:          "Nick",
+		PlayerIndex:       0,
+		NicknameConfirmed: true,
+		Disconnected:      true,
+	}
+	r.state.Players["p1"] = player
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+	defer r.Close()
+
+	r.reconnectPlayer("p1", player)
+
+	if player.Disconnected {
+		t.Fatal("player should be reconnected")
+	}
+	// triggerAutoRestartIfEnded → handleAutoRestart → RestartAndStart transitions
+	// ended → countdown when there are active connections and no restart votes.
+	if r.state.Phase != domain.PhaseCountdown {
+		t.Fatalf("expected phase countdown after auto-restart, got %q", r.state.Phase)
+	}
+}
+
+// TestRoom_reconnectPlayer_EndedPhase_NoRestartWhenNicknameUnconfirmed
+// verifies that when a player reconnects during the ended phase but the player
+// has not confirmed their nickname, triggerAutoRestartIfEnded returns early
+// without calling handleAutoRestart, so the phase remains ended.
+func TestRoom_reconnectPlayer_EndedPhase_NoRestartWhenNicknameUnconfirmed(t *testing.T) {
+	r := NewRoom("RPE2", nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseEnded
+	player := &domain.PlayerState{
+		ID:                "p1",
+		Nickname:          "Nick",
+		PlayerIndex:       0,
+		NicknameConfirmed: false,
+		Disconnected:      true,
+	}
+	r.state.Players["p1"] = player
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+	defer r.Close()
+
+	r.reconnectPlayer("p1", player)
+
+	if player.Disconnected {
+		t.Fatal("player should be reconnected")
+	}
+	// NicknameConfirmed=false → allConnectedPlayersReady returns false →
+	// triggerAutoRestartIfEnded returns without calling handleAutoRestart.
+	if r.state.Phase != domain.PhaseEnded {
+		t.Fatalf("expected phase still ended (no auto-restart), got %q", r.state.Phase)
+	}
+}
+
+// ─── handleAutoRestart consensus logic ───────────────────────────────
+
+// setupEndedRoomWithPlayers creates an ended-phase Room with the given players
+// pre-populated. Each entry in vote map sets RestartVotes[pid]=true.
+// All players are connected (connections registered) and NicknameConfirmed=true.
+func setupEndedRoomWithPlayers(t *testing.T, code string, playerIDs []string, votes map[string]bool) *Room {
+	t.Helper()
+	r := NewRoom(code, nil, nil, config.DefaultTimeoutConfig(), 4)
+	r.state.Phase = domain.PhaseEnded
+	for i, pid := range playerIDs {
+		r.state.Players[pid] = &domain.PlayerState{
+			ID:                pid,
+			Nickname:          "Player" + pid,
+			PlayerIndex:       i,
+			NicknameConfirmed: true,
+			Disconnected:      false,
+		}
+		r.connections[pid] = &PlayerConn{PlayerID: pid, Send: make(chan []byte, 8)}
+	}
+	r.state.RestartVotes = make(map[string]bool)
+	for pid, v := range votes {
+		r.state.RestartVotes[pid] = v
+	}
+	return r
+}
+
+// TestRoom_handleAutoRestart_SinglePlayerResidualVote_ImmediateRestart
+// reproduces the bug where a single player reconnects to an ended room with
+// a residual RestartVote. The previous logic deferred 30s indefinitely
+// because yesVotes=1 > 0 even though consensus was reached (yesVotes==connectedCount).
+// After the fix, consensus is detected and RestartAndStart is invoked immediately.
+func TestRoom_handleAutoRestart_SinglePlayerResidualVote_ImmediateRestart(t *testing.T) {
+	r := setupEndedRoomWithPlayers(t, "AR1", []string{"p1"}, map[string]bool{"p1": true})
+	defer r.Close()
+
+	r.handleAutoRestart()
+
+	if r.state.Phase != domain.PhaseCountdown {
+		t.Fatalf("expected phase countdown after consensus auto-restart, got %q", r.state.Phase)
+	}
+	// RestartAndStart clears RestartVotes.
+	if len(r.state.RestartVotes) != 0 {
+		t.Fatalf("expected RestartVotes cleared after restart, got %d", len(r.state.RestartVotes))
+	}
+}
+
+// TestRoom_handleAutoRestart_MultiPlayerNoConsensus_DefersThirtySeconds
+// verifies that when not all connected players have voted yes, the restart
+// is deferred by 30s (setEndGameAlarm armed) and the phase remains ended.
+func TestRoom_handleAutoRestart_MultiPlayerNoConsensus_DefersThirtySeconds(t *testing.T) {
+	r := setupEndedRoomWithPlayers(t, "AR2",
+		[]string{"p1", "p2"},
+		map[string]bool{"p1": true}, // only p1 voted
+	)
+	defer r.Close()
+
+	// Snapshot the timer pointer to detect whether setEndGameAlarm armed a new one.
+	r.mu.Lock()
+	preTimer := r.endGameTimer
+	r.mu.Unlock()
+
+	r.handleAutoRestart()
+
+	r.mu.RLock()
+	phase := r.state.Phase
+	postTimer := r.endGameTimer
+	r.mu.RUnlock()
+
+	if phase != domain.PhaseEnded {
+		t.Fatalf("expected phase still ended (deferred), got %q", phase)
+	}
+	// setEndGameAlarm should have armed a new timer (different pointer or
+	// non-nil). A nil timer means defer path was not taken.
+	if postTimer == nil {
+		t.Fatal("expected endGameTimer to be armed for 30s defer, got nil")
+	}
+	_ = preTimer // preTimer may be nil; we only require postTimer to be non-nil.
+}
+
+// TestRoom_handleAutoRestart_MultiPlayerConsensus_ImmediateRestart
+// verifies that when all connected players have voted yes (consensus), the
+// restart happens immediately instead of deferring 30s.
+func TestRoom_handleAutoRestart_MultiPlayerConsensus_ImmediateRestart(t *testing.T) {
+	r := setupEndedRoomWithPlayers(t, "AR3",
+		[]string{"p1", "p2"},
+		map[string]bool{"p1": true, "p2": true}, // both voted yes
+	)
+	defer r.Close()
+
+	r.handleAutoRestart()
+
+	if r.state.Phase != domain.PhaseCountdown {
+		t.Fatalf("expected phase countdown after consensus auto-restart, got %q", r.state.Phase)
+	}
+	if len(r.state.RestartVotes) != 0 {
+		t.Fatalf("expected RestartVotes cleared after restart, got %d", len(r.state.RestartVotes))
+	}
+}

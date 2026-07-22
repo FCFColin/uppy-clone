@@ -256,9 +256,6 @@ func TestAllMetrics_NonNil(t *testing.T) {
 	})
 
 	t.Run("Stream metrics", func(t *testing.T) {
-		if GameResultsStreamLen == nil {
-			t.Fatal("GameResultsStreamLen is nil")
-		}
 		if EmailQueueStreamLen == nil {
 			t.Fatal("EmailQueueStreamLen is nil")
 		}

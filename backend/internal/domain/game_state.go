@@ -120,6 +120,7 @@ type GameState struct {
 	NextPlayerIndex     int                     `json:"nextPlayerIndex"`
 	TickCount           int                     `json:"tickCount"`
 	StartedAt           int64                   `json:"startedAt"`
+	CreatedAt           int64                   `json:"createdAt"`
 	SessionID           string                  `json:"sessionId"`
 	LobbyCode           RoomCode                `json:"lobbyCode"`
 	Wind                float64                 `json:"wind"`

@@ -103,10 +103,10 @@ func TestLobbyListResult_EmbeddedFields(t *testing.T) {
 func TestLeaderboardEntry_JSONTags(t *testing.T) {
 	t.Parallel()
 	entry := LeaderboardEntry{
-		Rank:      1,
-		Score:     1000,
-		LobbyCode: "ABC12",
-		EndedAt:   1700000000,
+		Rank:    1,
+		Score:   1000,
+		Name:    "ABC12",
+		EndedAt: 1700000000,
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestLeaderboardEntry_JSONTags(t *testing.T) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	expectedKeys := []string{"rank", "score", "lobbyCode", "endedAt"}
+	expectedKeys := []string{"rank", "score", "name", "endedAt"}
 	for _, key := range expectedKeys {
 		if _, ok := raw[key]; !ok {
 			t.Errorf("missing JSON key %q in LeaderboardEntry output", key)

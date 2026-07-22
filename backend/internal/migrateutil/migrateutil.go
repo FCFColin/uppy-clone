@@ -43,11 +43,11 @@ var newMigrateRunner = func(source, connString string) (migrateRunner, error) {
 func ensureDBRolesSQL() string {
 	appUserPwd := os.Getenv("DB_APP_USER_PASSWORD")
 	if appUserPwd == "" {
-		appUserPwd = "change_in_production" //nolint:gosec // G101: fallback default, not a real credential
+		appUserPwd = "change_in_production" //nolint:gosec // G101: fallback default, not a real credential // pragma: allowlist secret
 	}
 	migratorPwd := os.Getenv("DB_MIGRATOR_PASSWORD")
 	if migratorPwd == "" {
-		migratorPwd = "change_in_production" //nolint:gosec // G101: fallback default, not a real credential
+		migratorPwd = "change_in_production" //nolint:gosec // G101: fallback default, not a real credential // pragma: allowlist secret
 	}
 	return fmt.Sprintf(`
 DO $$

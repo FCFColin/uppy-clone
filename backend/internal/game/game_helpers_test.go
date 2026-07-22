@@ -8,8 +8,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/pashagolub/pgxmock/v4"
+	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/nicknames"
+	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func testRNG() RNGSource {
@@ -108,10 +112,6 @@ func (m *mockRoomRepository) CreateGameSession(_ context.Context, _ *domain.Game
 	return nil
 }
 
-func (m *mockRoomRepository) InsertOutboxEvent(_ context.Context, _, _ string, _ []byte) error {
-	return nil
-}
-
 func (m *mockRoomRepository) RecordGameResult(_ context.Context, _, _ string, _ int64, _ int, _ []domain.GameResultPlayer) error {
 	return nil
 }
@@ -207,4 +207,52 @@ func assertGameStateEqual(t *testing.T, original, restored *domain.GameState) {
 	if len(restored.RestartVotes) != len(original.RestartVotes) {
 		t.Fatalf("RestartVotes count mismatch: got=%d, want=%d", len(restored.RestartVotes), len(original.RestartVotes))
 	}
+}
+
+// newTestHub returns a Hub with no store/redis, default timeouts, zero limits.
+func newTestHub() *Hub {
+	return NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
+}
+
+// newTestHubWithLimits returns a Hub with no store/redis and the given limits.
+func newTestHubWithLimits(maxWS, maxPlayers int) *Hub {
+	return NewHub(nil, nil, config.DefaultTimeoutConfig(), maxWS, maxPlayers)
+}
+
+// setupHubWithDBMock returns a Hub backed by pgxmock (no Redis) plus mock and
+// store for setting expectations.
+func setupHubWithDBMock(t *testing.T, maxPlayers int) (*Hub, pgxmock.PgxPoolIface, *store.PostgresStore) {
+	t.Helper()
+	mock := testutil.NewPgxMock(t)
+	db := store.NewPostgresStoreWithPool(mock)
+	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, maxPlayers)
+	return h, mock, db
+}
+
+// setupHubWithDBAndRedis returns a Hub backed by pgxmock + miniredis.
+func setupHubWithDBAndRedis(t *testing.T, maxPlayers int) (*Hub, pgxmock.PgxPoolIface, *store.PostgresStore, *store.RedisStore) {
+	t.Helper()
+	mock := testutil.NewPgxMock(t)
+	db := store.NewPostgresStoreWithPool(mock)
+	redisStore := testutil.SetupMiniredisStore(t)
+	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, maxPlayers)
+	return h, mock, db, redisStore
+}
+
+// expectRestoreRoomsScan mocks RestoreRooms returning one lobby state row.
+func expectRestoreRoomsScan(mock pgxmock.PgxPoolIface, code, stateJSON string) {
+	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
+		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
+		WithArgs(101).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
+			AddRow("id1", code, stateJSON, int64(100), int64(50)))
+}
+
+// expectLoadLobbyState mocks loadOrMaterializeRoom returning one row.
+func expectLoadLobbyState(mock pgxmock.PgxPoolIface, code, stateJSON string) {
+	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
+		WithArgs(code).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
+			AddRow("id1", code, stateJSON, int64(1), int64(1)))
 }

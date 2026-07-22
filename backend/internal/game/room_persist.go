@@ -2,7 +2,6 @@ package game
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -288,90 +287,6 @@ func (r *Room) stopPersist() {
 	if r.persist != nil {
 		r.persist.stop()
 	}
-}
-
-// ─── Game Result (outbox) ───────────────────────────────────────────
-
-func defaultGameEndedOutboxPayload(payload map[string]interface{}) ([]byte, error) {
-	wrapped := map[string]interface{}{
-		"event": "game.ended",
-		"data":  payload,
-	}
-	return json.Marshal(wrapped)
-}
-
-// enqueueGameResultAsync fires outbox insert without blocking the caller.
-func (r *Room) enqueueGameResultAsync() {
-	if r.state.SessionID == "" {
-		return
-	}
-
-	endedAt := time.Now().UnixMilli()
-	results := buildGameResults(r.state.Players)
-	finalScore := r.state.Balloon.Score
-	sessionID := r.state.SessionID
-	roomCode := string(r.state.LobbyCode)
-
-	r.asyncWg.Add(1)
-	go func() {
-		defer r.asyncWg.Done()
-		r.enqueueGameResultOutbox(sessionID, roomCode, finalScore, results, endedAt)
-	}()
-}
-
-func buildGameResults(players map[string]*domain.PlayerState) []domain.GameResultPlayer {
-	results := make([]domain.GameResultPlayer, 0, len(players))
-	for _, p := range players {
-		results = append(results, domain.GameResultPlayer{
-			UserID:            p.ID,
-			ScoreContribution: p.ScoreContribution,
-			TapsCount:         p.TapsCount,
-		})
-	}
-	return results
-}
-
-// enqueueGameResultOutbox is the single persistence path for game results.
-// It inserts an outbox event into the outbox_events table. The outbox Publisher
-// then publishes to the "game.events" Redis Stream, consumed by GameResultWorker.
-func (r *Room) enqueueGameResultOutbox(sessionID, roomCode string, finalScore int, results []domain.GameResultPlayer, endedAt int64) {
-	if r.store == nil {
-		return
-	}
-
-	payload := map[string]interface{}{
-		"game_id":     sessionID,
-		"room_code":   roomCode,
-		"final_score": finalScore,
-		"results":     resultsToMap(results),
-		"ended_at":    endedAt,
-	}
-
-	outboxPayload, err := defaultGameEndedOutboxPayload(payload)
-	if err != nil {
-		metrics.GameResultMarshalFailures.Inc()
-		r.logger.Error("marshal game ended outbox payload, skipping outbox insert",
-			"error", err, "session_id", sessionID)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
-	defer cancel()
-	if err := r.store.InsertOutboxEvent(ctx, "game", sessionID, outboxPayload); err != nil {
-		r.logger.Error("insert game ended outbox event", "error", err)
-	}
-}
-
-func resultsToMap(results []domain.GameResultPlayer) []map[string]interface{} {
-	out := make([]map[string]interface{}, 0, len(results))
-	for _, r := range results {
-		out = append(out, map[string]interface{}{
-			"user_id":            r.UserID,
-			"score_contribution": r.ScoreContribution,
-			"taps_count":         r.TapsCount,
-		})
-	}
-	return out
 }
 
 // createGameSessionAsync inserts a game session row without blocking the room lock.

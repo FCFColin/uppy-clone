@@ -59,13 +59,12 @@ type RoomRepository interface {
 	DeleteLobbyState(ctx context.Context, code string) error
 	LoadAllActiveLobbies(ctx context.Context, limit int, cursor string) (*domain.LobbyListResult, error)
 	CreateGameSession(ctx context.Context, gs *domain.GameSession) error
-	InsertOutboxEvent(ctx context.Context, aggregateType, aggregateID string, payload []byte) error
 	RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error
 }
 
 // ─── Names & Nicknames ───────────────────────────────────────────────
 
-const roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+const roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // pragma: allowlist secret
 
 // GenerateRoomCode 生成 config.RoomCodeLen 字符房间码
 func GenerateRoomCode(rng RNGSource) string {
@@ -161,6 +160,7 @@ func NewGameState(lobbyCode string, seed int64, rng RNGSource) *domain.GameState
 		NextPlayerIndex:   0,
 		TickCount:         0,
 		StartedAt:         0,
+		CreatedAt:         time.Now().UnixMilli(),
 		SessionID:         "",
 		LobbyCode:         domain.RoomCode(lobbyCode),
 		RestartVotes:      make(map[string]bool),

@@ -96,9 +96,15 @@ func RestartAndStart(room *Room) error {
 
 	cleanupDisconnectedPlayers(room, players, activePlayerIDs)
 
+	// Preserve original room creation timestamp across restarts (CreatedAt
+	// is assigned once at room creation per spec; StartedAt is the per-game
+	// start time and may be reset).
+	originalCreatedAt := room.state.CreatedAt
+
 	// 清理后无活跃玩家时，重置为 waiting
 	if len(activePlayerIDs) == 0 {
 		room.state = NewGameState(string(room.state.LobbyCode), room.state.RNGSeed, room.rng)
+		room.state.CreatedAt = originalCreatedAt
 		room.state.Phase = domain.PhaseWaiting
 		room.stopTick()
 		// game-021: Broadcast state change even with no active players —
@@ -110,6 +116,7 @@ func RestartAndStart(room *Room) error {
 	}
 
 	room.state = buildRestartState(string(room.state.LobbyCode), players, nextPlayerIndex, room.state.RNGSeed, room.rng)
+	room.state.CreatedAt = originalCreatedAt
 	// game-022: Removed redundant ResetGameEntities call — buildRestartState
 	// already initializes balloon, bird, ghost, and wind via NewGameState.
 	// Calling ResetGameEntities again consumed RNG a second time, causing

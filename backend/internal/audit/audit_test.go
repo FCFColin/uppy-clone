@@ -11,21 +11,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-func TestComputeHash_Chain(t *testing.T) {
-	secret := []byte("audit-secret")
-	payload := []byte(`{"action":"login"}`)
-	h1 := computeHash(secret, "", payload)
-	h2 := computeHash(secret, h1, payload)
-	if h1 == h2 || h1 == "" || h2 == "" {
-		t.Fatalf("hash chain collision or empty: h1=%q h2=%q", h1, h2)
-	}
-	// Tamper detection: changing payload breaks chain.
-	tampered := computeHash(secret, h1, []byte(`{"action":"login","x":1}`))
-	if tampered == h2 {
-		t.Error("tampered payload should produce different hash")
-	}
-}
-
 func TestInitDBLogger_NilPoolNoOp(t *testing.T) {
 	// Adversarial: nil pool must not panic or initialize dbLogger.
 	old := dbLogger

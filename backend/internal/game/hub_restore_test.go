@@ -11,12 +11,11 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
 
 func TestHub_registerRoomLocked_ReturnsExisting(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
+	h := newTestHub()
 	existing := NewRoom("DUP", h, nil, config.DefaultTimeoutConfig(), 0)
 	other := NewRoom("DUP", h, nil, config.DefaultTimeoutConfig(), 0)
 	h.mu.Lock()
@@ -29,7 +28,7 @@ func TestHub_registerRoomLocked_ReturnsExisting(t *testing.T) {
 }
 
 func TestHub_MaterializeRoom(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
+	h := newTestHub()
 	state := NewGameState("REST1", 42, testRNG())
 	state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "nick1"}
 	room := h.materializeRoom("REST1", state)
@@ -42,18 +41,14 @@ func TestHub_MaterializeRoom(t *testing.T) {
 }
 
 func TestHub_DeserializeAndMaterialize_Invalid(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
+	h := newTestHub()
 	if _, err := h.deserializeAndMaterialize("X", []byte(`{invalid`)); err == nil {
 		t.Fatal("expected deserialize error")
 	}
 }
 
 func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-
-	db := store.NewPostgresStoreWithPool(mock)
-	redisStore := testutil.SetupMiniredisStore(t)
-	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, 8)
+	h, mock, _, redisStore := setupHubWithDBAndRedis(t, 8)
 
 	state := NewGameState("ROOM1", 42, testRNG())
 	stateJSON, err := json.Marshal(state)
@@ -61,12 +56,7 @@ func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WithArgs(101).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id1", "ROOM1", string(stateJSON), int64(100), int64(50)))
+	expectRestoreRoomsScan(mock, "ROOM1", string(stateJSON))
 
 	if err := h.RestoreRooms(); err != nil {
 		t.Fatalf("RestoreRooms: %v", err)
@@ -86,11 +76,7 @@ func TestHub_RestoreRooms_WithMockStore(t *testing.T) {
 }
 
 func TestHub_RestoreRooms_SkipsForeignOwner(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-
-	db := store.NewPostgresStoreWithPool(mock)
-	redisStore := testutil.SetupMiniredisStore(t)
-	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, 8)
+	h, mock, _, redisStore := setupHubWithDBAndRedis(t, 8)
 
 	ctx := context.Background()
 	foreign := []byte(`{"code":"ROOM2","instance":"other-pod","address":"10.0.0.2:8080","created_at":1}`)
@@ -100,12 +86,7 @@ func TestHub_RestoreRooms_SkipsForeignOwner(t *testing.T) {
 
 	state := NewGameState("ROOM2", 42, testRNG())
 	stateJSON, _ := json.Marshal(state)
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WithArgs(101).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id2", "ROOM2", string(stateJSON), int64(100), int64(50)))
+	expectRestoreRoomsScan(mock, "ROOM2", string(stateJSON))
 
 	if err := h.RestoreRooms(); err != nil {
 		t.Fatalf("RestoreRooms: %v", err)
@@ -181,8 +162,13 @@ func TestRoom_handleAutoRestart_WithVotes(t *testing.T) {
 	addConnectedPlayer(r, "p1")
 	r.state.RestartVotes = map[string]bool{"p1": true}
 	r.handleAutoRestart()
-	if r.state.Phase != domain.PhaseEnded {
-		t.Fatalf("phase = %s, expected deferred restart", r.state.Phase)
+	// Single connected player with a vote = consensus reached
+	// (yesVotes == connectedCount), so RestartAndStart fires immediately.
+	// Previously this deferred 30s due to a buggy `yesVotes > 0` check that
+	// did not account for consensus; the fix aligns handleAutoRestart with
+	// CheckRestartConsensus.
+	if r.state.Phase != domain.PhaseCountdown {
+		t.Fatalf("phase = %s, expected countdown (consensus restart)", r.state.Phase)
 	}
 }
 
@@ -190,14 +176,9 @@ func TestHub_loadOrMaterializeRoom(t *testing.T) {
 	state := NewGameState("LOAD1", 42, testRNG())
 	stateJSON, _ := json.Marshal(state)
 
-	mock := testutil.NewPgxMock(t)
-	db := store.NewPostgresStoreWithPool(mock)
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
-		WithArgs("LOAD1").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id1", "LOAD1", string(stateJSON), int64(1), int64(1)))
+	h, mock, _ := setupHubWithDBMock(t, 0)
+	expectLoadLobbyState(mock, "LOAD1", string(stateJSON))
 
-	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 0)
 	room := h.loadOrMaterializeRoom("LOAD1")
 	if room == nil {
 		t.Fatal("expected room")
@@ -214,38 +195,29 @@ func TestHub_shouldLocalMaterializeRoom_RedisError(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom_NilStore(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
+	h := newTestHub()
 	if room := h.loadOrMaterializeRoom("X"); room != nil {
 		t.Fatal("expected nil without store")
 	}
 }
 
 func TestHub_RestoreRooms_LoadError(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewPostgresStoreWithPool(mock)
+	h, mock, _ := setupHubWithDBMock(t, 8)
 	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
 		WillReturnError(context.Canceled)
 
-	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
 	if err := h.RestoreRooms(); err == nil {
 		t.Fatal("expected load error")
 	}
 }
 
 func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewPostgresStoreWithPool(mock)
+	h, mock, db := setupHubWithDBMock(t, 8)
 
 	state := NewGameState("EXIST", 42, testRNG())
 	stateJSON, _ := json.Marshal(state)
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WithArgs(101).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id1", "EXIST", string(stateJSON), int64(100), int64(50)))
+	expectRestoreRoomsScan(mock, "EXIST", string(stateJSON))
 
-	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
 	h.mu.Lock()
 	h.rooms["EXIST"] = NewRoom("EXIST", h, db, config.DefaultTimeoutConfig(), 8)
 	h.mu.Unlock()
@@ -256,17 +228,10 @@ func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
 }
 
 func TestHub_RestoreRooms_DeserializeError(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewPostgresStoreWithPool(mock)
+	h, mock, _ := setupHubWithDBMock(t, 8)
 
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states").
-		WithArgs(101).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id1", "BAD1", "{invalid", int64(100), int64(50)))
+	expectRestoreRoomsScan(mock, "BAD1", "{invalid")
 
-	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
 	if err := h.RestoreRooms(); err != nil {
 		t.Fatalf("RestoreRooms should continue on deserialize error: %v", err)
 	}
@@ -286,14 +251,11 @@ func TestHub_loadOrMaterializeRoom_ForeignOwner(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom_ForeignOwnerWithStore(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewPostgresStoreWithPool(mock)
+	h, _, _, redisStore := setupHubWithDBAndRedis(t, 8)
 
-	redisStore := testutil.SetupMiniredisStore(t)
 	foreign := []byte(`{"code":"LOAD5","instance":"other","address":"x","created_at":1}`)
 	_ = redisStore.RegisterRoom(context.Background(), "LOAD5", foreign, time.Hour)
 
-	h := NewHub(db, redisStore, config.DefaultTimeoutConfig(), 0, 8)
 	if room := h.loadOrMaterializeRoom("LOAD5"); room != nil {
 		t.Fatal("expected nil when foreign owner skips materialization")
 	}
@@ -336,10 +298,8 @@ func TestHub_loadOrMaterializeRoom_ErrorCases(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			mock := testutil.NewPgxMock(t)
-			db := store.NewPostgresStoreWithPool(mock)
+			h, mock, _ := setupHubWithDBMock(t, 8)
 			c.setupMock(t, mock)
-			h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
 			if room := h.loadOrMaterializeRoom(c.code); room != nil {
 				t.Fatal("expected nil")
 			}
@@ -406,17 +366,12 @@ func TestHub_RestoreRooms_EmptyPage(t *testing.T) {
 }
 
 func TestHub_loadOrMaterializeRoom_ReturnsExisting(t *testing.T) {
-	mock := testutil.NewPgxMock(t)
-	db := store.NewPostgresStoreWithPool(mock)
 	state := NewGameState("EXIST1", 42, testRNG())
 	stateJSON, _ := json.Marshal(state)
 
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
-		WithArgs("EXIST1").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id1", "EXIST1", string(stateJSON), int64(1), int64(1)))
+	h, mock, db := setupHubWithDBMock(t, 8)
+	expectLoadLobbyState(mock, "EXIST1", string(stateJSON))
 
-	h := NewHub(db, nil, config.DefaultTimeoutConfig(), 0, 8)
 	existing := NewRoom("EXIST1", h, db, config.DefaultTimeoutConfig(), 0)
 	h.mu.Lock()
 	h.rooms["EXIST1"] = existing

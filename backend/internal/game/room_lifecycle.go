@@ -1,6 +1,7 @@
 package game
 
 import (
+	"context"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -82,6 +83,8 @@ func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 		if r.tickCancel == nil {
 			r.resumeCountdownForReconnect(playerID)
 		}
+	case domain.PhaseEnded:
+		r.triggerAutoRestartIfEnded()
 	}
 }
 
@@ -337,8 +340,8 @@ func (r *Room) EndGameWithReason(endReason uint8) error {
 		r.state.Balloon.Y = 0
 	}
 
-	r.enqueueGameResultAsync()
 	r.broadcastGameEnded(endReason)
+	r.recordGameResultAsync()
 
 	r.connMu.RLock()
 	hasConns := len(r.connections) > 0
@@ -357,6 +360,37 @@ func (r *Room) broadcastGameEnded(endReason uint8) {
 	r.broadcast(r.buildSnapshot(), "")
 	r.broadcastCritical(protocol.EncodeGameStateChangeEnded(endReason))
 	r.requestPersist()
+}
+
+// recordGameResultAsync persists game results to the database without blocking.
+func (r *Room) recordGameResultAsync() {
+	if r.store == nil || r.state.SessionID == "" {
+		return
+	}
+	sessionID := r.state.SessionID
+	roomCode := string(r.state.LobbyCode)
+	endedAt := time.Now().UnixMilli()
+	finalScore := r.state.Balloon.Score
+
+	var results []domain.GameResultPlayer
+	for _, p := range r.state.Players {
+		results = append(results, domain.GameResultPlayer{
+			UserID:            p.ID,
+			Nickname:          p.Nickname,
+			ScoreContribution: int(p.ScoreContribution),
+			TapsCount:         int(p.TapsCount),
+		})
+	}
+
+	r.asyncWg.Add(1)
+	go func() {
+		defer r.asyncWg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), r.timeouts.PGQueryTimeout)
+		defer cancel()
+		if err := r.store.RecordGameResult(ctx, sessionID, roomCode, endedAt, finalScore, results); err != nil {
+			r.logger.Warn("record game result failed", "error", err, "room_code", roomCode)
+		}
+	}()
 }
 
 // setEndGameAlarm sets a timer for ended/countdown phase transitions.
@@ -417,13 +451,17 @@ func (r *Room) handleAutoRestart() {
 		return
 	}
 
-	yesVotes, _ := countRestartYesVotes(r.state.Players, r.state.RestartVotes)
-	if yesVotes > 0 {
-		r.logger.Info("phase=ended but restart votes active, deferring auto-restart by 30s")
+	yesVotes, connectedCount := countRestartYesVotes(r.state.Players, r.state.RestartVotes)
+	// 共识未达成（有投票但未全员同意）→ defer 30s；共识达成或无投票 → 直接重启。
+	// 这与 CheckRestartConsensus 的判断一致，避免单人房间残留投票导致无限 defer。
+	if yesVotes > 0 && yesVotes < connectedCount {
+		r.logger.Info("phase=ended but restart votes active, deferring auto-restart by 30s",
+			"yesVotes", yesVotes, "connectedCount", connectedCount)
 		r.setEndGameAlarm(time.Now().Add(time.Duration(domain.RestartTimeoutMs) * time.Millisecond))
 		return
 	}
 
-	r.logger.Info("phase=ended, no active votes, auto-restarting")
+	r.logger.Info("phase=ended, auto-restarting (consensus reached or no votes)",
+		"yesVotes", yesVotes, "connectedCount", connectedCount)
 	_ = RestartAndStart(r)
 }

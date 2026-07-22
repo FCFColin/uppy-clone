@@ -32,7 +32,7 @@ func TestParseRedisURL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseRedisURL: %v", err)
 			}
-			if got.Addr != tt.wantAddr || got.Password != tt.wantPass || got.DB != tt.wantDB {
+			if got.Addr != tt.wantAddr || got.Password != tt.wantPass || got.DB != tt.wantDB { // pragma: allowlist secret
 				t.Fatalf("got %+v want addr=%q pass=%q db=%d", got, tt.wantAddr, tt.wantPass, tt.wantDB)
 			}
 		})

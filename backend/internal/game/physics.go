@@ -191,8 +191,10 @@ func CheckBirdCollision(bird *domain.BirdState, balloon *domain.BalloonState) bo
 	}
 	dx := bird.X - balloon.X
 	dy := bird.Y - balloon.Y
-	dist := math.Hypot(dx, dy)
-	return dist < protocol.BirdCollisionRadius
+	// 鸟椭圆半轴 + 气球碰撞半径，让气球作为"圆"而非"点"参与碰撞
+	rx := protocol.BirdCollisionRadiusX + protocol.BalloonCollisionRadius
+	ry := protocol.BirdCollisionRadiusY + protocol.BalloonCollisionRadius
+	return (dx*dx)/(rx*rx)+(dy*dy)/(ry*ry) < 1
 }
 
 // ─── Ghost AI ────────────────────────────────────────────────────────
@@ -295,8 +297,9 @@ func CheckGhostCollision(state *domain.GameState) bool {
 	}
 	dx := state.Balloon.X - state.Ghost.X
 	dy := state.Balloon.Y - state.Ghost.Y
-	rx := protocol.GhostCollisionRadiusX
-	ry := protocol.GhostCollisionRadiusY
+	// 鬼椭圆半轴 + 气球碰撞半径，让气球作为"圆"而非"点"参与碰撞
+	rx := protocol.GhostCollisionRadiusX + protocol.BalloonCollisionRadius
+	ry := protocol.GhostCollisionRadiusY + protocol.BalloonCollisionRadius
 	// 椭圆碰撞: (dx/rx)² + (dy/ry)² < 1
 	if (dx*dx)/(rx*rx)+(dy*dy)/(ry*ry) < 1 {
 		// 气球受到向下速度冲击
