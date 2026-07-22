@@ -3,25 +3,89 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
-  <title>Uppy - 合作气球游戏</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;">
+  <title>Uppy - 排行榜</title>
   <meta name="description" content="Uppy 合作气球游戏排行榜 — 团队最高分排行。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@300;400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎈</text></svg>">
   <link rel="stylesheet" href="/src/style.css">
   <link rel="stylesheet" href="/src/index.css">
+  <link rel="stylesheet" href="/src/leaderboard_page.css">
 </head>
 <body class="landing-page">
-  <div class="hero leaderboard-page">
-    <h1>🏆 排行榜</h1>
-    <p class="subtitle">团队最高分</p>
-    <div class="leaderboard-tabs">
-      <button id="tab-global" class="btn-secondary active" type="button">总榜</button>
-      <button id="tab-weekly" class="btn-secondary" type="button">周榜</button>
+  <div id="bg-particles" class="bg-particles" aria-hidden="true"></div>
+  <div class="hero-bg-overlay" aria-hidden="true"></div>
+
+  <nav class="top-nav" aria-label="主导航">
+    <div class="nav-inner">
+      <div class="nav-logo">
+        <span class="logo-emoji" aria-hidden="true"></span>
+        <span class="logo-text">Uppy</span>
+      </div>
+      <div class="nav-links">
+        <a href="/index.html" class="nav-link">首页</a>
+        <a href="/leaderboard.html" class="nav-link active">排行榜</a>
+      </div>
+      <div class="nav-actions">
+        <button class="btn-nav-icon" data-icon="globe" title="切换语言" aria-label="切换语言"></button>
+        <button class="btn-nav-icon" data-icon="gamepad" title="控制器设置" aria-label="控制器设置"></button>
+        <button class="btn-nav-icon btn-nav-menu" data-icon="menu" title="菜单" aria-label="菜单"></button>
+      </div>
     </div>
-    <ol id="leaderboard-list" class="leaderboard-list"></ol>
-    <p id="leaderboard-empty" class="hint hidden">暂无记录，快去开一局吧！</p>
-    <a href="/" class="btn-secondary lb-nav-btn">返回大厅</a>
-    <button id="back-to-game-btn" class="btn-secondary lb-nav-btn" type="button" hidden>返回游戏</button>
-  </div>
+  </nav>
+
+  <main id="main-content" class="page-container lb-page-container">
+    <section class="lb-header-section">
+      <div class="lb-eyebrow-badge hero-badge">
+        <span class="lb-eyebrow-icon"></span>
+        <span>全球排行</span>
+      </div>
+      <h1 class="lb-page-title">排行榜</h1>
+      <p class="lb-page-subtitle">与全球玩家一较高下，看看谁是气球守护大师</p>
+    </section>
+
+    <!-- Shared leaderboard (tabs + table + footer) renders here via leaderboard/shared.ts -->
+    <div id="leaderboard-root"></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-main">
+        <div class="footer-col footer-brand">
+          <div class="footer-logo">
+            <span class="logo-emoji-svg">
+              <svg width="28" height="28" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="14" cy="12" rx="10" ry="12" fill="url(#footerBalloonGradLb)"/>
+                <ellipse cx="10" cy="7" rx="3.5" ry="4.5" fill="rgba(255,255,255,0.35)"/>
+                <polygon points="14,24 12,27 16,27" fill="#b02a47"/>
+                <path d="M14 27 C16 30, 11 32, 14 35" stroke="#c4b5fd" stroke-width="1.8" stroke-linecap="round" fill="none" opacity="0.7"/>
+                <defs>
+                  <radialGradient id="footerBalloonGradLb" cx="35%" cy="30%" r="70%">
+                    <stop offset="0%" stop-color="#ff8fa3"/>
+                    <stop offset="50%" stop-color="#ff6b8a"/>
+                    <stop offset="100%" stop-color="#c93050"/>
+                  </radialGradient>
+                </defs>
+              </svg>
+            </span>
+            <span class="logo-text">Uppy</span>
+          </div>
+          <p class="footer-tagline">多人实时合作气球游戏，考验团队协作与策略的生存挑战。</p>
+        </div>
+        <div class="footer-col">
+          <h4>游戏</h4>
+          <a href="/index.html">快速开始</a>
+          <a href="/leaderboard.html">排行榜</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span class="footer-copyright">© 2024 Uppy Game. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
   <script type="module" src="/src/leaderboard.ts"></script>
 </body>
 </html>

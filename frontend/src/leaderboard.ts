@@ -1,60 +1,31 @@
 export {};
 
-import { fetchLeaderboard, renderLeaderboardEntries, type Scope } from './shared/ui/leaderboard_utils.js';
+import { renderLeaderboard } from './leaderboard/shared.js';
+import { initBgParticles } from './bg_particles.js';
+import { initNavigation } from './shared/ui/nav.js';
+import { Trophy, ArrowRight } from './icons.js';
 
-const listEl = document.getElementById('leaderboard-list')!;
-const emptyEl = document.getElementById('leaderboard-empty')!;
-const tabGlobal = document.getElementById('tab-global')!;
-const tabWeekly = document.getElementById('tab-weekly')!;
+initNavigation();
+initBgParticles();
 
-let scope: Scope = 'global';
+const root = document.getElementById('leaderboard-root');
+if (root) {
+  void renderLeaderboard(root, { showBackToLobby: true });
+}
+// Run after renderLeaderboard's synchronous DOM build so the shared module's
+//「返回大厅」button exists when we inject its trailing arrow icon.
+initPageIcons();
 
-const EMPTY_TEXT = '暂无记录，快去开一局吧！';
+function initPageIcons(): void {
+  const eyebrowIcon = document.querySelector('.lb-eyebrow-icon');
+  if (eyebrowIcon) {
+    eyebrowIcon.innerHTML = Trophy({ size: 16, color: '#ff8fa3', strokeWidth: 2 });
+  }
 
-async function load(): Promise<void> {
-  listEl.textContent = '';
-  emptyEl.textContent = EMPTY_TEXT;
-  try {
-    const entries = await fetchLeaderboard(scope, 50);
-    if (!entries.length) {
-      emptyEl.classList.remove('hidden');
-      return;
-    }
-    emptyEl.classList.add('hidden');
-    renderLeaderboardEntries(listEl, entries);
-  } catch {
-    emptyEl.textContent = '加载失败，请确认后端已启动并刷新页面';
-    emptyEl.classList.remove('hidden');
+  // The「返回大厅」button is rendered by the shared module; inject the trailing
+  // arrow icon once it exists in the DOM.
+  const backHallTrailing = document.querySelector('.lb-action-btn .btn-icon-trailing');
+  if (backHallTrailing) {
+    backHallTrailing.innerHTML = ArrowRight({ size: 18, color: 'white', strokeWidth: 2.5 });
   }
 }
-
-function setScope(next: Scope): void {
-  scope = next;
-  tabGlobal.classList.toggle('active', next === 'global');
-  tabWeekly.classList.toggle('active', next === 'weekly');
-  void load();
-}
-
-tabGlobal.addEventListener('click', () => setScope('global'));
-tabWeekly.addEventListener('click', () => setScope('weekly'));
-
-// Show "返回游戏" button when a game URL was saved (opened from game page).
-const backBtn = document.getElementById('back-to-game-btn');
-const gameUrl = localStorage.getItem('uppy-game-url');
-function isSafeLocalUrl(url: string): boolean {
-  if (url.startsWith('//')) return false;
-  if (url.startsWith('/')) return true;
-  try {
-    return new URL(url, window.location.origin).origin === window.location.origin;
-  } catch {
-    return false;
-  }
-}
-if (backBtn && gameUrl && isSafeLocalUrl(gameUrl)) {
-  backBtn.hidden = false;
-  backBtn.addEventListener('click', () => {
-    window.location.href = gameUrl;
-  });
-}
-
-void load();

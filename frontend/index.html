@@ -3,79 +3,291 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;">
   <title>Uppy - 合作气球游戏</title>
   <meta name="description" content="Uppy 是一款多人合作气球生存游戏。在气球附近点击保持它不掉落，躲避鸟和幽灵，与队友配合挑战更高分数。">
   <meta property="og:title" content="Uppy - 合作气球游戏">
   <meta property="og:description" content="和队友一起保护气球！点击、配合、生存。">
   <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@300;400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎈</text></svg>">
   <link rel="stylesheet" href="/src/style.css">
   <link rel="stylesheet" href="/src/index.css">
 </head>
 <body class="landing-page">
-  <div class="hero">
-    <header class="hero-intro">
-      <h1>🎈 Uppy</h1>
-      <p class="subtitle">合作气球游戏</p>
-      <p class="description">
-        点击保持气球不掉落！人多时冷却更长，需要真正的团队合作才能生存。
-        和陌生人一起，或者分享房间码给朋友。
-      </p>
-    </header>
+  <div id="bg-particles" class="bg-particles" aria-hidden="true"></div>
+  <div class="hero-bg-overlay" aria-hidden="true"></div>
 
-    <div class="hero-play">
-      <div class="auth-section">
-        <button id="quickplay-btn" class="btn-play">快速开始</button>
-        <p class="auth-divider">— 或 —</p>
-        <input type="email" id="email-input" placeholder="输入邮箱登录" autocomplete="email">
-        <button id="login-btn" class="btn-play btn-play-compact">发送登录链接</button>
-        <p id="success-msg" class="success-msg">✉️ 登录链接已发送，请查收邮件！<br><a href="#" id="email-change-link" class="link-secondary">修改邮箱 / 重新发送</a></p>
-        <p id="error-msg" class="error-msg"></p>
+  <!-- 顶部导航栏 -->
+  <nav class="top-nav" aria-label="主导航">
+    <div class="nav-inner">
+      <div class="nav-logo">
+        <span class="logo-emoji" aria-hidden="true">🎈</span>
+        <span class="logo-text">Uppy</span>
       </div>
-
-      <div class="join-code-section">
-        <div class="join-code-input-group">
-          <input id="join-code-input" type="text" maxlength="5" placeholder="输入房间号" autocomplete="off" style="text-transform:uppercase">
-          <button id="join-code-btn" class="btn-secondary">加入</button>
-        </div>
-        <div id="join-code-error" class="error-msg hidden"></div>
+      <div class="nav-links">
+        <a href="/index.html" class="nav-link active">首页</a>
+        <a href="/leaderboard.html" class="nav-link">排行榜</a>
+      </div>
+      <div class="nav-actions">
+        <button class="btn-nav-icon" title="切换语言" aria-label="切换语言">🌐</button>
+        <button class="btn-nav-icon" title="控制器设置" aria-label="控制器设置">🎮</button>
       </div>
     </div>
+  </nav>
 
-    <div class="hero-learn">
-      <div class="rules rules-section">
-        <h3>怎么玩</h3>
-        <ul>
-          <li>在气球<strong>附近</strong>点击，把它往上推（点太远无效）</li>
-          <li>每次点击后有冷却时间；人越多，冷却越长</li>
-          <li><strong>鸟</strong>会追踪气球，碰到即结束</li>
-          <li><strong>幽灵</strong>靠近会撞破气球；在幽灵附近点击可将其推开</li>
-          <li>留意 HUD 中的<strong>风向</strong>，风会把气球吹向一侧</li>
-          <li>团队分数 = 成功点击次数，坚持越久分越高</li>
-        </ul>
+  <main id="main-content" class="page-container">
+    <!-- Hero 双栏区 -->
+    <section class="hero-section">
+      <!-- 左栏：标题+按钮+统计 -->
+      <div class="hero-left">
+        <div class="hero-badge">
+          <span class="badge-dot"></span>
+          🎮 多人在线 · 实时合作
+        </div>
+        <h1 class="hero-title">
+          保护气球
+          <span class="sub-title">不要让它掉落</span>
+        </h1>
+        <p class="hero-desc">
+          一款考验默契的多人合作生存游戏。与队友一起点击气球、躲避障碍、挑战更高分数。简洁的规则，不简单的配合。
+        </p>
+
+        <div class="hero-cta-row">
+          <button id="quickplay-btn" class="btn-cta-primary">
+            <span class="btn-icon-leading"></span>
+            <span class="btn-text">快速开始</span>
+            <span class="btn-icon-trailing"></span>
+          </button>
+          <button class="btn-cta-secondary">
+            <span class="btn-icon-leading"></span>
+            <span class="btn-text">创建房间</span>
+          </button>
+        </div>
+
+        <div class="hero-stats-row">
+          <div class="stat-pill stat-online">
+            <span class="pill-icon">🟢</span>
+            <span class="pill-label">在线玩家</span>
+            <span class="pill-value" id="stat-online-value">--</span>
+          </div>
+          <div class="stat-pill stat-games">
+            <span class="pill-icon">🎮</span>
+            <span class="pill-label">今日游戏</span>
+            <span class="pill-value" id="stat-games-value">--</span>
+          </div>
+          <div class="stat-pill stat-best">
+            <span class="pill-icon">🏆</span>
+            <span class="pill-label">最高分</span>
+            <span class="pill-value" id="stat-best-value">--</span>
+          </div>
+        </div>
+
+        <!-- 加入房间区域 -->
+        <div class="hero-auth-section">
+          <p id="error-msg" class="error-msg"></p>
+          <div class="join-code-row">
+            <input id="join-code-input" type="text" maxlength="5" placeholder="房间号" autocomplete="off" aria-label="房间号">
+            <button id="join-code-btn" class="btn-join">
+              <span class="btn-text">加入</span>
+              <span class="btn-icon-trailing"></span>
+            </button>
+          </div>
+          <div id="join-code-error" class="error-msg hidden"></div>
+        </div>
       </div>
 
-      <section class="leaderboard-collapsible" aria-labelledby="lb-preview-title">
-      <button id="lb-collapse-toggle" class="lb-collapse-header" type="button" aria-expanded="false" aria-controls="lb-collapse-body">
-        <span id="lb-preview-title">🏆 排行榜</span>
-        <span id="lb-collapsed-summary" class="lb-collapsed-summary">加载中…</span>
-        <span class="lb-collapse-chevron" aria-hidden="true">▾</span>
-      </button>
-      <div id="lb-collapse-body" class="lb-collapse-body hidden">
-        <div class="leaderboard-tabs leaderboard-tabs-compact">
-          <button id="lb-preview-global" class="btn-secondary--landing active" type="button">总榜</button>
-          <button id="lb-preview-weekly" class="btn-secondary--landing" type="button">周榜</button>
+      <!-- 右栏：气球视觉 -->
+      <div class="hero-right">
+        <div class="hero-visual">
+          <div class="balloon-hero">
+            <svg width="280" height="360" viewBox="0 0 280 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <radialGradient id="balloonBodyGradient" cx="35%" cy="30%" r="70%">
+                  <stop offset="0%" stop-color="#ff8fa3"/>
+                  <stop offset="45%" stop-color="#ff6b8a"/>
+                  <stop offset="100%" stop-color="#c93050"/>
+                </radialGradient>
+                <radialGradient id="balloonHighlight" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="rgba(255,255,255,0.6)"/>
+                  <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+                </radialGradient>
+              </defs>
+              <ellipse cx="140" cy="120" rx="95" ry="110" fill="url(#balloonBodyGradient)"/>
+              <ellipse cx="105" cy="75" rx="30" ry="38" fill="url(#balloonHighlight)"/>
+              <polygon points="140,230 125,252 155,252" fill="#b02a47"/>
+              <path d="M140 252 C152 275, 118 290, 142 315 C165 340, 120 350, 140 358" stroke="#c4b5fd" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+            </svg>
+          </div>
+          <span class="orb orb-1"></span>
+          <span class="orb orb-2"></span>
+          <span class="orb orb-3"></span>
+          <span class="orb orb-4"></span>
+          <span class="orb orb-5"></span>
+          <span class="orb orb-6"></span>
         </div>
-        <p id="leaderboard-preview-loading" class="hint hidden">加载排行榜…</p>
-        <ol id="leaderboard-preview" class="leaderboard-list"></ol>
-        <p id="leaderboard-preview-empty" class="hint hidden">暂无记录，成为第一个上榜的玩家吧！</p>
+      </div>
+    </section>
+
+    <!-- 核心玩法 Bento Grid -->
+    <section class="features-bento" data-reveal>
+      <div class="bento-header">
+        <span class="bento-eyebrow">核心玩法</span>
+        <h2 class="bento-title">为什么要玩 Uppy?</h2>
+      </div>
+      <div class="features-bento-grid">
+        <!-- 主卡：点击保持气球 (2x2) -->
+        <div class="bento-card bento-main">
+          <div class="bento-glow bento-glow-pink"></div>
+          <div class="bento-icon bento-icon-main"></div>
+          <h3 class="bento-card-title">精准点击 保持飘浮</h3>
+          <p class="bento-card-desc">在气球附近点击产生上升气流，对抗重力。每次点击都有冷却时间，策略性分配时机。</p>
+          <div class="bento-cooldown-bar">
+            <div class="bento-cooldown-fill"></div>
+          </div>
+        </div>
+
+        <!-- 副卡1：冷却机制 (1x1) -->
+        <div class="bento-card bento-side-1">
+          <div class="bento-glow bento-glow-blue"></div>
+          <div class="bento-icon bento-icon-timer"></div>
+          <h3 class="bento-card-title">冷却管理</h3>
+          <p class="bento-card-desc">合理规划点击顺序</p>
+        </div>
+
+        <!-- 副卡2：多人协作 (1x1) -->
+        <div class="bento-card bento-side-2">
+          <div class="bento-glow bento-glow-purple"></div>
+          <div class="bento-icon bento-icon-users"></div>
+          <h3 class="bento-card-title">多人协作</h3>
+          <p class="bento-card-desc">与队友默契配合</p>
+        </div>
+
+        <!-- 副卡3：排行榜 (1x2宽) -->
+        <div class="bento-card bento-bottom">
+          <div class="bento-glow bento-glow-gold"></div>
+          <div class="bento-icon bento-icon-trophy"></div>
+          <h3 class="bento-card-title">全球排行榜</h3>
+          <p class="bento-card-desc">挑战高分，与全球玩家竞争，每周榜单更新</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 第二行双栏：排行榜 + 快速加入 -->
+    <section class="row-two" data-reveal>
+      <!-- 排行榜预览卡片 -->
+      <div class="leaderboard-card">
+        <div class="panel-header">
+          <h3 class="panel-title">
+            <span class="bento-icon-lb"></span>
+            排行榜
+          </h3>
+          <a href="/leaderboard.html" class="panel-more">
+            <span>更多</span>
+            <span class="panel-more-icon"></span>
+          </a>
+        </div>
+        <div class="lb-tabs-mini">
+          <button id="lb-preview-global" class="btn-tab active" type="button">总榜</button>
+          <button id="lb-preview-weekly" class="btn-tab" type="button">周榜</button>
+        </div>
+        <ol id="leaderboard-preview" class="lb-list"></ol>
+        <p id="leaderboard-preview-empty" class="hint hidden">暂无记录</p>
         <p id="leaderboard-preview-error" class="hint hidden"></p>
-        <a href="/leaderboard.html" class="btn-secondary lb-nav-btn">查看完整排行榜</a>
       </div>
-      </section>
+
+      <!-- 快速加入房间横幅 -->
+      <div class="join-banner">
+        <div class="join-banner-content">
+          <div class="join-banner-text">
+            <h3>快速加入房间</h3>
+            <p>
+              <span class="join-avatars">
+                <span class="avatar" style="background:#e94560"></span>
+                <span class="avatar" style="background:#3b82f6"></span>
+                <span class="avatar" style="background:#22c55e"></span>
+                <span class="avatar" style="background:#a855f7"></span>
+              </span>
+              <span class="join-count-wrap">
+                <span class="join-count" id="join-count">--</span>
+                <span class="join-label">个房间正在游戏</span>
+              </span>
+            </p>
+          </div>
+          <button class="btn-browse-rooms">
+            <span>浏览房间</span>
+            <span class="btn-browse-icon"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 第三行：游戏指南 -->
+    <section class="guide-section" data-reveal>
+      <h3 class="section-heading"><span class="guide-heading-icon"></span>游戏指南</h3>
+      <div class="guide-grid">
+        <div class="guide-card glass-panel">
+          <div class="guide-icon-svg pointer"></div>
+          <h4>点击保持</h4>
+          <p>在气球即将下落时点击，保持气球上升</p>
+        </div>
+        <div class="guide-card glass-panel">
+          <div class="guide-icon-svg timer"></div>
+          <h4>冷却管理</h4>
+          <p>合理分配点击时机，避免冷却空挡</p>
+        </div>
+        <div class="guide-card glass-panel">
+          <div class="guide-icon-svg users"></div>
+          <h4>团队协作</h4>
+          <p>与队友沟通配合，确保持续点击</p>
+        </div>
+        <div class="guide-card glass-panel">
+          <div class="guide-icon-svg trophy"></div>
+          <h4>挑战高分</h4>
+          <p>不断突破记录，登上排行榜</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 页脚 -->
+  <footer class="site-footer" data-reveal>
+    <div class="footer-inner">
+      <div class="footer-main">
+        <div class="footer-col footer-brand">
+          <div class="footer-logo">
+            <span class="logo-emoji-svg">
+              <svg width="28" height="28" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="14" cy="12" rx="10" ry="12" fill="url(#footerBalloonGrad)"/>
+                <ellipse cx="10" cy="7" rx="3.5" ry="4.5" fill="rgba(255,255,255,0.35)"/>
+                <polygon points="14,24 12,27 16,27" fill="#b02a47"/>
+                <path d="M14 27 C16 30, 11 32, 14 35" stroke="#c4b5fd" stroke-width="1.8" stroke-linecap="round" fill="none" opacity="0.7"/>
+                <defs>
+                  <radialGradient id="footerBalloonGrad" cx="35%" cy="30%" r="70%">
+                    <stop offset="0%" stop-color="#ff8fa3"/>
+                    <stop offset="50%" stop-color="#ff6b8a"/>
+                    <stop offset="100%" stop-color="#c93050"/>
+                  </radialGradient>
+                </defs>
+              </svg>
+            </span>
+            <span class="logo-text">Uppy</span>
+          </div>
+          <p class="footer-tagline">多人实时合作气球游戏，考验团队协作与策略的生存挑战。</p>
+        </div>
+        <div class="footer-col">
+          <h4>游戏</h4>
+          <a href="/index.html">快速开始</a>
+          <a href="/leaderboard.html">排行榜</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span class="footer-copyright">© 2024 Uppy Game. All rights reserved.</span>
+      </div>
     </div>
-  </div>
+  </footer>
 
   <script type="module" src="/src/index.ts"></script>
 </body>
