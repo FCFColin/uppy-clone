@@ -1,0 +1,1 @@
+ALTER TABLE game_results ADD COLUMN IF NOT EXISTS nickname VARCHAR(50) DEFAULT '';
