@@ -10,7 +10,7 @@
 
 1. **`config.Env` 是唯一配置源**：所有运行时配置通过 struct 传递，在 `server` 包（组合根）创建一次，函数参数传递
 2. **删除 `handler.Config`**：handler 改为接收自己的小 Config struct 或 `config.Env` 相关字段
-3. **禁止裸 `os.Getenv()`**：所有环境变量读取必须通过 `config.Env` 字段或 `config.GetEnv`/`GetEnvInt`/`GetEnvDuration`；例外仅 `config/env.go` 的 `Load()`、`server/server_debug.go:initLogger()` 与 `worker/runner.go:initWorkerLogger()` 读取 `LOG_LEVEL`/`LOG_FORMAT`/`WORKER_HEALTH_PORT`（`config.Env` 创建前）
+3. **禁止裸 `os.Getenv()`**：所有环境变量读取必须通过 `config.Env` 字段或 `config.GetEnv`/`GetEnvInt`/`GetEnvDuration`；例外仅 `config/env.go` 的 `Load()` 与 `server/server_debug.go:initLogger()` 读取 `LOG_LEVEL`/`LOG_FORMAT`（`config.Env` 创建前）。原 `worker/runner.go:initWorkerLogger()` 例外已随 `worker/runner.go` 删除（见 [ADR-033](033-slim-phase2-waiver.md)）
 4. **常量分类**：`config/constants.go` 真正不可变保留 `const`（`RoomCodeLen=5`、`JWTIssuer`、`CookieMaxAge`）；运行时参数移入 `config.Env`（`MaxWSConnections`、`MaxPlayersPerRoom`）
 5. **消除全局状态**：删除 `server/server_config.go` 中的 `var serverEnv *appConfig.Env`；`config.GetEnv*` 函数仅在 `Load()` 内部使用；组件通过构造函数参数接收 `*config.Env`
 

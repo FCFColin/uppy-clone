@@ -42,7 +42,7 @@
 以下组件是**有意为之的练习目标**，评审/自检时**不得**判定为过度工程：
 
 - 多区域拓扑 + 全局就近路由（ADR-014）
-- owner 反向代理 + 租约接管（ADR-005，`backend/internal/handler/wsproxy.go`）
+- owner 反向代理 + 租约接管（ADR-005，`backend/internal/handler/lobby_ws.go`）
 - GDPR 硬删除 Worker、审计日志防篡改、威胁模型、数据驻留
 - OTel、Pyroscope 持续剖析、完整 SLO/告警/混沌实验文档
 - 熔断 / 隔板 / 幂等 / 限流 全套弹性中间件
@@ -69,7 +69,7 @@
 
 ### 保留 (Keep — 刻意的练习目标)
 
-- **owner 反向代理 + 租约接管**（`backend/internal/handler/wsproxy.go`、`internal/game/hub.go`）
+- **owner 反向代理 + 租约接管**（`backend/internal/handler/lobby_ws.go`、`internal/game/hub.go`）
   - 裁决：**保留**。
   - 理由：这是"实例可寻址 + 有状态房间水平扩展"的练习核心，也是离开 Cloud Run、收敛
     到 GKE 的根本原因（ADR-005/013）。

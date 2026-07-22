@@ -36,6 +36,7 @@ channels:
       tapRejected: { $ref: '#/components/messages/TapRejected' }
       gameStateChange: { $ref: '#/components/messages/GameStateChange' }
       restartStatus: { $ref: '#/components/messages/RestartStatus' }
+      nicknameRejected: { $ref: '#/components/messages/NicknameRejected' }
       pong: { $ref: '#/components/messages/Pong' }
 operations:
   sendInput:
@@ -52,6 +53,7 @@ operations:
     messages:
       - { $ref: '#/channels/gameConnection/messages/snapshot' }
       - { $ref: '#/channels/gameConnection/messages/gameStateChange' }
+      - { $ref: '#/channels/gameConnection/messages/nicknameRejected' }
       - { $ref: '#/channels/gameConnection/messages/pong' }
 components:
   messages:
@@ -91,6 +93,10 @@ components:
     RestartStatus:
       title: RestartStatus (MsgRestartStatus=0x07)
       payload: { type: object, x-binary-type: "0x07" }
+    NicknameRejected:
+      title: NicknameRejected (MsgNicknameRejected=0x08)
+      summary: Nickname rejection feedback with 1-byte reason code (EMPTY/DUPLICATE/COOLDOWN/DECODE_ERROR).
+      payload: { type: object, x-binary-type: "0x08" }
     Pong:
       title: Pong (MsgPong=0x21)
       payload: { type: object, x-binary-type: "0x21" }

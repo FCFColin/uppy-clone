@@ -102,6 +102,28 @@
 
 前端解码见 `frontend/src/game/ws_handlers_phase.ts::handleRestartStatus`（`getUint8(1)` / `getUint8(2)` / `getUint32(3, true)`），与后端逐字段一致。
 
+### NICKNAME_REJECTED（昵称拒绝反馈）
+
+服务端 → 客户端。权威编码：`backend/internal/protocol/encode.go::EncodeNicknameRejected`。**定长 2 字节**。
+
+| 偏移 | 字段 | 类型 | 字节 | 说明 |
+|------|------|------|------|------|
+| 0 | msgType | uint8 | 1 | 固定 `MsgNicknameRejected`=0x08 |
+| 1 | reason | uint8 | 1 | 拒绝原因码，见下表 |
+
+**拒绝原因码（`NICKNAME_REJECT_REASON`）**：
+
+| 名称 | 值 | 说明 |
+|------|-----|------|
+| EMPTY | 0x01 | 昵称为空或 sanitize 后为空 |
+| DUPLICATE | 0x02 | 昵称已被房间内其他玩家占用 |
+| COOLDOWN | 0x03 | 昵称处于冷却期（玩家断线重连后短时间内重复提交同名） |
+| DECODE_ERROR | 0x04 | `DecodeNicknamePayload` 解码失败（payload 长度非法） |
+
+**触发场景**：`backend/internal/game/room_tick.go::handleSetNicknameMsg` 三条拒绝路径（sanitize 为空 / 解码失败 / 冷却或重复）在 `return` 前发送此消息，避免客户端静默卡在 `entryStep='waiting'`。
+
+前端解码见 `frontend/src/game/ws_handlers.ts::handleNicknameRejected`（`getUint8(1)`），收到后重置 `nicknameSubmitted=false`、`pendingNickname=null`，调用 `revertEntryStepToNickname()` 回退到昵称输入步骤，`clearStartCountdown()` 清除客户端倒计时，并通过 `setNicknameStatus(...)` 显示对应中文文案。
+
 ## 频率与限制
 
 - Tick 率: **15 Hz**（66.67ms）
@@ -130,6 +152,7 @@
 | MsgTapRejected | 0x05 |
 | MsgGameStateChange | 0x06 |
 | MsgRestartStatus | 0x07 |
+| MsgNicknameRejected | 0x08 |
 | MsgPong | 0x21 |
 
 ## 实例与区域路由（ADR-005 / ADR-014）
