@@ -2,7 +2,6 @@
 package testutil
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -11,19 +10,6 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/store"
 )
-
-// SetupRedisClient starts Redis via testcontainers and returns a connected go-redis client.
-func SetupRedisClient(t *testing.T) (*redis.Client, context.Context) {
-	t.Helper()
-	ctx, addr := startRedisContainer(t)
-
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
-	t.Cleanup(func() { _ = rdb.Close() })
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		t.Fatalf("redis ping: %v", err)
-	}
-	return rdb, ctx
-}
 
 // SetupMiniredisStore returns a RedisStore backed by miniredis for fast unit tests.
 func SetupMiniredisStore(t *testing.T) *store.RedisStore {
@@ -48,8 +34,8 @@ func SetupMiniredisStore(t *testing.T) *store.RedisStore {
 }
 
 // NewTestMiniredis starts a miniredis instance and returns it with a connected
-// go-redis client. Lightweight alternative to SetupRedisClient for unit tests
-// that need a raw *redis.Client (not a full *store.RedisStore).
+// go-redis client for unit tests that need a raw *redis.Client (not a full
+// *store.RedisStore).
 func NewTestMiniredis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 	t.Helper()
 	mr, err := miniredis.Run()

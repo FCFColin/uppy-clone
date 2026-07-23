@@ -6,60 +6,40 @@ import (
 	"log/slog"
 )
 
-// le is the package-level little-endian byte order for binary encoding.
 var le = binary.LittleEndian
 
-// ─── 客户端消息类型（浏览器 → 服务端） ──────────────────────────────
-
 const (
-	// MsgTap is the client message type for tap actions.
 	// @ts CLIENT_MSG.TAP
 	MsgTap = 0x10
-	// MsgSetNickname is the client message type for setting a nickname.
 	// @ts CLIENT_MSG.SET_NICKNAME
 	MsgSetNickname = 0x11
-	// MsgRestartVote is the client message type for restart votes.
 	// @ts CLIENT_MSG.RESTART_VOTE
 	MsgRestartVote = 0x12
-	// MsgPing is the client message type for pings.
 	// @ts CLIENT_MSG.PING
 	MsgPing = 0x20
 )
 
-// ─── 服务端消息类型（服务端 → 浏览器） ──────────────────────────────
-
 const (
-	// MsgSnapshot is the server message type for game snapshots.
 	// @ts MSG_TYPE.SNAPSHOT
 	MsgSnapshot = 0x01
-	// MsgPlayerJoin is the server message type for player join events.
 	// @ts MSG_TYPE.PLAYER_JOIN
 	MsgPlayerJoin = 0x02
-	// MsgPlayerLeave is the server message type for player leave events.
 	// @ts MSG_TYPE.PLAYER_LEAVE
 	MsgPlayerLeave = 0x03
-	// MsgTapAccepted is the server message type for accepted taps.
 	// @ts MSG_TYPE.TAP_ACCEPTED
 	MsgTapAccepted = 0x04
-	// MsgTapRejected is the server message type for rejected taps.
 	// @ts MSG_TYPE.TAP_REJECTED
 	MsgTapRejected = 0x05
-	// MsgGameStateChange is the server message type for game state changes.
 	// @ts MSG_TYPE.GAME_STATE_CHANGE
 	MsgGameStateChange = 0x06
-	// MsgRestartStatus is the server message type for restart status updates.
 	// @ts MSG_TYPE.RESTART_STATUS
 	MsgRestartStatus = 0x07
-	// MsgNicknameRejected is the server message type for rejected nickname
-	// submissions. The 2nd byte carries a NickReject* reason code.
+	// MsgNicknameRejected: 2nd byte carries a NickReject* reason code.
 	// @ts MSG_TYPE.NICKNAME_REJECTED
 	MsgNicknameRejected = 0x08
-	// MsgPong is the server message type for pong responses.
 	// @ts MSG_TYPE.PONG
 	MsgPong = 0x21
 )
-
-// ─── 游戏阶段编码 ────────────────────────────────────────────────────
 
 // Phase codes for binary protocol.
 const (
@@ -97,12 +77,8 @@ const (
 	NickRejectDecodeError = 0x04
 )
 
-// ─── 游戏阶段类型 ────────────────────────────────────────────────────
-
-// GamePhase represents the current phase of a game.
 type GamePhase string
 
-// Game phase string constants.
 const (
 	PhaseWaiting   GamePhase = "waiting"
 	PhaseCountdown GamePhase = "countdown"
@@ -110,7 +86,6 @@ const (
 	PhaseEnded     GamePhase = "ended"
 )
 
-// PhaseToCode 将游戏阶段转换为二进制编码值
 func PhaseToCode(phase GamePhase) uint8 {
 	switch phase {
 	case PhaseWaiting:
@@ -127,9 +102,6 @@ func PhaseToCode(phase GamePhase) uint8 {
 	}
 }
 
-// ─── 协议数据结构 ────────────────────────────────────────────────────
-
-// BalloonState 气球状态（仅包含二进制协议传输的字段）
 type BalloonState struct {
 	X  float32
 	Y  float32
@@ -137,14 +109,12 @@ type BalloonState struct {
 	Vx float32
 }
 
-// BirdState 鸟状态（仅包含二进制协议传输的字段）
 type BirdState struct {
 	X      float32
 	Y      float32
 	Active bool
 }
 
-// GhostState 幽灵状态（仅包含二进制协议传输的字段）
 type GhostState struct {
 	X          float32
 	Y          float32
@@ -152,26 +122,22 @@ type GhostState struct {
 	RepelTimer uint16
 }
 
-// PlayerState 玩家状态（仅包含二进制协议传输的字段）
 type PlayerState struct {
 	PlayerIndex       uint16
-	CooldownMs        uint32 // 剩余冷却毫秒数
+	CooldownMs        uint32
 	Palette           uint32
 	ScoreContribution uint32
 	Nickname          string
 }
 
-// Ripple 涟漪效果（仅包含二进制协议传输的字段）
 type Ripple struct {
 	PlayerIndex uint16
 	X           float32
 	Y           float32
 }
 
-// ─── 物理常量（由 go generate 自动同步到前端 constants.ts） ──────
 //go:generate go run ../../cmd/gen-frontend-constants
 
-// Physics constants.
 const (
 	// @ts PHYSICS.GRAVITY
 	Gravity = 0.0005
@@ -253,9 +219,6 @@ const (
 	InterpDelayMs = 100
 )
 
-// ─── 冷却公式参数（由 go generate 自动同步到前端） ────────────────
-
-// Cooldown constants.
 const (
 	// @ts COOLDOWN.BASE_MS
 	CooldownBaseMs = 1000
@@ -265,9 +228,6 @@ const (
 	CooldownMaxMs = 15000
 )
 
-// ─── 调色板颜色（10 色，由 go generate 自动同步到前端 constants.ts） ───
-
-// PaletteColors defines the color palette for players.
 // @ts PALETTE_COLORS
 var PaletteColors = [10][3]uint8{
 	{233, 69, 96},   // #e94560 red

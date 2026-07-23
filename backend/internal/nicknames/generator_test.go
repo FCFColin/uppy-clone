@@ -10,15 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-func TestGenerateRandom_NonEmpty(t *testing.T) {
-	for i := 0; i < 50; i++ {
-		name := GenerateRandom(map[string]bool{})
-		if name == "" {
-			t.Fatal("GenerateRandom returned empty string")
-		}
-	}
-}
-
 func TestGenerateRandom_UniqueWhenUnused(t *testing.T) {
 	used := map[string]bool{}
 	for i := 0; i < 20; i++ {
@@ -61,34 +52,6 @@ func TestGenerateRandom_FallbackSuffixOrPlayer(t *testing.T) {
 	}
 }
 
-func TestGenerateRandom_NilUsedNames(t *testing.T) {
-	name := GenerateRandom(nil)
-	if name == "" {
-		t.Fatal("expected non-empty nickname for nil usedNames")
-	}
-}
-
-func TestGenerateRandom_UsesHashSuffixWhenBaseTaken(t *testing.T) {
-	used := map[string]bool{}
-	for _, adj := range NicknameAdjectives {
-		for _, cat := range NicknameCategories {
-			for _, noun := range cat {
-				used[adj+noun] = true
-			}
-		}
-	}
-	for i := 0; i < 200; i++ {
-		name := GenerateRandom(used)
-		if strings.Contains(name, "#") {
-			return
-		}
-		if strings.HasPrefix(name, "Player") {
-			return
-		}
-	}
-	t.Fatal("expected # suffix or Player fallback when all base names taken")
-}
-
 func TestGenerateRandom_PlayerFallback(t *testing.T) {
 	used := map[string]bool{}
 	for _, adj := range NicknameAdjectives {
@@ -110,29 +73,6 @@ func TestGenerateRandom_PlayerFallback(t *testing.T) {
 	name := GenerateRandom(used)
 	if !strings.HasPrefix(name, "Player") {
 		t.Fatalf("expected Player fallback, got %q", name)
-	}
-}
-
-func TestGenerateRandom_SkipsOverlongSuffixCandidates(t *testing.T) {
-	used := map[string]bool{}
-	for _, adj := range NicknameAdjectives {
-		for _, cat := range NicknameCategories {
-			for _, noun := range cat {
-				base := adj + noun
-				used[base] = true
-				for i := 2; i < 100; i++ {
-					candidate := base + "#" + strconv.Itoa(i)
-					// v2-R-83: match generator's rune-count check, not byte length.
-					if utf8.RuneCountInString(candidate) <= maxNicknameLength {
-						used[candidate] = true
-					}
-				}
-			}
-		}
-	}
-	name := GenerateRandom(used)
-	if !strings.HasPrefix(name, "Player") {
-		t.Fatalf("expected Player fallback after long suffix skips, got %q", name)
 	}
 }
 

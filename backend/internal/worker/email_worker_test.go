@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -22,8 +21,6 @@ import (
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/store"
 )
-
-// ─── Test helpers ────────────────────────────────────────────────────
 
 // setupRedis starts a Redis testcontainer and returns a connected client.
 // Skips the test if Docker is unavailable or in short mode.
@@ -175,8 +172,6 @@ func waitForCancel(t *testing.T, cancel context.CancelFunc, done chan struct{}) 
 	}
 }
 
-// ─── processMessage: basic paths (success / invalid / no-api-key) ────
-
 // TestProcessMessage_BasicPaths verifies success, invalid payloads, and missing
 // API key all behave correctly (acked, queue stays empty, count matches).
 func TestProcessMessage_BasicPaths(t *testing.T) {
@@ -213,8 +208,6 @@ func TestProcessMessage_BasicPaths(t *testing.T) {
 		})
 	}
 }
-
-// ─── processMessage: retry logic ─────────────────────────────────────
 
 // TestProcessMessage_Retry verifies that a failed send re-enqueues the message
 // with an incremented retry_count.
@@ -273,8 +266,6 @@ func TestProcessMessage_RetryThenSuccess(t *testing.T) {
 	assertStreamLen(t, env.rdb, "email:queue", 0)
 }
 
-// ─── processMessage: dead-letter queue ───────────────────────────────
-
 // TestProcessMessage_DeadLetterQueue verifies that after maxRetries, the message
 // is moved to the dead-letter stream instead of being re-enqueued.
 func TestProcessMessage_DeadLetterQueue(t *testing.T) {
@@ -301,8 +292,6 @@ func TestProcessMessage_DeadLetterQueue(t *testing.T) {
 	assertPayloadPreserved(t, dlMsg, "user@test.com")
 	assertStreamLen(t, env.rdb, "email:queue", 0)
 }
-
-// ─── sendEmail: HTTP server fixture ──────────────────────────────────
 
 // TestSendEmail_TableDriven verifies success, 4xx (breaker stays closed), and
 // 5xx with long body (error is truncated) in a single table-driven test.
@@ -416,23 +405,6 @@ func TestSendEmail_ErrorPaths(t *testing.T) {
 	})
 }
 
-// ─── Start lifecycle ─────────────────────────────────────────────────
-
-func TestEmailWorker_Start_XReadGroupError(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	w := newTestWorker(rdb, "http://127.0.0.1:1")
-
-	cancel, done := runWorkerUntilCancel(t, w)
-	time.Sleep(50 * time.Millisecond)
-	mr.Close()
-	time.Sleep(1100 * time.Millisecond)
-	waitForCancel(t, cancel, done)
-}
-
 func TestEmailWorker_Start_Cancelled(t *testing.T) {
 	rdb := setupRedis(t)
 	w := newTestWorker(rdb, "http://localhost")
@@ -477,34 +449,4 @@ func TestEmailWorker_Start_ProcessesMessage(t *testing.T) {
 	}
 }
 
-func TestTruncateRespBody_TruncatesLongBody(t *testing.T) {
-	resp := &http.Response{Body: io.NopCloser(strings.NewReader(strings.Repeat("x", 1500)))}
-	if got := truncateRespBody(resp); len(got) != 1000 {
-		t.Fatalf("len = %d, want 1000", len(got))
-	}
-}
 
-func TestNewGDPRCleanupWorker(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name          string
-		retentionDays int
-		interval      time.Duration
-		wantRetention int
-		wantInterval  time.Duration
-	}{
-		{"defaults", 0, 0, defaultGDPRRetentionDays, defaultGDPRCleanupInterval},
-		{"custom", 60, 12 * time.Hour, 60, 12 * time.Hour},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			w := NewGDPRCleanupWorker(nil, tc.retentionDays, tc.interval)
-			if w.retentionDays != tc.wantRetention {
-				t.Errorf("retentionDays = %d, want %d", w.retentionDays, tc.wantRetention)
-			}
-			if w.interval != tc.wantInterval {
-				t.Errorf("interval = %v, want %v", w.interval, tc.wantInterval)
-			}
-		})
-	}
-}

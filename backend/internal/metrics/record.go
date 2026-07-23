@@ -51,11 +51,6 @@ func RecordWSConnection(status string) {
 	WSConnectionTotal.WithLabelValues(status).Inc()
 }
 
-// RecordWSMessage records WebSocket message handler latency.
-func RecordWSMessage(msgType string, d time.Duration) {
-	WSMessageDuration.WithLabelValues(msgType).Observe(d.Seconds())
-}
-
 // RecordGameTickDuration records a single game tick duration in seconds.
 // audit-014: Uses seconds instead of milliseconds for Prometheus naming convention.
 func RecordGameTickDuration(d time.Duration) {
@@ -65,11 +60,6 @@ func RecordGameTickDuration(d time.Duration) {
 // RecordRoomLockHold records how long Room.mu was held for an operation.
 func RecordRoomLockHold(operation string, d time.Duration) {
 	RoomLockHoldSeconds.WithLabelValues(operation).Observe(d.Seconds())
-}
-
-// SetRoomOutboundQueueDepth updates the outbound queue depth gauge for a room.
-func SetRoomOutboundQueueDepth(roomCode string, depth int) {
-	RoomOutboundQueueDepth.WithLabelValues(roomCode).Set(float64(depth))
 }
 
 // SetRoomPersistLag updates persist lag for a room.

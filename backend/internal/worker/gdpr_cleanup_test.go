@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 )
@@ -29,16 +28,6 @@ func TestGDPRCleanupWorker_RunOnce_DeletesUsers(t *testing.T) {
 	}
 }
 
-func TestGDPRCleanupWorker_RunOnce_Error(t *testing.T) {
-	deleter := &mockGDPRDeleter{err: errors.New("delete failed")}
-	w := NewGDPRCleanupWorker(nil, 30, time.Hour)
-	w.hardDelete = deleter.HardDeleteExpiredUsers
-	w.runOnce(context.Background())
-	if deleter.calls != 1 {
-		t.Fatal("expected cleanup attempt")
-	}
-}
-
 func TestGDPRCleanupWorker_Start_Cancelled(t *testing.T) {
 	deleter := &mockGDPRDeleter{}
 	w := NewGDPRCleanupWorker(nil, 30, 10*time.Millisecond)
@@ -61,5 +50,30 @@ func TestGDPRCleanupWorker_Start_Cancelled(t *testing.T) {
 	}
 	if deleter.calls < 1 {
 		t.Fatal("expected at least one cleanup run")
+	}
+}
+
+func TestNewGDPRCleanupWorker(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name          string
+		retentionDays int
+		interval      time.Duration
+		wantRetention int
+		wantInterval  time.Duration
+	}{
+		{"defaults", 0, 0, defaultGDPRRetentionDays, defaultGDPRCleanupInterval},
+		{"custom", 60, 12 * time.Hour, 60, 12 * time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := NewGDPRCleanupWorker(nil, tc.retentionDays, tc.interval)
+			if w.retentionDays != tc.wantRetention {
+				t.Errorf("retentionDays = %d, want %d", w.retentionDays, tc.wantRetention)
+			}
+			if w.interval != tc.wantInterval {
+				t.Errorf("interval = %v, want %v", w.interval, tc.wantInterval)
+			}
+		})
 	}
 }

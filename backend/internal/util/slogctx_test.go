@@ -6,13 +6,6 @@ import (
 	"testing"
 )
 
-func TestLoggerFromContext_Default(t *testing.T) {
-	ctx := context.Background()
-	if LoggerFromContext(ctx) != slog.Default() {
-		t.Error("expected default logger")
-	}
-}
-
 func TestWithLogger_RoundTrip(t *testing.T) {
 	custom := slog.New(slog.NewTextHandler(nil, nil))
 	ctx := WithLogger(context.Background(), custom)

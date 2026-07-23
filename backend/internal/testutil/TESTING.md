@@ -23,7 +23,6 @@
 |---|---|---|
 | `SetupPostgres(t, opts...)` | Yes (testcontainers Postgres) | **No** — integration only |
 | `SetupRedisStore(t)` | Yes (testcontainers Redis) | **No** — integration only |
-| `SetupRedisClient(t)` | Yes (testcontainers Redis) | **No** — integration only |
 | `SetupMiniredisStore(t)` | No (in-process) | **Yes** — unit-safe |
 | `newMockRepo[T](t, newFn)` | No (pgxmock) | **Yes** — unit-safe (in `store` package) |
 

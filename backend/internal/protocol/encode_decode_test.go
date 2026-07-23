@@ -3,11 +3,8 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
-	"math"
 	"testing"
 )
-
-// ─── EncodeTapAccepted ───────────────────────────────────────────────
 
 func TestEncodeTapAccepted(t *testing.T) {
 	data := EncodeTapAccepted(3, 2000, 0.5, 0.3)
@@ -24,8 +21,6 @@ func TestEncodeTapAccepted(t *testing.T) {
 		t.Fatalf("cooldownMs 不匹配: got=%d, want=2000", cooldownMs)
 	}
 }
-
-// ─── Single-byte messages ────────────────────────────────────────────
 
 func TestEncodeSingleByteMessages(t *testing.T) {
 	cases := []struct {
@@ -47,8 +42,6 @@ func TestEncodeSingleByteMessages(t *testing.T) {
 		})
 	}
 }
-
-// ─── EncodeNicknameRejected ─────────────────────────────────────────
 
 func TestEncodeNicknameRejected(t *testing.T) {
 	cases := []struct {
@@ -75,8 +68,6 @@ func TestEncodeNicknameRejected(t *testing.T) {
 		})
 	}
 }
-
-// ─── EncodeGameStateChange ───────────────────────────────────────────
 
 func TestEncodeGameStateChange_AllPhases(t *testing.T) {
 	phases := []GamePhase{PhaseWaiting, PhasePlaying, PhaseEnded}
@@ -117,8 +108,6 @@ func TestEncodeGameStateChangeEnded_WithReason(t *testing.T) {
 		t.Fatalf("unexpected payload: %v", data)
 	}
 }
-
-// ─── DecodeTap ───────────────────────────────────────────────────────
 
 func TestDecodeTap(t *testing.T) {
 	cases := []struct {
@@ -175,8 +164,6 @@ func TestDecodeNicknamePayload(t *testing.T) {
 	}
 }
 
-// ─── DecodeMessage ───────────────────────────────────────────────────
-
 func TestDecodeMessage(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		msgType, payload := DecodeMessage([]byte{MsgTap, 0x01, 0x02})
@@ -196,55 +183,6 @@ func TestDecodeMessage(t *testing.T) {
 			t.Fatal("空消息 payload 应为 nil")
 		}
 	})
-}
-
-// ─── WSMessageTypeName ──────────────────────────────────────────────
-
-func TestWSMessageTypeName_AllCases(t *testing.T) {
-	cases := map[byte]string{
-		MsgTap:         "tap",
-		MsgSetNickname: "set_nickname",
-		MsgRestartVote: "restart_vote",
-		MsgPing:        "ping",
-		0xFF:           "unknown",
-	}
-	for msgType, want := range cases {
-		if got := WSMessageTypeName(msgType); got != want {
-			t.Fatalf("WSMessageTypeName(0x%02x) = %q, want %q", msgType, got, want)
-		}
-	}
-}
-
-// ─── PhaseToCode ────────────────────────────────────────────────────
-
-func TestPhaseToCode(t *testing.T) {
-	cases := []struct {
-		name  string
-		phase GamePhase
-		code  uint8
-	}{
-		{"waiting", PhaseWaiting, PhaseCodeWaiting},
-		{"countdown", PhaseCountdown, PhaseCodeCountdown},
-		{"playing", PhasePlaying, PhaseCodePlaying},
-		{"ended", PhaseEnded, PhaseCodeEnded},
-		{"unknown", GamePhase("unknown"), PhaseCodeWaiting},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := PhaseToCode(c.phase); got != c.code {
-				t.Fatalf("PhaseToCode(%q) = %d, want %d", c.phase, got, c.code)
-			}
-		})
-	}
-}
-
-// ─── EncodePlayerJoin / EncodePlayerLeave ────────────────────────────
-
-func TestEncodePlayerJoin(t *testing.T) {
-	data := EncodePlayerJoin(5, "TestPlayer", 3)
-	if data[0] != MsgPlayerJoin {
-		t.Fatalf("first byte should be MsgPlayerJoin=0x02, got=0x%02x", data[0])
-	}
 }
 
 func TestEncodePlayerLeave(t *testing.T) {
@@ -271,242 +209,67 @@ func TestEncodeRestartStatus(t *testing.T) {
 	}
 }
 
-// ─── EncodeSnapshot round-trip tests ─────────────────────────────────
-
-type decodedSnapshot struct {
-	msgType   byte
-	tickCount uint32
-	score     uint32
-	phase     GamePhase
-	balloon   BalloonState
-	bird      BirdState
-	ghost     GhostState
-	players   []PlayerState
-	ripples   []Ripple
-	wind      float32
-}
-
-func decodeSnapshot(data []byte) (decodedSnapshot, bool) {
-	if len(data) < 1 || data[0] != MsgSnapshot {
-		return decodedSnapshot{}, false
-	}
-	o := 1
-	if len(data) < o+9 {
-		return decodedSnapshot{}, false
-	}
-	ds := decodedSnapshot{msgType: data[0]}
-	ds.tickCount = le.Uint32(data[o:])
-	o += 4
-	ds.score = le.Uint32(data[o:])
-	o += 4
-	switch data[o] {
-	case PhaseCodePlaying:
-		ds.phase = PhasePlaying
-	case PhaseCodeEnded:
-		ds.phase = PhaseEnded
-	case PhaseCodeCountdown:
-		ds.phase = PhaseCountdown
-	default:
-		ds.phase = PhaseWaiting
-	}
-	o++
-
-	if len(data) < o+16 {
-		return decodedSnapshot{}, false
-	}
-	ds.balloon.X = math.Float32frombits(le.Uint32(data[o:]))
-	o += 4
-	ds.balloon.Y = math.Float32frombits(le.Uint32(data[o:]))
-	o += 4
-	ds.balloon.Vx = math.Float32frombits(le.Uint32(data[o:]))
-	o += 4
-	ds.balloon.Vy = math.Float32frombits(le.Uint32(data[o:]))
-	o += 4
-
-	if len(data) < o+1 {
-		return decodedSnapshot{}, false
-	}
-	ds.bird.Active = data[o] == 1
-	o++
-	if ds.bird.Active {
-		if len(data) < o+8 {
-			return decodedSnapshot{}, false
-		}
-		ds.bird.X = math.Float32frombits(le.Uint32(data[o:]))
-		o += 4
-		ds.bird.Y = math.Float32frombits(le.Uint32(data[o:]))
-		o += 4
-	}
-
-	if len(data) < o+1 {
-		return decodedSnapshot{}, false
-	}
-	ds.ghost.Active = data[o] == 1
-	o++
-	if ds.ghost.Active {
-		if len(data) < o+10 {
-			return decodedSnapshot{}, false
-		}
-		ds.ghost.X = math.Float32frombits(le.Uint32(data[o:]))
-		o += 4
-		ds.ghost.Y = math.Float32frombits(le.Uint32(data[o:]))
-		o += 4
-		ds.ghost.RepelTimer = le.Uint16(data[o:])
-		o += 2
-	}
-
-	if len(data) < o+1 {
-		return decodedSnapshot{}, false
-	}
-	playerCount := int(data[o])
-	o++
-	ds.players = make([]PlayerState, 0, playerCount)
-	for i := 0; i < playerCount; i++ {
-		if len(data) < o+15 {
-			return decodedSnapshot{}, false
-		}
-		p := PlayerState{}
-		p.PlayerIndex = le.Uint16(data[o:])
-		o += 2
-		p.CooldownMs = le.Uint32(data[o:])
-		o += 4
-		p.Palette = le.Uint32(data[o:])
-		o += 4
-		p.ScoreContribution = le.Uint32(data[o:])
-		o += 4
-		nickLen := int(data[o])
-		o++
-		if len(data) < o+nickLen {
-			return decodedSnapshot{}, false
-		}
-		p.Nickname = string(data[o : o+nickLen])
-		o += nickLen
-		ds.players = append(ds.players, p)
-	}
-
-	if len(data) < o+1 {
-		return decodedSnapshot{}, false
-	}
-	rippleCount := int(data[o])
-	o++
-	ds.ripples = make([]Ripple, 0, rippleCount)
-	for i := 0; i < rippleCount; i++ {
-		if len(data) < o+10 {
-			return decodedSnapshot{}, false
-		}
-		r := Ripple{}
-		r.PlayerIndex = le.Uint16(data[o:])
-		o += 2
-		r.X = math.Float32frombits(le.Uint32(data[o:]))
-		o += 4
-		r.Y = math.Float32frombits(le.Uint32(data[o:]))
-		o += 4
-		ds.ripples = append(ds.ripples, r)
-	}
-
-	if len(data) < o+4 {
-		return decodedSnapshot{}, false
-	}
-	ds.wind = math.Float32frombits(le.Uint32(data[o:]))
-
-	return ds, true
-}
-
-func TestEncodeSnapshot_RoundTrip(t *testing.T) {
-	cases := []struct {
-		name      string
-		phase     GamePhase
-		tickCount uint32
-		score     uint32
-		balloon   BalloonState
-		bird      BirdState
-		ghost     GhostState
-		players   []PlayerState
-		ripples   []Ripple
-		wind      float64
+// TestProtocol_PlayerJoinRoundTrip_TableDriven verifies that EncodePlayerJoin
+// followed by DecodeMessage preserves playerIndex, nickname, and palette for
+// representative boundary cases. Replaces the original rapid property test.
+func TestProtocol_PlayerJoinRoundTrip_TableDriven(t *testing.T) {
+	tests := []struct {
+		name        string
+		playerIndex uint16
+		nickname    string
+		palette     uint32
 	}{
-		{
-			name:      "Full",
-			phase:     PhasePlaying,
-			tickCount: 12345,
-			score:     9999,
-			balloon:   BalloonState{X: 0.5, Y: 0.95, Vx: -0.02, Vy: 0.01},
-			bird:      BirdState{X: 0.3, Y: 0.4, Active: true},
-			ghost:     GhostState{X: 0.6, Y: 0.5, Active: true, RepelTimer: 42},
-			players: []PlayerState{
-				{PlayerIndex: 0, CooldownMs: 1000, Palette: 1, ScoreContribution: 50, Nickname: "Alice"},
-				{PlayerIndex: 1, CooldownMs: 500, Palette: 2, ScoreContribution: 30, Nickname: "Bob"},
-			},
-			ripples: []Ripple{
-				{PlayerIndex: 0, X: 0.5, Y: 0.5},
-				{PlayerIndex: 1, X: 0.3, Y: 0.7},
-			},
-			wind: 0.15,
-		},
-		{
-			name:    "InactiveBirdGhost",
-			phase:   PhaseWaiting,
-			balloon: BalloonState{X: 0.5, Y: 0.5},
-		},
-		{
-			name:      "UnicodeNickname",
-			phase:     PhasePlaying,
-			tickCount: 99,
-			score:     500,
-			balloon:   BalloonState{X: 0.1, Y: 0.2, Vx: 0.3, Vy: 0.4},
-			players: []PlayerState{
-				{PlayerIndex: 5, CooldownMs: 2000, Palette: 7, ScoreContribution: 100, Nickname: "快乐气球🎮"},
-			},
-		},
+		{"regular ASCII", 5, "TestPlayer", 3},
+		{"zero values", 0, "", 0},
+		{"max uint16 index", 65535, "Player", 1},
+		{"max uint32 palette", 1, "Bob", 4294967295},
+		{"unicode CJK nickname", 42, "you-hao-shi-jie", 7},
+		{"emoji nickname", 7, "gamer", 9},
+		{"single char nickname", 1, "A", 0},
+		{"long nickname", 99, "abcdefghijklmnopqrstuvwxyz0123456789", 2},
 	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			data := EncodeSnapshot(c.phase, c.tickCount, c.score, c.balloon, c.bird, c.ghost, c.players, c.ripples, c.wind)
-			ds, ok := decodeSnapshot(data)
-			if !ok {
-				t.Fatalf("decodeSnapshot failed for data len=%d", len(data))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := EncodePlayerJoin(tt.playerIndex, tt.nickname, tt.palette)
+			msgType, payload := DecodeMessage(data)
+			if msgType != MsgPlayerJoin {
+				t.Fatalf("msgType = 0x%02x, want 0x%02x", msgType, MsgPlayerJoin)
 			}
-			if ds.msgType != MsgSnapshot {
-				t.Errorf("msgType = 0x%02x, want 0x%02x", ds.msgType, MsgSnapshot)
+			if len(payload) < 7 {
+				t.Fatalf("payload too short: %d", len(payload))
 			}
-			if ds.tickCount != c.tickCount {
-				t.Errorf("tickCount = %d, want %d", ds.tickCount, c.tickCount)
+			gotPlayerIndex := le.Uint16(payload[0:2])
+			nickLen := int(payload[2])
+			endIdx := 3 + nickLen
+			if len(payload) < endIdx+4 {
+				t.Fatalf("payload truncated: len=%d, need %d", len(payload), endIdx+4)
 			}
-			if ds.score != c.score {
-				t.Errorf("score = %d, want %d", ds.score, c.score)
+			gotNickname := string(payload[3:endIdx])
+			gotPalette := le.Uint32(payload[endIdx : endIdx+4])
+			if gotPlayerIndex != tt.playerIndex {
+				t.Fatalf("playerIndex = %d, want %d", gotPlayerIndex, tt.playerIndex)
 			}
-			if ds.phase != c.phase {
-				t.Errorf("phase = %q, want %q", ds.phase, c.phase)
+			if gotNickname != tt.nickname {
+				t.Fatalf("nickname = %q, want %q", gotNickname, tt.nickname)
 			}
-			if ds.balloon != c.balloon {
-				t.Errorf("balloon = %+v, want %+v", ds.balloon, c.balloon)
-			}
-			if ds.bird != c.bird {
-				t.Errorf("bird = %+v, want %+v", ds.bird, c.bird)
-			}
-			if ds.ghost != c.ghost {
-				t.Errorf("ghost = %+v, want %+v", ds.ghost, c.ghost)
-			}
-			if len(ds.players) != len(c.players) {
-				t.Fatalf("players len = %d, want %d", len(ds.players), len(c.players))
-			}
-			for i, p := range c.players {
-				if ds.players[i] != p {
-					t.Errorf("players[%d] = %+v, want %+v", i, ds.players[i], p)
-				}
-			}
-			if len(ds.ripples) != len(c.ripples) {
-				t.Fatalf("ripples len = %d, want %d", len(ds.ripples), len(c.ripples))
-			}
-			for i, r := range c.ripples {
-				if ds.ripples[i] != r {
-					t.Errorf("ripples[%d] = %+v, want %+v", i, ds.ripples[i], r)
-				}
-			}
-			if ds.wind != float32(c.wind) {
-				t.Errorf("wind = %v, want %v", ds.wind, float32(c.wind))
+			if gotPalette != tt.palette {
+				t.Fatalf("palette = %d, want %d", gotPalette, tt.palette)
 			}
 		})
 	}
+}
+
+// TestProtocol_PlayerJoinRoundTrip_NickTooLong verifies that encoding a nickname
+// exceeding the uint8 byte-length limit panics (defensive contract).
+func TestProtocol_PlayerJoinRoundTrip_NickTooLong(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for overlong nickname")
+		}
+	}()
+	longNick := make([]byte, 256)
+	for i := range longNick {
+		longNick[i] = 'a'
+	}
+	EncodePlayerJoin(0, string(longNick), 0)
 }

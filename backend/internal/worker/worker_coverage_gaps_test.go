@@ -82,8 +82,6 @@ func TestSendEmail_JSONMarshalError(t *testing.T) {
 	}
 }
 
-// ─── handleRetry tests (v2-R-85~94: outbox consumer retry + dead-letter) ──────
-
 func TestHandleRetry_DeadLetterPath(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {

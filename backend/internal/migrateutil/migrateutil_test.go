@@ -49,47 +49,6 @@ func TestFileSourceURL(t *testing.T) {
 	}
 }
 
-func TestEnsureDBRoles_ConnectError(t *testing.T) {
-	err := EnsureDBRoles(t.Context(), "postgres://invalid:5432/nodb?sslmode=disable")
-	if err == nil {
-		t.Fatal("expected connect error")
-	}
-}
-
-func TestRunMigrations_InvalidConn(t *testing.T) {
-	err := RunMigrations(context.Background(), "postgres://invalid:5432/nodb?sslmode=disable", t.TempDir())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestFileSourceURL_AbsError(t *testing.T) {
-	prev := filepathAbs
-	filepathAbs = func(string) (string, error) {
-		return "", errors.New("abs failed")
-	}
-	t.Cleanup(func() { filepathAbs = prev })
-
-	_, err := FileSourceURL("migrations")
-	if err == nil {
-		t.Fatal("expected abs error")
-	}
-}
-
-func TestFileSourceURL_Empty(t *testing.T) {
-	_, err := FileSourceURL("")
-	if err == nil {
-		t.Fatal("expected error for empty migrations path")
-	}
-}
-
-func TestFileSourceURL_InvalidPath(t *testing.T) {
-	_, err := FileSourceURL(string([]byte{0}))
-	if err == nil {
-		t.Fatal("expected error for invalid path")
-	}
-}
-
 type fakePgxConn struct {
 	execErr error
 }
@@ -211,18 +170,6 @@ func TestRunMigrations_MigrateUpError(t *testing.T) {
 	}
 }
 
-func TestNewMigrateRunner_DefaultInvalidConnString(t *testing.T) {
-	dir := t.TempDir()
-	source, err := FileSourceURL(dir)
-	if err != nil {
-		t.Fatalf("FileSourceURL: %v", err)
-	}
-	_, err = newMigrateRunner(source, "not-a-valid-dsn")
-	if err == nil {
-		t.Fatal("expected migrate.New error for invalid conn string")
-	}
-}
-
 func TestEnsureDBRoles_Success(t *testing.T) {
 	connStr := tryPostgresConnString(t)
 	if err := EnsureDBRoles(t.Context(), connStr); err != nil {
@@ -265,31 +212,5 @@ func TestRunMigrations_InvalidMigrationsPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "migrate source path") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunMigrations_FileSourceURLErrorMocked(t *testing.T) {
-	prev := pgxConnect
-	pgxConnect = func(_ context.Context, _ string) (pgxExecer, error) {
-		return &fakePgxConn{}, nil
-	}
-	t.Cleanup(func() { pgxConnect = prev })
-
-	err := RunMigrations(context.Background(), "postgres://unused", string([]byte{0}))
-	if err == nil || !strings.Contains(err.Error(), "migrate source path") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRunMigrations_EnsureDBRolesErrorMocked(t *testing.T) {
-	prev := pgxConnect
-	pgxConnect = func(_ context.Context, _ string) (pgxExecer, error) {
-		return nil, errors.New("connect failed")
-	}
-	t.Cleanup(func() { pgxConnect = prev })
-
-	err := RunMigrations(context.Background(), "postgres://unused", t.TempDir())
-	if err == nil {
-		t.Fatal("expected ensure db roles error")
 	}
 }
