@@ -138,11 +138,3 @@ type GameState struct {
 func (g *GameState) IsGameOver() bool {
 	return g.Phase == PhaseEnded
 }
-
-// NewGameState 创建一个新的 GameState 实例，初始化 Maps。
-func NewGameState() *GameState {
-	return &GameState{
-		Players:      make(map[string]*PlayerState),
-		RestartVotes: make(map[string]bool),
-	}
-}

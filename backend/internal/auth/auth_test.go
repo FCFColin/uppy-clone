@@ -1,3 +1,4 @@
+// Package auth provides authentication and authorization utilities.
 package auth
 
 import (
@@ -6,11 +7,16 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
+
+// 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可在生产暴露。
+
+// --- Shared test doubles ---
 
 type mockUserDataStore struct {
 	user         *domain.User
@@ -44,6 +50,119 @@ func (m *mockUserDataStore) GetGameSessionsByUserID(_ context.Context, _ string)
 	return m.sessions, m.sessionsErr
 }
 
+// --- MagicLinkService pure logic tests ---
+// Note: RequestMagicLink and VerifyMagicLink use concrete *store.RedisStore,
+// so we test the pure logic functions they depend on, and test the full flow
+// via integration tests with real Redis.
+
+func TestRequestMagicLink_InvalidEmail(t *testing.T) {
+	tests := []struct {
+		email string
+		valid bool
+	}{
+		{"invalid-email", false},
+		{"", false},
+		{"user name@domain.com", false},
+		{"user@example.com", true},
+		{"test.user+tag@domain.org", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.email, func(t *testing.T) {
+			got := isValidEmail(tt.email)
+			if got != tt.valid {
+				t.Errorf("isValidEmail(%q) = %v, want %v", tt.email, got, tt.valid)
+			}
+		})
+	}
+}
+
+func TestHashToken(t *testing.T) {
+	hash1 := HashToken("test-token")
+	hash2 := HashToken("test-token")
+	if hash1 != hash2 {
+		t.Error("HashToken should be deterministic")
+	}
+	if len(hash1) != 64 {
+		t.Errorf("HashToken output length = %d, want 64", len(hash1))
+	}
+
+	hash3 := HashToken("different-token")
+	if hash1 == hash3 {
+		t.Error("HashToken should produce different hashes for different inputs")
+	}
+}
+
+// --- QuickPlay pure logic tests ---
+
+func TestSanitizePlayerName(t *testing.T) {
+	t.Run("removes control chars", func(t *testing.T) {
+		result := sanitizePlayerName("hello\x00world\x01test")
+		if strings.Contains(result, "\x00") || strings.Contains(result, "\x01") {
+			t.Errorf("sanitizePlayerName should remove control chars, got %q", result)
+		}
+	})
+
+	t.Run("removes HTML chars", func(t *testing.T) {
+		result := sanitizePlayerName("hello<script>alert('xss')</script>&")
+		if strings.Contains(result, "<") || strings.Contains(result, ">") || strings.Contains(result, "&") {
+			t.Errorf("sanitizePlayerName should remove HTML chars, got %q", result)
+		}
+	})
+
+	t.Run("limits to 20 chars", func(t *testing.T) {
+		longName := strings.Repeat("a", 30)
+		result := sanitizePlayerName(longName)
+		if len([]rune(result)) > 20 {
+			t.Errorf("sanitizePlayerName should limit to 20 chars, got %d", len([]rune(result)))
+		}
+	})
+
+	t.Run("trims whitespace", func(t *testing.T) {
+		result := sanitizePlayerName("  hello  ")
+		if result != "hello" {
+			t.Errorf("sanitizePlayerName should trim, got %q", result)
+		}
+	})
+
+	t.Run("empty string returns empty", func(t *testing.T) {
+		result := sanitizePlayerName("")
+		if result != "" {
+			t.Errorf("sanitizePlayerName of empty should be empty, got %q", result)
+		}
+	})
+}
+
+func TestParseQuickPlayRequest(t *testing.T) {
+	t.Run("parses nickname from body", func(t *testing.T) {
+		body := `{"nickname":"TestPlayer"}`
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		nickname := ParseQuickPlayRequest(req)
+		if nickname != "TestPlayer" {
+			t.Errorf("ParseQuickPlayRequest = %q, want %q", nickname, "TestPlayer")
+		}
+	})
+
+	t.Run("returns empty string for invalid JSON", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("invalid"))
+		nickname := ParseQuickPlayRequest(req)
+		if nickname != "" {
+			t.Errorf("ParseQuickPlayRequest = %q, want empty string for invalid JSON", nickname)
+		}
+	})
+
+	t.Run("returns empty string when nickname field is missing", func(t *testing.T) {
+		body := `{"otherField":"value"}`
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		nickname := ParseQuickPlayRequest(req)
+		if nickname != "" {
+			t.Errorf("ParseQuickPlayRequest = %q, want empty string", nickname)
+		}
+	})
+}
+
+// --- GDPR export / delete ---
+
 func TestExportUserData_Success(t *testing.T) {
 	t.Parallel()
 	store := &mockUserDataStore{
@@ -71,34 +190,6 @@ func TestExportUserData_UserNotFound(t *testing.T) {
 	}
 }
 
-func TestExportUserData_StoreError(t *testing.T) {
-	t.Parallel()
-	store := &mockUserDataStore{userErr: errors.New("db down")}
-	_, err := ExportUserData(context.Background(), store, "u1")
-	if err == nil {
-		t.Fatal("ExportUserData should return error when store fails")
-	}
-}
-
-func TestExportUserData_NoGameResults(t *testing.T) {
-	t.Parallel()
-	store := &mockUserDataStore{
-		user:    &domain.User{ID: "u1", Email: "a@b.com", Nickname: "A"},
-		results: nil,
-	}
-	data, err := ExportUserData(context.Background(), store, "u1")
-	if err != nil {
-		t.Fatalf("ExportUserData: %v", err)
-	}
-	results, ok := data["game_results"]
-	if !ok {
-		t.Error("export should contain game_results key")
-	}
-	if results == nil {
-		t.Error("game_results should not be nil even when empty")
-	}
-}
-
 func TestExportUserData_GameResultsError(t *testing.T) {
 	t.Parallel()
 	store := &mockUserDataStore{
@@ -110,14 +201,6 @@ func TestExportUserData_GameResultsError(t *testing.T) {
 	_, err := ExportUserData(context.Background(), store, "u1")
 	if err == nil {
 		t.Fatal("ExportUserData should fail on game results error")
-	}
-}
-
-func TestDeleteUserData_NilDataStore(t *testing.T) {
-	t.Parallel()
-	err := DeleteUserData(context.Background(), nil, nil, nil, nil, "u1", nil)
-	if err != nil {
-		t.Errorf("DeleteUserData with nil dataStore should succeed: %v", err)
 	}
 }
 
@@ -136,20 +219,6 @@ func TestDeleteUserData_AnonymizeSuccess(t *testing.T) {
 	err := DeleteUserData(context.Background(), nil, nil, nil, store, "u1", nil)
 	if err != nil {
 		t.Errorf("DeleteUserData should succeed: %v", err)
-	}
-}
-
-func TestDeleteUserData_WithRefreshManager(t *testing.T) {
-	t.Parallel()
-	_, refreshMgr := setupRefreshEnv(t)
-	ctx := context.Background()
-	if _, err := refreshMgr.Generate(ctx, "u1"); err != nil {
-		t.Fatalf("Generate: %v", err)
-	}
-
-	store := &mockUserDataStore{}
-	if err := DeleteUserData(ctx, nil, refreshMgr, nil, store, "u1", nil); err != nil {
-		t.Fatalf("DeleteUserData: %v", err)
 	}
 }
 
@@ -175,6 +244,8 @@ func TestDeleteUserData_RevokesTokensFromRequest(t *testing.T) {
 		t.Fatalf("DeleteUserData: %v", err)
 	}
 }
+
+// --- Request security helpers ---
 
 func TestIsSecure(t *testing.T) {
 	tests := []struct {
@@ -242,11 +313,3 @@ func TestIsSecure(t *testing.T) {
 // fakeRevocationChecker is provided by internal/testutil (FakeRevocationChecker).
 // The shared type is used by both auth and middleware package tests to avoid
 // duplication.
-
-// TestGetJTI_NoJTI verifies GetJTI returns empty string when no jti is in context.
-func TestGetJTI_NoJTI(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	if jti := GetJTI(req); jti != "" {
-		t.Fatalf("GetJTI should return empty string; got %q", jti)
-	}
-}

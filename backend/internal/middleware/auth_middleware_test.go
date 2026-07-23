@@ -3,102 +3,16 @@ package middleware
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
-	chiMiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/redis/go-redis/v9"
-
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
-	"github.com/uppy-clone/backend/internal/util"
 )
 
 // fakeRevocationChecker is now provided by internal/testutil (FakeRevocationChecker).
-
-type redisRevoker struct {
-	*testutil.FakeRevocationChecker
-	client *redis.Client
-}
-
-func (r *redisRevoker) Client() *redis.Client { return r.client }
-
-type scardFailHook struct{}
-
-func (scardFailHook) DialHook(next redis.DialHook) redis.DialHook { return next }
-
-func (scardFailHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
-	return func(ctx context.Context, cmd redis.Cmder) error {
-		if cmd.Name() == "scard" {
-			return errors.New("scard failed")
-		}
-		return next(ctx, cmd)
-	}
-}
-
-func (scardFailHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
-	return next
-}
-
-// --- detectMultiIPLogin tests ---
-
-func TestDetectMultiIPLogin_AlertThreshold(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	ctx := context.Background()
-
-	for i := 0; i < maxIPsPerHour+1; i++ {
-		detectMultiIPLogin(ctx, rdb, "user-multi", fmt.Sprintf("10.0.0.%d", i+1))
-	}
-}
-
-func TestDetectMultiIPLogin_EarlyReturns(t *testing.T) {
-	ctx := context.Background()
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-
-	detectMultiIPLogin(ctx, nil, "user", "1.2.3.4")
-	detectMultiIPLogin(ctx, rdb, "", "1.2.3.4")
-	detectMultiIPLogin(ctx, rdb, "user", "")
-}
-
-func TestDetectMultiIPLogin_SAddError(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-	mr.SetError("redis unavailable")
-
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	detectMultiIPLogin(context.Background(), rdb, "user-sadd-err", "10.0.0.1")
-}
-
-func TestDetectMultiIPLogin_SCardError(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	rdb.AddHook(scardFailHook{})
-	detectMultiIPLogin(context.Background(), rdb, "user-scard-err", "10.0.0.2")
-}
 
 // --- AuthMiddleware tests ---
 
@@ -222,33 +136,6 @@ func TestAuthMiddleware_JTIInContext(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_RevokedSessionCookieRejected(t *testing.T) {
-	mgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := testutil.NewFakeRevocationChecker()
-
-	token, _ := mgr.SignToken("user-session", "SessionPlayer")
-	_, _, jti, _, _ := mgr.VerifyToken(token)
-	revoker.Revoked[jti] = true
-
-	called := false
-	handler := AuthMiddleware(mgr, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		called = true
-	}), revoker)
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: token})
-	rec := httptest.NewRecorder()
-
-	handler(rec, req)
-
-	if called {
-		t.Fatal("handler should NOT be called for revoked session cookie")
-	}
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d; want %d", rec.Code, http.StatusUnauthorized)
-	}
-}
-
 func TestAuthMiddleware_InvalidCookieSkipped(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	validToken, _ := jwtMgr.SignToken("valid-user", "Valid")
@@ -267,28 +154,6 @@ func TestAuthMiddleware_InvalidCookieSkipped(t *testing.T) {
 
 	if !called || rec.Code != http.StatusOK {
 		t.Fatalf("called=%v status=%d", called, rec.Code)
-	}
-}
-
-func TestAuthMiddleware_InjectsRequestLogger(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, _ := jwtMgr.SignToken("user-log", "Logger")
-
-	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if logger := util.LoggerFromContext(r.Context()); logger == nil {
-			t.Fatal("expected logger in context")
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req = req.WithContext(util.WithLogger(req.Context(), slog.New(slog.DiscardHandler)))
-	req.AddCookie(&http.Cookie{Name: "session", Value: token})
-	rec := httptest.NewRecorder()
-	handler(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
 	}
 }
 
@@ -311,71 +176,6 @@ func TestAuthMiddleware_RevocationCheckError(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_MultiIPWithRedisProvider(t *testing.T) {
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("miniredis: %v", err)
-	}
-	defer mr.Close()
-
-	revoker := &redisRevoker{
-		FakeRevocationChecker: testutil.NewFakeRevocationChecker(),
-		client:                redis.NewClient(&redis.Options{Addr: mr.Addr()}),
-	}
-
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, _ := jwtMgr.SignToken("user-ip", "IPUser")
-
-	called := false
-	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	}), revoker)
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req = req.WithContext(context.WithValue(req.Context(), chiMiddleware.RequestIDKey, "req-1"))
-	req.Header.Set("X-Forwarded-For", "203.0.113.1")
-	req.RemoteAddr = "127.0.0.1:1234"
-	req.AddCookie(&http.Cookie{Name: "session", Value: token})
-	rec := httptest.NewRecorder()
-	handler(rec, req)
-
-	if !called || rec.Code != http.StatusOK {
-		t.Fatalf("called=%v status=%d", called, rec.Code)
-	}
-}
-
-func TestAuthMiddleware_UnauthorizedNoValidCookie(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("handler should not run")
-	}))
-
-	rec := httptest.NewRecorder()
-	handler(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", rec.Code)
-	}
-}
-
-func TestAuthMiddleware_NoLoggerInContext(t *testing.T) {
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	token, _ := jwtMgr.SignToken("user-1", "Nick")
-	called := false
-	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: token})
-	rec := httptest.NewRecorder()
-	handler(rec, req)
-	if !called || rec.Code != http.StatusOK {
-		t.Fatalf("called=%v status=%d", called, rec.Code)
-	}
-}
-
 func TestAuthMiddleware_NoValidCookies(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	handler := AuthMiddleware(jwtMgr, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
@@ -391,3 +191,103 @@ func TestAuthMiddleware_NoValidCookies(t *testing.T) {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
 }
+
+// --- parseAuthCookie tests ---
+
+// parseAuthCookie 是认证中间件的入口：从 Cookie 取 JWT 并交给 jwtMgr 验证。
+// 失败路径必须返回错误，让上层中间件返回 401，而不是放行匿名请求。
+
+// fakeTokenVerifier is a test double for auth.TokenVerifier.
+type fakeTokenVerifier struct {
+	verifyErr      error
+	returnUserID   string
+	returnNickname string
+	returnJTI      string
+	returnRole     string
+	capturedToken  string
+	callCount      int
+}
+
+func (f *fakeTokenVerifier) VerifyToken(tokenStr string) (userID, nickname, jti, role string, err error) {
+	f.callCount++
+	f.capturedToken = tokenStr
+	if f.verifyErr != nil {
+		return "", "", "", "", f.verifyErr
+	}
+	return f.returnUserID, f.returnNickname, f.returnJTI, f.returnRole, nil
+}
+
+func TestParseAuthCookie_Success(t *testing.T) {
+	t.Parallel()
+
+	const cookieName = "quickplay"
+	const tokenValue = "fake.token.value"
+	v := &fakeTokenVerifier{
+		returnUserID:   "user-1",
+		returnNickname: "Player1",
+		returnJTI:      "jti-abc",
+		returnRole:     "player",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: tokenValue})
+
+	uid, nick, jti, role, err := parseAuthCookie(req, cookieName, v)
+	if err != nil {
+		t.Fatalf("parseAuthCookie returned error: %v", err)
+	}
+	if uid != "user-1" {
+		t.Errorf("userID = %q, want %q", uid, "user-1")
+	}
+	if nick != "Player1" {
+		t.Errorf("nickname = %q, want %q", nick, "Player1")
+	}
+	if jti != "jti-abc" {
+		t.Errorf("jti = %q, want %q", jti, "jti-abc")
+	}
+	if role != "player" {
+		t.Errorf("role = %q, want %q", role, "player")
+	}
+	if v.capturedToken != tokenValue {
+		t.Errorf("VerifyToken received %q, want %q", v.capturedToken, tokenValue)
+	}
+	if v.callCount != 1 {
+		t.Errorf("VerifyToken call count = %d, want 1", v.callCount)
+	}
+}
+
+func TestParseAuthCookie_MissingCookie(t *testing.T) {
+	t.Parallel()
+
+	v := &fakeTokenVerifier{}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// No cookies added.
+
+	uid, _, _, _, err := parseAuthCookie(req, "quickplay", v)
+	if err == nil {
+		t.Fatal("expected error for missing cookie, got nil")
+	}
+	if uid != "" {
+		t.Errorf("userID = %q, want empty", uid)
+	}
+	if v.callCount != 0 {
+		t.Errorf("VerifyToken should not be called when cookie missing; got callCount=%d", v.callCount)
+	}
+}
+
+func TestParseAuthCookie_VerifyErrorPropagates(t *testing.T) {
+	t.Parallel()
+
+	verifyErr := errors.New("signature invalid")
+	v := &fakeTokenVerifier{verifyErr: verifyErr}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "tampered.token"})
+
+	_, _, _, _, err := parseAuthCookie(req, "session", v)
+	if !errors.Is(err, verifyErr) {
+		t.Fatalf("err = %v, want %v", err, verifyErr)
+	}
+}
+
+

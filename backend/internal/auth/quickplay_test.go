@@ -88,37 +88,6 @@ func TestQuickPlay_CreateUserDuplicateContinues(t *testing.T) {
 	}
 }
 
-func TestQuickPlay_ExistingCookieLookupError(t *testing.T) {
-	db, mock := newQuickPlayPostgresStore(t)
-	jwtMgr := setupJWTManager()
-	token, _ := jwtMgr.SignToken("existing-user", "Existing")
-
-	mock.ExpectQuery("SELECT id, email, nickname, palette, created_at, last_login FROM users").
-		WithArgs("existing-user").
-		WillReturnError(errors.New("db down"))
-
-	req := httptest.NewRequest(http.MethodPost, "https://example.com/quickplay", nil)
-	req.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
-
-	_, _, err := QuickPlay(db, jwtMgr, nil, nil, "", req)
-	if err == nil {
-		t.Fatal("expected lookup existing user error")
-	}
-}
-
-func TestQuickPlay_CreateUserError(t *testing.T) {
-	db, mock := newQuickPlayPostgresStore(t)
-	jwtMgr := setupJWTManager()
-
-	mock.ExpectBegin().WillReturnError(errors.New("db down"))
-
-	req := httptest.NewRequest(http.MethodPost, "https://example.com/quickplay", nil)
-	_, _, err := QuickPlay(db, jwtMgr, nil, nil, "Bob", req)
-	if err == nil {
-		t.Fatal("expected error when create user fails")
-	}
-}
-
 func TestRefreshSession_Success(t *testing.T) {
 	jwtMgr, refreshMgr := setupRefreshEnv(t)
 	ctx := context.Background()

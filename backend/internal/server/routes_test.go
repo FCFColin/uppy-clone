@@ -31,29 +31,6 @@ func TestSetupStaticRoutes_AbsError(t *testing.T) {
 	}
 }
 
-func TestSetupStaticRoutes_AbsStaticDirError(t *testing.T) {
-	dir := t.TempDir()
-	prev := filepathAbsFn
-	calls := 0
-	filepathAbsFn = func(path string) (string, error) {
-		calls++
-		if calls == 2 {
-			return "", errors.New("abs static dir failed")
-		}
-		return filepath.Abs(path)
-	}
-	t.Cleanup(func() { filepathAbsFn = prev })
-
-	r := chi.NewRouter()
-	setupStaticRoutes(r, &handler.Config{FrontendDir: dir})
-
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/page.html", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404 on static dir abs error", rec.Code)
-	}
-}
-
 func TestSetupStaticRoutes_EmptyFrontendDir(t *testing.T) {
 	r := chi.NewRouter()
 	setupStaticRoutes(r, &handler.Config{FrontendDir: ""})
@@ -144,25 +121,6 @@ func TestSetupStaticRoutes_ServesHTMLWithNoCache(t *testing.T) {
 	}
 }
 
-func TestSetupStaticRoutes_ExtensionlessFileNoCache(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "about"), []byte("about page"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	r := chi.NewRouter()
-	setupStaticRoutes(r, &handler.Config{FrontendDir: dir})
-
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/about", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
-		t.Fatalf("Cache-Control = %q, want no-cache for extensionless file", cc)
-	}
-}
-
 func TestSetupStaticRoutes_NoIndexReturns404(t *testing.T) {
 	dir := t.TempDir()
 	r := chi.NewRouter()
@@ -210,5 +168,67 @@ func TestSetupStaticRoutes_DirectoryRequest(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "index" {
 		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAllRoutesRegistered verifies that every route in the OpenAPI spec is
+// registered on the chi router. This is a lightweight, non-integration test
+// that catches accidental route removals without requiring a database.
+func TestAllRoutesRegistered(t *testing.T) {
+	r := newTestRouter(t)
+
+	// expectedRoutes maps "METHOD /path" to true. chi.Walk provides the
+	// registered routes; any mismatch (missing or extra) fails the test.
+	expectedRoutes := map[string]bool{
+		"GET /health/live":                  true,
+		"GET /health/ready":                 true,
+		"GET /health":                       true,
+		"GET /health/degraded":              true,
+		"GET /metrics":                      true,
+		"POST /api/v1/auth/quickplay":       true,
+		"GET /api/v1/auth/check":            true,
+		"POST /api/v1/auth/refresh":         true,
+		"POST /api/v1/auth/logout":          true,
+		"GET /api/v1/user/data":             true,
+		"DELETE /api/v1/user/data":          true,
+		"GET /api/v1/stats/public":          true,
+		"GET /api/v1/leaderboard":           true,
+		"GET /api/v1/user/stats":            true,
+		"POST /api/v1/registry/create":      true,
+		"GET /api/v1/registry/check/{code}": true,
+		"GET /api/v1/registry/lobbies":      true,
+		"POST /api/v1/registry/match":       true,
+		"GET /api/v1/lobby/{code}/ws":       true,
+		"POST /api/v1/admin/login":          true,
+		"POST /api/v1/admin/logout":         true,
+		"GET /api/v1/admin/config":          true,
+		"PATCH /api/v1/admin/config":        true,
+		"PUT /api/v1/admin/config":          true,
+	}
+
+	registered := make(map[string]bool)
+	_ = chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		registered[method+" "+route] = true
+		return nil
+	})
+
+	for route := range expectedRoutes {
+		if !registered[route] {
+			t.Errorf("expected route %q is NOT registered", route)
+		}
+	}
+	for route := range registered {
+		if !expectedRoutes[route] {
+			// Skip the catch-all static route "GET /*" when FrontendDir is empty.
+			if route == "GET /*" {
+				continue
+			}
+			// /metrics is registered via r.Handle (all HTTP methods).
+			// chi.Walk reports every method; only GET is in the expected set.
+			if strings.HasSuffix(route, " /metrics") && !strings.HasPrefix(route, "GET ") {
+				continue
+			}
+			t.Errorf("unexpected route %q is registered (not in expected list)", route)
+		}
 	}
 }

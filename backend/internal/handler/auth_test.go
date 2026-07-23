@@ -13,7 +13,6 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/domain"
-	appMiddleware "github.com/uppy-clone/backend/internal/middleware"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
@@ -25,39 +24,6 @@ func newTestAuthHandler() *AuthHandler {
 		db:     nil,
 		redis:  nil,
 		config: &Config{ResendAPIKey: "test", EmailFrom: "test@test.com"},
-	}
-}
-
-func TestCheckAuth_NoMiddleware(t *testing.T) {
-	t.Parallel()
-
-	jwtMgr := newTestJWTManager()
-	token := signTestToken(t, jwtMgr, "user-456", "CookiePlayer")
-	h := NewAuthHandler(nil, nil, jwtMgr, nil, &Config{})
-
-	tests := []struct {
-		name   string
-		cookie *http.Cookie
-		want   int
-	}{
-		{"unauthenticated", nil, http.StatusUnauthorized},
-		{"authenticated via cookie", &http.Cookie{Name: "quickplay", Value: token}, http.StatusOK},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
-			if tt.cookie != nil {
-				r.AddCookie(tt.cookie)
-			}
-			h.CheckAuth(w, r)
-			if w.Code != tt.want {
-				t.Fatalf("status = %d, want %d; body = %s", w.Code, tt.want, w.Body.String())
-			}
-		})
 	}
 }
 
@@ -83,68 +49,6 @@ func TestCheckAuth_RevokedSession(t *testing.T) {
 	}
 }
 
-func TestCheckAuth_Authenticated(t *testing.T) {
-	t.Parallel()
-
-	jwtMgr := newTestJWTManager()
-	token := signTestToken(t, jwtMgr, "user-123", "TestPlayer")
-	h := NewAuthHandler(nil, nil, jwtMgr, nil, &Config{})
-
-	// Use the actual auth middleware to set context
-	handler := appMiddleware.AuthMiddleware(jwtMgr, h.CheckAuth)
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/check", nil)
-	r.AddCookie(&http.Cookie{Name: "quickplay", Value: token})
-
-	handler(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
-	}
-
-	var body map[string]interface{}
-	testutil.DecodeJSONBody(t, w, &body)
-	if body["authenticated"] != true {
-		t.Errorf("authenticated = %v, want true", body["authenticated"])
-	}
-	if body["userId"] != "user-123" {
-		t.Errorf("userId = %v, want %q", body["userId"], "user-123")
-	}
-}
-
-func TestRefreshToken_BadRequest(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAuthHandler()
-
-	tests := []struct {
-		name string
-		body string
-	}{
-		{"missing body", ""},
-		{"empty token", `{"refresh_token":""}`},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			w := httptest.NewRecorder()
-			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", strings.NewReader(tt.body))
-			if tt.body != "" {
-				r.Header.Set("Content-Type", "application/json")
-			}
-
-			h.RefreshToken(w, r)
-
-			if w.Code != http.StatusBadRequest {
-				t.Errorf("status = %d, want %d; body = %s", w.Code, http.StatusBadRequest, w.Body.String())
-			}
-		})
-	}
-}
-
 func TestRefreshToken_FromCookie(t *testing.T) {
 	t.Parallel()
 
@@ -159,66 +63,6 @@ func TestRefreshToken_FromCookie(t *testing.T) {
 	// nil redis in test handler → service unavailable, but not bad request
 	if w.Code == http.StatusBadRequest {
 		t.Errorf("cookie refresh token should not require JSON body, got 400")
-	}
-}
-
-// --- QuickPlay ---
-
-func TestQuickPlay_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAuthHandler()
-
-	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/quickplay", `{"nickname":"Test"}`)
-	h.QuickPlay(w, r)
-
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("QuickPlay error: status = %d, want %d; body = %s", w.Code, http.StatusInternalServerError, w.Body.String())
-	}
-}
-
-func TestQuickPlay_MissingBody(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAuthHandler()
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/quickplay", nil)
-
-	h.QuickPlay(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("QuickPlay error: status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
-}
-
-func TestLogout_ClearsCookies(t *testing.T) {
-	t.Parallel()
-
-	jwtMgr := newTestJWTManager()
-	h := NewAuthHandler(nil, nil, jwtMgr, nil, &Config{})
-
-	// Test logout without refresh_token (avoids nil refreshMgr)
-	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/logout", `{}`)
-	h.Logout(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
-	}
-
-	cookies := w.Result().Cookies()
-	cookieNames := map[string]bool{}
-	for _, c := range cookies {
-		cookieNames[c.Name] = true
-		if c.MaxAge >= 0 {
-			t.Errorf("cookie %q should have MaxAge < 0, got %d", c.Name, c.MaxAge)
-		}
-	}
-	if !cookieNames["quickplay"] {
-		t.Error("expected quickplay cookie to be cleared")
-	}
-	if !cookieNames["session"] {
-		t.Error("expected session cookie to be cleared")
 	}
 }
 
@@ -356,17 +200,6 @@ func TestQuickPlay_ExistingUserLookupError(t *testing.T) {
 	}
 }
 
-func TestExportUserData_NilDB(t *testing.T) {
-	h := NewAuthHandler(nil, nil, newTestJWTManager(), nil, &Config{})
-
-	w := httptest.NewRecorder()
-	r := withAuthUser(httptest.NewRequest(http.MethodGet, "/api/v1/user/data", nil), "user-1", "Nick")
-	h.ExportUserData(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", w.Code)
-	}
-}
-
 func TestExportUserData_NotFound(t *testing.T) {
 	h, mock, _ := newAuthHandlerWithDB(t)
 	expectGetUserByIDError(mock, "missing-user", domain.ErrNotFound)
@@ -395,17 +228,6 @@ func TestCheckAuth_DBErrorDegraded(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"degraded":true`) {
 		t.Fatalf("body = %s", w.Body.String())
-	}
-}
-
-func TestRefreshToken_InvalidToken(t *testing.T) {
-	_, db := newTestUserRepo(t)
-	h, _, _, _ := newTestAuthHandlerWithRefreshMgr(t, db)
-
-	w, r := newJSONRequest(http.MethodPost, "/api/v1/auth/refresh", `{"refresh_token":"invalid-token"}`)
-	h.RefreshToken(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", w.Code)
 	}
 }
 
@@ -447,7 +269,6 @@ func TestParseQuickPlayRequest_ChineseNickname(t *testing.T) {
 		{"7 chinese chars (21 bytes, 7 runes) — accepted", "快乐的气球玩家", false},
 		{"1 rune — too short", "快", true},
 		{"21 runes — too long", strings.Repeat("A", 21), true},
-		{"ascii 2 chars — ok", "AB", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

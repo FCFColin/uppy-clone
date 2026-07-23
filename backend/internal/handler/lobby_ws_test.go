@@ -13,6 +13,13 @@ import (
 	"github.com/uppy-clone/backend/internal/game"
 )
 
+//
+// These tests exercise LobbyHandler.WebSocket and its helpers at the unit
+// level (httptest.NewRecorder, no real server). The full end-to-end
+// WebSocket flows (connect/disconnect, origin rejection, rate limiting,
+// invalid room) are covered by ws_handler_test.go's integration tests
+// using httptest.NewServer + gorilla/websocket.Dialer.
+
 func TestWebSocket_MissingRoomCode(t *testing.T) {
 	t.Parallel()
 
@@ -22,88 +29,6 @@ func TestWebSocket_MissingRoomCode(t *testing.T) {
 	h.WebSocket(w, r)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestWebSocket_UnauthorizedShort(t *testing.T) {
-	t.Parallel()
-
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	w := httptest.NewRecorder()
-	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/lobby/ABCDE/ws", nil), "code", "ABCDE")
-	h.WebSocket(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
-func TestWebSocket_ForbiddenOriginShort(t *testing.T) {
-	t.Parallel()
-
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	w := httptest.NewRecorder()
-	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/lobby/ABCDE/ws", nil), "code", "ABCDE")
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "nick"))
-	r.Header.Set("Origin", "http://evil.example")
-	h.WebSocket(w, r)
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403", w.Code)
-	}
-}
-
-func TestWebSocket_RateLimitShort(t *testing.T) {
-	hub := game.NewHub(nil, nil, config.DefaultTimeoutConfig(), 1, 50)
-	hub.IncrementWSConnection()
-	h := NewLobbyHandler(hub, []string{"http://localhost"})
-	code, err := hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	w := httptest.NewRecorder()
-	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/lobby/"+code+"/ws", nil), "code", code)
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "nick"))
-	r.Header.Set("Origin", "http://localhost")
-	h.WebSocket(w, r)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", w.Code)
-	}
-}
-
-func TestWebSocket_RoomNotFoundShort(t *testing.T) {
-	t.Parallel()
-
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	w := httptest.NewRecorder()
-	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/lobby/ABCDE/ws", nil), "code", "ABCDE")
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "nick"))
-	r.Header.Set("Origin", "http://localhost")
-	h.WebSocket(w, r)
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404", w.Code)
-	}
-}
-
-func TestWebSocket_UpgradeFailsWithoutHijacker(t *testing.T) {
-	t.Parallel()
-
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	code, err := h.hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	w := httptest.NewRecorder()
-	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/lobby/"+code+"/ws", nil), "code", code)
-	r = r.WithContext(auth.WithAuthenticatedUser(r.Context(), "user-1", "nick"))
-	r.Header.Set("Origin", "http://localhost")
-	h.WebSocket(w, r)
-	// httptest.ResponseRecorder is not a Hijacker; upgrade should fail silently.
-	if w.Code == http.StatusSwitchingProtocols {
-		t.Error("expected upgrade to fail on non-Hijacker recorder")
-	}
-	if h.hub.WSConnCount() != 0 {
-		t.Fatalf("WSConnCount = %d after failed upgrade, want 0", h.hub.WSConnCount())
 	}
 }
 
@@ -175,32 +100,6 @@ func TestReserveWSConnection(t *testing.T) {
 		t.Error("hub with capacity should reserve")
 	}
 	hub2.DecrementWSConnection()
-}
-
-func TestStartWSPumps_ConnectAndDisconnect(t *testing.T) {
-	h := newTestLobbyHandlerWithOrigins([]string{"http://localhost"})
-	server := newWSTestServer(h, "user1", "nick1")
-	defer server.Close()
-
-	code, err := h.hub.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	conn, statusCode := wsDial(t, server, code, "http://localhost")
-	if statusCode != 0 && statusCode != http.StatusSwitchingProtocols {
-		t.Fatalf("expected 101, got %d", statusCode)
-	}
-	if conn == nil {
-		t.Fatal("expected connection")
-	}
-	if !waitForConnCount(h, 1, 3*time.Second) {
-		t.Fatalf("conn count = %d", h.hub.WSConnCount())
-	}
-	_ = conn.Close()
-	if !waitForConnCount(h, 0, 3*time.Second) {
-		t.Fatalf("after close conn count = %d", h.hub.WSConnCount())
-	}
 }
 
 func TestStartWSPumps_JoinFails(t *testing.T) {

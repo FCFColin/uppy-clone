@@ -202,8 +202,6 @@ func (h *AdminHandler) VerifyAdminTokenClaims(r *http.Request) (*adminClaims, bo
 	return claims, true
 }
 
-// ─── Admin Auth: Password Retrieval & Logout ───────────────────────
-
 // getStoredAdminPassword retrieves the admin password from the app_config DB row.
 func (h *AdminHandler) getStoredAdminPassword(ctx context.Context, w http.ResponseWriter) (string, bool) {
 	dbConfig, err := h.db.GetConfig(ctx, globalScope)

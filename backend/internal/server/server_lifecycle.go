@@ -191,8 +191,6 @@ func Run() error {
 	return nil
 }
 
-// ─── Profiling & Logging ────────────────────────────────────────────
-
 type pyroscopeLogger struct{}
 
 func (pyroscopeLogger) Infof(msg string, args ...interface{}) {
@@ -268,8 +266,6 @@ func initLogger() *slog.Logger {
 	slog.SetDefault(logger)
 	return logger
 }
-
-// ─── Metrics Collector ──────────────────────────────────────────────
 
 // metricsCollectInterval controls ticker cadence; tests may shorten it for -short runs.
 var metricsCollectInterval = appConfig.MetricsInterval

@@ -37,12 +37,8 @@ func setupRoutes(r *chi.Mux, authHandler *handler.AuthHandler, lobbyHandler *han
 	setupStaticRoutes(r, cfg)
 }
 
-// ─── Health & Metrics Routes ──────────────────────────────────────────
-
 // setupHealthAndMetricsRoutes registers health probes and the metrics endpoint.
 func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *store.RedisCluster, hub *game.Hub) {
-
-	// ─── Health probes ────────────────────────────────────────────────
 	// P2-10: readiness 探测纳入 WebSocket 舱壁负载，连接达上限时返回 503，
 	// 避免流量继续打入无法承载的实例。
 	var pool *pgxpool.Pool
@@ -53,7 +49,6 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *s
 	if cluster != nil {
 		redisPinger = cluster.Stateful.Client()
 	}
-	// ─── Degradation detection ──────────────────────────────────────────
 	var cbs []*gobreaker.CircuitBreaker[any]
 	if db != nil {
 		cbs = append(cbs, db.CircuitBreaker())
@@ -75,8 +70,6 @@ func setupHealthAndMetricsRoutes(r *chi.Mux, db *store.PostgresStore, cluster *s
 	r.Get("/health/degraded", handler.DegradedHandler(cbs...))
 }
 
-// ─── Auth Routes ─────────────────────────────────────────────────────
-
 // setupAuthRoutes registers auth and user-data (GDPR) routes.
 // Rate limiting uses the ephemeral Redis (ADR-029); auth/session uses stateful Redis.
 func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
@@ -93,8 +86,6 @@ func setupAuthRoutes(r *chi.Mux, authHandler *handler.AuthHandler, cluster *stor
 	})
 }
 
-// ─── Stats Routes ────────────────────────────────────────────────────
-
 // setupStatsRoutes registers leaderboard and user stats routes.
 // Rate limiting uses ephemeral Redis (ADR-029).
 func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
@@ -110,8 +101,6 @@ func setupStatsRoutes(r *chi.Mux, statsHandler *handler.StatsHandler, cluster *s
 		rbacEnforcer.Middleware("user_data", "read"),
 	).Get("/api/v1/user/stats", statsHandler.GetUserStats)
 }
-
-// ─── Lobby Routes ────────────────────────────────────────────────────
 
 // setupLobbyRoutes registers registry (room create/check/list) and lobby WebSocket routes.
 // Rate limiting uses ephemeral Redis; auth/session uses stateful Redis (ADR-029).
@@ -144,8 +133,6 @@ func setupLobbyRoutes(r *chi.Mux, lobbyHandler *handler.LobbyHandler, cluster *s
 	})
 }
 
-// ─── Admin Routes ────────────────────────────────────────────────────
-
 // setupAdminRoutes registers admin login and admin-protected config routes.
 // Rate limiting uses ephemeral Redis (ADR-029).
 func setupAdminRoutes(r *chi.Mux, adminHandler *handler.AdminHandler, cluster *store.RedisCluster, jwtMgr *auth.JWTManager, rbacEnforcer *rbac.Enforcer) {
@@ -166,8 +153,6 @@ func setupAdminRoutes(r *chi.Mux, adminHandler *handler.AdminHandler, cluster *s
 		})
 	})
 }
-
-// ─── Static Routes ───────────────────────────────────────────────────
 
 // setupStaticRoutes registers SPA static file serving with path-traversal protection.
 func setupStaticRoutes(r *chi.Mux, cfg *handler.Config) {
@@ -217,8 +202,6 @@ func setupStaticRoutes(r *chi.Mux, cfg *handler.Config) {
 		http.NotFound(w, r)
 	})
 }
-
-// ─── Middleware ───────────────────────────────────────────────────────
 
 // setupMiddleware registers global chi middleware (logging, recovery, security, CORS).
 // Note: chiMiddleware.Logger and chiMiddleware.Recoverer are intentionally omitted —

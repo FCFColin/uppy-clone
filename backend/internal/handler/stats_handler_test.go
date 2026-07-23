@@ -12,16 +12,6 @@ import (
 	"github.com/uppy-clone/backend/internal/store"
 )
 
-func TestNewStatsHandler(t *testing.T) {
-	t.Parallel()
-
-	var db store.ResultRepository
-	h := NewStatsHandler(&db, nil)
-	if h == nil || h.db != &db {
-		t.Fatal("NewStatsHandler should store db reference")
-	}
-}
-
 func TestGetUserStats_Unauthorized(t *testing.T) {
 	t.Parallel()
 
@@ -37,9 +27,9 @@ func TestGetUserStats_Unauthorized(t *testing.T) {
 func TestGetLeaderboard_WithDB(t *testing.T) {
 	h, mock := newStatsHandlerWithDB(t)
 
-	mock.ExpectQuery("SELECT final_score, lobby_code, ended_at").
+	mock.ExpectQuery(`SELECT MAX\(gr\.score_contribution\)`).
 		WithArgs(25).
-		WillReturnRows(pgxmock.NewRows([]string{"final_score", "lobby_code", "ended_at"}).
+		WillReturnRows(pgxmock.NewRows([]string{"best_score", "display_name", "best_at"}).
 			AddRow(100, "ABC12", int64(999)))
 
 	w := httptest.NewRecorder()
@@ -53,9 +43,9 @@ func TestGetLeaderboard_WithDB(t *testing.T) {
 func TestGetLeaderboard_WeeklyWithDB(t *testing.T) {
 	h, mock := newStatsHandlerWithDB(t)
 
-	mock.ExpectQuery("SELECT final_score, lobby_code, ended_at").
+	mock.ExpectQuery(`SELECT MAX\(gr\.score_contribution\)`).
 		WithArgs(pgxmock.AnyArg(), 50).
-		WillReturnRows(pgxmock.NewRows([]string{"final_score", "lobby_code", "ended_at"}))
+		WillReturnRows(pgxmock.NewRows([]string{"best_score", "display_name", "best_at"}))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard?scope=weekly", nil)
@@ -68,7 +58,7 @@ func TestGetLeaderboard_WeeklyWithDB(t *testing.T) {
 func TestGetLeaderboard_DBError(t *testing.T) {
 	h, mock := newStatsHandlerWithDB(t)
 
-	mock.ExpectQuery("SELECT final_score, lobby_code, ended_at").
+	mock.ExpectQuery(`SELECT MAX\(gr\.score_contribution\)`).
 		WithArgs(50).
 		WillReturnError(context.Canceled)
 

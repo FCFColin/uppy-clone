@@ -13,8 +13,6 @@ import (
 	"github.com/uppy-clone/backend/internal/game"
 )
 
-// ─── URL Parameter Helper ───────────────────────────────────────────
-
 // URLParam extracts a named path parameter from the request.
 //
 // It prefers the Go 1.22+ standard library path value (r.PathValue) so that
@@ -28,9 +26,6 @@ func URLParam(r *http.Request, name string) string {
 	return chi.URLParam(r, name)
 }
 
-// ─── Config ─────────────────────────────────────────────────────────
-
-// Config holds application configuration passed to handlers.
 type Config struct {
 	ResendAPIKey       string
 	EmailFrom          string
@@ -51,16 +46,12 @@ type Config struct {
 	EnableEmbeddedWorkers bool
 }
 
-// ─── LobbyHandler ───────────────────────────────────────────────────
-
-// LobbyHandler handles lobby/room endpoints.
 type LobbyHandler struct {
 	hub            *game.Hub
 	logger         *slog.Logger
 	allowedOrigins []string
 }
 
-// NewLobbyHandler creates a new LobbyHandler.
 func NewLobbyHandler(hub *game.Hub, allowedOrigins []string) *LobbyHandler {
 	return &LobbyHandler{
 		hub:            hub,
@@ -69,8 +60,6 @@ func NewLobbyHandler(hub *game.Hub, allowedOrigins []string) *LobbyHandler {
 	}
 }
 
-// ─── Degradation Infrastructure ──────────────────────────────────────
-
 // DegradedResponse 非关键依赖不可用时的部分可用响应（见 ADR-004）。
 type DegradedResponse struct {
 	Data     interface{} `json:"data"`
@@ -78,7 +67,6 @@ type DegradedResponse struct {
 	Message  string      `json:"message,omitempty"`
 }
 
-// WriteDegradedJSON writes a degraded response with the given status, data, and message.
 func WriteDegradedJSON(w http.ResponseWriter, status int, data interface{}, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -100,7 +88,6 @@ func RequireDB(db interface{}, w http.ResponseWriter) bool {
 	return false
 }
 
-// RequireRedis returns false and writes a degraded response when redis is nil.
 func RequireRedis(redis interface{}, w http.ResponseWriter) bool {
 	if !isNilPointer(redis) {
 		return true
@@ -119,7 +106,6 @@ func isNilPointer(v interface{}) bool {
 	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
-// RequireHub returns false and writes 503 when hub is nil.
 func RequireHub(hub interface{ RoomCount() int }, w http.ResponseWriter) bool {
 	if hub != nil {
 		return true
@@ -128,7 +114,6 @@ func RequireHub(hub interface{ RoomCount() int }, w http.ResponseWriter) bool {
 	return false
 }
 
-// RequireHubDegraded returns false and writes a degraded JSON response when hub is nil.
 func RequireHubDegraded(hub *game.Hub, w http.ResponseWriter, status int, payload interface{}, message string) bool {
 	if hub != nil {
 		return true
@@ -137,7 +122,6 @@ func RequireHubDegraded(hub *game.Hub, w http.ResponseWriter, status int, payloa
 	return false
 }
 
-// IsDegraded returns true if any circuit breaker is in an open or half-open state.
 func IsDegraded(cbs ...*gobreaker.CircuitBreaker[any]) bool {
 	for _, cb := range cbs {
 		if cb != nil {
@@ -150,8 +134,7 @@ func IsDegraded(cbs ...*gobreaker.CircuitBreaker[any]) bool {
 	return false
 }
 
-// DegradedHandler returns an HTTP handler that reports overall degradation status
-// based on the provided circuit breakers. Returns { "degraded": true/false }.
+// DegradedHandler returns { "degraded": true/false } based on circuit breaker states.
 func DegradedHandler(cbs ...*gobreaker.CircuitBreaker[any]) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -159,8 +142,6 @@ func DegradedHandler(cbs ...*gobreaker.CircuitBreaker[any]) http.HandlerFunc {
 	}
 }
 
-// writeJSON sets the JSON content type, writes the status code, and encodes the
-// payload as JSON. It is the standard handler response helper.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

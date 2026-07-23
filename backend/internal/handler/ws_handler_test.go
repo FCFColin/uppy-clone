@@ -53,7 +53,7 @@ func TestWebSocket_ConnectAndDisconnect(t *testing.T) {
 	}
 }
 
-// ─── TestWebSocket_RoomCreation ──────────────────────────────────────
+
 //
 // Verifies that a client connecting to a room receives the initial room state
 // (snapshot) message. HandleJoin → notifyJoin → sendToPlayer(snapshot) is the
@@ -97,7 +97,7 @@ func TestWebSocket_RoomCreation(t *testing.T) {
 	}
 }
 
-// ─── TestWebSocket_ConcurrentConnections ─────────────────────────────
+
 //
 // Verifies that multiple WebSocket clients can connect concurrently and that
 // hub.WSConnCount() remains accurate. Run with -race to detect data races.
@@ -180,7 +180,7 @@ func TestWebSocket_ConcurrentConnections(t *testing.T) {
 	}
 }
 
-// ─── TestWebSocket_InvalidRoom ───────────────────────────────────────
+
 //
 // Verifies that connecting to a non-existent room is rejected with a 404 Not
 // Found response (before the WebSocket upgrade happens).
@@ -208,7 +208,7 @@ func TestWebSocket_InvalidRoom(t *testing.T) {
 	}
 }
 
-// ─── TestWebSocket_Unauthorized ──────────────────────────────────────
+
 //
 // Verifies that a WebSocket request without authentication is rejected with
 // 401 Unauthorized. This is a security-critical test: the WS handler must not
@@ -245,7 +245,7 @@ func TestWebSocket_Unauthorized(t *testing.T) {
 	}
 }
 
-// ─── TestWebSocket_ForbiddenOrigin ───────────────────────────────────
+
 //
 // Verifies that a WebSocket request with a disallowed Origin is rejected with
 // 403 Forbidden (CSWSH protection).
@@ -278,7 +278,7 @@ func TestWebSocket_ForbiddenOrigin(t *testing.T) {
 	}
 }
 
-// ─── TestWebSocket_RateLimit ─────────────────────────────────────────
+
 //
 // Verifies that the WebSocket bulkhead (global connection limit) rejects new
 // connections when the limit is reached. This is the DoS defense described in

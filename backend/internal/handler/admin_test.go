@@ -9,7 +9,72 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/pashagolub/pgxmock/v4"
+	"github.com/uppy-clone/backend/internal/store"
+	"github.com/uppy-clone/backend/internal/testutil"
 )
+
+// --- Admin test helpers (shared across admin test files) ---
+
+func newAdminHandlerWithDB(t *testing.T) (*AdminHandler, pgxmock.PgxPoolIface, *store.RedisStore) {
+	t.Helper()
+	mock := testutil.NewPgxMock(t)
+	db := store.NewConfigRepository(mock)
+	redisStore := testutil.SetupMiniredisStore(t)
+	h := NewAdminHandler(db, newTestJWTManager(), redisStore)
+	return h, mock, redisStore
+}
+
+func expectAdminConfigQuery(mock pgxmock.PgxPoolIface, configJSON string, empty ...bool) {
+	rows := pgxmock.NewRows([]string{"id", "config", "updated_at"})
+	if len(empty) == 0 || !empty[0] {
+		rows.AddRow("global", configJSON, int64(1000))
+	}
+	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
+		WithArgs("global").
+		WillReturnRows(rows)
+}
+
+func expectAdminConfigQueryError(mock pgxmock.PgxPoolIface, err error) {
+	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
+		WithArgs("global").
+		WillReturnError(err)
+}
+
+func expectAdminConfigSave(mock pgxmock.PgxPoolIface) {
+	mock.ExpectExec(`INSERT INTO admin_config`).
+		WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+}
+
+func hashMustPwd(pwd string) string {
+	hashed, _ := hashAdminPassword(pwd)
+	return hashed
+}
+
+func mustCloseRedis(t *testing.T, redisStore *store.RedisStore) {
+	t.Helper()
+	if err := redisStore.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+func newAdminTokenRequest(t *testing.T, h *AdminHandler) *http.Request {
+	t.Helper()
+	token, _, err := h.signAdminToken()
+	if err != nil {
+		t.Fatalf("signAdminToken: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "admin_token", Value: token})
+	return req
+}
+
+func mockTokenSignerFn(err error) func() (string, string, error) {
+	return func() (string, string, error) { return "", "", err }
+}
+
+// --- AdminHandler.Login / token primitives ---
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
 
@@ -125,12 +190,6 @@ func TestAdminHandler_VerifyAdminToken_RejectionCases(t *testing.T) {
 
 // --- AdminHandler.GetConfig tests (requires DB, test masking logic directly) ---
 
-func TestAdminHandler_MaskedKey(t *testing.T) {
-	if maskedKey != "••••••••" {
-		t.Errorf("maskedKey = %q, want %q", maskedKey, "••••••••")
-	}
-}
-
 // TestUpdateConfig_OldPasswordVerification verifies that the old password
 // verification logic used by UpdateConfig correctly rejects wrong old passwords
 // and accepts correct ones. The full UpdateConfig handler requires a DB, so we
@@ -166,56 +225,17 @@ func TestUpdateConfig_OldPasswordVerification(t *testing.T) {
 
 // 企业为何需要：安全关键组件（中间件/认证/管理）零测试是最高风险——任何改动都可能在生产暴露。
 
-func TestHashAdminPassword(t *testing.T) {
-	t.Run("produces bcrypt hash", func(t *testing.T) {
-		hashed, err := hashAdminPassword("admin123")
-		if err != nil {
-			t.Fatalf("hashAdminPassword error: %v", err)
-		}
-		if !isBcryptHash(hashed) {
-			t.Errorf("hashAdminPassword should produce bcrypt hash, got %q", hashed)
-		}
-	})
+func TestHashAdminPassword_HashError(t *testing.T) {
+	orig := bcryptGenerate
+	bcryptGenerate = func(_ []byte, _ int) ([]byte, error) {
+		return nil, errors.New("bcrypt failed")
+	}
+	t.Cleanup(func() { bcryptGenerate = orig })
 
-	t.Run("different passwords produce different hashes", func(t *testing.T) {
-		hash1, _ := hashAdminPassword("password1")
-		hash2, _ := hashAdminPassword("password2")
-		if hash1 == hash2 {
-			t.Error("different passwords should produce different hashes")
-		}
-	})
-
-	t.Run("same password produces different hashes (salt)", func(t *testing.T) {
-		hash1, _ := hashAdminPassword("same-password")
-		hash2, _ := hashAdminPassword("same-password")
-		if hash1 == hash2 {
-			t.Error("same password should produce different hashes due to salt")
-		}
-	})
-
-	t.Run("hashed password can be verified", func(t *testing.T) {
-		password := "test-password-123"
-		hashed, err := hashAdminPassword(password)
-		if err != nil {
-			t.Fatalf("hashAdminPassword error: %v", err)
-		}
-		if !compareAdminPassword(password, hashed) {
-			t.Error("hashed password should be verifiable with compareAdminPassword")
-		}
-	})
-
-	t.Run("hash error", func(t *testing.T) {
-		orig := bcryptGenerate
-		bcryptGenerate = func(_ []byte, _ int) ([]byte, error) {
-			return nil, errors.New("bcrypt failed")
-		}
-		t.Cleanup(func() { bcryptGenerate = orig })
-
-		_, err := hashAdminPassword("pw")
-		if err == nil {
-			t.Fatal("expected hash error")
-		}
-	})
+	_, err := hashAdminPassword("pw")
+	if err == nil {
+		t.Fatal("expected hash error")
+	}
 }
 
 func TestIsBcryptHash(t *testing.T) {

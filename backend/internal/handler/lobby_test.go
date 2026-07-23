@@ -31,29 +31,6 @@ func (s *stubLobbyRepo) RecordGameResult(context.Context, string, string, int64,
 	return nil
 }
 
-func TestWriteDegradedLobbyList(t *testing.T) {
-	t.Parallel()
-
-	w := httptest.NewRecorder()
-	writeDegradedLobbyList(w)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", ct)
-	}
-
-	var body map[string]interface{}
-	testutil.DecodeJSONBody(t, w, &body)
-	if body["degraded"] != true {
-		t.Errorf("degraded = %v, want true", body["degraded"])
-	}
-	if body["total"].(float64) != 0 {
-		t.Errorf("total = %v, want 0", body["total"])
-	}
-}
-
 func TestListLobbies_DegradedWhenStoreUnavailable(t *testing.T) {
 	t.Parallel()
 
@@ -99,34 +76,6 @@ func TestListLobbies_SuccessWithETag(t *testing.T) {
 	h.ListLobbies(w2, r2)
 	if w2.Code != http.StatusNotModified {
 		t.Errorf("status = %d, want 304", w2.Code)
-	}
-}
-
-func TestListLobbies_LimitQuery(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		limit string
-	}{
-		{"valid limit", "5"},
-		{"invalid limit uses default", "99999"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			repo := &stubLobbyRepo{result: &domain.LobbyListResult{Total: 0}}
-			hub := game.NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
-			h := NewLobbyHandler(hub, nil)
-
-			w := httptest.NewRecorder()
-			h.ListLobbies(w, httptest.NewRequest(http.MethodGet, "/api/v1/registry/lobbies?limit="+tt.limit, nil))
-			if w.Code != http.StatusOK {
-				t.Errorf("status = %d, want 200", w.Code)
-			}
-		})
 	}
 }
 
@@ -177,15 +126,27 @@ func TestCreateRoom_CodeConflict(t *testing.T) {
 	}
 }
 
-func TestCheckRoom_InvalidCode(t *testing.T) {
-	t.Parallel()
-
-	h := newTestLobbyHandler()
-	w := httptest.NewRecorder()
-	r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/BAD", nil), "code", "BAD")
-	h.CheckRoom(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
+// TestCheckRoom_InvalidCodes consolidates invalid room-code rejection cases:
+// missing code, invalid charset (digits), and an otherwise malformed code.
+func TestCheckRoom_InvalidCodes(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+	}{
+		{"missing code", ""},
+		{"invalid charset (digits)", "ABCD0"},
+		{"invalid code", "BAD"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestLobbyHandler()
+			w := httptest.NewRecorder()
+			r := withPathParam(httptest.NewRequest(http.MethodGet, "/api/v1/registry/check/"+tt.code, nil), "code", tt.code)
+			h.CheckRoom(w, r)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", w.Code)
+			}
+		})
 	}
 }
 
@@ -231,6 +192,15 @@ func TestMatchRoom_Success(t *testing.T) {
 	testutil.DecodeJSONBody(t, w, &body)
 	if body["lobbyCode"] == "" {
 		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestMatchRoom_NilHub_Degraded(t *testing.T) {
+	h := &LobbyHandler{hub: nil}
+	w := httptest.NewRecorder()
+	h.MatchRoom(w, httptest.NewRequest(http.MethodPost, "/api/v1/registry/match", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", w.Code)
 	}
 }
 

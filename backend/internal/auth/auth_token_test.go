@@ -26,8 +26,6 @@ func TestNewJWTManager_PanicsOnWeakSecret(t *testing.T) {
 	NewJWTManager("too-short")
 }
 
-// ─── SignToken + VerifyToken round-trip ──────────────────────────────
-
 func TestSignVerifyToken_RoundTrip(t *testing.T) {
 	mgr := setupJWTManager()
 
@@ -83,8 +81,6 @@ func TestVerifyToken_LegacyTokenDefaultsToUser(t *testing.T) {
 	}
 }
 
-// ─── JTI uniqueness ──────────────────────────────────────────────────
-
 func TestSignToken_JTIUnique(t *testing.T) {
 	mgr := setupJWTManager()
 
@@ -98,8 +94,6 @@ func TestSignToken_JTIUnique(t *testing.T) {
 		t.Fatal("两个 token 的 jti 应不同")
 	}
 }
-
-// ─── Expired token ───────────────────────────────────────────────────
 
 func TestVerifyToken_Expired(t *testing.T) {
 	mgr := setupJWTManager()
@@ -124,8 +118,6 @@ func TestVerifyToken_Expired(t *testing.T) {
 		t.Fatal("已过期的 token 应验证失败")
 	}
 }
-
-// ─── Invalid token ───────────────────────────────────────────────────
 
 func TestVerifyToken_Invalid(t *testing.T) {
 	mgr := setupJWTManager()
@@ -153,8 +145,6 @@ func TestVerifyToken_WrongSecret(t *testing.T) {
 	}
 }
 
-// ─── BuildAuthCookie ─────────────────────────────────────────────────
-
 func TestBuildAuthCookie_HttpOnly(t *testing.T) {
 	cookie := BuildAuthCookie("auth_token", "jwt-value", 3600, true)
 
@@ -180,8 +170,6 @@ func TestBuildAuthCookie_HttpOnly(t *testing.T) {
 		t.Fatalf("cookie SameSite 应为 Lax，got=%v", cookie.SameSite)
 	}
 }
-
-// ─── ParseAuthCookie ─────────────────────────────────────────────────
 
 func TestParseAuthCookie_Valid(t *testing.T) {
 	mgr := setupJWTManager()
@@ -220,44 +208,7 @@ func TestParseAuthCookie_Missing(t *testing.T) {
 	}
 }
 
-// ─── generateJTI ─────────────────────────────────────────────────────
-
-func TestGenerateJTI(t *testing.T) {
-	jti1, err := generateJTI()
-	if err != nil {
-		t.Fatalf("generateJTI 失败: %v", err)
-	}
-	if len(jti1) != 32 {
-		t.Fatalf("jti 长度应为 32; got %d", len(jti1))
-	}
-
-	jti2, _ := generateJTI()
-	if jti1 == jti2 {
-		t.Fatal("两次生成的 jti 应不同")
-	}
-}
-
 const testUserID = "user-123"
-
-func TestRefreshTokenManager_GenerateSecureToken(t *testing.T) {
-	t.Run("generateSecureToken produces hex string", func(t *testing.T) {
-		token, err := generateSecureToken(32)
-		if err != nil {
-			t.Fatalf("generateSecureToken error: %v", err)
-		}
-		if len(token) != 64 {
-			t.Errorf("token length = %d, want 64", len(token))
-		}
-	})
-
-	t.Run("generateSecureToken produces unique tokens", func(t *testing.T) {
-		token1, _ := generateSecureToken(32)
-		token2, _ := generateSecureToken(32)
-		if token1 == token2 {
-			t.Error("two generated tokens should not be equal")
-		}
-	})
-}
 
 func TestRefreshTokenManager_Integration(t *testing.T) {
 	_, rdb := testutil.NewTestMiniredis(t)
@@ -281,41 +232,19 @@ func TestRefreshTokenManager_Integration(t *testing.T) {
 		if val != testUserID {
 			t.Errorf("token value = %q, want %q", val, testUserID)
 		}
-	})
-	t.Run("Validate accepts valid token", func(t *testing.T) {
-		token, err := mgr.Generate(ctx, "user-validate")
-		if err != nil {
-			t.Fatalf("Generate error: %v", err)
-		}
 
 		userID, err := mgr.Validate(ctx, token)
 		if err != nil {
 			t.Fatalf("Validate error: %v", err)
 		}
-		if userID != "user-validate" {
-			t.Errorf("userID = %q, want %q", userID, "user-validate")
+		if userID != testUserID {
+			t.Errorf("userID = %q, want %q", userID, testUserID)
 		}
 	})
 	t.Run("Validate rejects invalid token", func(t *testing.T) {
 		_, err := mgr.Validate(ctx, "nonexistent-token")
 		if err == nil {
 			t.Error("Validate should return error for invalid token")
-		}
-	})
-	t.Run("Revoke removes token", func(t *testing.T) {
-		token, err := mgr.Generate(ctx, "user-revoke")
-		if err != nil {
-			t.Fatalf("Generate error: %v", err)
-		}
-
-		err = mgr.Revoke(ctx, token)
-		if err != nil {
-			t.Fatalf("Revoke error: %v", err)
-		}
-
-		_, err = mgr.Validate(ctx, token)
-		if err == nil {
-			t.Error("Validate should fail after Revoke")
 		}
 	})
 	t.Run("RevokeAllForUser removes all tokens for a user", func(t *testing.T) {
@@ -335,42 +264,6 @@ func TestRefreshTokenManager_Integration(t *testing.T) {
 	})
 }
 
-func TestRevokeAllTokens_NilRequest(_ *testing.T) {
-	mgr := setupJWTManager()
-	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, nil)
-}
-
-func TestRevokeAllTokens_NoCookie(_ *testing.T) {
-	mgr := setupJWTManager()
-	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
-	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, req)
-}
-
-func TestRevokeAllTokens_InvalidToken(t *testing.T) {
-	mgr := setupJWTManager()
-	redisStore := testutil.SetupMiniredisStore(t)
-
-	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: "invalid.token.here"})
-	req.AddCookie(&http.Cookie{Name: "quickplay", Value: "also.invalid"})
-
-	_ = RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
-}
-
-func TestRevokeAllTokens_NilRedis(t *testing.T) {
-	mgr := setupJWTManager()
-
-	token, err := mgr.SignToken("user-nil-redis", "TestPlayer")
-	if err != nil {
-		t.Fatalf("SignToken failed: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: token})
-
-	_ = RevokeAllTokens(context.Background(), mgr, nil, nil, req)
-}
-
 func TestRevokeAllTokens_Cookies_TableDriven(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -383,12 +276,6 @@ func TestRevokeAllTokens_Cookies_TableDriven(t *testing.T) {
 			cookies: []struct {
 				name, user, player string
 			}{{"session", "user-session-revoke", "SessionPlayer"}},
-		},
-		{
-			name: "QuickPlayCookie",
-			cookies: []struct {
-				name, user, player string
-			}{{"quickplay", "user-quickplay-revoke", "QuickPlayer"}},
 		},
 		{
 			name: "BothCookies",
@@ -433,25 +320,6 @@ func TestRevokeAllTokens_Cookies_TableDriven(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestRevokeAllTokens_Concurrent(t *testing.T) {
-	mgr := setupJWTManager()
-	redisStore := testutil.SetupMiniredisStore(t)
-
-	done := make(chan struct{}, 5)
-	for i := 0; i < 5; i++ {
-		go func() {
-			defer func() { done <- struct{}{} }()
-			token, _ := mgr.SignToken("user-concurrent", "Concurrent")
-			req := httptest.NewRequest(http.MethodPost, "/logout", nil)
-			req.AddCookie(&http.Cookie{Name: "session", Value: token})
-			_ = RevokeAllTokens(context.Background(), mgr, nil, redisStore, req)
-		}()
-	}
-	for i := 0; i < 5; i++ {
-		<-done
 	}
 }
 

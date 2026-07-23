@@ -1,3 +1,4 @@
+// Package config holds application-wide configuration constants.
 package config
 
 import (
@@ -11,7 +12,42 @@ import (
 	"time"
 )
 
-// Env holds server environment configuration loaded from process env.
+const AccessTokenTTL = 15 * time.Minute
+const RefreshTokenTTL = 7 * 24 * time.Hour
+const MagicLinkTTL = 10 * time.Minute
+const AdminTokenTTL = 30 * time.Minute
+const WSReadLimit = 4096
+const WSChannelBuffer = 64
+const MessageWindowMs = 60_000
+const DefaultPageSize = 50
+const MaxPageSize = 100
+const CookieMaxAge = 900
+const MaxWSConnections = 1000
+
+// MaxPlayersPerRoom limits how many players can join a single room (misc-026).
+// It is lower than protocol.MaxPlayers (100) to ensure playability and performance.
+const MaxPlayersPerRoom = 50
+
+const RoomCodeLen = 5
+const MagicLinkTokenLen = 64
+const BcryptMaxLen = 72
+const DefaultPort = "8080"
+const ServerReadTimeout = 15 * time.Second
+const ServerWriteTimeout = 15 * time.Second
+const ServerIdleTimeout = 60 * time.Second
+const ShutdownTimeout = 30 * time.Second
+const CleanupInterval = 60 * time.Second
+const MetricsInterval = 15 * time.Second
+const StaticCacheMaxAge = 86400
+
+// JWTIssuer is the issuer claim set on JWTs (auth-002).
+const JWTIssuer = "balloon-game"
+
+// JWTAudience is the audience claim set on JWTs (auth-002).
+const JWTAudience = "balloon-game-users"
+
+const EnvProduction = "production"
+
 type Env struct {
 	JWTPrivateKey      string
 	JWTPublicKey       string
@@ -38,7 +74,6 @@ type Env struct {
 	MaxPlayersPerRoom  int
 	MetricsUser        string
 	MetricsPassword    string
-	// Telemetry (OpenTelemetry tracing pipeline)
 	OTLPEndpoint    string
 	OTLPInsecure    bool
 	OTELSampleRatio float64
@@ -50,7 +85,6 @@ type Env struct {
 	EnableEmbeddedWorkers bool
 }
 
-// Load reads configuration from environment variables.
 func Load() *Env {
 	return &Env{
 		JWTPrivateKey:         os.Getenv("JWT_PRIVATE_KEY"),
@@ -86,12 +120,10 @@ func Load() *Env {
 	}
 }
 
-// IsProduction returns true when the environment is set to production.
 func (e *Env) IsProduction() bool {
 	return e.Environment == EnvProduction
 }
 
-// Validate returns an error listing all missing or invalid required fields.
 func (e *Env) Validate() error {
 	var missing []string
 
@@ -159,7 +191,7 @@ func validateTrustedProxyCIDRs(raw string) error {
 	return nil
 }
 
-// GetRedisStatefulURL returns the Redis URL for stateful data (room registry, auth tokens).
+// GetRedisStatefulURL returns the Redis URL for stateful data.
 // When REDIS_REGIONAL_URL is set (Phase 3 multi-region), it takes precedence for stateful data.
 func (e *Env) GetRedisStatefulURL() string {
 	if e.RedisRegionURL != "" {
@@ -168,8 +200,7 @@ func (e *Env) GetRedisStatefulURL() string {
 	return e.RedisURL
 }
 
-// GetRedisEphemeralURL returns the Redis URL for ephemeral data (rate limiting, cache).
-// When REDIS_EPHEMERAL_URL is unset, falls back to the stateful URL (single-instance mode).
+// GetRedisEphemeralURL falls back to the stateful URL (single-instance mode) when REDIS_EPHEMERAL_URL is unset.
 func (e *Env) GetRedisEphemeralURL() string {
 	if e.RedisEphemeralURL != "" {
 		return e.RedisEphemeralURL
@@ -177,7 +208,6 @@ func (e *Env) GetRedisEphemeralURL() string {
 	return e.GetRedisStatefulURL()
 }
 
-// GetRedisPubSubURL returns the Redis Pub/Sub URL, defaulting to the stateful Redis URL when empty.
 func (e *Env) GetRedisPubSubURL() string {
 	if e.RedisPubSubURL != "" {
 		return e.RedisPubSubURL
@@ -185,7 +215,6 @@ func (e *Env) GetRedisPubSubURL() string {
 	return e.GetRedisStatefulURL()
 }
 
-// GetAdminJWTPrivateKey returns ADMIN_JWT_PRIVATE_KEY or falls back to JWT_PRIVATE_KEY.
 func (e *Env) GetAdminJWTPrivateKey() string {
 	if e.AdminJWTPrivateKey != "" {
 		return e.AdminJWTPrivateKey
@@ -196,9 +225,9 @@ func (e *Env) GetAdminJWTPrivateKey() string {
 	return e.JWTPrivateKey
 }
 
-// AuditSecretOrJWT returns AUDIT_SECRET or falls back to JWT_PRIVATE_KEY.
-// In production, AUDIT_SECRET must be explicitly set - the fallback to JWTPrivateKey
-// compromises audit integrity since a single key leak breaks both auth and audit.
+// AuditSecretOrJWT falls back to JWT_PRIVATE_KEY, but in production AUDIT_SECRET must be
+// explicitly set - the fallback compromises audit integrity since a single key leak
+// breaks both auth and audit.
 func (e *Env) AuditSecretOrJWT() string {
 	if e.AuditSecret != "" {
 		return e.AuditSecret
@@ -209,7 +238,6 @@ func (e *Env) AuditSecretOrJWT() string {
 	return e.JWTPrivateKey
 }
 
-// GetEnv returns the environment variable value or a default.
 func GetEnv(key, defaultVal string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
@@ -217,7 +245,6 @@ func GetEnv(key, defaultVal string) string {
 	return defaultVal
 }
 
-// GetEnvInt returns the environment variable value as int, or a default.
 func GetEnvInt(key string, defaultVal int) int {
 	val := os.Getenv(key)
 	if val == "" {
@@ -230,7 +257,6 @@ func GetEnvInt(key string, defaultVal int) int {
 	return n
 }
 
-// GetEnvIntPositive returns GetEnvInt but falls back to defaultVal when the value is <= 0.
 func GetEnvIntPositive(key string, defaultVal int) int {
 	n := GetEnvInt(key, defaultVal)
 	if n <= 0 {
@@ -239,13 +265,8 @@ func GetEnvIntPositive(key string, defaultVal int) int {
 	return n
 }
 
-// GetEnvDuration returns the environment variable value as duration, or a default.
-//
-// Accepted formats (unified behavior, see v2-R-38):
-//   - Go duration string with unit suffix (e.g. "5s", "1m", "500ms") via time.ParseDuration.
-//   - Plain integer interpreted as seconds (e.g. "10" → 10*time.Second) for backwards
-//     compatibility with operators that historically supplied bare seconds.
-//
+// GetEnvDuration accepts Go duration strings ("5s", "1m", "500ms") via time.ParseDuration,
+// or plain integers interpreted as seconds for backwards compatibility (v2-R-38).
 // Non-positive durations and parse failures fall back to defaultVal.
 func GetEnvDuration(key string, defaultVal time.Duration) time.Duration {
 	v := os.Getenv(key)
@@ -291,7 +312,6 @@ func validateDatabaseURLSSLModes(dbURL string) error {
 	return nil
 }
 
-// getEnvFloat64 reads a float64 from an env var, returning defaultVal when unset or invalid.
 func getEnvFloat64(key string, defaultVal float64) float64 {
 	if v := os.Getenv(key); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
@@ -299,4 +319,91 @@ func getEnvFloat64(key string, defaultVal float64) float64 {
 		}
 	}
 	return defaultVal
+}
+
+type RedisConn struct {
+	Addr     string
+	Password string
+	DB       int // misc-022: Redis database number from URL path (e.g., redis://host:6379/2)
+}
+
+// ParseRedisURL accepts host:port or redis://[:password@]host:port[/db].
+func ParseRedisURL(raw string) (RedisConn, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return RedisConn{}, fmt.Errorf("REDIS_URL is empty")
+	}
+	if !strings.HasPrefix(raw, "redis://") && !strings.HasPrefix(raw, "rediss://") {
+		return RedisConn{Addr: raw}, nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return RedisConn{}, fmt.Errorf("parse REDIS_URL: %w", err)
+	}
+	if u.Host == "" {
+		return RedisConn{}, fmt.Errorf("parse REDIS_URL: missing host")
+	}
+	conn := RedisConn{Addr: u.Host}
+	if u.User != nil {
+		conn.Password, _ = u.User.Password()
+	}
+	// misc-022: Parse the DB number from the URL path (e.g., "/2" → DB=2).
+	// Previously silently ignored, causing unexpected default-DB usage.
+	if u.Path != "" && u.Path != "/" {
+		dbStr := strings.TrimPrefix(u.Path, "/")
+		db, err := strconv.Atoi(dbStr)
+		if err != nil || db < 0 {
+			return RedisConn{}, fmt.Errorf("parse REDIS_URL: invalid DB number %q", dbStr)
+		}
+		conn.DB = db
+	}
+	return conn, nil
+}
+
+// TimeoutConfig holds timeout durations for various operations.
+//
+// Enterprise rationale: Hardcoded timeouts cannot be tuned for different
+// environments (dev vs staging vs prod). Connection, read, and request
+// timeouts serve different purposes and must be independently configurable:
+// - Connect timeout: TCP handshake time (network RTT)
+// - Read timeout: waiting for first byte of response (server processing)
+// - Request timeout: total time including retries (user-facing SLA)
+// Trade-off: More config = more complexity, but the alternative is
+// redeploying to change a timeout value.
+type TimeoutConfig struct {
+	PGConnectTimeout time.Duration
+	PGQueryTimeout   time.Duration
+	PGRequestTimeout time.Duration
+
+	RedisConnectTimeout time.Duration
+	RedisReadTimeout    time.Duration
+	RedisWriteTimeout   time.Duration
+
+	HTTPConnectTimeout time.Duration
+	HTTPRequestTimeout time.Duration
+
+	WSWriteTimeout   time.Duration
+	WSPongTimeout    time.Duration
+	WSPingInterval   time.Duration
+	WSHandlerTimeout time.Duration
+}
+
+func DefaultTimeoutConfig() TimeoutConfig {
+	return TimeoutConfig{
+		PGConnectTimeout: GetEnvDuration("PG_CONNECT_TIMEOUT", 5*time.Second),
+		PGQueryTimeout:   GetEnvDuration("PG_QUERY_TIMEOUT", 10*time.Second),
+		PGRequestTimeout: GetEnvDuration("PG_REQUEST_TIMEOUT", 30*time.Second),
+
+		RedisConnectTimeout: GetEnvDuration("REDIS_CONNECT_TIMEOUT", 3*time.Second),
+		RedisReadTimeout:    GetEnvDuration("REDIS_READ_TIMEOUT", 3*time.Second),
+		RedisWriteTimeout:   GetEnvDuration("REDIS_WRITE_TIMEOUT", 3*time.Second),
+
+		HTTPConnectTimeout: GetEnvDuration("HTTP_CONNECT_TIMEOUT", 5*time.Second),
+		HTTPRequestTimeout: GetEnvDuration("HTTP_REQUEST_TIMEOUT", 10*time.Second),
+
+		WSWriteTimeout:   GetEnvDuration("WS_WRITE_TIMEOUT", 10*time.Second),
+		WSPongTimeout:    GetEnvDuration("WS_PONG_TIMEOUT", 60*time.Second),
+		WSPingInterval:   GetEnvDuration("WS_PING_INTERVAL", 30*time.Second),
+		WSHandlerTimeout: GetEnvDuration("WS_HANDLER_TIMEOUT", 2*time.Hour),
+	}
 }

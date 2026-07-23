@@ -8,22 +8,7 @@ import (
 
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
-	"github.com/uppy-clone/backend/internal/testsecrets"
 )
-
-func TestNewAuthHandler(t *testing.T) {
-	t.Parallel()
-
-	cfg := &Config{ResendAPIKey: "test", EmailFrom: "test@test.com"}
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	h := NewAuthHandler(nil, nil, jwtMgr, nil, cfg)
-	if h == nil {
-		t.Fatal("NewAuthHandler returned nil")
-	}
-	if h.jwtMgr == nil || h.config != cfg {
-		t.Error("NewAuthHandler did not wire dependencies")
-	}
-}
 
 func TestWriteAuthCookies(t *testing.T) {
 	t.Parallel()

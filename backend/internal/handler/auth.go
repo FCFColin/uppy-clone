@@ -16,8 +16,6 @@ import (
 	"github.com/uppy-clone/backend/internal/domain"
 )
 
-// ─── AuthHandler ─────────────────────────────────────────────────────
-
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
 	db         auth.UserDB
@@ -37,8 +35,6 @@ func NewAuthHandler(db auth.UserDB, redis auth.TokenStore, jwtMgr *auth.JWTManag
 		config:     config,
 	}
 }
-
-// ─── Utilities & Cookie Helpers ──────────────────────────────────────
 
 const defaultMaxBodyBytes = 1 << 20 // 1 MB
 
@@ -104,8 +100,6 @@ func parseQuickPlayRequest(w http.ResponseWriter, r *http.Request) (string, *dom
 	}
 	return nickname, nil
 }
-
-// ─── Session Check & Refresh ─────────────────────────────────────────
 
 func writeAuthCheckResponse(w http.ResponseWriter, userId, nickname, email string, degraded bool) {
 	body := map[string]interface{}{
@@ -186,8 +180,6 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"refreshed": true})
 }
 
-// ─── QuickPlay ───────────────────────────────────────────────────────
-
 // QuickPlay handles POST /api/v1/auth/quickplay
 func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
 	nickname, apiErr := parseQuickPlayRequest(w, r)
@@ -218,8 +210,6 @@ func (h *AuthHandler) QuickPlay(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{jsonUserID: resp.UserID})
 }
-
-// ─── Logout ──────────────────────────────────────────────────────────
 
 // Logout handles POST /api/v1/auth/logout
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -253,8 +243,6 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessage: "Logged out"})
 }
-
-// ─── GDPR Data Export & Delete ───────────────────────────────────────
 
 // ExportUserData handles GET /api/v1/user/data
 func (h *AuthHandler) ExportUserData(w http.ResponseWriter, r *http.Request) {

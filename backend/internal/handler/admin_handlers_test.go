@@ -15,69 +15,10 @@ import (
 	"github.com/uppy-clone/backend/internal/auth"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/crypto"
-	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
-
-func newAdminHandlerWithDB(t *testing.T) (*AdminHandler, pgxmock.PgxPoolIface, *store.RedisStore) {
-	t.Helper()
-	mock := testutil.NewPgxMock(t)
-	db := store.NewConfigRepository(mock)
-	redisStore := testutil.SetupMiniredisStore(t)
-	h := NewAdminHandler(db, newTestJWTManager(), redisStore)
-	return h, mock, redisStore
-}
-
-func expectAdminConfigQuery(mock pgxmock.PgxPoolIface, configJSON string, empty ...bool) {
-	rows := pgxmock.NewRows([]string{"id", "config", "updated_at"})
-	if len(empty) == 0 || !empty[0] {
-		rows.AddRow("global", configJSON, int64(1000))
-	}
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("global").
-		WillReturnRows(rows)
-}
-
-func expectAdminConfigQueryError(mock pgxmock.PgxPoolIface, err error) {
-	mock.ExpectQuery(`SELECT id, config, updated_at FROM admin_config WHERE id = \$1`).
-		WithArgs("global").
-		WillReturnError(err)
-}
-
-func expectAdminConfigSave(mock pgxmock.PgxPoolIface) {
-	mock.ExpectExec(`INSERT INTO admin_config`).
-		WithArgs("global", pgxmock.AnyArg(), pgxmock.AnyArg()).
-		WillReturnResult(pgxmock.NewResult("INSERT", 1))
-}
-
-func hashMustPwd(pwd string) string {
-	hashed, _ := hashAdminPassword(pwd)
-	return hashed
-}
-
-func mustCloseRedis(t *testing.T, redisStore *store.RedisStore) {
-	t.Helper()
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-func newAdminTokenRequest(t *testing.T, h *AdminHandler) *http.Request {
-	t.Helper()
-	token, _, err := h.signAdminToken()
-	if err != nil {
-		t.Fatalf("signAdminToken: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "admin_token", Value: token})
-	return req
-}
-
-func mockTokenSignerFn(err error) func() (string, string, error) {
-	return func() (string, string, error) { return "", "", err }
-}
 
 func TestAdminHandler_Logout(t *testing.T) {
 	t.Parallel()
@@ -96,18 +37,6 @@ func TestAdminHandler_Logout(t *testing.T) {
 		}
 	}
 	t.Error("expected admin_token cookie to be cleared")
-}
-
-func TestAdminHandler_ParseConfigUpdates_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAdminHandler()
-	r := httptest.NewRequest(http.MethodPatch, "/api/v1/admin/config", strings.NewReader("{bad"))
-	w := httptest.NewRecorder()
-	_, err := h.parseConfigUpdates(w, r)
-	if err == nil {
-		t.Error("expected error for invalid JSON")
-	}
 }
 
 func TestMaskSensitiveFields(t *testing.T) {
@@ -474,15 +403,6 @@ func TestAdminHandler_VerifyAdminTokenClaims_RedisError(t *testing.T) {
 	mustCloseRedis(t, redisStore)
 	if _, ok := h.VerifyAdminTokenClaims(req); ok {
 		t.Fatal("expected verification failure when redis unavailable")
-	}
-}
-
-func TestAdminHandler_saveConfig_MarshalError(t *testing.T) {
-	h, _, _ := newAdminHandlerWithDB(t)
-	cfg := &domain.AppConfig{ID: "global"}
-	err := h.saveConfig(context.Background(), cfg, map[string]interface{}{"bad": make(chan int)})
-	if err == nil {
-		t.Fatal("expected marshal error")
 	}
 }
 

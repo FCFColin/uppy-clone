@@ -3,9 +3,12 @@ package domain
 import (
 	"context"
 	"encoding/json"
-	"reflect"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 var _testValidator = func(s string) string { return s }
@@ -49,134 +52,221 @@ func TestNewNickname_TruncatesToTwelveRunes(t *testing.T) {
 	}
 }
 
-func TestNewRoomCode_Valid(t *testing.T) {
-	code, err := NewRoomCode("ABCD2")
-	if err != nil {
-		t.Fatalf("NewRoomCode: %v", err)
-	}
-	if code.String() != "ABCD2" {
-		t.Errorf("got %q", code.String())
-	}
-}
+// --- Role context helpers ---
 
-func TestNewRoomCode_InvalidLength(t *testing.T) {
-	if _, err := NewRoomCode("ABC"); err == nil {
-		t.Fatal("expected length error")
-	}
-}
-
-func TestNewRoomCode_InvalidChar(t *testing.T) {
-	if _, err := NewRoomCode("ABCD0"); err == nil {
-		t.Fatal("expected invalid char error for 0")
-	}
-}
-
-func TestContextKey_WithValue(t *testing.T) {
-	ctx := context.Background()
-	ctx = ContextKeyUserID.WithValue(ctx, "user123")
-	val, ok := ContextKeyUserID.Value(ctx)
+func TestWithRole_InjectsRole(t *testing.T) {
+	t.Parallel()
+	ctx := WithRole(context.Background(), RoleAdmin)
+	role, ok := RoleFromContext(ctx)
 	if !ok {
-		t.Error("Value should return ok=true for set key")
+		t.Fatal("RoleFromContext should return ok=true after WithRole")
 	}
-	if val != "user123" {
-		t.Errorf("Value = %q, want %q", val, "user123")
+	if role != RoleAdmin {
+		t.Fatalf("role = %q, want %q", role, RoleAdmin)
 	}
 }
 
-func TestContextKey_Value_NotFound(t *testing.T) {
-	ctx := context.Background()
-	_, ok := ContextKeyUserID.Value(ctx)
+func TestRoleFromContext_EmptyContext(t *testing.T) {
+	t.Parallel()
+	role, ok := RoleFromContext(context.Background())
 	if ok {
-		t.Error("Value should return ok=false for unset key")
+		t.Fatal("RoleFromContext should return ok=false on empty context")
+	}
+	if role != "" {
+		t.Fatalf("role = %q, want empty", role)
 	}
 }
 
-func TestContextKey_WrongType(t *testing.T) {
-	ctx := context.WithValue(context.Background(), ContextKeyUserID, 42)
-	_, ok := ContextKeyUserID.Value(ctx)
-	if ok {
-		t.Error("Value should return ok=false for wrong value type")
+func TestWithRole_OverridesPreviousRole(t *testing.T) {
+	t.Parallel()
+	ctx := WithRole(context.Background(), RoleUser)
+	ctx = WithRole(ctx, RoleAdmin)
+	role, _ := RoleFromContext(ctx)
+	if role != RoleAdmin {
+		t.Fatalf("role = %q, want %q", role, RoleAdmin)
 	}
 }
 
-func TestContextKey_MultipleKeys(t *testing.T) {
-	ctx := context.Background()
-	ctx = ContextKeyUserID.WithValue(ctx, "u1")
-	ctx = ContextKeyNickname.WithValue(ctx, "nick1")
-	ctx = ContextKeyRole.WithValue(ctx, "admin")
-	ctx = ContextKeyJTI.WithValue(ctx, "jti1")
+func TestWithRole_PreservesOtherContextValues(t *testing.T) {
+	t.Parallel()
+	ctx := ContextKeyUserID.WithValue(context.Background(), "user-1")
+	ctx = WithRole(ctx, RoleUser)
 
-	val, ok := ContextKeyUserID.Value(ctx)
-	if !ok || val != "u1" {
-		t.Errorf("ContextKeyUserID = %q, ok=%v", val, ok)
+	userID, ok := ContextKeyUserID.Value(ctx)
+	if !ok || userID != "user-1" {
+		t.Fatalf("userID lost after WithRole: %q (ok=%v)", userID, ok)
 	}
-	val, ok = ContextKeyNickname.Value(ctx)
-	if !ok || val != "nick1" {
-		t.Errorf("ContextKeyNickname = %q, ok=%v", val, ok)
-	}
-	val, ok = ContextKeyRole.Value(ctx)
-	if !ok || val != "admin" {
-		t.Errorf("ContextKeyRole = %q, ok=%v", val, ok)
-	}
-	val, ok = ContextKeyJTI.Value(ctx)
-	if !ok || val != "jti1" {
-		t.Errorf("ContextKeyJTI = %q, ok=%v", val, ok)
+	role, ok := RoleFromContext(ctx)
+	if !ok || role != RoleUser {
+		t.Fatalf("role = %q (ok=%v)", role, ok)
 	}
 }
 
-func TestUnmarshalRoomRegistryInfo(t *testing.T) {
-	data := []byte(`{"code":"ABCD2","instance":"i1","address":"addr","created_at":1000}`)
-	info, err := UnmarshalRoomRegistryInfo(data)
-	if err != nil {
-		t.Fatalf("UnmarshalRoomRegistryInfo: %v", err)
+// --- ProblemDetails / RFC7807 ---
+
+func TestProblemDetails_Constructors(t *testing.T) {
+	tests := []struct {
+		name   string
+		pd     *ProblemDetails
+		status int
+		title  string
+	}{
+		{"BadRequest", BadRequest("bad"), http.StatusBadRequest, "Bad Request"},
+		{"Unauthorized", Unauthorized("no auth"), http.StatusUnauthorized, "Unauthorized"},
+		{"Forbidden", Forbidden("denied"), http.StatusForbidden, "Forbidden"},
+		{"NotFound", NotFound("missing"), http.StatusNotFound, "Not Found"},
+		{"Conflict", Conflict("dup"), http.StatusConflict, "Conflict"},
+		{"UnprocessableEntity", UnprocessableEntity("invalid"), http.StatusUnprocessableEntity, "Unprocessable Entity"},
+		{"TooManyRequests", TooManyRequests("slow down"), http.StatusTooManyRequests, "Too Many Requests"},
+		{"InternalError", InternalError("boom"), http.StatusInternalServerError, "Internal Server Error"},
 	}
-	if info.Code != "ABCD2" {
-		t.Errorf("Code = %q, want %q", info.Code, "ABCD2")
-	}
-	if info.Instance != "i1" {
-		t.Errorf("Instance = %q, want %q", info.Instance, "i1")
-	}
-	if info.Address != "addr" {
-		t.Errorf("Address = %q, want %q", info.Address, "addr")
-	}
-	if info.CreatedAt != 1000 {
-		t.Errorf("CreatedAt = %d, want %d", info.CreatedAt, 1000)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.pd.Status != tt.status || tt.pd.Title != tt.title {
+				t.Fatalf("status/title mismatch: %+v", tt.pd)
+			}
+			wantType := fmt.Sprintf("https://httpstatuses.com/%d", tt.status)
+			if tt.pd.Type != wantType {
+				t.Errorf("type = %q, want %q", tt.pd.Type, wantType)
+			}
+		})
 	}
 }
 
-func TestUnmarshalRoomRegistryInfo_InvalidJSON(t *testing.T) {
-	_, err := UnmarshalRoomRegistryInfo([]byte(`{invalid}`))
-	if err == nil {
-		t.Error("expected error for invalid JSON")
+func TestProblemDetails_Write(t *testing.T) {
+	// Adversarial: malformed client must receive RFC7807 JSON, not HTML error page.
+	pd := New(http.StatusForbidden, "Forbidden", "X-User-Role header spoofing denied")
+	rec := httptest.NewRecorder()
+	pd.Write(rec)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	var got ProblemDetails
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Detail != pd.Detail || got.Status != pd.Status {
+		t.Errorf("body mismatch: %+v", got)
 	}
 }
 
-func TestGameState_SerializeDeserialize(t *testing.T) {
-	original := &GameState{
-		Players: map[string]*PlayerState{
-			"p1": {ID: "p1", ScoreContribution: 100},
-		},
-		Phase: PhasePlaying,
+// --- PlayerState / GameState behavior ---
+
+func TestPlayerCanTap(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UnixMilli()
+
+	t.Run("can tap when cooldown expired", func(t *testing.T) {
+		p := &PlayerState{CooldownEndTime: now - 1}
+		if !p.CanTap(now) {
+			t.Error("CanTap should return true when cooldown has expired")
+		}
+	})
+
+	t.Run("cannot tap during cooldown", func(t *testing.T) {
+		p := &PlayerState{CooldownEndTime: now + 10000}
+		if p.CanTap(now) {
+			t.Error("CanTap should return false during cooldown")
+		}
+	})
+
+	t.Run("can tap when cooldown equals now", func(t *testing.T) {
+		p := &PlayerState{CooldownEndTime: now}
+		if !p.CanTap(now) {
+			t.Error("CanTap should return true when cooldown equals now")
+		}
+	})
+
+	t.Run("can tap with zero cooldown", func(t *testing.T) {
+		p := &PlayerState{CooldownEndTime: 0}
+		if !p.CanTap(now) {
+			t.Error("CanTap should return true with zero cooldown")
+		}
+	})
+}
+
+func TestPlayerRecordTap(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UnixMilli()
+
+	p := &PlayerState{CooldownEndTime: 0, TapsCount: 0, ScoreContribution: 0}
+	p.RecordTap(now, 5000)
+
+	if p.CooldownEndTime != now+5000 {
+		t.Errorf("CooldownEndTime = %d, want %d", p.CooldownEndTime, now+5000)
 	}
-	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+	if p.TapsCount != 1 {
+		t.Errorf("TapsCount = %d, want 1", p.TapsCount)
 	}
-	var restored GameState
-	if err := json.Unmarshal(data, &restored); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if restored.Phase != original.Phase {
-		t.Errorf("Phase mismatch: %v vs %v", restored.Phase, original.Phase)
-	}
-	if !reflect.DeepEqual(restored.Players["p1"], original.Players["p1"]) {
-		t.Errorf("Players mismatch: %+v vs %+v", restored.Players["p1"], original.Players["p1"])
+	if p.ScoreContribution != 1 {
+		t.Errorf("ScoreContribution = %d, want 1", p.ScoreContribution)
 	}
 }
 
-func TestGameState_BadJSON(t *testing.T) {
-	var gs GameState
-	if err := json.Unmarshal([]byte(`{bad json}`), &gs); err == nil {
-		t.Error("expected unmarshal error")
+func TestPlayerRecordTap_Multiple(t *testing.T) {
+	t.Parallel()
+	p := &PlayerState{}
+	for i := 0; i < 5; i++ {
+		p.RecordTap(1000, 100)
 	}
+	if p.TapsCount != 5 {
+		t.Errorf("TapsCount = %d, want 5", p.TapsCount)
+	}
+	if p.ScoreContribution != 5 {
+		t.Errorf("ScoreContribution = %d, want 5", p.ScoreContribution)
+	}
+}
+
+func TestPlayerMarkDisconnected(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UnixMilli()
+
+	p := &PlayerState{Disconnected: false, DisconnectedAt: nil}
+	p.MarkDisconnected(now)
+
+	if !p.Disconnected {
+		t.Error("Disconnected should be true after MarkDisconnected")
+	}
+	if p.DisconnectedAt == nil {
+		t.Fatal("DisconnectedAt should not be nil")
+	}
+	if *p.DisconnectedAt != now {
+		t.Errorf("DisconnectedAt = %d, want %d", *p.DisconnectedAt, now)
+	}
+}
+
+func TestGameStateIsGameOver(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ended phase returns true", func(t *testing.T) {
+		gs := &GameState{Phase: PhaseEnded}
+		if !gs.IsGameOver() {
+			t.Error("IsGameOver should return true for PhaseEnded")
+		}
+	})
+
+	t.Run("waiting phase returns false", func(t *testing.T) {
+		gs := &GameState{Phase: PhaseWaiting}
+		if gs.IsGameOver() {
+			t.Error("IsGameOver should return false for PhaseWaiting")
+		}
+	})
+
+	t.Run("countdown phase returns false", func(t *testing.T) {
+		gs := &GameState{Phase: PhaseCountdown}
+		if gs.IsGameOver() {
+			t.Error("IsGameOver should return false for PhaseCountdown")
+		}
+	})
+
+	t.Run("playing phase returns false", func(t *testing.T) {
+		gs := &GameState{Phase: PhasePlaying}
+		if gs.IsGameOver() {
+			t.Error("IsGameOver should return false for PhasePlaying")
+		}
+	})
 }

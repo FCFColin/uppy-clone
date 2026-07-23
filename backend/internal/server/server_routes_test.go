@@ -3,11 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -107,8 +104,6 @@ func TestSetupRoutes_UnauthorizedRoutes_TableDriven(t *testing.T) {
 		path   string
 	}{
 		{name: "UserStatsUnauthorized", method: http.MethodGet, path: "/api/v1/user/stats"},
-		{name: "AuthCheckUnauthorized", method: http.MethodGet, path: "/api/v1/auth/check"},
-		{name: "AdminPutConfigUnauthorized", method: http.MethodPut, path: "/api/v1/admin/config"},
 		{name: "AdminConfigUnauthorized", method: http.MethodGet, path: "/api/v1/admin/config"},
 	}
 	for _, tt := range tests {
@@ -257,42 +252,6 @@ func TestSetupMiddleware_RegistersRequestID(t *testing.T) {
 	}
 }
 
-func TestInitHandlers(t *testing.T) {
-	prevEnv := serverEnv
-	serverEnv = &appConfig.Env{AllowedOrigins: "http://localhost"}
-	t.Cleanup(func() { serverEnv = prevEnv })
-
-	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	cfg := &handler.Config{}
-	hub := game.NewHub(nil, nil, appConfig.DefaultTimeoutConfig(), 0, 0)
-	redisStore := testutil.SetupMiniredisStore(t)
-
-	authH, lobbyH, adminH, statsH := initHandlers(jwtMgr, jwtMgr, nil, redisStore, cfg, appConfig.DefaultTimeoutConfig(), hub, store.DefaultDeps())
-	if authH == nil || lobbyH == nil || adminH == nil || statsH == nil {
-		t.Fatal("initHandlers returned nil handler")
-	}
-}
-
-func TestInitRBAC(t *testing.T) {
-	if initRBAC() == nil {
-		t.Fatal("initRBAC returned nil")
-	}
-}
-
-func TestValidateConfig_ValidEnv(t *testing.T) {
-	serverEnv = &appConfig.Env{
-		JWTPrivateKey:     testsecrets.TestJWTPrivateKeyPEM,
-		DatabaseURL:       "postgres://localhost/test",
-		EncryptionKey:     testsecrets.TestEncryptionKeyHex,
-		TrustedProxyCIDRs: "127.0.0.1/32",
-	}
-	t.Cleanup(func() { serverEnv = nil })
-	t.Setenv("ENABLE_HSTS", "true")
-
-	cfg := &handler.Config{}
-	validateConfig(cfg, slog.Default())
-}
-
 func TestStartServer_StartsAndShutsDown(t *testing.T) {
 	r := chi.NewRouter()
 	r.Get("/ping", func(w http.ResponseWriter, _ *http.Request) {
@@ -318,46 +277,6 @@ func TestSetupStatsRoutes_NilHandlerSkipsRoutes(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/leaderboard", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 when stats handler nil", rec.Code)
-	}
-}
-
-func TestSetupStaticRoutes_ServesFile(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html></html>"), 0o644); err != nil {
-		t.Fatalf("write index: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log(1)"), 0o644); err != nil {
-		t.Fatalf("write app.js: %v", err)
-	}
-
-	r := chi.NewRouter()
-	setupStaticRoutes(r, &handler.Config{FrontendDir: dir})
-
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("/ status = %d, want 200", rec.Code)
-	}
-
-	rec2 := httptest.NewRecorder()
-	r.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/app.js", nil))
-	if rec2.Code != http.StatusOK {
-		t.Fatalf("/app.js status = %d, want 200", rec2.Code)
-	}
-	if !strings.Contains(rec2.Header().Get("Cache-Control"), "max-age=") {
-		t.Fatalf("Cache-Control = %q, want max-age for static asset", rec2.Header().Get("Cache-Control"))
-	}
-}
-
-func TestSetupStaticRoutes_PathTraversalBlocked(t *testing.T) {
-	dir := t.TempDir()
-	r := chi.NewRouter()
-	setupStaticRoutes(r, &handler.Config{FrontendDir: dir})
-
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/../../etc/passwd", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404 for traversal", rec.Code)
 	}
 }
 

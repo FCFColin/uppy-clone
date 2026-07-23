@@ -18,8 +18,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// ─── Admin Login ────────────────────────────────────────────────────
-
 // maxFailedLoginAttempts is the threshold at which an IP is locked out.
 const maxFailedLoginAttempts = 5
 
@@ -145,8 +143,6 @@ func (h *AdminHandler) handleFailedLogin(ctx context.Context, clientIP, account 
 	})
 }
 
-// ─── Admin Password Hashing & Audit ─────────────────────────────────
-
 // bcryptGenerate is replaceable in unit tests to simulate hashing failures.
 var bcryptGenerate = bcrypt.GenerateFromPassword
 
@@ -191,8 +187,6 @@ func AuditPasswordChange(ctx context.Context, actorIP string) {
 		RequestID: middleware.GetRequestID(ctx),
 	})
 }
-
-// ─── Admin Config Get / Update ──────────────────────────────────────
 
 // GetConfig handles GET /api/admin/config (requires admin JWT)
 func (h *AdminHandler) GetConfig(w http.ResponseWriter, r *http.Request) {

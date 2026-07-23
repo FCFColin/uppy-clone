@@ -57,33 +57,6 @@ func TestGenerateRoomCode_AllCharsFromAlphabet(t *testing.T) {
 	}
 }
 
-func TestNewSeededRNG_Deterministic(t *testing.T) {
-	t.Parallel()
-	r1 := NewSeededRNG(42)
-	r2 := NewSeededRNG(42)
-	for i := 0; i < 10; i++ {
-		if r1.IntN(1000) != r2.IntN(1000) {
-			t.Fatalf("seeded RNG not deterministic at iteration %d", i)
-		}
-	}
-}
-
-func TestNewSeededRNG_DifferentSeedsDiffer(t *testing.T) {
-	t.Parallel()
-	r1 := NewSeededRNG(1)
-	r2 := NewSeededRNG(2)
-	differ := false
-	for i := 0; i < 10; i++ {
-		if r1.IntN(1000) != r2.IntN(1000) {
-			differ = true
-			break
-		}
-	}
-	if !differ {
-		t.Fatal("different seeds should produce different sequences")
-	}
-}
-
 func TestRoomCodeGenerator_GenerateRoomCode(t *testing.T) {
 	t.Parallel()
 	g := NewRoomCodeGenerator(12345)
@@ -93,15 +66,6 @@ func TestRoomCodeGenerator_GenerateRoomCode(t *testing.T) {
 	}
 	if _, err := NewRoomCode(code); err != nil {
 		t.Fatalf("generated code %q invalid: %v", code, err)
-	}
-}
-
-func TestRoomCodeGenerator_DeterministicWithSameSeed(t *testing.T) {
-	t.Parallel()
-	g1 := NewRoomCodeGenerator(99)
-	g2 := NewRoomCodeGenerator(99)
-	if g1.GenerateRoomCode() != g2.GenerateRoomCode() {
-		t.Fatal("same seed should produce same code")
 	}
 }
 

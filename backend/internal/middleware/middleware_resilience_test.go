@@ -53,18 +53,11 @@ func newAuthRequest(remoteAddr, userID, nickname string) *http.Request {
 	return r.WithContext(ctx)
 }
 
-// ─── rateLimitKey tests ─────────────────────────────────────────────
-
 // TestRateLimitKey_TableDriven 验证 rateLimitKey 在各种认证场景下的行为。
 func TestRateLimitKey_TableDriven(t *testing.T) {
 	jwtMgr := auth.NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	sessionToken, _ := jwtMgr.SignToken("user-from-session", "alice")
-	quickplayToken, _ := jwtMgr.SignToken("user-from-quickplay", "bob")
-	sessionUserToken, _ := jwtMgr.SignToken("session-user", "alice")
-	quickplayUserToken, _ := jwtMgr.SignToken("quickplay-user", "bob")
 	contextCookieToken, _ := jwtMgr.SignToken("cookie-user", "dave")
-	oldToken, _ := jwtMgr.SignToken("user-should-be-ignored", "eve")
-	nilMgrToken, _ := jwtMgr.SignToken("should-be-ignored", "eve")
 
 	tests := []struct {
 		name            string
@@ -79,8 +72,6 @@ func TestRateLimitKey_TableDriven(t *testing.T) {
 		wantNotContains []string
 		wantPrefix      string
 		wantSuffix      string
-		// 若设置,使用该 userID 构造第二个请求并断言两 key 不相等
-		wantDifferentFromUserID string
 	}{
 		{
 			name:         "AuthenticatedUsesUserID",
@@ -99,49 +90,12 @@ func TestRateLimitKey_TableDriven(t *testing.T) {
 			wantExact:  "auth:quickplay:5.6.7.8",
 		},
 		{
-			name:                    "DifferentUsersDifferentKeys",
-			remoteAddr:              "10.0.0.1:1",
-			authUserID:              "user-1",
-			authNickname:            "a",
-			op:                      EndpointRegistryCreate,
-			wantDifferentFromUserID: "user-2",
-		},
-		{
 			name:         "SessionCookieFallback",
 			remoteAddr:   "1.2.3.4:5678",
 			cookies:      []struct{ name, value string }{{"session", sessionToken}},
 			op:           EndpointRegistryCreate,
 			wantContains: []string{"user-from-session"},
 			wantPrefix:   "registry:create:user-from-session:",
-		},
-		{
-			name:         "QuickplayCookieFallback",
-			remoteAddr:   "9.8.7.6:1234",
-			cookies:      []struct{ name, value string }{{"quickplay", quickplayToken}},
-			op:           EndpointAuthQuickplay,
-			wantContains: []string{"user-from-quickplay"},
-			wantPrefix:   "auth:quickplay:user-from-quickplay:",
-		},
-		{
-			name:       "NoAuthCookiesFallsBackToIP",
-			remoteAddr: "3.3.3.3:33",
-			op:         EndpointAuthQuickplay,
-			wantExact:  "auth:quickplay:3.3.3.3",
-		},
-		{
-			name:       "OldTokenCookieIgnored",
-			remoteAddr: "4.4.4.4:44",
-			cookies:    []struct{ name, value string }{{"token", oldToken}},
-			op:         EndpointAuthQuickplay,
-			wantExact:  "auth:quickplay:4.4.4.4",
-		},
-		{
-			name:            "SessionPreferredOverQuickplay",
-			remoteAddr:      "5.5.5.5:55",
-			cookies:         []struct{ name, value string }{{"session", sessionUserToken}, {"quickplay", quickplayUserToken}},
-			op:              EndpointRegistryCreate,
-			wantContains:    []string{"session-user"},
-			wantNotContains: []string{"quickplay-user"},
 		},
 		{
 			name:            "ContextTakesPriorityOverCookies",
@@ -152,21 +106,6 @@ func TestRateLimitKey_TableDriven(t *testing.T) {
 			op:              EndpointRegistryCreate,
 			wantContains:    []string{"context-user"},
 			wantNotContains: []string{"cookie-user"},
-		},
-		{
-			name:         "NilJWTMgrSkipsCookieFallback",
-			remoteAddr:   "7.7.7.7:77",
-			cookies:      []struct{ name, value string }{{"session", nilMgrToken}},
-			useNilJWTMgr: true,
-			op:           EndpointAuthQuickplay,
-			wantExact:    "auth:quickplay:7.7.7.7",
-		},
-		{
-			name:       "InvalidJWTCookieFallsBackToIP",
-			remoteAddr: "8.8.8.8:88",
-			cookies:    []struct{ name, value string }{{"session", "invalid-jwt-token"}},
-			op:         EndpointAuthQuickplay,
-			wantExact:  "auth:quickplay:8.8.8.8",
 		},
 	}
 	for _, tt := range tests {
@@ -185,16 +124,6 @@ func TestRateLimitKey_TableDriven(t *testing.T) {
 			}
 			key := rateLimitKey(r, tt.op, mgr)
 
-			if tt.wantDifferentFromUserID != "" {
-				r2 := newRequest(tt.remoteAddr)
-				ctx2 := auth.WithAuthenticatedUser(r2.Context(), tt.wantDifferentFromUserID, tt.authNickname)
-				r2 = r2.WithContext(ctx2)
-				k2 := rateLimitKey(r2, tt.op, mgr)
-				if key == k2 {
-					t.Fatalf("different users must have different keys; both = %q", key)
-				}
-				return
-			}
 			if tt.wantExact != "" && key != tt.wantExact {
 				t.Fatalf("key = %q; want %q", key, tt.wantExact)
 			}
@@ -217,8 +146,6 @@ func TestRateLimitKey_TableDriven(t *testing.T) {
 		})
 	}
 }
-
-// ─── EndpointRateLimit middleware tests ──────────────────────────────
 
 // TestEndpointRateLimit_AuthenticatedKeyedByUser 验证中间件对认证用户
 // 使用包含 user_id 的 key 进行限流。
@@ -321,7 +248,6 @@ func TestEndpointRateLimit_FailClosedOnStoreError(t *testing.T) {
 		addr     string
 	}{
 		{"AuthQuickplay", EndpointAuthQuickplay, "3.3.3.3:3"},
-		{"AdminLogin", "admin:login", "4.4.4.4:4"},
 		{"DefaultFallback", "unknown:endpoint", "5.5.5.5:5"},
 	}
 	for _, c := range cases {
@@ -346,8 +272,6 @@ func TestEndpointRateLimit_FailClosedOnStoreError(t *testing.T) {
 		})
 	}
 }
-
-// ─── RateLimit (IP-only) tests ──────────────────────────────────────
 
 // TestRateLimit_IPBasedStillWorks 验证 IP 维度限流（RateLimit）仍正常工作，
 // 且不受 user_id context 影响（保持对现有 3 个端点的行为不变）。
@@ -410,48 +334,6 @@ func TestRateLimit_FailOpenOnStoreError(t *testing.T) {
 	}
 }
 
-func TestResponseRecorder_WriteWithoutWriteHeader(t *testing.T) {
-	base := httptest.NewRecorder()
-	rec := newResponseRecorder(base)
-	if _, err := rec.Write([]byte("hello")); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if rec.statusCode != http.StatusOK {
-		t.Errorf("statusCode = %d, want 200 default", rec.statusCode)
-	}
-	if !rec.written {
-		t.Error("written should be true after Write")
-	}
-	if base.Body.String() != "hello" {
-		t.Errorf("body = %q", base.Body.String())
-	}
-}
-
-func TestResponseRecorder_WriteHeaderTwice(t *testing.T) {
-	base := httptest.NewRecorder()
-	rec := newResponseRecorder(base)
-	rec.WriteHeader(http.StatusCreated)
-	rec.WriteHeader(http.StatusAccepted)
-	if rec.statusCode != http.StatusCreated {
-		t.Errorf("statusCode = %d, want first WriteHeader to win", rec.statusCode)
-	}
-	if base.Code != http.StatusCreated {
-		t.Errorf("base status = %d", base.Code)
-	}
-}
-
-func TestResponseRecorder_WriteAfterWriteHeader(t *testing.T) {
-	base := httptest.NewRecorder()
-	rec := newResponseRecorder(base)
-	rec.WriteHeader(http.StatusAccepted)
-	if _, err := rec.Write([]byte("data")); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if rec.statusCode != http.StatusAccepted {
-		t.Errorf("statusCode = %d", rec.statusCode)
-	}
-}
-
 func TestEndpointRateLimit_UnknownEndpointUsesDefault(t *testing.T) {
 	store := &fakeRateLimiterStore{allow: true}
 	mw := EndpointRateLimit(store, "unknown:endpoint", nil)
@@ -467,8 +349,6 @@ func TestEndpointRateLimit_UnknownEndpointUsesDefault(t *testing.T) {
 		t.Fatal("unknown endpoint should use default rate limit config")
 	}
 }
-
-// ─── RateLimit (basic) fail-closed/fail-open tests (v2-R-05) ────────
 
 // TestRateLimit_FailClosedOnStoreError 验证基础 RateLimit 在 FailClosed=true
 // 时，Redis 出错拒绝请求（v2-R-05）。

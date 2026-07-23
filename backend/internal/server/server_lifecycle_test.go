@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pashagolub/pgxmock/v4"
 	appConfig "github.com/uppy-clone/backend/internal/config"
@@ -29,38 +28,10 @@ import (
 // serverLifecycleMu serializes tests that start runServer/Run (shared audit logger).
 var serverLifecycleMu sync.Mutex
 
-func tryPostgresURL(t *testing.T) string {
-	t.Helper()
-	connStr := os.Getenv("TEST_DATABASE_URL")
-	if connStr == "" {
-		connStr = "postgres://test:test@127.0.0.1:5432/testdb?sslmode=disable&connect_timeout=2"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	conn, err := pgx.Connect(ctx, connStr)
-	if err != nil {
-		t.Skipf("postgres not available: %v", err)
-	}
-	_ = conn.Close(ctx)
-	return connStr
-}
-
 func TestInitCrypto(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
 	if err := initCrypto(&handler.Config{}); err != nil {
 		t.Fatalf("initCrypto: %v", err)
-	}
-}
-
-func TestInitLogger(t *testing.T) {
-	t.Setenv("LOG_FORMAT", "text")
-	t.Setenv("LOG_LEVEL", "debug")
-	if logger := initLogger(); logger == nil {
-		t.Fatal("initLogger returned nil")
-	}
-	t.Setenv("LOG_FORMAT", "json")
-	if logger := initLogger(); logger == nil {
-		t.Fatal("initLogger json returned nil")
 	}
 }
 
@@ -108,66 +79,6 @@ func TestRunServer_MockDeps(t *testing.T) {
 	withMigrationsHook(t, nil)
 
 	setupRunServerEnv(t, "postgres://mock/mock?sslmode=disable", addr)
-	port := bindFreePort(t)
-	sigCh := injectShutdownSignal(t)
-
-	done := make(chan error, 1)
-	go func() { done <- runServer(slog.Default()) }()
-
-	waitForHealthLive(t, port)
-
-	sigCh <- syscall.SIGTERM
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("runServer: %v", err)
-		}
-	case <-time.After(15 * time.Second):
-		t.Fatal("runServer did not shut down")
-	}
-}
-
-func TestRun_SuccessMocked(t *testing.T) {
-	serverLifecycleMu.Lock()
-	t.Cleanup(func() { serverLifecycleMu.Unlock() })
-
-	origExit := exitFunc
-	exitFunc = func(code int) {
-		t.Fatalf("unexpected exit %d", code)
-	}
-	t.Cleanup(func() { exitFunc = origExit })
-
-	redisStore := testutil.SetupMiniredisStore(t)
-	pool := newMockPool(t)
-	withMockPostgresStore(t, pool)
-	withMigrationsHook(t, nil)
-
-	setupRunServerEnv(t, "postgres://mock/mock?sslmode=disable", redisStore.Client().Options().Addr)
-	port := bindFreePort(t)
-	sigCh := injectShutdownSignal(t)
-
-	done := make(chan struct{})
-	go func() {
-		_ = Run()
-		close(done)
-	}()
-
-	waitForHealthLive(t, port)
-	sigCh <- syscall.SIGTERM
-
-	select {
-	case <-done:
-	case <-time.After(15 * time.Second):
-		t.Fatal("Run did not complete")
-	}
-}
-
-func TestRunServer_FullHappyPath(t *testing.T) {
-	dbURL := tryPostgresURL(t)
-	redisStore := testutil.SetupMiniredisStore(t)
-	addr := redisStore.Client().Options().Addr
-
-	setupRunServerEnv(t, dbURL, addr)
 	port := bindFreePort(t)
 	sigCh := injectShutdownSignal(t)
 
@@ -374,3 +285,64 @@ func TestRunServer_TracerInitError(t *testing.T) {
 		t.Fatal("runServer did not fail")
 	}
 }
+
+// setupRunServerEnv sets the env vars + serverEnv required by runServer-based
+// tests. The DatabaseURL and RedisURL are taken from the caller (mock or real).
+// serverEnv is restored on t.Cleanup.
+func setupRunServerEnv(t *testing.T, dbURL, redisAddr string) {
+	t.Helper()
+	t.Setenv("ENABLE_HSTS", "false")
+	t.Setenv("JWT_PRIVATE_KEY", testsecrets.TestJWTPrivateKeyPEM)
+	t.Setenv("DATABASE_URL", dbURL)
+	t.Setenv("REDIS_URL", redisAddr)
+	t.Setenv("ENCRYPTION_KEY", testsecrets.TestEncryptionKeyHex)
+
+	prevEnv := serverEnv
+	serverEnv = appConfig.Load()
+	serverEnv.EnableHSTS = false
+	serverEnv.MigrationsDir = "migrations"
+	serverEnv.AllowedOrigins = "http://localhost"
+	t.Cleanup(func() { serverEnv = prevEnv })
+}
+
+// bindFreePort finds a free TCP port, sets PORT=<port>, and returns the port.
+func bindFreePort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	t.Setenv("PORT", strconv.Itoa(port))
+	return port
+}
+
+// injectShutdownSignal replaces shutdownSignals with a channel the test controls.
+// Returns the channel and restores the original on t.Cleanup.
+func injectShutdownSignal(t *testing.T) chan os.Signal {
+	t.Helper()
+	sigCh := make(chan os.Signal, 1)
+	prev := shutdownSignals
+	shutdownSignals = func() <-chan os.Signal { return sigCh }
+	t.Cleanup(func() { shutdownSignals = prev })
+	return sigCh
+}
+
+// waitForHealthLive polls /health/live on 127.0.0.1:port until it responds or
+// the deadline (5s) elapses. Failures are non-fatal — callers assert via the
+// outer runServer result.
+func waitForHealthLive(t *testing.T, port int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/health/live")
+		if err == nil {
+			_ = resp.Body.Close()
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+

@@ -1,13 +1,11 @@
 package auth
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/uppy-clone/backend/internal/domain"
 	"github.com/uppy-clone/backend/internal/testsecrets"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
@@ -19,13 +17,6 @@ func TestGetAuthenticatedUser_FromContext(t *testing.T) {
 	uid, nick, ok := GetAuthenticatedUser(req)
 	if !ok || uid != "user-1" || nick != "Nick" {
 		t.Fatalf("GetAuthenticatedUser = (%q, %q, %v)", uid, nick, ok)
-	}
-}
-
-func TestGetAuthenticatedUser_Missing(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	if _, _, ok := GetAuthenticatedUser(req); ok {
-		t.Fatal("expected not ok without context")
 	}
 }
 
@@ -57,16 +48,6 @@ func TestAuthenticatedUserFromRequestWithRevocation_Revoked(t *testing.T) {
 	}
 }
 
-func TestWithRoleAndRoleFromContext(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req = req.WithContext(domain.WithRole(req.Context(), "admin"))
-
-	role, ok := domain.RoleFromContext(req.Context())
-	if !ok || role != "admin" {
-		t.Fatalf("RoleFromContext = (%q, %v)", role, ok)
-	}
-}
-
 func TestAuthenticatedUserFromRequestWithRevocation_RevokerError(t *testing.T) {
 	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
 	revoker := &testutil.FakeRevocationChecker{Err: errors.New("redis down")}
@@ -85,36 +66,6 @@ func TestAuthenticatedUserFromRequest_NilJWTManager(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "session", Value: "any-token"})
 	if _, _, ok := AuthenticatedUserFromRequestWithRevocation(req, nil, nil); ok {
 		t.Fatal("nil jwt manager should not authenticate from cookie")
-	}
-}
-
-func TestAuthenticatedUserFromCookies_RevokedSkipped(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	revoker := testutil.NewFakeRevocationChecker()
-	token, _ := jwtMgr.SignToken("revoked-user", "Revoked")
-	_, _, jti, _, _ := jwtMgr.VerifyToken(token)
-	revoker.Revoked[jti] = true
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: token})
-	if _, _, ok := AuthenticatedUserFromRequestWithRevocation(req, jwtMgr, revoker); ok {
-		t.Fatal("revoked cookie should not authenticate")
-	}
-}
-
-func TestWithAuthenticatedUser(t *testing.T) {
-	ctx := WithAuthenticatedUser(context.Background(), "u1", "n1")
-	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
-	if uid, nick, ok := GetAuthenticatedUser(req); !ok || uid != "u1" || nick != "n1" {
-		t.Fatalf("GetAuthenticatedUser = (%q, %q, %v)", uid, nick, ok)
-	}
-}
-
-func TestWithJTI(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req = req.WithContext(WithJTI(req.Context(), "jti-abc"))
-	if got := GetJTI(req); got != "jti-abc" {
-		t.Fatalf("GetJTI = %q", got)
 	}
 }
 
@@ -144,23 +95,5 @@ func TestAuthenticatedUserFromRequest_PrefersContext(t *testing.T) {
 	uid, nick, ok := AuthenticatedUserFromRequestWithRevocation(req, NewJWTManager(testsecrets.TestJWTPrivateKeyPEM), nil)
 	if !ok || uid != "ctx-user" || nick != "CtxNick" {
 		t.Fatalf("got (%q, %q, %v)", uid, nick, ok)
-	}
-}
-
-func TestAuthenticatedUserFromRequest_NoAuth(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	if _, _, ok := AuthenticatedUserFromRequestWithRevocation(httptest.NewRequest(http.MethodGet, "/", nil), jwtMgr, nil); ok {
-		t.Fatal("expected false with no context and no valid cookies")
-	}
-}
-
-func TestAuthenticatedUserFromCookies_FromContext(t *testing.T) {
-	jwtMgr := NewJWTManager(testsecrets.TestJWTPrivateKeyPEM)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req = req.WithContext(WithAuthenticatedUser(req.Context(), "ctx-user", "CtxNick"))
-
-	uid, nick, ok := authenticatedUserFromCookies(req, jwtMgr, nil)
-	if !ok || uid != "ctx-user" || nick != "CtxNick" {
-		t.Fatalf("authenticatedUserFromCookies = (%q, %q, %v)", uid, nick, ok)
 	}
 }

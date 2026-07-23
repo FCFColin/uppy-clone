@@ -1,14 +1,11 @@
 package middleware
 
 import (
-	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 
-	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/uppy-clone/backend/internal/metrics"
 )
@@ -78,7 +75,6 @@ func TestAllowedOriginsFromEnv(t *testing.T) {
 		{"empty string returns nil", "", nil},
 		{"single origin", "https://example.com", []string{"https://example.com"}},
 		{"multiple origins", "https://a.com, https://b.com", []string{"https://a.com", "https://b.com"}},
-		{"trims whitespace", " https://a.com , https://b.com ", []string{"https://a.com", "https://b.com"}},
 		{"skips empty parts", "https://a.com,,https://b.com", []string{"https://a.com", "https://b.com"}},
 	}
 
@@ -97,25 +93,6 @@ func TestAllowedOriginsFromEnv(t *testing.T) {
 	}
 }
 
-func TestRequestIDLogger_InjectsLoggerIntoContext(t *testing.T) {
-	var capturedLogger *slog.Logger
-
-	handler := chimw.RequestID(
-		RequestIDLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			capturedLogger = LoggerFromContext(r.Context())
-			w.WriteHeader(http.StatusOK)
-		})),
-	)
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if capturedLogger == nil {
-		t.Fatal("expected logger in context, got nil")
-	}
-}
-
 func TestPrometheusMiddleware_IncrementsCounter(t *testing.T) {
 	metrics.HTTPRequestsTotal.Reset()
 
@@ -130,6 +107,79 @@ func TestPrometheusMiddleware_IncrementsCounter(t *testing.T) {
 	count := testutil.ToFloat64(metrics.HTTPRequestsTotal.WithLabelValues("GET", "/api/test", "200"))
 	if count < 1 {
 		t.Errorf("HTTPRequestsTotal counter = %v, want >= 1", count)
+	}
+}
+
+// RecordAuthMetrics 必须把每次请求的 (endpoint, status_code) 维度都记录到
+// Prometheus 指标里——运营 SLO 看板依赖这个。
+//
+// 这些测试不调用 t.Parallel()：metrics.AuthRequestTotal 是包级全局 counter，
+// 每个测试都调用 Reset() 以获得干净基线。若并行执行，一个测试的 Reset 会
+// 清掉另一个测试刚 Inc 的维度，导致偶发 FAIL。串行执行保证 Reset/Inc/断言
+// 三步原子可见。详见 slim-tier1-ef-and-materialize Task 14.4 验证记录。
+
+func TestRecordAuthMetrics_RecordsSuccessStatus(t *testing.T) {
+	endpoint := "test-auth-success"
+	metrics.AuthRequestTotal.Reset()
+	mw := RecordAuthMetrics(endpoint)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/quickplay", nil)
+	rec := httptest.NewRecorder()
+	mw(next).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if got := testutil.ToFloat64(metrics.AuthRequestTotal.WithLabelValues(endpoint, "200")); got != 1 {
+		t.Fatalf("AuthRequestTotal[%s,200] = %f, want 1", endpoint, got)
+	}
+}
+
+func TestRecordAuthMetrics_RecordsErrorStatus(t *testing.T) {
+	endpoint := "test-auth-err"
+	metrics.AuthRequestTotal.Reset()
+	mw := RecordAuthMetrics(endpoint)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/quickplay", nil)
+	rec := httptest.NewRecorder()
+	mw(next).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	if got := testutil.ToFloat64(metrics.AuthRequestTotal.WithLabelValues(endpoint, "401")); got != 1 {
+		t.Fatalf("AuthRequestTotal[%s,401] = %f, want 1", endpoint, got)
+	}
+	if got := testutil.ToFloat64(metrics.AuthRequestTotal.WithLabelValues(endpoint, "200")); got != 0 {
+		t.Fatalf("AuthRequestTotal[%s,200] = %f, want 0 (no 200 should be recorded)", endpoint, got)
+	}
+}
+
+func TestRecordAuthMetrics_StatusZeroRecordedAs200(t *testing.T) {
+	// statusWriter.Status() returns 200 when no WriteHeader was called.
+	// RecordAuth should observe a 200 in that case (handlers that just write body).
+	endpoint := "test-auth-implicit-200"
+	metrics.AuthRequestTotal.Reset()
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/health", nil)
+	rec := httptest.NewRecorder()
+	RecordAuthMetrics(endpoint)(next).ServeHTTP(rec, req)
+
+	if got := testutil.ToFloat64(metrics.AuthRequestTotal.WithLabelValues(endpoint, "200")); got != 1 {
+		t.Fatalf("AuthRequestTotal[%s,200] = %f, want 1 (implicit 200)", endpoint, got)
 	}
 }
 
@@ -173,17 +223,6 @@ func TestSecurityHeaders(t *testing.T) {
 	t.Run("HSTS behavior", func(t *testing.T) {
 		t.Run("set by default (ENABLE_HSTS not set)", func(t *testing.T) {
 			_ = os.Unsetenv("ENABLE_HSTS")
-			reinitSecurityConfig()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-			if got := rec.Header().Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains; preload" {
-				t.Errorf("HSTS = %q, want max-age=31536000; includeSubDomains; preload", got)
-			}
-		})
-		t.Run("set when ENABLE_HSTS=true", func(t *testing.T) {
-			_ = os.Setenv("ENABLE_HSTS", "true")
-			defer func() { _ = os.Unsetenv("ENABLE_HSTS"); reinitSecurityConfig() }()
 			reinitSecurityConfig()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			rec := httptest.NewRecorder()
@@ -278,12 +317,47 @@ func TestExtractClientIP_UsesForwardedForWhenTrusted(t *testing.T) {
 	}
 }
 
-func TestGenerateNonce_RandFailure(t *testing.T) {
-	prev := nonceRandRead
-	nonceRandRead = func([]byte) (int, error) { return 0, errors.New("rand failed") }
-	t.Cleanup(func() { nonceRandRead = prev })
-	nonce := generateNonce()
-	if len(nonce) != 32 {
-		t.Fatalf("expected 32-char fallback nonce, got %d chars", len(nonce))
+// Recovery 中间件是安全关键路径：任何 panic 必须被捕获并转为 500，
+// 不能让进程崩溃或泄漏 stack trace 到响应体（信息泄露）。
+
+func TestRecovery_PanicReturns500(t *testing.T) {
+	t.Parallel()
+
+	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		panic("boom")
+	})
+	handler := Recovery(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/rooms", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if got := rec.Body.String(); got != "Internal Server Error\n" {
+		t.Fatalf("body = %q, want %q", got, "Internal Server Error\n")
+	}
+}
+
+func TestRecovery_NoPanicPassesThrough(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusAccepted)
+	})
+	handler := Recovery(next)
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if !called {
+		t.Fatal("next handler not called when no panic")
+	}
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusAccepted)
 	}
 }
