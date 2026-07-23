@@ -1,10 +1,6 @@
 # 数据库查询分析报告
 
-基于当前 schema（000001_init_schema + 000002_add_indexes + 000004_add_composite_indexes + 000008_drop_redundant_indexes），对关键查询的预期执行计划分析。
-
-> 注：migration 000008 已删除以下冗余索引（被复合索引覆盖）：
-> `idx_users_email`、`idx_sessions_lobby`、`idx_results_session`、`idx_lobby_states_updated_at`。
-> 以下分析均基于删除后的当前索引集。
+基于当前 schema（000001 + 000002 + 000004 + 000008）对关键查询的预期执行计划分析。migration 000008 已删除被复合索引覆盖的冗余索引（`idx_users_email`、`idx_sessions_lobby`、`idx_results_session`、`idx_lobby_states_updated_at`）。
 
 ## 1. 用户游戏历史查询
 
@@ -44,8 +40,7 @@ Index Scan using idx_lobby_states_updated_code on lobby_states
   Index Cond: ((updated_at, code) < ($1, $2))
 ```
 
-> 注：实现见 `store/postgres_lobbies_list.go` `LoadAllActiveLobbies`（ADR-028 拆分后）；
-> 已弃用 OFFSET 深页方案。
+> 注：实现见 `store/postgres_lobbies_list.go` `LoadAllActiveLobbies`（ADR-028 拆分后）；已弃用 OFFSET 深页方案。
 
 ## 3. 房间状态按 lobby_code + status 查询
 
@@ -62,8 +57,7 @@ WHERE lobby_code = $1 AND status = 'active';
 Index Scan using idx_game_sessions_lobby_status on game_sessions
   Index Cond: (lobby_code = $1 AND status = 'active')
 ```
-对比已删除的单列索引 `idx_sessions_lobby`（migration 000008 删除，被此复合索引覆盖）：
-单列索引需在 lobby_code 过滤后再对 status 做 Filter，复合索引直接定位。
+对比已删除的单列索引 `idx_sessions_lobby`（被此复合索引覆盖）：单列索引需在 lobby_code 过滤后再 Filter status，复合索引直接定位。
 
 ## 4. 清理过期房间
 
@@ -73,8 +67,7 @@ WHERE updated_at < $1;
 ```
 
 **预期索引使用**：
-- `idx_lobby_states_updated_code` (复合, updated_at DESC, code) → 最左前缀匹配 updated_at 条件
-  （`idx_lobby_states_updated_at` 单列索引已被 migration 000008 删除，复合索引覆盖此查询）
+- `idx_lobby_states_updated_code` (复合, updated_at DESC, code) → 最左前缀匹配（`idx_lobby_states_updated_at` 单列已删除，复合索引覆盖）
 
 **预期计划**：
 ```
@@ -92,8 +85,7 @@ GROUP BY session_id;
 ```
 
 **预期索引使用**：
-- `idx_game_results_session_user` (复合, session_id, user_id) → 最左前缀匹配 session_id 条件
-  （`idx_results_session` 单列索引已被 migration 000008 删除，复合索引覆盖此查询）
+- `idx_game_results_session_user` (复合, session_id, user_id) → 最左前缀匹配（`idx_results_session` 单列已删除，复合索引覆盖）
 
 **预期计划**：
 ```

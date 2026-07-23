@@ -8,7 +8,7 @@
 
 | 威胁 | 影响 | 缓解措施 |
 |------|------|---------|
-| 攻击者伪造 JWT 访问他人账户 | 未授权访问 | JWT 使用 ES256（ECDSA P-256）签名，私钥（JWT_PRIVATE_KEY）仅服务端持有，公钥（JWT_PUBLIC_KEY）用于验证。JWT claims 包含 `role` 字段（user/admin），AuthMiddleware 从已验证的 token 读取 role 注入 context（非硬编码），确保即使中间件误挂 RBAC 仍能基于 token 中的 role 做出正确授权决策。见 backend/internal/auth/jwt.go |
+| 攻击者伪造 JWT 访问他人账户 | 未授权访问 | JWT 使用 ES256（ECDSA P-256）签名，私钥（JWT_PRIVATE_KEY）仅服务端持有。JWT claims 含 `role`（user/admin），AuthMiddleware 从已验证 token 读取 role 注入 context（非硬编码），即使中间件误挂 RBAC 仍能基于 token role 授权。见 `backend/internal/auth/jwt.go` |
 | 攻击者重放已过期的 Magic Link | 未授权访问 | Magic Link 一次性使用，验证后立即删除 |
 | 攻击者伪造 WebSocket 连接 | 冒充玩家 | WebSocket 握手时验证 JWT cookie |
 | 攻击者伪造 Origin 头进行 CSWSH 攻击 | 跨站 WebSocket 劫持 | 服务端校验 Origin 与 Host 是否匹配，不匹配则拒绝 |
@@ -50,14 +50,14 @@
 
 ### 限流配额表（按端点）
 
-按端点的限流配额、窗口与 FailClosed 设置参见 `backend/internal/middleware/ratelimit.go` 中的 `DefaultEndpointRateLimits`。限流维度为 `endpoint:user_id:ip` 复合键（认证用户）或 `endpoint:ip`（匿名用户）；`FailClosed=true` 表示 Redis 故障时拒绝请求（安全敏感端点），否则放行（fail-open）。
+限流配额、窗口与 FailClosed 设置参见 `backend/internal/middleware/ratelimit.go` 的 `DefaultEndpointRateLimits`。维度为 `endpoint:user_id:ip`（认证用户）或 `endpoint:ip`（匿名）；`FailClosed=true` 表示 Redis 故障时拒绝请求（安全敏感端点），否则放行。
 
 ## E — Elevation of Privilege (权限提升)
 
 | 威胁 | 影响 | 缓解措施 |
 |------|------|---------|
 | 普通用户访问管理接口 | 管理员功能滥用 | adminAuthMiddleware 验证 admin JWT（role=admin） |
-| 用户越权访问他人资源 | 权限提升 | 轻量 RBAC（ADR-026）已应用于 user/lobby/registry 路由（T18）：user_data 读写、lobby 创建/加入/读取均经 `rbacEnforcer.Middleware` 校验，策略见 `backend/internal/rbac/permissions.go` |
+| 用户越权访问他人资源 | 权限提升 | 轻量 RBAC（ADR-026）已应用于 user/lobby/registry 路由：user_data 读写、lobby 创建/加入/读取均经 `rbacEnforcer.Middleware` 校验，策略见 `backend/internal/rbac/permissions.go` |
 | 容器逃逸获取 root | 主机被控制 | 容器以 appuser（非 root）运行 |
 | SQL 注入获取数据 | 数据泄露 | 使用参数化查询（pgx），无字符串拼接 |
 
@@ -71,7 +71,7 @@
 | JWT | 认证凭据 | HttpOnly cookie（access） | HTTPS + Secure flag |
 | Resend API Key | 密钥 | AES-256-GCM 加密 | HTTPS |
 | Admin Password | 密钥 | bcrypt 哈希 | HTTPS |
-| Admin JWT | 认证凭据 | 独立 ECDSA 私钥（ADMIN_JWT_PRIVATE_KEY，ES256 PEM；未配置时回退 JWT_PRIVATE_KEY）签名，SigningMethodES256 | HttpOnly `admin_token` cookie + HTTPS |
+| Admin JWT | 认证凭据 | 独立 ECDSA 私钥（`ADMIN_JWT_PRIVATE_KEY`，ES256 PEM；未配置时回退 `JWT_PRIVATE_KEY`）签名 | HttpOnly `admin_token` cookie + HTTPS |
 | Refresh Token | 认证凭据 | Redis（TTL 自动过期） | HttpOnly `refresh` cookie + HTTPS |
 
 ## GDPR/CCPA 合规要点
@@ -79,8 +79,8 @@
 1. **数据最小化**: 仅收集必要数据（邮箱、昵称）
 2. **目的限制**: 数据仅用于游戏功能，不用于营销
 3. **存储限制**: IP 地址通过 Redis TTL 自动过期
-4. **数据主体权利**: 已实现数据导出（`GET /api/v1/user/data`）与删除（`DELETE /api/v1/user/data`），删除流程为立即匿名化 PII + 30 天后硬删除（详见下方"数据保留策略"）
+4. **数据主体权利**: 已实现数据导出（`GET /api/v1/user/data`）与删除（`DELETE /api/v1/user/data`），删除流程为立即匿名化 PII + 30 天后硬删除（见下方"数据保留策略"）
 
 ## 数据保留策略
 
-GDPR Article 17 删除权流程（立即匿名化 PII → 30 天保留期 → CASCADE 硬删除）的设计约束见 [ADR-022](../adr/022-field-level-pii-encryption.md)（PII 加密与 `email_hash` 查找）与 [ADR-000](../adr/000-project-charter.md)（合规作为一等公民）；实现细节见 `DELETE /api/v1/user/data` 端点与 `users.deleted_at` / `email_anonymized` 字段。
+GDPR Article 17 删除权流程（立即匿名化 PII → 30 天保留期 → CASCADE 硬删除）设计约束见 [ADR-022](../adr/022-field-level-pii-encryption.md)（PII 加密与 `email_hash` 查找）与 [ADR-000](../adr/000-project-charter.md)；实现见 `DELETE /api/v1/user/data` 端点与 `users.deleted_at` / `email_anonymized` 字段。

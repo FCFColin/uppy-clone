@@ -3,17 +3,14 @@ info:
   title: Balloon Game WebSocket Protocol
   version: 1.0.0
   description: >
-    Binary WebSocket protocol for the realtime multiplayer game. The authoritative
-    source for byte layouts is backend/internal/protocol and docs/api/ws-protocol.md;
-    this AsyncAPI document describes the channels and message catalog for tooling
-    and CI validation (ADR-002, ADR-016).
+    Binary WebSocket protocol for the realtime multiplayer game. Authoritative byte
+    layouts: backend/internal/protocol and docs/api/ws-protocol.md. This document
+    describes channels and message catalog for tooling/CI validation (ADR-002, ADR-016).
 servers:
   region:
     host: '{region}.balloon.example'
     protocol: wss
-    description: >
-      Per-region WebSocket endpoint. Clients resolve the home-region endpoint via
-      GET /api/v1/lobby/{code}/resolve before connecting (ADR-016).
+    description: Per-region WS endpoint. Clients resolve home-region via GET /api/v1/lobby/{code}/resolve (ADR-016).
     variables:
       region:
         enum: [us, eu, asia]

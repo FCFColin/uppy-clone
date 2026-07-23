@@ -1,6 +1,6 @@
 # 项目文档
 
-本目录包含架构、运维、API 契约与开发规范。修改代码时，请同步更新对应文档（见 PR 模板与 `docs-governance` CI）。
+本目录包含架构、运维、API 契约与开发规范。修改代码时请同步更新对应文档（见 PR 模板与 `docs-governance` CI）。
 
 ## 入门
 
@@ -13,7 +13,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [安全自检清单](security/self-check-checklist.md) | 发布阻塞项与分层安全自检（原 repo-cleanup 条目已并入） |
+| [安全自检清单](security/self-check-checklist.md) | 发布阻塞项与分层安全自检 |
 | [测试覆盖率策略](development/coverage-policy.md) | 单元/集成/前端覆盖率门禁 |
 | [日志策略](security/logging-policy.md) | 日志级别、结构化字段、PII 禁止项 |
 | [环境配置](operations/environments.md) | 本地 / staging / 生产配置矩阵 |
@@ -37,17 +37,12 @@
 
 > 修改 `backend/internal/protocol/constants.go` 时，必须同步 `api/ws-protocol.md` 与 `api/asyncapi.yaml`（CI 强制校验）。
 
-## 架构与多区域
-
-| 文档 | 说明 |
-|------|------|
-| [SQL 查询分析](data/db-query-analysis.md) | 关键查询 EXPLAIN 分析 |
-
-## 安全
+## 安全与数据
 
 | 文档 | 说明 |
 |------|------|
 | [威胁模型](security/threat-model.md) | STRIDE 威胁分析 |
+| [SQL 查询分析](data/db-query-analysis.md) | 关键查询 EXPLAIN 分析 |
 
 ## 架构决策（ADR）
 

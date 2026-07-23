@@ -19,11 +19,7 @@ BenchmarkEncodeTapAccepted-12           	11723763	       112.1 ns/op	      64 B/
 BenchmarkDecodeMessage-12               	1000000000	         0.5380 ns/op	       0 B/op	       0 allocs/op
 ```
 
-**关键指标：**
-- `EncodeSnapshot`：424.8 ns/op，1 allocs/op — 手写二进制编码 + sync.Pool 复用 bytes.Buffer
-- `EncodeSnapshot_NoPlayers`：273.2 ns/op，1 allocs/op — 预分配 buffer 最优路径
-- `DecodeTap`：0.79 ns/op，0 allocs — 直接类型断言，零开销
-- `DecodeMessage`：0.54 ns/op，0 allocs — 消息分发热路径
+**关键指标：** `EncodeSnapshot` 424.8 ns/op 1 allocs（手写二进制 + sync.Pool）；`EncodeSnapshot_NoPlayers` 273.2 ns/op（预分配最优路径）；`DecodeTap` 0.79 ns/op 0 allocs（类型断言零开销）；`DecodeMessage` 0.54 ns/op 0 allocs（分发热路径）。
 
 ## game 包
 
@@ -46,13 +42,7 @@ BenchmarkDeserializeState-12             	   48932	     25795 ns/op	    1288 B/o
 BenchmarkNewGameState-12                 	 1479570	       722.8 ns/op	     424 B/op	       6 allocs/op
 ```
 
-**关键指标：**
-- `ApplyTapForce`：16.65 ns/op，0 allocs — 物理 tick 热路径，零分配
-- `CheckGhostCollision` / `CheckBirdCollision`：~7.5 ns/op，0 allocs — 碰撞检测
-- `GenerateRoomCode`：209.1 ns/op，4 allocs — 房间创建开销
-- `Room_BuildSnapshot`：1341 ns/op，1 allocs — 快照构建
-- `SerializeState`：6372 ns/op，7 allocs — 状态序列化（持久化路径）
-- `DeserializeState`：25795 ns/op，24 allocs — 状态反序列化（恢复路径）
+**关键指标：** `ApplyTapForce` 16.65 ns/op 0 allocs（物理 tick 热路径）；`CheckGhost/BirdCollision` ~7.5 ns/op 0 allocs（碰撞检测）；`GenerateRoomCode` 209.1 ns/op 4 allocs；`Room_BuildSnapshot` 1341 ns/op 1 allocs；`SerializeState` 6372 ns/op 7 allocs（持久化路径）；`DeserializeState` 25795 ns/op 24 allocs（恢复路径）。
 
 ## 容量推算
 
@@ -65,10 +55,9 @@ BenchmarkNewGameState-12                 	 1479570	       722.8 ns/op	     424 B
 | CheckCollision | 7.5 | ~8.9M | 非瓶颈 |
 | BuildSnapshot | 1341 | ~50k | 50 房间/tick = 0.07ms |
 | EncodeSnapshot | 424.8 | ~157k | 50 房间广播 = 0.02ms |
-| SerializeState | 6372 | ~10k | 持久化路径，异步不阻塞 tick |
+| SerializeState | 6372 | ~10k | 异步不阻塞 tick |
 
-**推算**：单核可支撑 ~2000-5000 活跃房间（CPU bound），受限于 GC 压力和内存带宽。
-WS 连接和 PG 连接池是更早的瓶颈（10k WS 舱壁 / 25 PG 连接）。
+**推算**：单核可支撑 ~2000-5000 活跃房间（CPU bound），受限于 GC 压力和内存带宽。WS 连接和 PG 连接池是更早的瓶颈（10k WS 舱壁 / 25 PG 连接）。
 
 ## 优化历史
 

@@ -1,7 +1,6 @@
 # 日志级别策略
 
-> 企业为何需要：统一的日志级别规范防止生产环境 DEBUG 暴增（成本与检索性能），
-> 并确保 on-call 工程师在 WARN/ERROR 中看到可行动信息。
+> 统一日志级别规范防止生产环境 DEBUG 暴增（成本与检索性能），确保 on-call 在 WARN/ERROR 中看到可行动信息。
 
 ## 级别定义
 
@@ -15,12 +14,7 @@
 
 ## 结构化字段规范
 
-每条 HTTP 请求相关日志应包含（由中间件自动注入）：
-
-- `request_id` — chi RequestID
-- `trace_id` — OpenTelemetry（若启用）
-- `latency_ms` — 请求耗时（访问日志）
-- `user_id` / `role` — 认证后注入（`auth.Middleware`）
+每条 HTTP 请求日志应包含（中间件自动注入）：`request_id`（chi RequestID）、`trace_id`（OpenTelemetry，若启用）、`latency_ms`（访问日志）、`user_id` / `role`（认证后注入）。
 
 ## 禁止事项
 
@@ -44,5 +38,4 @@ OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4317  # 可选，启用链路追踪
 
 ## 审计日志
 
-敏感操作（增删改、登录、配置变更）使用 `audit.Log()`，独立于应用日志流，
-写入 `audit` JSON group 并持久化到 `audit_logs` 表（HMAC 链防篡改）。详见 ADR-008。
+敏感操作使用 `audit.Log()`，独立于应用日志流，写入 `audit_logs` 表（HMAC 链防篡改）。详见 ADR-008。

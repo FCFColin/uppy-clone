@@ -1,10 +1,7 @@
 # On-call Runbook
 
-> 最后更新: 2026-07-18
-> 适用范围: 多人网页气球飞行对战游戏 (Go + PostgreSQL + Redis)
->
-> 每个故障条目遵循 "症状 → 排查 → 缓解" 三段式，对应 SRE 故障响应的
-> 检测 → 定位 → 止血。根治方案见各 ADR 与 capacity-planning.md。
+> 最后更新: 2026-07-18 | 适用: 多人网页气球飞行对战游戏 (Go + PostgreSQL + Redis)
+> 每个故障遵循 "症状 → 排查 → 缓解" 三段式。根治方案见各 ADR 与 capacity-planning.md。
 
 ## 故障分级
 
@@ -19,25 +16,15 @@
 
 ## 熔断器全局视图
 
-> 所有下游依赖均通过熔断器（`backend/internal/resilience/circuitbreaker.go`，基于 sony/gobreaker）保护，
-> 防止级联故障。状态变更通过 `metrics.CircuitBreakerState` 暴露为 Prometheus Gauge。
+所有下游依赖通过熔断器（`backend/internal/resilience/circuitbreaker.go`，sony/gobreaker）保护，状态通过 `metrics.CircuitBreakerState` 暴露为 Prometheus Gauge。`0=closed, 0.5=half-open, 1=open`。
 
-**指标查询**
-
-```promql
-circuit_breaker_state{name="<breaker>"}
-# 0 = closed（健康），0.5 = half-open（探测中），1 = open（已熔断）
-```
-
-**熔断器清单**
-
-| 熔断器 | 指标 label (`name`) | 触发阈值 | 熔断恢复超时 | Half-open 探测数 | 关联故障 |
-|--------|---------------------|---------|-------------|------------------|---------|
+| 熔断器 | label (`name`) | 触发阈值 | 恢复超时 | Half-open 探测数 | 关联故障 |
+|--------|---------------------|---------|---------|------------------|---------|
 | postgres | `postgres` | 连续失败 > 5 次 | 30s | 3 | 故障 1 |
 | redis | `redis` | 连续失败 > 5 次 | 15s | 3 | 故障 2 / 6 |
 | resend-api | `resend-api` | 连续失败 > 3 次 | 60s | 1 | 故障 6 |
 
-> `resend-api` 作为外部 API 更保守：更早触发（3 次）、更长恢复等待（60s）、半开仅放行 1 个探测请求。
+> `resend-api` 作为外部 API 更保守：更早触发、更长恢复等待、半开仅放行 1 个探测请求。
 
 ```bash
 curl -s localhost:8080/metrics | grep circuit_breaker_state
@@ -134,8 +121,7 @@ ss -tn state established | awk '{print $4}' | sort | uniq -c | sort -rn | head -
 **排查**
 ```bash
 curl -s localhost:8080/metrics | grep -E 'process_cpu|go_gc_duration|game_active|ws_message_duration'
-# pprof 需临时启用（后端未默认 import net/http/pprof）
-# 排障时临时注册 import _ "net/http/pprof" 并监听 6060 端口
+# pprof 需临时启用：排障时临时 import _ "net/http/pprof" 并监听 6060 端口
 go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
 ```
 
@@ -183,27 +169,25 @@ psql $DATABASE_URL -c "SELECT count(*) FROM audit_logs"
 
 ## 故障 6: 认证服务异常
 
-> 认证 SLO：成功率 99.9%、p99 < 500ms（详见 `slo.md` §2.1）。
-> 认证失败直接消耗 Error Budget（43.2 分钟/月），属 P1 级响应（15 分钟内介入）。
+> 认证 SLO：成功率 99.9%、p99 < 500ms（见 `slo.md` §2.1）。失败消耗 Error Budget（43.2 分钟/月），P1 级响应。
 
 ### 6.1 Refresh token 验证失败率突增
 
 **症状**: `/api/v1/auth/refresh` 401 > 5%；用户大面积被强制登出；可能伴随 Redis 熔断器 open
 
 **排查**
-1. 检查 `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` 是否被轮换：JWT 使用 ES256（ECDSA P-256），
-   refresh token 用旧私钥签发，新私钥无法验证 → 全部 401
+1. 检查 `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` 是否被轮换：JWT 用 ES256（ECDSA P-256），旧私钥签发的 refresh token 用新私钥无法验证 → 全部 401
    ```bash
    echo -n "$JWT_PRIVATE_KEY" | sha256sum  # 与上次部署对比
    ```
-2. 检查 Redis 可用性（refresh token 存储在 Redis）
+2. 检查 Redis 可用性（refresh token 存于 Redis）
 3. 检查 token TTL 配置是否被误改
 
 **处置**
 1. 回滚 `JWT_PRIVATE_KEY` 变更：恢复至上次部署的 ECDSA 私钥
 2. 恢复 Redis：见故障 2
-3. 临时延长 token TTL：降低刷新频率，争取修复时间
-4. 若密钥必须轮换：发布公告 + 引导用户重新登录，接受短期 401 峰值
+3. 临时延长 token TTL 降低刷新频率
+4. 若密钥必须轮换：公告 + 引导重新登录，接受短期 401 峰值
 
 ### 6.2 Magic Link 邮件投递失败（Resend API 熔断器排查）
 
@@ -230,18 +214,15 @@ redis-cli -h $REDIS_HOST XLEN email:dead-letter
 **症状**: admin 配置接口返回 500；日志含 `decrypt` / `cipher: message authentication failed`
 
 **排查**
-1. 检查 `ENCRYPTION_KEY` 是否被修改（AES-256-GCM 密钥用于加密 admin 配置中的敏感字段）
+1. 检查 `ENCRYPTION_KEY` 是否被修改（AES-256-GCM 密钥用于加密 admin 配置敏感字段）
    ```bash
    echo -n "$ENCRYPTION_KEY" | sha256sum  # 与上次部署对比
    ```
-2. 查看应用日志确认解密错误范围
-   ```bash
-   journalctl -u <service> --since "30 min ago" | grep -i decrypt
-   ```
+2. 确认解密错误范围：`journalctl -u <service> --since "30 min ago" | grep -i decrypt`
 
 **处置**
-1. 恢复原 `ENCRYPTION_KEY`：回滚环境变量至上次值
-2. 重新加密敏感配置字段：用新密钥通过 admin 配置接口重新写入 `resend_api_key` 等字段
+1. 恢复原 `ENCRYPTION_KEY`：回滚环境变量
+2. 用新密钥通过 admin 配置接口重新写入 `resend_api_key` 等字段
 3. 密钥轮换流程固化：轮换前先解密所有字段 → 换密钥 → 重新加密写入
 
 ---
@@ -274,9 +255,7 @@ curl -s localhost:8080/metrics | grep -E 'room_lock_hold|room_outbound|room_pers
 ## Rollback
 
 ```bash
-# Rollback to previous version（balloon-game 为 StatefulSet，namespace 为 balloon-game）
+# balloon-game 为 StatefulSet，namespace 为 balloon-game
 kubectl rollout undo statefulset/balloon-game -n balloon-game
-
-# Verify rollout status
 kubectl rollout status statefulset/balloon-game -n balloon-game
 ```

@@ -12,7 +12,7 @@
 | Docker digest 全阶段 pin | `bash scripts/ci/check-docker-digests.sh Dockerfile` | `go-ci.yml` → `Docker Image Pinning` job |
 | 发布配置静态验收 | `powershell -File scripts/ci/verify-release-config.ps1`（含 `__IMAGE_TAG__`、`__TRUSTED_PROXY_CIDRS__`） | `ci-cd.yml` → `Release Config Verification` job + deploy step |
 
-**根因说明：** Ingress 后若未配置 trusted proxy CIDR，所有请求共享 LB `RemoteAddr`，admin lockout 与 `admin:login` 限流会锁死全体管理员（Medium 风险）。
+**根因说明：** Ingress 后若未配置 trusted proxy CIDR，所有请求共享 LB `RemoteAddr`，admin lockout 与 `admin:login` 限流会锁死全体管理员。
 
 ## 第一层：CI/CD 与供应链（阻塞项）
 
@@ -23,7 +23,7 @@
 | Docker digest 锁定 | `bash scripts/ci/check-docker-digests.sh` |
 | 仓库布局 | `make check-repo-layout` |
 | Go 测试 + race | `cd backend && go test ./... -race -short` |
-| govulncheck（生产路径） | `cd backend && govulncheck -test=false ./cmd/... ./internal/...`；`GO-2026-5746` 仅经 testcontainers → docker client 传递依赖，生产镜像无此链 |
+| govulncheck（生产路径） | `cd backend && govulncheck -test=false ./cmd/... ./internal/...`；`GO-2026-5746` 仅经 testcontainers → docker client，生产镜像无此链 |
 | 前端 audit | `cd frontend && npm audit --audit-level=high` |
 | 前端测试 | `cd frontend && npm test` |
 | Pre-commit | `pre-commit run --all-files` |
@@ -32,24 +32,18 @@
 
 **Makefile 快捷命令：** `make security-check`（第一层本地子集）
 
-**自动化脚本（Windows PowerShell，已接入 CI）：**
-
-| 脚本 | 用途 | CI Workflow |
-|------|------|-------------|
-| `scripts/ci/verify-required-checks.ps1` | 核对 `.github/settings.yml` 与 CI job 名称一致 | `repo-governance.yml`（每周一） |
-| `scripts/ci/self-check-layers.ps1` | 第二至六层可自动化子集（auth、WS、validate、ratelimit、cooldown 契约） | `security-layer-checks.yml`（每月1日） |
-| `scripts/ci/verify-release-config.ps1` | 发布前静态验收（SHA tag、cosign、kustomize `__IMAGE_TAG__`、`__TRUSTED_PROXY_CIDRS__`） | `ci-cd.yml` → `Release Config Verification` job |
+**自动化脚本（Windows PowerShell，已接入 CI）：** `verify-required-checks.ps1`（核对 settings.yml 与 CI job 一致，`repo-governance.yml` 每周一）、`self-check-layers.ps1`（第二至六层子集，`security-layer-checks.yml` 每月1日）、`verify-release-config.ps1`（发布前静态验收，`ci-cd.yml`）。
 
 ## 测试命令速查
 
 | 层级 | 聚合命令 | CI 自动化 |
 |------|----------|-----------|
-| Phase 0 | `go test ./internal/middleware/... -run ExtractClientIP -count=1` | `ci-cd.yml` → `Release Config Verification` job |
-| 第一层 | `make security-check` | `go-ci.yml` + `ci-cd.yml` 多 job |
+| Phase 0 | `go test ./internal/middleware/... -run ExtractClientIP -count=1` | `ci-cd.yml` → Release Config Verification |
+| 第一层 | `make security-check` | `go-ci.yml` + `ci-cd.yml` |
 | 第二至六层 | 已在 CI 中自动化 | `security-layer-checks.yml`（每月1日） |
-| 全量后端 | `cd backend && go test ./... -short -count=1` | `go-ci.yml` → `Test` job |
-| 全量前端 | `cd frontend && npm test` | `ci-cd.yml` → `Quality Gate` job |
-| E2E | `make e2e` | `ci-cd.yml` → `E2E Tests` job（3 browser × 10 spec） |
+| 全量后端 | `cd backend && go test ./... -short -count=1` | `go-ci.yml` → Test |
+| 全量前端 | `cd frontend && npm test` | `ci-cd.yml` → Quality Gate |
+| E2E | `make e2e` | `ci-cd.yml` → E2E Tests（3 browser × 10 spec） |
 
 ## 第二层：认证与会话
 

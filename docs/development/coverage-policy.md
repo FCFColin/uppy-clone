@@ -21,15 +21,11 @@ bash scripts/ci/check-coverage.sh frontend
 
 ## 排除规则
 
-**Go 单元 profile**（`make test-cover` / `unit.out`）：仅 `./internal/...`，不含 `./cmd/...`（CLI 入口）、`internal/testutil`（测试辅助包）与 `internal/testsecrets`（测试常量包）。
+**Go 单元 profile**（`make test-cover` / `unit.out`）：仅 `./internal/...`，不含 `./cmd/...`、`internal/testutil`、`internal/testsecrets`。
 
-**Go per-file 排除**（`EXCLUDE_PATTERNS`）：仅保留类型定义和入口 glue：
-- `.d.ts` / `_types.ts` / `vite-env.d.ts` — 无可执行代码
-- `cmd/server/main.go` — 进程入口 glue
-- `testutil/` — 测试辅助包
-- `constants.ts` / `constants.go` — 纯常量声明
+**Go per-file 排除**（`EXCLUDE_PATTERNS`）：`.d.ts` / `_types.ts` / `vite-env.d.ts`（无可执行代码）、`cmd/server/main.go`（入口 glue）、`testutil/`（测试辅助）、`constants.ts` / `constants.go`（纯常量）。
 
-**Vitest 无额外排除**：所有含业务逻辑的文件均纳入覆盖率门禁。入口 glue（`main.ts`、`index.ts`）由 per-file 排除规则覆盖。
+**Vitest 无额外排除**：所有含业务逻辑的文件均纳入门禁。入口 glue（`main.ts`、`index.ts`）由 per-file 排除规则覆盖。
 
 ## 约定
 

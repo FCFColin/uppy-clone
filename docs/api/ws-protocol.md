@@ -1,7 +1,5 @@
 # WebSocket 二进制协议
 
-> 企业为何需要：实时游戏 API 同样需要契约文档，前后端并行开发依赖消息格式约定。
-
 ## 连接
 
 - **URL**: `GET /api/v1/lobby/{code}/ws`
@@ -87,7 +85,7 @@
 
 **风 wind（4 字节，固定，位于消息末尾）**：`wind(float32 LE)`。
 
-**长度约束**：理论最小消息 = 10（头）+16（balloon）+1（bird flag）+1（ghost flag）+1（playerCount=0）+1（rippleCount=0）+4（wind）= **34 字节**。前端 `decodeSnapshot` 以 `byteLength < 37` 为早返回阈值（保守值），`handleSnapshot` 进一步以 `< 44` 为丢弃阈值。
+**长度约束**：理论最小消息 = 10（头）+16（balloon）+1（bird flag）+1（ghost flag）+1（playerCount=0）+1（rippleCount=0）+4（wind）= **34 字节**。前端 `decodeSnapshot` 以 `byteLength < 37` 早返回，`handleSnapshot` 以 `< 44` 丢弃。
 
 ### RESTART_STATUS（重启投票状态）
 
@@ -100,7 +98,7 @@
 | 2 | totalPlayers | uint8 | 1 | 房间总玩家数 |
 | 3 | countdownMs | uint32 LE | 4 | 距重启开始的剩余毫秒数 |
 
-前端解码见 `frontend/src/game/ws_handlers_phase.ts::handleRestartStatus`（`getUint8(1)` / `getUint8(2)` / `getUint32(3, true)`），与后端逐字段一致。
+前端解码见 `ws_handlers_phase.ts::handleRestartStatus`（`getUint8(1)` / `getUint8(2)` / `getUint32(3, true)`），与后端逐字段一致。
 
 ### NICKNAME_REJECTED（昵称拒绝反馈）
 
@@ -120,9 +118,9 @@
 | COOLDOWN | 0x03 | 昵称处于冷却期（玩家断线重连后短时间内重复提交同名） |
 | DECODE_ERROR | 0x04 | `DecodeNicknamePayload` 解码失败（payload 长度非法） |
 
-**触发场景**：`backend/internal/game/room_tick.go::handleSetNicknameMsg` 三条拒绝路径（sanitize 为空 / 解码失败 / 冷却或重复）在 `return` 前发送此消息，避免客户端静默卡在 `entryStep='waiting'`。
+**触发场景**：`room_tick.go::handleSetNicknameMsg` 三条拒绝路径（sanitize 为空 / 解码失败 / 冷却或重复）在 `return` 前发送此消息，避免客户端静默卡在 `entryStep='waiting'`。
 
-前端解码见 `frontend/src/game/ws_handlers.ts::handleNicknameRejected`（`getUint8(1)`），收到后重置 `nicknameSubmitted=false`、`pendingNickname=null`，调用 `revertEntryStepToNickname()` 回退到昵称输入步骤，`clearStartCountdown()` 清除客户端倒计时，并通过 `setNicknameStatus(...)` 显示对应中文文案。
+前端解码见 `ws_handlers.ts::handleNicknameRejected`（`getUint8(1)`），收到后重置 `nicknameSubmitted=false`、`pendingNickname=null`，回退到昵称输入步骤，清除倒计时并显示对应中文文案。
 
 ## 频率与限制
 
@@ -157,30 +155,26 @@
 
 ## 实例与区域路由（ADR-005 / ADR-014）
 
-1. **就近接入预检**：客户端连接前先调 `GET /api/v1/lobby/{code}/resolve`，得到房间
-   home region 的 `ws_endpoint`（同源则为空），再用该 endpoint 打开 WebSocket。
-2. **区域内**：房间由其 owner 实例 tick；连接到本区域非 owner 实例时透明反向代理到 owner。
-3. **跨区域**：连接到错误区域时返回 **421 Misdirected Request** + `{ ws_endpoint, region }`，
-   客户端就近重连房间 home region（绝不跨区域转发游戏帧）。
-4. **迁移中**：区域内 owner 失联且暂未完成接管时返回 **503 Service Unavailable**（可重试）。
+1. **就近接入预检**：连接前调 `GET /api/v1/lobby/{code}/resolve` 获取 home region 的 `ws_endpoint`（同源为空），再用该 endpoint 打开 WebSocket。
+2. **区域内**：房间由 owner 实例 tick；连接到非 owner 实例时透明反向代理到 owner。
+3. **跨区域**：错误区域返回 **421 Misdirected Request** + `{ ws_endpoint, region }`，客户端就近重连（绝不跨区域转发游戏帧）。
+4. **迁移中**：owner 失联且未完成接管时返回 **503 Service Unavailable**（可重试）。
 
 ## 错误处理与已知限制
 
 ### decodeSnapshot 已知限制（known limitation，v2-R-143）
 
-前端 `decodeSnapshot`（`frontend/src/game/message_codec.ts`）对**非法/超长输入的容错行为**：
+前端 `decodeSnapshot`（`message_codec.ts`）对**非法/超长输入**的容错行为：
 
-- **短缓冲**：`view.byteLength < 37` 时返回 `null`，调用方 `handleSnapshot` 静默丢弃。
-- **变长段越界**：对于 ≥ 37 字节但变长段的计数/长度字段超出剩余缓冲的**非法输入**，解码器**不会返回 null，而是抛出 `RangeError`**（DataView 越界读取）。
-  - 玩家昵称长度 `nickLen` 已通过 `Math.min(nickLen, remaining)` 钳制，昵称读取本身**不会越界**；
-  - **涟漪（ripple）段缺乏逐次循环边界检查**：读取 `rippleCount` 后无条件按 10 字节/条循环读取，当 `rippleCount` 超过剩余缓冲可容纳条数时 `getUint16`/`getFloat32` 抛 `RangeError` —— 这是主要的抛错路径。
-- **调用方兜底**：`handleSnapshot`（`ws_handlers_snapshot.ts`）以 `try/catch` 包裹 `decodeSnapshot`，捕获异常后仅记录 `[snapshot] parse error` 日志，不影响 WebSocket 连接。
-- **测试记录**：`snapshot_decode.property.test.ts` 将此列为 `Known limitation`，对 ≥ 37 字节的任意输入用 `try/catch` 吞掉异常（解码器实现修复见 Task 6.1）。
+- **短缓冲**：`byteLength < 37` 返回 `null`，`handleSnapshot` 静默丢弃。
+- **变长段越界**：≥ 37 字节但计数/长度字段超出剩余缓冲的非法输入，解码器**抛 `RangeError` 而非返回 null**。
+  - `nickLen` 已 `Math.min(nickLen, remaining)` 钳制，昵称读取不越界；
+  - **涟漪段缺乏循环边界检查**：`rippleCount` 超容量时 `getUint16`/`getFloat32` 抛 `RangeError`——主要抛错路径。
+- **调用方兜底**：`handleSnapshot`（`ws_handlers_snapshot.ts`）`try/catch` 包裹，仅记 `[snapshot] parse error` 日志，不影响连接。
 
-**契约说明**：超长 `nickLen` / `rippleCount` 均属非法输入（后端 `EncodeSnapshot` 保证长度自洽），解码器对这类输入的行为契约是"**抛异常而非返回 null**"。合法 SNAPSHOT 由后端按上述布局编码，长度自洽；前端无需对服务端正常帧做防御性兜底。
+**契约**：超长 `nickLen` / `rippleCount` 均属非法输入（后端 `EncodeSnapshot` 保证长度自洽），解码器对此类输入的行为契约是"抛异常而非返回 null"。合法 SNAPSHOT 由后端按上述布局编码，前端无需对正常帧做防御兜底。
 
 ## 契约与校验
 
-- 本文档 + `protocol/constants.go` 为 WebSocket 协议权威来源；机器可读规范见
-  [`asyncapi.yaml`](./asyncapi.yaml)（CI 用 AsyncAPI CLI 校验，并校验消息常量与代码一致）。
+- 本文档 + `protocol/constants.go` 为 WebSocket 协议权威来源；机器可读规范见 [`asyncapi.yaml`](./asyncapi.yaml)（CI 用 AsyncAPI CLI 校验消息常量与代码一致）。
 - REST 端点见 [`openapi.yaml`](./openapi.yaml)。
