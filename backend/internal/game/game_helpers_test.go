@@ -11,7 +11,6 @@ import (
 	"github.com/pashagolub/pgxmock/v4"
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
-	"github.com/uppy-clone/backend/internal/nicknames"
 	"github.com/uppy-clone/backend/internal/store"
 	"github.com/uppy-clone/backend/internal/testutil"
 )
@@ -22,18 +21,6 @@ func testRNG() RNGSource {
 
 func createTestState() *domain.GameState {
 	return NewGameState("TEST1", 42, testRNG())
-}
-
-func getAllNicknameCombinations() []string {
-	var out []string
-	for _, adj := range nicknames.NicknameAdjectives {
-		for _, cat := range nicknames.NicknameCategories {
-			for _, noun := range cat {
-				out = append(out, adj+noun)
-			}
-		}
-	}
-	return out
 }
 
 type mockRoomRepository struct {
@@ -249,10 +236,4 @@ func expectRestoreRoomsScan(mock pgxmock.PgxPoolIface, code, stateJSON string) {
 			AddRow("id1", code, stateJSON, int64(100), int64(50)))
 }
 
-// expectLoadLobbyState mocks loadOrMaterializeRoom returning one row.
-func expectLoadLobbyState(mock pgxmock.PgxPoolIface, code, stateJSON string) {
-	mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
-		WithArgs(code).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
-			AddRow("id1", code, stateJSON, int64(1), int64(1)))
-}
+

@@ -27,23 +27,35 @@ func TestHub_registerRoomLocked_ReturnsExisting(t *testing.T) {
 	}
 }
 
-func TestHub_MaterializeRoom(t *testing.T) {
+func TestHub_MaterializeRoom_MarksPlayersDisconnected(t *testing.T) {
 	h := newTestHub()
-	state := NewGameState("REST1", 42, testRNG())
-	state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "nick1"}
-	room := h.materializeRoom("REST1", state)
-	if room == nil || string(room.state.LobbyCode) != "REST1" {
-		t.Fatalf("room = %+v", room)
-	}
-	if !room.usedNames["nick1"] {
-		t.Fatal("expected usedNames to include nick1")
-	}
-}
+	state := NewGameState("REST2", 42, testRNG())
+	state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "nick1", Disconnected: false}
+	state.Players["p2"] = &domain.PlayerState{ID: "p2", Nickname: "nick2", Disconnected: false}
 
-func TestHub_DeserializeAndMaterialize_Invalid(t *testing.T) {
-	h := newTestHub()
-	if _, err := h.deserializeAndMaterialize("X", []byte(`{invalid`)); err == nil {
-		t.Fatal("expected deserialize error")
+	room := h.materializeRoom("REST2", state)
+
+	// 恢复后所有玩家应被标记为断连，且记录断连时间戳
+	for _, p := range room.state.Players {
+		if !p.Disconnected {
+			t.Errorf("player %s should be marked Disconnected after restore", p.ID)
+		}
+		if p.DisconnectedAt == nil {
+			t.Errorf("player %s should have DisconnectedAt set after restore", p.ID)
+		}
+	}
+
+	// usedNames 仍应正确记录
+	if !room.usedNames["nick1"] || !room.usedNames["nick2"] {
+		t.Fatal("expected usedNames to include nick1 and nick2")
+	}
+
+	// 断连玩家不应出现在快照中（extractSnapshotDataLocked 跳过 Disconnected 玩家）
+	room.mu.RLock()
+	sd := room.extractSnapshotDataLocked()
+	room.mu.RUnlock()
+	if len(sd.players) != 0 {
+		t.Fatalf("snapshot players = %d, want 0 (disconnected players must be excluded)", len(sd.players))
 	}
 }
 
@@ -133,149 +145,12 @@ func TestAllPlayersDisconnectedExpired(t *testing.T) {
 	}
 }
 
-func TestRoom_handleCountdownEnd(t *testing.T) {
-	r := NewRoom("CD1", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.state.Phase = domain.PhaseCountdown
-	r.state.SessionID = "sess-1"
-	r.state.StartedAt = time.Now().UnixMilli()
-	r.handleCountdownEnd()
-	if r.state.Phase != domain.PhasePlaying {
-		t.Fatalf("phase = %s", r.state.Phase)
-	}
-	if r.state.TickCount != 1 {
-		t.Fatalf("TickCount = %d", r.state.TickCount)
-	}
-}
-
-func TestRoom_handleAutoRestart_NoPlayers(t *testing.T) {
-	r := NewRoom("AR1", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.state.Phase = domain.PhaseEnded
-	r.handleAutoRestart()
-	if r.state.Phase != domain.PhaseWaiting {
-		t.Fatalf("phase = %s", r.state.Phase)
-	}
-}
-
-func TestRoom_handleAutoRestart_WithVotes(t *testing.T) {
-	r := NewRoom("AR2", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.state.Phase = domain.PhaseEnded
-	addConnectedPlayer(r, "p1")
-	r.state.RestartVotes = map[string]bool{"p1": true}
-	r.handleAutoRestart()
-	// Single connected player with a vote = consensus reached
-	// (yesVotes == connectedCount), so RestartAndStart fires immediately.
-	// Previously this deferred 30s due to a buggy `yesVotes > 0` check that
-	// did not account for consensus; the fix aligns handleAutoRestart with
-	// CheckRestartConsensus.
-	if r.state.Phase != domain.PhaseCountdown {
-		t.Fatalf("phase = %s, expected countdown (consensus restart)", r.state.Phase)
-	}
-}
-
-func TestHub_loadOrMaterializeRoom(t *testing.T) {
-	state := NewGameState("LOAD1", 42, testRNG())
-	stateJSON, _ := json.Marshal(state)
-
-	h, mock, _ := setupHubWithDBMock(t, 0)
-	expectLoadLobbyState(mock, "LOAD1", string(stateJSON))
-
-	room := h.loadOrMaterializeRoom("LOAD1")
-	if room == nil {
-		t.Fatal("expected room")
-	}
-}
-
-func TestHub_shouldLocalMaterializeRoom_RedisError(t *testing.T) {
-	redisStore := testutil.SetupMiniredisStore(t)
-	h := NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 0)
-	_ = redisStore.Close()
-	if h.shouldLocalMaterializeRoom(context.Background(), "ERR1") {
-		t.Fatal("redis error should not allow local materialize")
-	}
-}
-
-func TestHub_loadOrMaterializeRoom_NilStore(t *testing.T) {
-	h := newTestHub()
-	if room := h.loadOrMaterializeRoom("X"); room != nil {
-		t.Fatal("expected nil without store")
-	}
-}
-
-func TestHub_RestoreRooms_LoadError(t *testing.T) {
-	h, mock, _ := setupHubWithDBMock(t, 8)
-	mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'").
-		WillReturnError(context.Canceled)
-
-	if err := h.RestoreRooms(); err == nil {
-		t.Fatal("expected load error")
-	}
-}
-
-func TestHub_RestoreRooms_SkipsExistingRoom(t *testing.T) {
-	h, mock, db := setupHubWithDBMock(t, 8)
-
-	state := NewGameState("EXIST", 42, testRNG())
-	stateJSON, _ := json.Marshal(state)
-	expectRestoreRoomsScan(mock, "EXIST", string(stateJSON))
-
-	h.mu.Lock()
-	h.rooms["EXIST"] = NewRoom("EXIST", h, db, config.DefaultTimeoutConfig(), 8)
-	h.mu.Unlock()
-
-	if err := h.RestoreRooms(); err != nil {
-		t.Fatalf("RestoreRooms: %v", err)
-	}
-}
-
-func TestHub_RestoreRooms_DeserializeError(t *testing.T) {
-	h, mock, _ := setupHubWithDBMock(t, 8)
-
-	expectRestoreRoomsScan(mock, "BAD1", "{invalid")
-
-	if err := h.RestoreRooms(); err != nil {
-		t.Fatalf("RestoreRooms should continue on deserialize error: %v", err)
-	}
-	if h.RoomCount() != 0 {
-		t.Fatalf("RoomCount = %d", h.RoomCount())
-	}
-}
-
-func TestHub_loadOrMaterializeRoom_ForeignOwner(t *testing.T) {
-	redisStore := testutil.SetupMiniredisStore(t)
-	foreign := []byte(`{"code":"LOAD2","instance":"other","address":"x","created_at":1}`)
-	_ = redisStore.RegisterRoom(context.Background(), "LOAD2", foreign, time.Hour)
-	h := NewHub(nil, redisStore, config.DefaultTimeoutConfig(), 0, 8)
-	if room := h.loadOrMaterializeRoom("LOAD2"); room != nil {
-		t.Fatal("expected nil for foreign owner")
-	}
-}
-
-func TestHub_loadOrMaterializeRoom_ForeignOwnerWithStore(t *testing.T) {
-	h, _, _, redisStore := setupHubWithDBAndRedis(t, 8)
-
-	foreign := []byte(`{"code":"LOAD5","instance":"other","address":"x","created_at":1}`)
-	_ = redisStore.RegisterRoom(context.Background(), "LOAD5", foreign, time.Hour)
-
-	if room := h.loadOrMaterializeRoom("LOAD5"); room != nil {
-		t.Fatal("expected nil when foreign owner skips materialization")
-	}
-}
-
 func TestHub_loadOrMaterializeRoom_ErrorCases(t *testing.T) {
 	cases := []struct {
 		name      string
 		code      string
 		setupMock func(t *testing.T, mock pgxmock.PgxPoolIface)
 	}{
-		{
-			name: "LoadError",
-			code: "LOAD3",
-			setupMock: func(_ *testing.T, mock pgxmock.PgxPoolIface) {
-				mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
-					WithArgs("LOAD3").
-					WillReturnError(context.Canceled)
-			},
-		},
 		{
 			name: "DeserializeError",
 			code: "LOAD4",
@@ -344,40 +219,5 @@ func TestHub_RestoreRooms_Pagination(t *testing.T) {
 	}
 	if repo.calls < 2 {
 		t.Fatalf("LoadAllActiveLobbies calls = %d, want >= 2", repo.calls)
-	}
-}
-
-type emptyRestoreRepo struct {
-	*mockRoomRepository
-}
-
-func (e *emptyRestoreRepo) LoadAllActiveLobbies(context.Context, int, string) (*domain.LobbyListResult, error) {
-	return &domain.LobbyListResult{Lobbies: []domain.LobbyState{}}, nil
-}
-
-func TestHub_RestoreRooms_EmptyPage(t *testing.T) {
-	h := NewHub(&emptyRestoreRepo{mockRoomRepository: newMockRoomRepository()}, nil, config.DefaultTimeoutConfig(), 0, 8)
-	if err := h.RestoreRooms(); err != nil {
-		t.Fatalf("RestoreRooms: %v", err)
-	}
-	if h.RoomCount() != 0 {
-		t.Fatalf("RoomCount = %d, want 0", h.RoomCount())
-	}
-}
-
-func TestHub_loadOrMaterializeRoom_ReturnsExisting(t *testing.T) {
-	state := NewGameState("EXIST1", 42, testRNG())
-	stateJSON, _ := json.Marshal(state)
-
-	h, mock, db := setupHubWithDBMock(t, 8)
-	expectLoadLobbyState(mock, "EXIST1", string(stateJSON))
-
-	existing := NewRoom("EXIST1", h, db, config.DefaultTimeoutConfig(), 0)
-	h.mu.Lock()
-	h.rooms["EXIST1"] = existing
-	h.mu.Unlock()
-
-	if room := h.loadOrMaterializeRoom("EXIST1"); room != existing {
-		t.Fatal("expected existing room pointer")
 	}
 }

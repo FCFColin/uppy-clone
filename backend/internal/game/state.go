@@ -3,7 +3,6 @@ package game
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"math/rand/v2"
 	"time"
 
@@ -12,8 +11,6 @@ import (
 	"github.com/uppy-clone/backend/internal/nicknames"
 	"github.com/uppy-clone/backend/internal/protocol"
 )
-
-// ─── RNG ──────────────────────────────────────────────────────────────
 
 // RNGSource is the interface for random number generation used by the game.
 type RNGSource interface {
@@ -37,8 +34,6 @@ func newSeededRNG(seed int64) *seededRNG {
 	return &seededRNG{rng: rand.New(rand.NewPCG(uint64(seed), uint64(seed^0xDEADBEEF)))} //nolint:gosec // G404: game RNG, not crypto
 }
 
-// ─── Repository Interfaces ─────────────────────────────────────────────
-
 // CacheStore defines Redis-backed caching operations needed by the game engine.
 type CacheStore interface {
 	GetRoomRegistry(ctx context.Context, code string) (*domain.RoomRegistryInfo, error)
@@ -61,8 +56,6 @@ type RoomRepository interface {
 	CreateGameSession(ctx context.Context, gs *domain.GameSession) error
 	RecordGameResult(ctx context.Context, sessionID, roomCode string, endedAt int64, finalScore int, results []domain.GameResultPlayer) error
 }
-
-// ─── Names & Nicknames ───────────────────────────────────────────────
 
 const roomAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // pragma: allowlist secret
 
@@ -143,8 +136,6 @@ func HandleSetNickname(_ *domain.GameState, player *domain.PlayerState, nickname
 	player.Nickname = nickname
 	return true
 }
-
-// ─── Game State ──────────────────────────────────────────────────────
 
 // NewGameState creates a default game state.
 func NewGameState(lobbyCode string, seed int64, rng RNGSource) *domain.GameState {
@@ -256,17 +247,20 @@ func createInitialBird(spawnTimer int) domain.BirdState {
 	}
 }
 
-// spawnGhost 生成新幽灵（对应 TS spawnGhost(1,1)）
+// spawnGhost 生成新幽灵（从屏幕边缘生成，像鸟一样）
 func spawnGhost(rng RNGSource) domain.GhostState {
-	// 在可见区域内随机生成（避开边缘 15% 和气球起始位置附近）
-	// x: 0.15-0.85，y: 0.3-0.75
-	x := 0.15 + rng.Float64()*0.7
-	y := 0.3 + rng.Float64()*0.45
-
-	// 初始速度：随机方向漫步
-	angle := rng.Float64() * 2 * math.Pi
-	vx := math.Cos(angle) * protocol.GhostSpeed
-	vy := math.Sin(angle) * protocol.GhostSpeed
+	// 50% 概率从左边缘，50% 概率从右边缘
+	fromLeft := rng.Float64() > 0.5
+	var x, vx float64
+	if fromLeft {
+		x = -0.1
+		vx = protocol.GhostSpeed * (0.5 + rng.Float64()*0.5)
+	} else {
+		x = 1.1
+		vx = -protocol.GhostSpeed * (0.5 + rng.Float64()*0.5)
+	}
+	y := 0.2 + rng.Float64()*0.6
+	vy := (rng.Float64() - 0.5) * protocol.GhostSpeed
 
 	return domain.GhostState{
 		X:          x,

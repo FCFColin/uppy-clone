@@ -11,8 +11,6 @@ import (
 	"github.com/uppy-clone/backend/internal/metrics"
 )
 
-// ─── PersistManager (debounced async persistence) ───────────────────
-
 const persistQueueSize = 8
 const persistDebounce = 100 * time.Millisecond
 
@@ -177,8 +175,6 @@ func (m *PersistManager) stop() {
 		close(m.ch)
 	}
 }
-
-// ─── Room Persist Methods ────────────────────────────────────────────
 
 func newLobbyState(code string, stateJSON []byte) *domain.LobbyState {
 	now := time.Now().UnixMilli()

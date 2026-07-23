@@ -11,9 +11,61 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-// ─── Join / Disconnect ───────────────────────────────────────────────
+// 使用变量（非常量）以便测试中覆盖为短时间。
+var nicknameConfirmTimeout = 60 * time.Second
 
-// HandleJoin 处理玩家加入/重连
+// startNicknameTimer 超时后若玩家仍未确认昵称，则将其踢出房间。
+// 调用方必须持有 r.mu。
+func (r *Room) startNicknameTimer(playerID string) {
+	r.clearNicknameTimerLocked(playerID)
+	r.nicknameTimers[playerID] = time.AfterFunc(nicknameConfirmTimeout, func() {
+		if r.closed.Load() {
+			return
+		}
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.closed.Load() {
+			return
+		}
+		player, ok := r.state.Players[playerID]
+		if !ok || player.NicknameConfirmed {
+			r.clearNicknameTimerLocked(playerID)
+			return
+		}
+		r.clearNicknameTimerLocked(playerID)
+		delete(r.state.Players, playerID)
+		delete(r.usedNames, player.Nickname)
+		delete(r.state.RestartVotes, playerID)
+		r.connMu.Lock()
+		if pc, ok := r.connections[playerID]; ok {
+			if pc.Conn != nil {
+				_ = pc.Conn.Close()
+			}
+			delete(r.connections, playerID)
+		}
+		r.connMu.Unlock()
+		r.broadcast(protocol.EncodePlayerLeave(uint16(player.PlayerIndex)), "") //nolint:gosec // G115: PlayerIndex < MaxPlayersPerRoom
+		r.logger.Info("player kicked: nickname confirmation timeout", "playerID", playerID)
+		r.tryStartWhenAllReady()
+	})
+}
+
+// clearNicknameTimerLocked 调用方必须持有 r.mu。
+func (r *Room) clearNicknameTimerLocked(playerID string) {
+	if timer, ok := r.nicknameTimers[playerID]; ok {
+		timer.Stop()
+		delete(r.nicknameTimers, playerID)
+	}
+}
+
+// clearAllNicknameTimers 用于 Room.Close()。调用方必须持有 r.mu。
+func (r *Room) clearAllNicknameTimers() {
+	for pid, timer := range r.nicknameTimers {
+		timer.Stop()
+		delete(r.nicknameTimers, pid)
+	}
+}
+
 func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 	start := time.Now()
 	r.mu.Lock()
@@ -46,6 +98,9 @@ func (r *Room) HandleJoin(playerID string, conn *websocket.Conn) error {
 			return err
 		}
 		player = newPlayer
+		if !player.NicknameConfirmed {
+			r.startNicknameTimer(playerID)
+		}
 	}
 
 	r.notifyJoin(playerID, player, false)
@@ -71,6 +126,11 @@ func (r *Room) reconnectPlayer(playerID string, player *domain.PlayerState) {
 	r.logger.Info("player reconnected during grace period", "playerID", playerID)
 	r.sendToPlayer(playerID, r.buildSnapshot())
 	r.requestPersist()
+
+	// 重连玩家若未确认昵称，reconnectPlayer 会重新启动定时器
+	if !player.NicknameConfirmed {
+		r.startNicknameTimer(playerID)
+	}
 
 	switch r.state.Phase {
 	case domain.PhaseWaiting:
@@ -110,16 +170,11 @@ func (r *Room) addNewPlayer(playerID string, conn *websocket.Conn) (*domain.Play
 	nickname := SanitizePlayerName(GenerateUniqueNickname("", r.usedNames))
 
 	player := &domain.PlayerState{
-		ID:                 playerID,
-		PlayerIndex:        r.state.NextPlayerIndex,
-		Nickname:           nickname,
-		Palette:            palette,
-		CooldownEndTime:    now,
-		ScoreContribution:  0,
-		TapsCount:          0,
-		MessageCount:       0,
-		MessageWindowStart: 0,
-		LastNicknameChange: 0,
+		ID:              playerID,
+		PlayerIndex:     r.state.NextPlayerIndex,
+		Nickname:        nickname,
+		Palette:         palette,
+		CooldownEndTime: now,
 	}
 	r.state.NextPlayerIndex++
 	r.state.Players[playerID] = player
@@ -142,7 +197,7 @@ func (r *Room) notifyJoin(playerID string, player *domain.PlayerState, isReconne
 	r.requestPersist()
 }
 
-// HandleDisconnect 处理玩家断开连接
+// HandleDisconnect 处理玩家断开连接。调用方无锁（内部加锁）。
 func (r *Room) HandleDisconnect(playerID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -156,14 +211,15 @@ func (r *Room) HandleDisconnect(playerID string) error {
 	delete(r.connections, playerID)
 	r.connMu.Unlock()
 
+	// 若玩家在宽限期内重连，reconnectPlayer 会重新启动定时器
+	r.clearNicknameTimerLocked(playerID)
+
 	now := time.Now().UnixMilli()
 	player.MarkDisconnected(now)
 	r.logger.Info("player disconnected, grace period 30s", "playerID", playerID)
 
 	return nil
 }
-
-// ─── Phase Transition / Start Game ───────────────────────────────────
 
 func (r *Room) normalizePhaseForNicknameGate() {
 	if r.state.Phase != domain.PhaseCountdown && r.state.Phase != domain.PhasePlaying {
@@ -288,8 +344,6 @@ func (r *Room) handleCountdownEnd() {
 	r.restartTick()
 }
 
-// ─── Countdown Helpers ───────────────────────────────────────────────
-
 func countdownDurationMs() int64 {
 	if protocol.TickRate == 0 {
 		return 3000
@@ -323,8 +377,6 @@ func remainingCountdownMs(countdownStart int64) int64 {
 	}
 	return remaining
 }
-
-// ─── End Game ────────────────────────────────────────────────────────
 
 // EndGame 结束游戏（playing → ended）
 func (r *Room) EndGame() error {
@@ -393,7 +445,6 @@ func (r *Room) recordGameResultAsync() {
 	}()
 }
 
-// setEndGameAlarm sets a timer for ended/countdown phase transitions.
 func (r *Room) setEndGameAlarm(when time.Time) {
 	if r.endGameTimer != nil {
 		r.endGameTimer.Stop()
@@ -427,8 +478,6 @@ func (r *Room) setEndGameAlarm(when time.Time) {
 		}
 	})
 }
-
-// ─── Auto-Restart ────────────────────────────────────────────────────
 
 func (r *Room) handleAutoRestart() {
 	toDelete := make([]string, 0, len(r.state.RestartVotes))

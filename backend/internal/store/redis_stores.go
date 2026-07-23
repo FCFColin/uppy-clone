@@ -11,8 +11,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// ─── Key Helpers & Lua Scripts ────────────────────────────────────────
-
 const (
 	adminFailKeyPrefix      = "admin:login:fail:"
 	adminLockKeyPrefix      = "admin:login:lock:"
@@ -26,11 +24,11 @@ func jwtRevokedKey(jti string) string { return "jwt_revoked:" + jti }
 
 // consumeMagicTokenScript atomically GETs and DELETEs a magic link token.
 var consumeMagicTokenScript = redis.NewScript(`
-	local val = redis.call('GET', KEYS[1])
-	if val then
-		redis.call('DEL', KEYS[1])
-	end
-	return val
+local val = redis.call('GET', KEYS[1])
+if val then
+	redis.call('DEL', KEYS[1])
+end
+return val
 `)
 
 func magicTokenKey(hash string) string { return "magic:" + hash }
@@ -53,8 +51,6 @@ func roomInfoKey(code string) string { return "room:" + code }
 // room codes, replacing the O(N) full-keyspace SCAN (store-015).
 func roomIndexKey() string { return "room:index" }
 
-// ─── SessionStore (JWT revocation + admin login tracking) ────────────
-
 var incrementFailedLoginScript = redis.NewScript(`
 local ipCount = redis.call('INCR', KEYS[1])
 local acctCount = redis.call('INCR', KEYS[2])
@@ -67,18 +63,15 @@ end
 return {ipCount, acctCount}
 `)
 
-// SessionStore handles JWT revocation and admin login tracking.
 type SessionStore struct {
 	baseRedisStore
 }
 
-// NewSessionStore creates a SessionStore.
 func NewSessionStore(rdb *redis.Client, deps ...Deps) *SessionStore {
 	d := depsOrZero(deps...)
 	return &SessionStore{baseRedisStore: newBaseRedisStore(rdb, d)}
 }
 
-// RevokeJWT adds a JWT ID to the revocation list with the given TTL.
 func (s *SessionStore) RevokeJWT(ctx context.Context, jti string, ttl time.Duration) error {
 	ctx, span := s.deps.Tracer.Start(ctx, "session_store.RevokeJWT",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -96,7 +89,6 @@ func (s *SessionStore) RevokeJWT(ctx context.Context, jti string, ttl time.Durat
 	return err
 }
 
-// IsJWTRevoked checks whether a JWT ID has been revoked.
 func (s *SessionStore) IsJWTRevoked(ctx context.Context, jti string) (bool, error) {
 	ctx, span := s.deps.Tracer.Start(ctx, "session_store.IsJWTRevoked",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -124,7 +116,6 @@ func (s *SessionStore) IsJWTRevoked(ctx context.Context, jti string) (bool, erro
 	return revoked, nil
 }
 
-// IncrementFailedLogin increments failed login counts for the given IP and account.
 func (s *SessionStore) IncrementFailedLogin(ctx context.Context, ip, account string) (int, int, error) {
 	ipKey := adminFailKeyPrefix + ip
 	acctKey := adminAcctFailPrefix + account
@@ -155,7 +146,6 @@ func (s *SessionStore) IncrementFailedLogin(ctx context.Context, ip, account str
 	return int(ipVal), int(acctVal), nil
 }
 
-// IsLoginLocked checks whether login is locked for the given IP or account.
 func (s *SessionStore) IsLoginLocked(ctx context.Context, ip, account string) (bool, error) {
 	ipKey := adminLockKeyPrefix + ip
 	acctKey := adminAcctLockPrefix + account
@@ -173,7 +163,6 @@ func (s *SessionStore) IsLoginLocked(ctx context.Context, ip, account string) (b
 	return ipLocked > 0 || acctLocked > 0, nil
 }
 
-// SetLoginLock sets login lock keys for the given IP and account with a TTL.
 func (s *SessionStore) SetLoginLock(ctx context.Context, ip, account string, ttl time.Duration) error {
 	ipKey := adminLockKeyPrefix + ip
 	acctKey := adminAcctLockPrefix + account
@@ -188,7 +177,6 @@ func (s *SessionStore) SetLoginLock(ctx context.Context, ip, account string, ttl
 	return nil
 }
 
-// ResetFailedLogin clears failed-login counters and locks for the given IP and account.
 func (s *SessionStore) ResetFailedLogin(ctx context.Context, ip, account string) error {
 	ipFailKey := adminFailKeyPrefix + ip
 	ipLockKey := adminLockKeyPrefix + ip
@@ -205,7 +193,6 @@ func (s *SessionStore) ResetFailedLogin(ctx context.Context, ip, account string)
 	return nil
 }
 
-// AddAdminJTI adds an admin JWT ID to the active set with a TTL.
 func (s *SessionStore) AddAdminJTI(ctx context.Context, jti string, ttl time.Duration) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		pipe := s.rdb.Pipeline()
@@ -220,7 +207,6 @@ func (s *SessionStore) AddAdminJTI(ctx context.Context, jti string, ttl time.Dur
 	return err
 }
 
-// RemoveAdminJTI removes an admin JWT ID from the active set.
 func (s *SessionStore) RemoveAdminJTI(ctx context.Context, jti string) error {
 	_, err := s.cb.Execute(func() (any, error) {
 		if err := s.rdb.SRem(ctx, adminActiveJTISetKey, jti).Err(); err != nil {
@@ -231,7 +217,6 @@ func (s *SessionStore) RemoveAdminJTI(ctx context.Context, jti string) error {
 	return err
 }
 
-// GetAllAdminJTIs returns all active admin JWT IDs.
 func (s *SessionStore) GetAllAdminJTIs(ctx context.Context) ([]string, error) {
 	var jtis []string
 	_, err := s.cb.Execute(func() (any, error) {
@@ -248,20 +233,15 @@ func (s *SessionStore) GetAllAdminJTIs(ctx context.Context) ([]string, error) {
 	return jtis, nil
 }
 
-// ─── MagicLinkStore ──────────────────────────────────────────────────
-
-// MagicLinkStore handles magic-link token persistence in Redis.
 type MagicLinkStore struct {
 	baseRedisStore
 }
 
-// NewMagicLinkStore creates a MagicLinkStore.
 func NewMagicLinkStore(rdb *redis.Client, deps ...Deps) *MagicLinkStore {
 	d := depsOrZero(deps...)
 	return &MagicLinkStore{baseRedisStore: newBaseRedisStore(rdb, d)}
 }
 
-// StoreMagicToken stores a hashed magic link token with a TTL.
 func (s *MagicLinkStore) StoreMagicToken(ctx context.Context, hashedToken string, data []byte, ttl time.Duration) error {
 	ctx, span := s.deps.Tracer.Start(ctx, "magiclink_store.StoreMagicToken",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -279,7 +259,6 @@ func (s *MagicLinkStore) StoreMagicToken(ctx context.Context, hashedToken string
 	return err
 }
 
-// GetMagicToken retrieves a magic link token's data by hash.
 func (s *MagicLinkStore) GetMagicToken(ctx context.Context, hashedToken string) ([]byte, error) {
 	ctx, span := s.deps.Tracer.Start(ctx, "magiclink_store.GetMagicToken",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -309,7 +288,6 @@ func (s *MagicLinkStore) GetMagicToken(ctx context.Context, hashedToken string) 
 	return result, nil
 }
 
-// ConsumeMagicToken atomically retrieves and deletes a magic link token.
 func (s *MagicLinkStore) ConsumeMagicToken(ctx context.Context, tokenHash string) ([]byte, error) {
 	ctx, span := s.deps.Tracer.Start(ctx, "magiclink_store.ConsumeMagicToken",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -340,7 +318,6 @@ func (s *MagicLinkStore) ConsumeMagicToken(ctx context.Context, tokenHash string
 	return result, nil
 }
 
-// DeleteMagicToken removes a magic link token from Redis.
 func (s *MagicLinkStore) DeleteMagicToken(ctx context.Context, hashedToken string) error {
 	key := magicTokenKey(hashedToken)
 	_, err := s.cb.Execute(func() (any, error) {
@@ -352,20 +329,15 @@ func (s *MagicLinkStore) DeleteMagicToken(ctx context.Context, hashedToken strin
 	return err
 }
 
-// ─── RateLimitStore ──────────────────────────────────────────────────
-
-// RateLimitStore handles rate limiting via Redis.
 type RateLimitStore struct {
 	baseRedisStore
 }
 
-// NewRateLimitStore creates a RateLimitStore.
 func NewRateLimitStore(rdb *redis.Client, deps ...Deps) *RateLimitStore {
 	d := depsOrZero(deps...)
 	return &RateLimitStore{baseRedisStore: newBaseRedisStore(rdb, d)}
 }
 
-// CheckRateLimit checks and increments the rate limit counter for the given key.
 func (s *RateLimitStore) CheckRateLimit(ctx context.Context, key string, maxCount int64, window time.Duration) (bool, error) {
 	ctx, span := s.deps.Tracer.Start(ctx, "ratelimit_store.CheckRateLimit",
 		trace.WithAttributes(attribute.String("db.system", "redis"),
@@ -397,20 +369,15 @@ func (s *RateLimitStore) CheckRateLimit(ctx context.Context, key string, maxCoun
 	return allowed, nil
 }
 
-// ─── EmailQueueStore ─────────────────────────────────────────────────
-
-// EmailQueueStore handles email and game result queue operations via Redis Streams.
 type EmailQueueStore struct {
 	baseRedisStore
 }
 
-// NewEmailQueueStore creates an EmailQueueStore.
 func NewEmailQueueStore(rdb *redis.Client, deps ...Deps) *EmailQueueStore {
 	d := depsOrZero(deps...)
 	return &EmailQueueStore{baseRedisStore: newBaseRedisStore(rdb, d)}
 }
 
-// EnqueueEmail adds an email payload to the Redis stream queue.
 func (s *EmailQueueStore) EnqueueEmail(ctx context.Context, payload []byte) error {
 	ctx, span := s.deps.Tracer.Start(ctx, "email_queue.EnqueueEmail",
 		trace.WithAttributes(
@@ -434,8 +401,6 @@ func (s *EmailQueueStore) EnqueueEmail(ctx context.Context, payload []byte) erro
 	return err
 }
 
-// ─── Multi-IP Tracking (RO-046) ──────────────────────────────────────
-
 // multiIPLoginScript is a Lua script that atomically adds an IP to the user's
 // IP set, refreshes the TTL, and returns the cardinality — all in a single
 // Redis round-trip (auth-009: was 3 separate calls → 1).
@@ -446,8 +411,7 @@ return redis.call('SCARD', KEYS[1])
 `)
 
 // TrackUserIPs adds clientIP to the user's IP set with a 1-hour TTL and
-// returns the count of distinct IPs seen in the window. This is the pure
-// Redis Lua operation extracted from the auth package (RO-046).
+// returns the count of distinct IPs seen in the window (RO-046).
 func TrackUserIPs(ctx context.Context, rdb redis.Scripter, userID, clientIP string) (int64, error) {
 	ipKey := "user:ips:" + userID
 	return multiIPLoginScript.Run(ctx, rdb, []string{ipKey}, clientIP, int(time.Hour.Seconds())).Int64()

@@ -19,8 +19,6 @@ import (
 // importing the audit package directly.
 type AuditEntry = audit.AuditEntry
 
-// ─── Pool & Metrics ──────────────────────────────────────────────────
-
 // PGPool abstracts pgxpool for store operations (enables pgxmock in unit tests).
 type PGPool interface {
 	Begin(ctx context.Context) (pgx.Tx, error)

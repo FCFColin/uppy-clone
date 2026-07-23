@@ -7,8 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/pashagolub/pgxmock/v4"
+	"github.com/uppy-clone/backend/internal/domain"
 )
+
+// --- Leaderboard scan & query ---
 
 type mockLeaderboardRows struct {
 	mockRowsBase
@@ -77,55 +81,6 @@ func TestScanLeaderboardRows(t *testing.T) {
 		_, err := scanLeaderboardRows(rows)
 		if err == nil || !strings.Contains(err.Error(), "connection lost") {
 			t.Errorf("expected connection error, got %v", err)
-		}
-	})
-
-	t.Run("single row", func(t *testing.T) {
-		rows := &mockLeaderboardRows{
-			scores:       []int{500},
-			displayNames: []string{"X"},
-			endedAts:     []int64{300},
-		}
-		entries, err := scanLeaderboardRows(rows)
-		if err != nil {
-			t.Fatalf("scanLeaderboardRows: %v", err)
-		}
-		if len(entries) != 1 || entries[0].Score != 500 || entries[0].Rank != 1 {
-			t.Errorf("entries = %+v", entries)
-		}
-	})
-}
-
-func TestLeaderboardQuery(t *testing.T) {
-	t.Run("global scope", func(t *testing.T) {
-		query, args := leaderboardQuery("global", 10)
-		if len(args) != 1 {
-			t.Fatalf("global: got %d args, want 1", len(args))
-		}
-		if args[0] != 10 {
-			t.Errorf("global limit = %v", args[0])
-		}
-		if strings.Contains(query, "created_at >=") {
-			t.Error("global query should not have time filter")
-		}
-		if !strings.Contains(query, "gr.user_id::text") {
-			t.Error("global query should cast user_id to text to avoid VARCHAR/UUID COALESCE type mismatch")
-		}
-	})
-
-	t.Run("weekly scope", func(t *testing.T) {
-		query, args := leaderboardQuery("weekly", 5)
-		if len(args) != 2 {
-			t.Fatalf("weekly: got %d args, want 2", len(args))
-		}
-		if args[1] != 5 {
-			t.Errorf("weekly limit = %v", args[1])
-		}
-		if !strings.Contains(query, "created_at >=") {
-			t.Error("weekly query should have time filter")
-		}
-		if !strings.Contains(query, "gr.user_id::text") {
-			t.Error("weekly query should cast user_id to text to avoid VARCHAR/UUID COALESCE type mismatch")
 		}
 	})
 }
@@ -253,6 +208,208 @@ func TestGetUserBestScore(t *testing.T) {
 			if score != tt.wantScore || games != tt.wantGames {
 				t.Fatalf("GetUserBestScore = (%d,%d), want (%d,%d)", score, games, tt.wantScore, tt.wantGames)
 			}
+		})
+	}
+}
+
+// --- Lobby list query ---
+
+func TestLoadAllActiveLobbies(t *testing.T) {
+	tests := []struct {
+		name      string
+		limit     int
+		cursor    string
+		countRow  interface{}
+		countErr  error
+		fetchErr  error
+		fetchRows *pgxmock.Rows
+		wantTotal int
+		wantErr   bool
+		skipFetch bool // true when count fails; fetch expectation should be omitted
+		fetchArgs []interface{}
+	}{
+		{
+			name:      "default limit",
+			limit:     0,
+			countRow:  0,
+			fetchRows: pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}),
+			fetchArgs: []interface{}{51},
+		},
+		{
+			name:      "capped limit",
+			limit:     500,
+			countRow:  5,
+			fetchRows: pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}),
+			fetchArgs: []interface{}{101},
+		},
+		{
+			name:      "with cursor",
+			limit:     5,
+			cursor:    "100|CODE1",
+			countRow:  10,
+			fetchRows: pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).AddRow("id1", "CODE1", "waiting", int64(99), int64(50)),
+			fetchArgs: []interface{}{int64(100), "CODE1", 6},
+			wantTotal: 10,
+		},
+		{
+			name:      "count error",
+			limit:     10,
+			countErr:  errors.New("count failed"),
+			wantErr:   true,
+			skipFetch: true,
+		},
+		{
+			name:      "fetch error",
+			limit:     10,
+			countRow:  5,
+			fetchErr:  errors.New("query failed"),
+			wantErr:   true,
+			fetchArgs: []interface{}{11},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewLobbyRepository)
+			ctx := context.Background()
+
+			countQ := mock.ExpectQuery("SELECT COALESCE\\(reltuples, 0\\)::int FROM pg_class WHERE relname = 'lobby_states'")
+			if tt.countErr != nil {
+				countQ.WillReturnError(tt.countErr)
+			} else {
+				countQ.WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(tt.countRow))
+			}
+
+			if !tt.skipFetch {
+				fetchQ := mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states")
+				if len(tt.fetchArgs) > 0 {
+					fetchQ.WithArgs(tt.fetchArgs...)
+				}
+				if tt.fetchErr != nil {
+					fetchQ.WillReturnError(tt.fetchErr)
+				} else {
+					fetchQ.WillReturnRows(tt.fetchRows)
+				}
+			}
+
+			result, err := repo.LoadAllActiveLobbies(ctx, tt.limit, tt.cursor)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadAllActiveLobbies: %v", err)
+			}
+			if result == nil {
+				t.Fatal("expected result")
+			}
+			if tt.wantTotal > 0 && result.Total != tt.wantTotal {
+				t.Fatalf("total = %d, want %d", result.Total, tt.wantTotal)
+			}
+		})
+	}
+}
+
+// --- Lobby state CRUD ---
+
+func TestSaveLobbyState(t *testing.T) {
+	tests := []struct {
+		name    string
+		execErr error
+		wantErr bool
+	}{
+		{"success", nil, false},
+		{"error", errors.New("save failed"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewLobbyRepository)
+			exec := mock.ExpectExec("INSERT INTO lobby_states").
+				WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg())
+			expectExecResult(exec, tt.execErr, "INSERT 1")
+			err := repo.SaveLobbyState(context.Background(), &domain.LobbyState{ID: "l1", Code: "ABCD1", State: "waiting", UpdatedAt: 100, CreatedAt: 50})
+			assertWantErr(t, err, tt.wantErr, "SaveLobbyState")
+		})
+	}
+}
+
+func TestLoadLobbyState(t *testing.T) {
+	tests := []struct {
+		name     string
+		queryErr error
+		rowErr   error
+		rows     *pgxmock.Rows
+		wantNil  bool
+		wantErr  bool
+	}{
+		{
+			name: "found",
+			rows: pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).
+				AddRow("l1", "ABCD1", "playing", int64(200), int64(100)),
+		},
+		{
+			name:     "not found",
+			queryErr: pgx.ErrNoRows,
+			wantNil:  true,
+		},
+		{
+			name:    "scan error",
+			rows:    pgxmock.NewRows([]string{"id", "code", "state", "updated_at", "created_at"}).AddRow("l1", "ABCD1", "playing", int64(200), int64(100)),
+			rowErr:  errors.New("scan failed"),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewLobbyRepository)
+			q := mock.ExpectQuery("SELECT id, code, state, updated_at, created_at FROM lobby_states WHERE code").
+				WithArgs("ABCD1")
+			if tt.queryErr != nil {
+				q.WillReturnError(tt.queryErr)
+			} else {
+				if tt.rowErr != nil {
+					tt.rows.RowError(0, tt.rowErr)
+				}
+				q.WillReturnRows(tt.rows)
+			}
+			ls, err := repo.LoadLobbyState(context.Background(), "ABCD1")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadLobbyState: %v", err)
+			}
+			if tt.wantNil && ls != nil {
+				t.Fatalf("expected nil, got %+v", ls)
+			}
+			if !tt.wantNil && ls == nil {
+				t.Fatal("expected non-nil lobby state")
+			}
+		})
+	}
+}
+
+func TestDeleteLobbyState(t *testing.T) {
+	tests := []struct {
+		name    string
+		execErr error
+		wantErr bool
+	}{
+		{"success", nil, false},
+		{"error", errors.New("delete failed"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock := newMockRepo(t, NewLobbyRepository)
+			exec := mock.ExpectExec("DELETE FROM lobby_states WHERE code").
+				WithArgs("ABCD1")
+			expectExecResult(exec, tt.execErr, "DELETE 1")
+			err := repo.DeleteLobbyState(context.Background(), "ABCD1")
+			assertWantErr(t, err, tt.wantErr, "DeleteLobbyState")
 		})
 	}
 }

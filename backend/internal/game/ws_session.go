@@ -3,6 +3,8 @@ package game
 import (
 	"context"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -12,10 +14,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// ─── WSSession (extracted from Room to reduce God-object surface) ────
-
-// wsStaticSpanAttr is the pre-allocated static attribute shared by all WebSocket
-// read/write pump spans.
 var wsStaticSpanAttr = attribute.String("messaging.system", "websocket")
 
 // WSSession encapsulates the WebSocket read/write pump logic for a single player
@@ -24,15 +22,12 @@ type WSSession struct {
 	room *Room
 }
 
-// NewWSSession constructs a WSSession bound to room for external callers
-// (e.g. handler package) that need to drive a WebSocket session.
+// NewWSSession constructs a WSSession for external callers (handler package).
 func NewWSSession(room *Room) *WSSession { return &WSSession{room: room} }
 
-// RunSession drives a single player's WebSocket session: it joins the player to
-// the room, then runs the read/write pumps until the connection closes. It
-// blocks until the session ends. The caller is responsible for reserving and
-// releasing the WebSocket connection slot (TryReserveWSConnection /
-// DecrementWSConnection) on the Hub.
+// RunSession joins the player to the room, then runs the read/write pumps until
+// the connection closes. The caller must reserve/release the WS connection slot
+// (TryReserveWSConnection / DecrementWSConnection) on the Hub.
 func (s *WSSession) RunSession(reqCtx context.Context, playerID string, conn *websocket.Conn) error {
 	r := s.room
 	if err := r.HandleJoin(playerID, conn); err != nil {
@@ -181,3 +176,193 @@ func (s *WSSession) maybeStartReadSpan(wsCtx context.Context, playerID string, m
 	)
 	return span
 }
+
+const outboundQueueSize = 256
+
+type outboundMsg struct {
+	payload         []byte
+	excludePlayerID string
+	critical        bool
+}
+
+type connTarget struct {
+	playerID          string
+	send              chan []byte
+	consecutiveDrops  *atomic.Int64
+	pendingDisconnect *atomic.Bool
+	connClose         func()
+}
+
+type OutboundManager struct {
+	ch        chan outboundMsg
+	closed    atomic.Bool
+	once      sync.Once
+	closeOnce sync.Once
+
+	// syncOutbound is a pointer to Room.syncOutbound so tests can toggle it after construction.
+	syncOutbound *bool
+
+	lobbyCode string
+	source    *Room
+	logger    *slog.Logger
+	asyncWG   *sync.WaitGroup
+}
+
+func NewOutboundManager(lobbyCode string, syncOutbound *bool, source *Room, logger *slog.Logger, asyncWG *sync.WaitGroup) *OutboundManager {
+	return &OutboundManager{
+		ch:           make(chan outboundMsg, outboundQueueSize),
+		syncOutbound: syncOutbound,
+		lobbyCode:    lobbyCode,
+		source:       source,
+		logger:       logger,
+		asyncWG:      asyncWG,
+	}
+}
+
+func (m *OutboundManager) observer() GameObserver {
+	if m.source != nil {
+		return m.source.Observer()
+	}
+	return NoopGameObserver{}
+}
+
+func (m *OutboundManager) startLoop() {
+	m.once.Do(func() {
+		m.asyncWG.Add(1)
+		go m.runLoop()
+	})
+}
+
+func (m *OutboundManager) runLoop() {
+	defer m.asyncWG.Done()
+	for msg := range m.ch {
+		m.deliver(msg)
+		m.observer().SetOutboundQueueDepth(m.lobbyCode, len(m.ch))
+	}
+}
+
+func (m *OutboundManager) Enqueue(payload []byte, excludePlayerID string, critical bool) {
+	if m.closed.Load() {
+		return
+	}
+	copied := append([]byte(nil), payload...)
+	msg := outboundMsg{
+		payload:         copied,
+		excludePlayerID: excludePlayerID,
+		critical:        critical,
+	}
+	if m.syncOutbound != nil && *m.syncOutbound {
+		m.deliverLocked(excludePlayerID, msg)
+		return
+	}
+	m.startLoop()
+	func() {
+		defer m.recoverPanic("enqueue")
+		select {
+		case m.ch <- msg:
+			m.observer().SetOutboundQueueDepth(m.lobbyCode, len(m.ch))
+		default:
+			if critical {
+				m.enqueueCritical(msg)
+				return
+			}
+			m.droppedNonCritical()
+		}
+	}()
+}
+
+func (m *OutboundManager) enqueueCritical(msg outboundMsg) {
+	select {
+	case m.ch <- msg:
+		m.observer().SetOutboundQueueDepth(m.lobbyCode, len(m.ch))
+	case <-time.After(2 * time.Second):
+		m.observer().IncWSMessageDropped(m.lobbyCode)
+		slog.Error("critical outbound queue blocked for 2s, dropping",
+			"room_code", m.lobbyCode)
+	}
+}
+
+func (m *OutboundManager) droppedNonCritical() {
+	m.observer().IncWSMessageDropped(m.lobbyCode)
+	slog.Warn("outbound queue full, dropping non-critical message",
+		"room_code", m.lobbyCode)
+}
+
+func (m *OutboundManager) deliver(msg outboundMsg) {
+	m.deliverLocked(msg.excludePlayerID, msg)
+}
+
+func (m *OutboundManager) deliverLocked(excludePlayerID string, msg outboundMsg) {
+	targets := m.source.SnapshotTargets(excludePlayerID)
+	m.deliverToTargets(targets, msg)
+	m.source.RemovePendingDisconnects()
+}
+
+func (m *OutboundManager) deliverToTargets(targets []connTarget, msg outboundMsg) {
+	for _, t := range targets {
+		func() {
+			defer m.recoverPanic("deliverToTargets")
+			if msg.critical {
+				m.deliverCritical(t, msg)
+				return
+			}
+			m.deliverNonCritical(t, msg)
+		}()
+	}
+}
+
+func (m *OutboundManager) recoverPanic(context string) {
+	if r := recover(); r != nil {
+		slog.Warn("panic recovered in outbound "+context, "panic", r, "room_code", m.lobbyCode)
+	}
+}
+
+func (m *OutboundManager) deliverCritical(t connTarget, msg outboundMsg) {
+	select {
+	case t.send <- msg.payload:
+		t.consecutiveDrops.Store(0)
+	case <-time.After(100 * time.Millisecond):
+		slog.Error("critical message send timeout",
+			"user_id", t.playerID,
+			"room_code", m.lobbyCode)
+	}
+}
+
+func (m *OutboundManager) deliverNonCritical(t connTarget, msg outboundMsg) {
+	select {
+	case t.send <- msg.payload:
+		t.consecutiveDrops.Store(0)
+	default:
+		m.observer().IncWSMessageDropped(m.lobbyCode)
+		t.consecutiveDrops.Add(1)
+		m.checkSlowClient(t)
+	}
+}
+
+func (m *OutboundManager) checkSlowClient(t connTarget) {
+	drops := t.consecutiveDrops.Load()
+	if drops >= 10 {
+		slog.Warn("disconnecting slow client",
+			"user_id", t.playerID,
+			"drops", drops,
+			"room_code", m.lobbyCode)
+		t.pendingDisconnect.Store(true)
+		t.connClose()
+	} else if drops >= 3 {
+		slog.Warn("slow client: messages being dropped",
+			"user_id", t.playerID,
+			"drops", drops,
+			"room_code", m.lobbyCode)
+	}
+}
+
+func (m *OutboundManager) Stop() {
+	m.closed.Store(true)
+	m.closeOnce.Do(func() {
+		if m.ch != nil {
+			close(m.ch)
+		}
+	})
+}
+
+func (m *OutboundManager) OutboundCh() chan outboundMsg { return m.ch }

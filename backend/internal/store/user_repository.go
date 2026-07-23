@@ -317,8 +317,6 @@ func (r *UserRepository) GetGameSessionsByUserID(ctx context.Context, userID str
 	return sessions, nil
 }
 
-// ─── Email helpers ────────────────────────────────────────────────────
-
 // prepareEmailForStorage returns HMAC hash and encrypted email for DB persistence.
 func prepareEmailForStorage(email string) (hash, stored string, err error) {
 	hash = crypto.EmailHMAC(email)
@@ -340,8 +338,6 @@ func emailFromStorage(stored string) (string, error) {
 	}
 	return plain, nil
 }
-
-// ─── Audit ───────────────────────────────────────────────────────────
 
 func logUserCreateAudit(ctx context.Context, u *domain.User) {
 	audit.Log(ctx, audit.AuditEntry{

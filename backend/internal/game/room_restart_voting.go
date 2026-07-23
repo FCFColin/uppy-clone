@@ -8,8 +8,6 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-// ─── Restart Voting ──────────────────────────────────────────────────
-
 // HandleRestartVote 处理重启投票请求
 //
 // 仅在 ended 阶段有效，记录玩家投票并检查共识。

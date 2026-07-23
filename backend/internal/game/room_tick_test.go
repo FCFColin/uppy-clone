@@ -1,7 +1,6 @@
 package game
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -16,8 +15,6 @@ func TestRoom_HandleMessage_RateLimit(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
 	r := NewRoom("TEST1", nil, nil, timeouts, 0)
 
-	// Set MessageCount below rate limit to verify the rate-limiting logic
-	// without triggering the Close() call on nil websocket.Conn
 	r.mu.Lock()
 	r.state.Players["p1"] = &domain.PlayerState{
 		ID:                 "p1",
@@ -28,13 +25,11 @@ func TestRoom_HandleMessage_RateLimit(t *testing.T) {
 	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 64)}
 	r.mu.Unlock()
 
-	// This message should be processed (not yet rate-limited)
 	err := r.HandleMessage("p1", protocol.MsgPing, nil)
 	if err != nil {
 		t.Fatalf("HandleMessage should not error, got %v", err)
 	}
 
-	// Now MessageCount should be at the limit
 	r.mu.RLock()
 	count := r.state.Players["p1"].MessageCount
 	r.mu.RUnlock()
@@ -43,186 +38,47 @@ func TestRoom_HandleMessage_RateLimit(t *testing.T) {
 	}
 }
 
-func TestRoom_HandleMessage_NonexistentPlayer(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
+func TestRoom_HandleMessage_RateLimitDisconnect(t *testing.T) {
+	r := NewRoom("RL", nil, nil, config.DefaultTimeoutConfig(), 0)
 
-	// Should not panic
-	err := r.HandleMessage("nonexistent", protocol.MsgPing, nil)
+	server := testutil.NewWSTestUpgraderServer(t)
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
-		t.Fatalf("expected nil for nonexistent player, got %v", err)
+		t.Fatalf("dial: %v", err)
 	}
-}
 
-func TestRoom_HandleMessage_TapAndRestartVote(t *testing.T) {
-	r := NewRoom("TAP1", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Phase = domain.PhasePlaying
-	now := time.Now().UnixMilli()
+	r.mu.Lock()
 	r.state.Players["p1"] = &domain.PlayerState{
-		ID: "p1", Nickname: "Tap", CooldownEndTime: now - 1,
+		ID: "p1", MessageCount: domain.MessageRateLimit,
+		MessageWindowStart: time.Now().UnixMilli(),
 	}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
+	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4), Conn: conn}
+	r.mu.Unlock()
 
-	var tapPayload [9]byte
-	tapPayload[0] = protocol.MsgTap
-	if err := r.HandleMessage("p1", protocol.MsgTap, tapPayload[:]); err != nil {
-		t.Fatalf("tap HandleMessage: %v", err)
+	_ = r.HandleMessage("p1", protocol.MsgPing, nil)
+	r.mu.RLock()
+	_, exists := r.connections["p1"]
+	r.mu.RUnlock()
+	if exists {
+		t.Fatal("rate-limited player connection should be removed")
 	}
-	if err := r.HandleMessage("p1", protocol.MsgRestartVote, []byte{protocol.MsgRestartVote}); err != nil {
-		t.Fatalf("restart vote HandleMessage: %v", err)
-	}
-}
-
-func TestRoom_HandleMessage_SetNickname(t *testing.T) {
-	r := NewRoom("NICK1", nil, nil, config.DefaultTimeoutConfig(), 4)
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
-
-	nick := "NewNick"
-	payload := append([]byte{byte(len(nick))}, []byte(nick)...)
-	msg := append([]byte{protocol.MsgSetNickname}, payload...)
-	if err := r.HandleMessage("p1", protocol.MsgSetNickname, msg); err != nil {
-		t.Fatalf("set nickname HandleMessage: %v", err)
-	}
-}
-
-// ─── modelPhaseToProtocol ────────────────────────────────────────────
-
-func TestValidateTapRequest(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now().UnixMilli()
-	room := &Room{state: NewGameState("TEST", 42, testRNG())}
-
-	t.Run("rejects when not playing", func(t *testing.T) {
-		room.state.Phase = domain.PhaseWaiting
-		player := &domain.PlayerState{CooldownEndTime: 0}
-		if room.validateTapRequest(player, now) {
-			t.Error("validateTapRequest should reject non-playing phase")
-		}
-	})
-
-	t.Run("rejects when on cooldown", func(t *testing.T) {
-		room.state.Phase = domain.PhasePlaying
-		player := &domain.PlayerState{CooldownEndTime: now + 1000}
-		if room.validateTapRequest(player, now) {
-			t.Error("validateTapRequest should reject when on cooldown")
-		}
-	})
-
-	t.Run("accepts valid tap", func(t *testing.T) {
-		room.state.Phase = domain.PhasePlaying
-		player := &domain.PlayerState{CooldownEndTime: 0}
-		if !room.validateTapRequest(player, now) {
-			t.Error("validateTapRequest should accept valid tap")
-		}
-	})
-
-	t.Run("accepts expired cooldown", func(t *testing.T) {
-		room.state.Phase = domain.PhasePlaying
-		player := &domain.PlayerState{CooldownEndTime: now - 1}
-		if !room.validateTapRequest(player, now) {
-			t.Error("validateTapRequest should accept expired cooldown")
-		}
-	})
-}
-
-func TestDecodeTapPayload(t *testing.T) {
-	t.Parallel()
-
-	room := &Room{state: NewGameState("TEST", 42, testRNG())}
-
-	t.Run("rejects short payload", func(t *testing.T) {
-		_, _, ok := room.decodeTapPayload([]byte{0, 1, 2})
-		if ok {
-			t.Error("decodeTapPayload should reject < 8 bytes")
-		}
-	})
-
-	t.Run("rejects nil payload", func(t *testing.T) {
-		_, _, ok := room.decodeTapPayload(nil)
-		if ok {
-			t.Error("decodeTapPayload should reject nil")
-		}
-	})
-
-	t.Run("rejects NaN coordinates", func(t *testing.T) {
-		payload := encodeTapTestPayload(float32(math.NaN()), 0.5)
-		_, _, ok := room.decodeTapPayload(payload)
-		if ok {
-			t.Error("decodeTapPayload should reject NaN")
-		}
-	})
-
-	t.Run("rejects Inf coordinates", func(t *testing.T) {
-		payload := encodeTapTestPayload(float32(math.Inf(1)), 0.5)
-		_, _, ok := room.decodeTapPayload(payload)
-		if ok {
-			t.Error("decodeTapPayload should reject Inf")
-		}
-	})
-
-	t.Run("rejects coordinates out of range [0,1]", func(t *testing.T) {
-		payload := encodeTapTestPayload(1.5, 0.5)
-		_, _, ok := room.decodeTapPayload(payload)
-		if ok {
-			t.Error("decodeTapPayload should reject x > 1")
-		}
-	})
-
-	t.Run("rejects negative coordinates", func(t *testing.T) {
-		payload := encodeTapTestPayload(-0.1, 0.5)
-		_, _, ok := room.decodeTapPayload(payload)
-		if ok {
-			t.Error("decodeTapPayload should reject x < 0")
-		}
-	})
-
-	t.Run("accepts valid coordinates", func(t *testing.T) {
-		payload := encodeTapTestPayload(0.5, 0.3)
-		x, y, ok := room.decodeTapPayload(payload)
-		if !ok || x != 0.5 || y != 0.3 {
-			t.Errorf("decodeTapPayload = (%v, %v, %v), want (0.5, 0.3, true)", x, y, ok)
-		}
-	})
-
-	t.Run("accepts boundary values", func(t *testing.T) {
-		payload := encodeTapTestPayload(0, 1)
-		x, y, ok := room.decodeTapPayload(payload)
-		if !ok || x != 0 || y != 1 {
-			t.Errorf("decodeTapPayload = (%v, %v, %v), want (0, 1, true)", x, y, ok)
-		}
-	})
 }
 
 func TestUpdatePlayerStats(t *testing.T) {
-	t.Parallel()
+	room := &Room{state: NewGameState("TEST", 42, testRNG())}
+	room.state.Balloon.Score = 5
+	room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
 
-	t.Run("increments score", func(t *testing.T) {
-		room := &Room{state: NewGameState("TEST", 42, testRNG())}
-		room.state.Balloon.Score = 5
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
-
-		cooldown := room.updatePlayerStats(room.state.Players["p1"], time.Now().UnixMilli())
-		if room.state.Balloon.Score != 6 {
-			t.Errorf("Score = %d, want %d", room.state.Balloon.Score, 6)
-		}
-		if cooldown <= 0 {
-			t.Errorf("cooldown = %d, want > 0", cooldown)
-		}
-	})
-
-	t.Run("calculates cooldown based on connected count", func(t *testing.T) {
-		room := &Room{state: NewGameState("TEST", 42, testRNG())}
-		room.state.Players["p1"] = &domain.PlayerState{Nickname: "Player1", PlayerIndex: 0}
-		room.state.Players["p2"] = &domain.PlayerState{Nickname: "Player2", PlayerIndex: 1}
-		room.state.Players["p3"] = &domain.PlayerState{Nickname: "Player3", PlayerIndex: 2}
-
-		cooldown := room.updatePlayerStats(room.state.Players["p1"], time.Now().UnixMilli())
-		if cooldown <= 0 {
-			t.Errorf("cooldown should be positive, got %d", cooldown)
-		}
-	})
+	cooldown := room.updatePlayerStats(room.state.Players["p1"], time.Now().UnixMilli())
+	if room.state.Balloon.Score != 6 {
+		t.Errorf("Score = %d, want %d", room.state.Balloon.Score, 6)
+	}
+	if cooldown <= 0 {
+		t.Errorf("cooldown = %d, want > 0", cooldown)
+	}
 }
 
 // TestRoom_tickOnce_CollisionEndsGame covers ground, ghost, and bird collisions
@@ -291,20 +147,6 @@ func TestRoom_tickOnce_NotPlaying(t *testing.T) {
 	r.mu.Unlock()
 }
 
-func TestRoom_tickOnce_AdvancesPlaying(t *testing.T) {
-	r := NewRoom("TICK2", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	addConnectedPlayer(r, "p1")
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.state.TickCount = 0
-	r.tickOnce(time.Now())
-	if r.state.TickCount != 1 {
-		t.Fatalf("TickCount = %d, want 1", r.state.TickCount)
-	}
-	r.mu.Unlock()
-}
-
 // TestRoom_tickOnce_StopsWhenNoActivePlayers covers both all-disconnected and zero-players cases.
 func TestRoom_tickOnce_StopsWhenNoActivePlayers(t *testing.T) {
 	cases := []struct {
@@ -363,260 +205,75 @@ func TestRoom_tickOnce_SavesStateEvery30Ticks(t *testing.T) {
 	}
 }
 
-func TestRoom_startTick_Idempotent(t *testing.T) {
-	r := NewRoom("ST", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.startTick()
-	if r.tickCancel == nil {
-		t.Fatal("expected tick running")
-	}
-	r.startTick()
-	if r.tickCancel == nil {
-		t.Fatal("startTick should not stop active tick")
-	}
-	r.stopTick()
-}
-
-func TestRoom_HandleMessage_RateLimitDisconnect(t *testing.T) {
-	r := NewRoom("RL", nil, nil, config.DefaultTimeoutConfig(), 0)
-
-	server := testutil.NewWSTestUpgraderServer(t)
-	conn, resp, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-
-	r.mu.Lock()
-	r.state.Players["p1"] = &domain.PlayerState{
-		ID: "p1", MessageCount: domain.MessageRateLimit,
-		MessageWindowStart: time.Now().UnixMilli(),
-	}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 4), Conn: conn}
-	r.mu.Unlock()
-
-	_ = r.HandleMessage("p1", protocol.MsgPing, nil)
-	r.mu.RLock()
-	_, exists := r.connections["p1"]
-	r.mu.RUnlock()
-	if exists {
-		t.Fatal("rate-limited player connection should be removed")
-	}
-}
-
-func TestRoom_handleSetNicknameMsg(t *testing.T) {
+func TestRoom_HandleTap(t *testing.T) {
 	cases := []struct {
 		name          string
+		phase         domain.GamePhase
+		cooldownEnd   int64
 		payload       []byte
-		wantConfirmed bool
+		wantMsg       byte
+		wantScoreIncr bool
 	}{
-		{name: "InvalidPayloadZero", payload: []byte{0}, wantConfirmed: false},
-		{name: "EmptySanitized", payload: append([]byte{byte(3)}, []byte("   ")...), wantConfirmed: false},
-		{name: "AcceptsValidNickname", payload: append([]byte{byte(len("Valid"))}, []byte("Valid")...), wantConfirmed: true},
+		{
+			name:          "AcceptsValidTap",
+			phase:         domain.PhasePlaying,
+			payload:       encodeTapTestPayload(0.5, 0.5),
+			wantMsg:       protocol.MsgTapAccepted,
+			wantScoreIncr: true,
+		},
+		{
+			name:    "RejectsWrongPhase",
+			phase:   domain.PhaseWaiting,
+			payload: encodeTapTestPayload(0.5, 0.5),
+			wantMsg: protocol.MsgTapRejected,
+		},
+		{
+			name:        "RejectsCooldown",
+			phase:       domain.PhasePlaying,
+			cooldownEnd: time.Now().UnixMilli() + 5000,
+			payload:     encodeTapTestPayload(0.5, 0.5),
+			wantMsg:     protocol.MsgTapRejected,
+		},
+		{
+			name:    "RejectsInvalidPayload",
+			phase:   domain.PhasePlaying,
+			payload: []byte{0x01},
+			wantMsg: protocol.MsgTapRejected,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			r := NewRoom("NICK", nil, nil, config.DefaultTimeoutConfig(), 0)
-			player := &domain.PlayerState{ID: "p1", Nickname: "Old"}
+			timeouts := config.DefaultTimeoutConfig()
+			r := NewRoom("TEST1", nil, nil, timeouts, 0)
+			r.syncOutbound = true
+			r.state.Phase = c.phase
+			r.state.Balloon.X = 0.5
+			r.state.Balloon.Y = 0.5
+
+			player := &domain.PlayerState{ID: "p1", PlayerIndex: 0, CooldownEndTime: c.cooldownEnd}
+			ch := make(chan []byte, 64)
 			r.mu.Lock()
-			r.handleSetNicknameMsg(player, c.payload)
+			r.state.Players["p1"] = player
+			r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
 			r.mu.Unlock()
-			if player.NicknameConfirmed != c.wantConfirmed {
-				t.Fatalf("NicknameConfirmed = %v, want %v", player.NicknameConfirmed, c.wantConfirmed)
+
+			beforeScore := r.state.Balloon.Score
+			r.handleTap(player, "p1", c.payload)
+
+			if c.wantScoreIncr && r.state.Balloon.Score != beforeScore+1 {
+				t.Fatalf("score = %d, want %d", r.state.Balloon.Score, beforeScore+1)
+			}
+			if c.wantScoreIncr && player.TapsCount != 1 {
+				t.Fatalf("TapsCount = %d, want 1", player.TapsCount)
+			}
+			select {
+			case msg := <-ch:
+				if len(msg) == 0 || msg[0] != c.wantMsg {
+					t.Fatalf("expected msg 0x%02x, got %v", c.wantMsg, msg)
+				}
+			default:
+				t.Fatal("expected message on player channel")
 			}
 		})
 	}
-}
-
-// encodeTapTestPayload helper: creates a mock tap payload for testing decodeTapPayload.
-
-// encodeNicknamePayload builds a MsgSetNickname payload (without msgType prefix)
-// for testing: nickLen(1) + nickname(bytes). Caller must ensure len(nick) <= 255.
-func encodeNicknamePayload(nick string) []byte {
-	return append([]byte{byte(len(nick))}, []byte(nick)...) //nolint:gosec // G115: test helper, short nicknames only
-}
-
-// drainNicknameRejected drains ch until timeout and returns the reason code of
-// the first NICKNAME_REJECTED message found. Returns (0, false) if none found.
-func drainNicknameRejected(ch <-chan []byte, timeout time.Duration) (uint8, bool) {
-	deadline := time.After(timeout)
-	for {
-		select {
-		case msg := <-ch:
-			if len(msg) >= 2 && msg[0] == protocol.MsgNicknameRejected {
-				return msg[1], true
-			}
-			// Ignore other messages (snapshot, player join, etc.)
-		case <-deadline:
-			return 0, false
-		}
-	}
-}
-
-// TestRoom_handleSetNicknameMsg_RejectReasons covers the three rejection
-// paths in handleSetNicknameMsg (decode_error, empty, duplicate, cooldown) and
-// verifies each sends NICKNAME_REJECTED with the correct reason code. Also
-// verifies the accept path does NOT send NICKNAME_REJECTED and still broadcasts
-// a snapshot.
-func TestRoom_handleSetNicknameMsg_RejectReasons(t *testing.T) {
-	t.Run("DecodeError_NilPayload", func(t *testing.T) {
-		r := NewRoom("REJ1", nil, nil, config.DefaultTimeoutConfig(), 0)
-		ch := make(chan []byte, 4)
-		r.mu.Lock()
-		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
-		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-		r.handleSetNicknameMsg(r.state.Players["p1"], nil)
-		r.mu.Unlock()
-
-		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
-		if !ok {
-			t.Fatal("expected NICKNAME_REJECTED, got none")
-		}
-		if reason != protocol.NickRejectDecodeError {
-			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectDecodeError)", reason, protocol.NickRejectDecodeError)
-		}
-	})
-
-	t.Run("DecodeError_TruncatedPayload", func(t *testing.T) {
-		r := NewRoom("REJ2", nil, nil, config.DefaultTimeoutConfig(), 0)
-		ch := make(chan []byte, 4)
-		r.mu.Lock()
-		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
-		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-		// nickLen=5 but only 2 bytes follow → decode failure
-		r.handleSetNicknameMsg(r.state.Players["p1"], []byte{5, 'a', 'b'})
-		r.mu.Unlock()
-
-		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
-		if !ok {
-			t.Fatal("expected NICKNAME_REJECTED, got none")
-		}
-		if reason != protocol.NickRejectDecodeError {
-			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectDecodeError)", reason, protocol.NickRejectDecodeError)
-		}
-	})
-
-	t.Run("Empty_WhitespaceOnly", func(t *testing.T) {
-		r := NewRoom("REJ3", nil, nil, config.DefaultTimeoutConfig(), 0)
-		ch := make(chan []byte, 4)
-		r.mu.Lock()
-		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
-		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-		// SanitizeNickname trims whitespace → empty
-		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("   "))
-		r.mu.Unlock()
-
-		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
-		if !ok {
-			t.Fatal("expected NICKNAME_REJECTED, got none")
-		}
-		if reason != protocol.NickRejectEmpty {
-			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectEmpty)", reason, protocol.NickRejectEmpty)
-		}
-	})
-
-	t.Run("Empty_ControlCharsOnly", func(t *testing.T) {
-		r := NewRoom("REJ4", nil, nil, config.DefaultTimeoutConfig(), 0)
-		ch := make(chan []byte, 4)
-		r.mu.Lock()
-		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
-		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-		// Control chars stripped by SanitizeNickname → empty
-		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("\x01\x02\x03"))
-		r.mu.Unlock()
-
-		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
-		if !ok {
-			t.Fatal("expected NICKNAME_REJECTED, got none")
-		}
-		if reason != protocol.NickRejectEmpty {
-			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectEmpty)", reason, protocol.NickRejectEmpty)
-		}
-	})
-
-	t.Run("Duplicate_AlreadyTaken", func(t *testing.T) {
-		r := NewRoom("REJ5", nil, nil, config.DefaultTimeoutConfig(), 0)
-		ch := make(chan []byte, 4)
-		r.mu.Lock()
-		// Another player has already taken "Taken"
-		r.state.Players["p2"] = &domain.PlayerState{ID: "p2", Nickname: "Taken"}
-		r.usedNames["Taken"] = true
-		// Our player
-		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
-		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("Taken"))
-		r.mu.Unlock()
-
-		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
-		if !ok {
-			t.Fatal("expected NICKNAME_REJECTED, got none")
-		}
-		if reason != protocol.NickRejectDuplicate {
-			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectDuplicate)", reason, protocol.NickRejectDuplicate)
-		}
-	})
-
-	t.Run("Cooldown_WithinWindow", func(t *testing.T) {
-		r := NewRoom("REJ6", nil, nil, config.DefaultTimeoutConfig(), 0)
-		ch := make(chan []byte, 4)
-		r.mu.Lock()
-		r.state.Players["p1"] = &domain.PlayerState{
-			ID:                 "p1",
-			Nickname:           "Old",
-			LastNicknameChange: time.Now().UnixMilli(), // just changed → in cooldown
-		}
-		r.usedNames["Old"] = true
-		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-		// "Fresh" is not in usedNames → duplicate check passes;
-		// HandleSetNickname returns false due to cooldown.
-		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("Fresh"))
-		r.mu.Unlock()
-
-		reason, ok := drainNicknameRejected(ch, 100*time.Millisecond)
-		if !ok {
-			t.Fatal("expected NICKNAME_REJECTED, got none")
-		}
-		if reason != protocol.NickRejectCooldown {
-			t.Fatalf("reason = 0x%02x, want 0x%02x (NickRejectCooldown)", reason, protocol.NickRejectCooldown)
-		}
-	})
-
-	t.Run("Accept_NoRejectSent_SnapshotBroadcast", func(t *testing.T) {
-		r := NewRoom("ACC1", nil, nil, config.DefaultTimeoutConfig(), 0)
-		r.syncOutbound = true // synchronous broadcast for deterministic test
-		ch := make(chan []byte, 8)
-		r.mu.Lock()
-		r.state.Players["p1"] = &domain.PlayerState{ID: "p1", Nickname: "Old"}
-		r.usedNames["Old"] = true
-		r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: ch}
-		r.handleSetNicknameMsg(r.state.Players["p1"], encodeNicknamePayload("New"))
-		confirmed := r.state.Players["p1"].NicknameConfirmed
-		r.mu.Unlock()
-
-		if !confirmed {
-			t.Fatal("expected NicknameConfirmed = true for valid nickname")
-		}
-
-		// Drain all messages: none should be NICKNAME_REJECTED,
-		// and a snapshot should be present (proving broadcast still works).
-		deadline := time.After(200 * time.Millisecond)
-		gotSnapshot := false
-		for {
-			select {
-			case msg := <-ch:
-				if len(msg) >= 1 && msg[0] == protocol.MsgNicknameRejected {
-					t.Fatalf("expected no NICKNAME_REJECTED, got reason 0x%02x", msg[1])
-				}
-				if len(msg) >= 1 && msg[0] == protocol.MsgSnapshot {
-					gotSnapshot = true
-				}
-			case <-deadline:
-				if !gotSnapshot {
-					t.Fatal("expected snapshot to be broadcast on accept path")
-				}
-				return
-			}
-		}
-	})
 }

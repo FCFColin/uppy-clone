@@ -17,7 +17,6 @@ import (
 
 var tracer = otel.Tracer("github.com/uppy-clone/backend/internal/game")
 
-// PlayerConn 表示一个玩家的 WebSocket 连接
 type PlayerConn struct {
 	PlayerID string
 	Conn     *websocket.Conn
@@ -34,15 +33,13 @@ type PlayerConn struct {
 // SendChannel returns the outbound message channel for interface access.
 func (p *PlayerConn) SendChannel() chan []byte { return p.Send }
 
-// RoomConnections manages the per-room WebSocket connection registry.
-// Embedded in Room; has its own mutex (connMu) to avoid deadlock with the
+// RoomConnections has its own mutex (connMu) to avoid deadlock with the
 // outbound goroutine, which must not acquire Room.mu.
 type RoomConnections struct {
 	connMu      sync.RWMutex
 	connections map[string]*PlayerConn
 }
 
-// GetConnection returns the PlayerConn associated with the given player ID, or nil if not found.
 func (rc *RoomConnections) GetConnection(playerID string) *PlayerConn {
 	rc.connMu.RLock()
 	defer rc.connMu.RUnlock()
@@ -74,7 +71,6 @@ func (rc *RoomConnections) sendToPlayer(playerID string, data []byte) {
 	}
 }
 
-// SnapshotTargets returns a snapshot of all connection targets except the excluded player.
 func (rc *RoomConnections) SnapshotTargets(excludePlayerID string) []connTarget {
 	rc.connMu.RLock()
 	defer rc.connMu.RUnlock()
@@ -138,21 +134,16 @@ func (r *Room) RemovePendingDisconnects() {
 	}
 }
 
-// ─── Broadcast ───────────────────────────────────────────────────────
-
-// broadcast sends data to all connections (optionally excluding one player).
-// Caller must hold r.mu. Actual delivery happens in the outbound goroutine (lock-free).
+// broadcast Caller must hold r.mu. Actual delivery happens in the outbound goroutine (lock-free).
 func (r *Room) broadcast(data []byte, excludePlayerID string) {
 	r.enqueueOutbound(data, broadcastOpts{excludePlayerID: excludePlayerID})
 }
 
-// broadcastCritical sends a critical phase message with blocking delivery per client.
-// 调用方必须持有 r.mu 锁。
+// broadcastCritical 调用方必须持有 r.mu。
 func (r *Room) broadcastCritical(message []byte) {
 	r.enqueueOutbound(message, broadcastOpts{critical: true})
 }
 
-// broadcastOpts controls outbound delivery behavior.
 type broadcastOpts struct {
 	excludePlayerID string
 	critical        bool
@@ -170,7 +161,6 @@ func (r *Room) initOutboundManager() {
 	}
 }
 
-// stopOutbound stops the outbound delivery loop.
 func (r *Room) stopOutbound() {
 	if r.outbound == nil {
 		return
@@ -190,8 +180,7 @@ type snapshotData struct {
 	wind      float64
 }
 
-// extractSnapshotDataLocked copies the state needed for a snapshot.
-// Caller must hold r.mu.
+// extractSnapshotDataLocked Caller must hold r.mu.
 func (r *Room) extractSnapshotDataLocked() snapshotData {
 	now := time.Now().UnixMilli()
 	players := make([]protocol.PlayerState, 0, len(r.state.Players))
@@ -237,20 +226,16 @@ func (r *Room) extractSnapshotDataLocked() snapshotData {
 	}
 }
 
-// encodeSnapshot encodes a snapshot from pre-captured data.
-// Safe to call without holding r.mu.
+// encodeSnapshot Safe to call without holding r.mu.
 func encodeSnapshot(sd snapshotData) []byte {
 	return protocol.EncodeSnapshot(sd.phase, sd.tickCount, sd.score, sd.balloon, sd.bird, sd.ghost, sd.players, nil, sd.wind)
 }
 
-// buildSnapshot encodes the current state as a snapshot.
-// Caller must hold r.mu.
+// buildSnapshot Caller must hold r.mu.
 func (r *Room) buildSnapshot() []byte {
 	sd := r.extractSnapshotDataLocked()
 	return encodeSnapshot(sd)
 }
-
-// ─── Room Aggregate Root ─────────────────────────────────────────────
 
 // Room represents a game room and is the aggregate root.
 //
@@ -272,6 +257,9 @@ type Room struct {
 	countdownStart      int64         // countdown phase 开始时间 (unix milli)
 	tickCancel          context.CancelFunc
 
+	// nicknameTimers 所有访问必须在 r.mu 锁保护下进行。
+	nicknameTimers map[string]*time.Timer
+
 	outbound     *OutboundManager
 	syncOutbound bool // true = immediate delivery (unit tests)
 
@@ -281,7 +269,7 @@ type Room struct {
 	store      RoomRepository
 	timeouts   config.TimeoutConfig
 	logger     *slog.Logger
-	maxPlayers int // 每房间最大玩家数
+	maxPlayers int
 
 	lobbyCode string // 房间码，不可变，在 NewRoom 中设置
 
@@ -302,7 +290,6 @@ type Room struct {
 	rng RNGSource
 }
 
-// NewRoom 创建新房间
 func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.TimeoutConfig, maxPlayers int) *Room {
 	_, span := tracer.Start(context.Background(), "game.new_room")
 	defer span.End()
@@ -316,23 +303,23 @@ func NewRoom(code string, hub *Hub, repo RoomRepository, timeouts config.Timeout
 		RoomConnections: RoomConnections{
 			connections: make(map[string]*PlayerConn),
 		},
-		startDelay: 2000 * time.Millisecond,
-		state:      NewGameState(code, seed, roomRNG),
-		usedNames:  make(map[string]bool),
-		hub:        hub,
-		store:      repo,
-		timeouts:   timeouts,
-		logger:     slog.Default().With("lobby", code),
-		maxPlayers: maxPlayers,
-		lobbyCode:  code,
-		rng:        roomRNG,
+		startDelay:     2000 * time.Millisecond,
+		state:          NewGameState(code, seed, roomRNG),
+		usedNames:      make(map[string]bool),
+		nicknameTimers: make(map[string]*time.Timer),
+		hub:            hub,
+		store:          repo,
+		timeouts:       timeouts,
+		logger:         slog.Default().With("lobby", code),
+		maxPlayers:     maxPlayers,
+		lobbyCode:      code,
+		rng:            roomRNG,
 	}
 	r.outbound = NewOutboundManager(code, &r.syncOutbound, r, r.logger, &r.asyncWg)
 	r.persist = newPersistManager(r, r.logger, &r.asyncWg)
 	return r
 }
 
-// Code returns the lobby code for this room.
 func (r *Room) Code() string {
 	return string(r.state.LobbyCode)
 }
@@ -345,6 +332,7 @@ func (r *Room) Close() {
 	r.closed.Store(true)
 	r.mu.Lock()
 	r.stopTick()
+	r.clearAllNicknameTimers()
 	r.mu.Unlock()
 
 	// Wait for tick goroutine to exit, with a timeout to prevent hanging.
@@ -391,14 +379,12 @@ func (r *Room) Close() {
 	}
 }
 
-// ErrRoomFull 房间玩家已满
 var ErrRoomFull = &roomFullError{}
 
 type roomFullError struct{}
 
 func (e *roomFullError) Error() string { return "room is full" }
 
-// SerializeStateJSON serializes the room state for persistence.
 func (r *Room) SerializeStateJSON() ([]byte, string, error) {
 	if r.state == nil {
 		return nil, "", nil
@@ -410,16 +396,12 @@ func (r *Room) SerializeStateJSON() ([]byte, string, error) {
 	return data, string(r.state.LobbyCode), nil
 }
 
-// Store returns the room's repository.
 func (r *Room) Store() RoomRepository { return r.store }
 
-// LobbyCode returns the room's lobby code.
 func (r *Room) LobbyCode() string { return r.lobbyCode }
 
-// Timeouts returns the room's timeout configuration.
 func (r *Room) Timeouts() config.TimeoutConfig { return r.timeouts }
 
-// Observer returns the GameObserver from the owning Hub.
 func (r *Room) Observer() GameObserver {
 	if r.hub != nil {
 		return r.hub.Observer()

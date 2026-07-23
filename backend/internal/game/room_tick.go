@@ -15,10 +15,8 @@ import (
 
 const persistIntervalTicks = 30
 
-// ErrRateLimited 玩家因消息频率过高被断开
 var ErrRateLimited = errors.New("player rate limited")
 
-// HandleMessage 处理客户端消息
 func (r *Room) HandleMessage(playerID string, msgType byte, payload []byte) error {
 	_, span := tracer.Start(context.Background(), "game.handle_message")
 	defer span.End()
@@ -240,8 +238,6 @@ func (r *Room) cleanupDisconnected(now int64) {
 	}
 }
 
-// ─── Message Handlers ────────────────────────────────────────────────
-
 func (r *Room) handleTap(player *domain.PlayerState, playerID string, payload []byte) {
 	now := time.Now().UnixMilli()
 
@@ -325,6 +321,7 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 
 	if sanitized == player.Nickname {
 		player.NicknameConfirmed = true
+		r.clearNicknameTimerLocked(player.ID)
 		metrics.NicknameConfirmTotal.WithLabelValues("accepted").Inc()
 		r.requestPersist()
 		r.broadcast(r.buildSnapshot(), "")
@@ -346,6 +343,7 @@ func (r *Room) handleSetNicknameMsg(player *domain.PlayerState, payload []byte) 
 	}
 
 	player.NicknameConfirmed = true
+	r.clearNicknameTimerLocked(player.ID)
 	metrics.NicknameConfirmTotal.WithLabelValues("accepted").Inc()
 
 	r.requestPersist()

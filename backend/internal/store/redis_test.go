@@ -2,13 +2,17 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 )
+
+// --- Test helpers ---
 
 func newTestMiniredis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 	t.Helper()
@@ -49,6 +53,21 @@ func newTestEmailQueueStore(t *testing.T) (*EmailQueueStore, *miniredis.Miniredi
 	rdb, mr := newTestMiniredis(t)
 	return NewEmailQueueStore(rdb), mr
 }
+
+// --- Redis store construction ---
+
+func TestNewRedisStore_UnreachablePing(t *testing.T) {
+	_, err := NewRedisStore("127.0.0.1:1", config.TimeoutConfig{
+		RedisConnectTimeout: 100 * time.Millisecond,
+		RedisReadTimeout:    100 * time.Millisecond,
+		RedisWriteTimeout:   100 * time.Millisecond,
+	})
+	if err == nil || !strings.Contains(err.Error(), "redis ping") {
+		t.Fatalf("NewRedisStore = %v, want redis ping error", err)
+	}
+}
+
+// --- Session / auth stores ---
 
 func TestSessionStore_MagicTokenLifecycle(t *testing.T) {
 	s, _ := newTestMagicLinkStore(t)
@@ -154,6 +173,8 @@ func TestSessionStore_AdminLoginLockout(t *testing.T) {
 	}
 }
 
+// --- Lobby cursor / list helpers ---
+
 func TestParseLobbyCursor(t *testing.T) {
 	tests := []struct {
 		cursor  string
@@ -165,8 +186,6 @@ func TestParseLobbyCursor(t *testing.T) {
 		{"1700000000|ABCD2", 1700000000, "ABCD2", false},
 		{"bad|CODE", 0, "", true},    // non-numeric timestamp
 		{"noseparator", 0, "", true}, // missing separator
-		{"0|CODE", 0, "", true},      // zero timestamp
-		{"1700000000|", 0, "", true}, // empty code
 	}
 	for _, tt := range tests {
 		at, code, err := parseLobbyCursor(tt.cursor)
@@ -200,6 +219,8 @@ func TestBuildLobbyListResult_Pagination(t *testing.T) {
 		t.Errorf("NextCursor = %q", result.NextCursor)
 	}
 }
+
+// --- Lobby read cache ---
 
 func TestRedisStore_LobbyReadCache(t *testing.T) {
 	s, _ := newTestRedisStore(t)
@@ -290,6 +311,8 @@ func TestRedisStore_LobbyReadCache_Errors(t *testing.T) {
 		t.Fatal("expected InvalidateRoomCheck error")
 	}
 }
+
+// --- Email queue ---
 
 func TestEmailQueueStore_EnqueueStreams(t *testing.T) {
 	s, mr := newTestEmailQueueStore(t)

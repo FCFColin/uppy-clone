@@ -7,8 +7,6 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-// ─── Balloon Physics ──────────────────────────────────────────────────
-
 // ApplyPhysics applies balloon physics and returns whether the game is over.
 func ApplyPhysics(balloon *domain.BalloonState) bool {
 	// 重力将气球向下拉（vy 减小 = 向下）
@@ -29,12 +27,10 @@ func ApplyPhysics(balloon *domain.BalloonState) bool {
 		balloon.VX = -math.Abs(balloon.VX) * 0.5
 	}
 
-	// 触底检测：y ≤ 0 → 游戏结束
 	if balloon.Y <= 0 {
 		return true
 	}
 
-	// 天花板检测：y ≥ 1 → 垂直速度归零
 	if balloon.Y >= 1 {
 		balloon.Y = 1
 		if balloon.VY > 0 {
@@ -73,8 +69,6 @@ func ApplyTapForce(balloon *domain.BalloonState, tapX, tapY float64) bool {
 // and denormalized float performance penalties. Well below any meaningful game
 // distance (balloon radius ~0.06 in normalized coords).
 const tapDistEpsilon = 1e-15
-
-// ─── Wind System ─────────────────────────────────────────────────────
 
 func tickCountdown(counter *int, resetFn func(), resetVal int) {
 	*counter--
@@ -116,8 +110,6 @@ func UpdateWind(state *domain.GameState, rng RNGSource) {
 	state.Balloon.VX += state.Wind * protocol.WindMax * windScale
 }
 
-// ─── Cooldown ────────────────────────────────────────────────────────
-
 // CalculateCooldown 对数冷却公式
 //
 //	cooldown_ms(N) = min(15000, round(1000 + 2032 · log₂(max(1, N))))
@@ -127,8 +119,6 @@ func CalculateCooldown(playerCount int) int64 {
 		protocol.CooldownMaxMs,
 	))
 }
-
-// ─── Bird AI ─────────────────────────────────────────────────────────
 
 func setBirdVelocityToward(bird *domain.BirdState, balloon *domain.BalloonState, guardZeroDist bool) {
 	dx := balloon.X - bird.X
@@ -196,8 +186,6 @@ func CheckBirdCollision(bird *domain.BirdState, balloon *domain.BalloonState) bo
 	ry := protocol.BirdCollisionRadiusY + protocol.BalloonCollisionRadius
 	return (dx*dx)/(rx*rx)+(dy*dy)/(ry*ry) < 1
 }
-
-// ─── Ghost AI ────────────────────────────────────────────────────────
 
 // UpdateGhostAI updates the ghost AI.
 func UpdateGhostAI(state *domain.GameState, rng RNGSource) {

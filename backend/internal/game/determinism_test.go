@@ -51,6 +51,7 @@ func deterministicTickHash(t *testing.T, tickCount int, fixedTime time.Time, see
 
 	r.rng = newSeededRNG(seed)
 	r.state = NewGameState("DET", seed, r.rng)
+	r.state.CreatedAt = 0 // 固定 CreatedAt 以确保确定性（NewGameState 用 time.Now()）
 	r.state.Phase = domain.PhasePlaying
 	r.state.Players["p1"] = &domain.PlayerState{
 		ID:          "p1",

@@ -69,8 +69,11 @@ func (h *Hub) materializeRoom(code string, state *domain.GameState) *Room {
 	room := NewRoom(code, h, h.store, h.timeouts, h.maxPlayersPerRoom)
 	room.state = state
 	room.rng = newSeededRNG(state.RNGSeed)
+	now := time.Now().UnixMilli()
 	for _, p := range state.Players {
 		room.usedNames[p.Nickname] = true
+		// 恢复的房间中所有玩家的 WebSocket 连接已丢失，标记为断连
+		p.MarkDisconnected(now)
 	}
 	return room
 }

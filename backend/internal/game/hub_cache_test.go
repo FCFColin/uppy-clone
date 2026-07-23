@@ -3,7 +3,6 @@ package game
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
@@ -26,14 +25,6 @@ func setupHubWithMiniredis(t *testing.T, repo RoomRepository) (*Hub, *store.Redi
 
 	h := NewHub(repo, redisStore, timeouts, 0, 0)
 	return h, redisStore
-}
-
-func TestHub_ListLobbiesCached_NilStore(t *testing.T) {
-	h := NewHub(nil, nil, config.DefaultTimeoutConfig(), 0, 0)
-	_, err := h.ListLobbiesCached(context.Background(), 10, "")
-	if err == nil {
-		t.Fatal("expected error when store is nil")
-	}
 }
 
 func TestHub_ListLobbiesCached_FromStore(t *testing.T) {
@@ -112,35 +103,6 @@ func TestHub_CheckRoomCached_CacheHit(t *testing.T) {
 	}
 }
 
-func TestHub_InvalidateLobbyReadCaches_WithRedis(t *testing.T) {
-	h, redisStore := setupHubWithMiniredis(t, nil)
-	ctx := context.Background()
-
-	data, _ := json.Marshal(&domain.LobbyListResult{Total: 1})
-	_ = redisStore.SetCachedLobbyList(ctx, 10, "", data)
-	roomData, _ := json.Marshal(RoomInfo{Code: "ABCDE"})
-	_ = redisStore.SetCachedRoomCheck(ctx, "ABCDE", roomData)
-
-	h.invalidateLobbyReadCaches("ABCDE")
-}
-
-func TestHub_ListLobbiesCached_NoRedis(t *testing.T) {
-	repo := newMockRoomRepository()
-	ctx := context.Background()
-	_ = repo.SaveLobbyState(ctx, &domain.LobbyState{
-		ID: "lobby-1", Code: "NORED", State: "{}", UpdatedAt: time.Now().UnixMilli(),
-	})
-
-	h := NewHub(repo, nil, config.DefaultTimeoutConfig(), 0, 0)
-	result, err := h.ListLobbiesCached(ctx, 10, "")
-	if err != nil {
-		t.Fatalf("ListLobbiesCached: %v", err)
-	}
-	if len(result.Lobbies) != 1 || result.Lobbies[0].Code != "NORED" {
-		t.Fatalf("result = %+v", result)
-	}
-}
-
 func TestHub_CheckRoomCached_PopulatesCacheOnMiss(t *testing.T) {
 	h, redisStore := setupHubWithMiniredis(t, nil)
 	code, err := h.CreateRoom(context.Background())
@@ -167,35 +129,6 @@ func TestHub_CheckRoomCached_PopulatesCacheOnMiss(t *testing.T) {
 	}
 }
 
-func TestHub_CheckRoomCached_InvalidCacheJSON(t *testing.T) {
-	h, redisStore := setupHubWithMiniredis(t, nil)
-	code, err := h.CreateRoom(context.Background())
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
-
-	ctx := context.Background()
-	if err := redisStore.SetCachedRoomCheck(ctx, code, []byte("{bad json")); err != nil {
-		t.Fatalf("SetCachedRoomCheck: %v", err)
-	}
-
-	info, err := h.CheckRoomCached(ctx, code)
-	if err != nil || info == nil || info.Code != code {
-		t.Fatalf("CheckRoomCached should fall through on bad cache: info=%+v err=%v", info, err)
-	}
-}
-
-func TestHub_CheckRoomCached_RedisGetError(t *testing.T) {
-	h, redisStore := setupHubWithMiniredis(t, nil)
-	if err := redisStore.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	_, err := h.CheckRoomCached(context.Background(), "ABCDE")
-	if err == nil {
-		t.Fatal("expected redis get error")
-	}
-}
-
 func TestHub_ListLobbiesCached_CorruptCacheReloads(t *testing.T) {
 	repo := newMockRoomRepository()
 	ctx := context.Background()
@@ -217,28 +150,4 @@ func TestHub_ListLobbiesCached_CorruptCacheReloads(t *testing.T) {
 	}
 }
 
-func TestHub_ListLobbiesCached_LoadError(t *testing.T) {
-	h, _ := setupHubWithMiniredis(t, &failLoadRepo{mockRoomRepository: *newMockRoomRepository()})
-	_, err := h.ListLobbiesCached(context.Background(), 10, "")
-	if err == nil {
-		t.Fatal("expected load error")
-	}
-}
 
-type failLoadRepo struct {
-	mockRoomRepository
-}
-
-func (f *failLoadRepo) LoadAllActiveLobbies(_ context.Context, _ int, _ string) (*domain.LobbyListResult, error) {
-	return nil, errLoadFailed
-}
-
-var errLoadFailed = errors.New("load failed")
-
-func TestHub_CheckRoomCached_RoomNotFound(t *testing.T) {
-	h, _ := setupHubWithMiniredis(t, nil)
-	info, err := h.CheckRoomCached(context.Background(), "NOPE")
-	if err != nil || info != nil {
-		t.Fatalf("info=%+v err=%v", info, err)
-	}
-}

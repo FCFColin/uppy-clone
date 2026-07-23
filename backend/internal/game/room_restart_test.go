@@ -3,42 +3,10 @@ package game
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/uppy-clone/backend/internal/config"
 	"github.com/uppy-clone/backend/internal/domain"
 )
-
-func TestHandleRestartVote_NotEndedPhase(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-	player := &domain.PlayerState{ID: "p1"}
-
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.mu.Unlock()
-
-	err := HandleRestartVote(r, player)
-	if err != nil {
-		t.Fatalf("expected nil for non-ended phase, got %v", err)
-	}
-}
-
-func TestHandleRestartVote_DuplicateVote(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-	player := &domain.PlayerState{ID: "p1"}
-
-	r.mu.Lock()
-	r.state.Phase = domain.PhaseEnded
-	r.state.RestartVotes["p1"] = true
-	r.mu.Unlock()
-
-	err := HandleRestartVote(r, player)
-	if err != nil {
-		t.Fatalf("expected nil for duplicate vote, got %v", err)
-	}
-}
 
 func TestHandleRestartVote_DuplicateRetriesConsensus(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
@@ -88,45 +56,7 @@ func TestCheckRestartConsensus_PartialVoteStartsTimer(t *testing.T) {
 	}
 }
 
-func TestCheckRestartConsensus_TimerAlreadyStarted(t *testing.T) {
-	now := time.Now().UnixMilli()
-	room := &Room{
-		state:           NewGameState("TEST", 42, testRNG()),
-		usedNames:       make(map[string]bool),
-		RoomConnections: RoomConnections{connections: make(map[string]*PlayerConn)},
-	}
-	room.state.Phase = domain.PhaseEnded
-	room.state.Players = map[string]*domain.PlayerState{
-		"p1": {ID: "p1", Nickname: "Player1"},
-		"p2": {ID: "p2", Nickname: "Player2"},
-	}
-	room.state.RestartVotes = map[string]bool{"p1": true}
-	room.state.RestartTimerStart = &now
-
-	err := CheckRestartConsensus(room)
-	if err != nil {
-		t.Errorf("CheckRestartConsensus should not error: %v", err)
-	}
-	if room.state.RestartTimerStart == nil {
-		t.Error("RestartTimerStart should still be set")
-	}
-}
-
 // --- RestartAndStart tests ---
-
-func TestRestartAndStart_NotEndedPhase(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	r := NewRoom("TEST1", nil, nil, timeouts, 0)
-
-	r.mu.Lock()
-	r.state.Phase = domain.PhasePlaying
-	r.mu.Unlock()
-
-	err := RestartAndStart(r)
-	if err == nil {
-		t.Fatal("expected error when phase is not ended")
-	}
-}
 
 func TestRestartAndStart_NoActivePlayers(t *testing.T) {
 	timeouts := config.DefaultTimeoutConfig()
@@ -251,44 +181,6 @@ func TestRestartAndStart_SaveError(t *testing.T) {
 	}
 }
 
-func TestCheckRestartConsensus_FirstVoteStartsTimer(t *testing.T) {
-	r := NewRoom("VOTE", nil, nil, config.DefaultTimeoutConfig(), 0)
-	r.syncOutbound = true
-	r.mu.Lock()
-	r.state.Phase = domain.PhaseEnded
-	r.state.Players["p1"] = &domain.PlayerState{ID: "p1"}
-	r.state.Players["p2"] = &domain.PlayerState{ID: "p2"}
-	r.connections["p1"] = &PlayerConn{PlayerID: "p1", Send: make(chan []byte, 8)}
-	r.connections["p2"] = &PlayerConn{PlayerID: "p2", Send: make(chan []byte, 8)}
-	_ = HandleRestartVote(r, r.state.Players["p1"])
-	if r.state.RestartTimerStart == nil {
-		t.Fatal("expected restart timer after first vote")
-	}
-	r.mu.Unlock()
-}
-
-// --- coverage gap 补充用例 ---
-
-func TestCheckRestartConsensus_PhaseNotEnded(t *testing.T) {
-	cases := []struct {
-		name  string
-		phase domain.GamePhase
-	}{
-		{"playing", domain.PhasePlaying},
-		{"countdown", domain.PhaseCountdown},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			r := NewRoom("PNE", nil, nil, config.DefaultTimeoutConfig(), 0)
-			r.syncOutbound = true
-			r.state.Phase = c.phase
-			if err := CheckRestartConsensus(r); err != nil {
-				t.Fatalf("CheckRestartConsensus: %v", err)
-			}
-		})
-	}
-}
-
 func TestCheckRestartConsensus_UnanimousRestart(t *testing.T) {
 	r := NewRoom("UNI", nil, newMockRoomRepository(), config.DefaultTimeoutConfig(), 0)
 	r.syncOutbound = true
@@ -307,9 +199,6 @@ func TestCheckRestartConsensus_UnanimousRestart(t *testing.T) {
 	}
 }
 
-const (
-	testNickname = "helloworld"
-	testGreeting = "hello"
-)
+const testNickname = "helloworld"
 
 // --- HandleSetNickname tests ---

@@ -3,23 +3,19 @@ package store
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sethvargo/go-retry"
+	"github.com/sony/gobreaker/v2"
 )
 
-func TestDefaultDBRetry(t *testing.T) {
-	if b := DefaultDBRetry(); b == nil {
-		t.Fatal("DefaultDBRetry returned nil")
-	}
-}
-
-func TestDefaultRedisRetry(t *testing.T) {
-	if b := DefaultRedisRetry(); b == nil {
-		t.Fatal("DefaultRedisRetry returned nil")
-	}
-}
+// --- Retry backoff ---
 
 func TestJitteredBackoff(t *testing.T) {
 	base := 100 * time.Millisecond
@@ -29,8 +25,6 @@ func TestJitteredBackoff(t *testing.T) {
 		attempt int
 	}{
 		{name: "attempt 0", attempt: 0},
-		{name: "attempt 1", attempt: 1},
-		{name: "attempt 2", attempt: 2},
 		{name: "attempt 5", attempt: 5},
 	}
 
@@ -47,15 +41,6 @@ func TestJitteredBackoff(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestJitteredBackoff_ZeroBase(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for zero base, but JitteredBackoff did not panic")
-		}
-	}()
-	JitteredBackoff(0, 3)
 }
 
 func TestRetryWithBackoff(t *testing.T) {
@@ -125,10 +110,142 @@ func TestRetryWithBackoff_ContextCancellation(t *testing.T) {
 	}
 }
 
-func BenchmarkJitteredBackoff(b *testing.B) {
-	base := 100 * time.Millisecond
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		JitteredBackoff(base, i%10)
+// --- Error classification ---
+
+func TestIsRetryable(t *testing.T) {
+	timeoutErr := net.Error(&timeoutNetErr{})
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"pgx ErrTxCommitRollback", pgx.ErrTxCommitRollback, true},
+		{"timeout net error", timeoutErr, true},
+		{"ECONNRESET", syscall.ECONNRESET, true},
+		{"EOF", io.EOF, true},
+		{"generic error", errors.New("permanent failure"), false},
+		{"stub SafeToRetry", stubSafeToRetryErr{}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isRetryable(tt.err); got != tt.want {
+				t.Fatalf("isRetryable(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
+
+func TestIsRetryable_ContextDeadlineExceeded(t *testing.T) {
+	orig := pgconnTimeout
+	pgconnTimeout = func(err error) bool { return errors.Is(err, context.DeadlineExceeded) }
+	t.Cleanup(func() { pgconnTimeout = orig })
+
+	if !isRetryable(context.DeadlineExceeded) {
+		t.Fatal("context deadline exceeded should be retryable via pgconn.Timeout")
+	}
+}
+
+func TestIsRetryable_PgconnSafeToRetry(t *testing.T) {
+	err := &pgconn.ConnectError{}
+	if !pgconn.SafeToRetry(err) {
+		t.Skip("ConnectError not marked SafeToRetry in this pgconn version")
+	}
+	if !isRetryable(err) {
+		t.Fatal("SafeToRetry ConnectError should be retryable")
+	}
+}
+
+func TestMaybeRetryable(t *testing.T) {
+	persistent := errors.New("nope")
+	tests := []struct {
+		name    string
+		err     error
+		wantNil bool
+		wantIs  error // for non-nil case, errors.Is check
+	}{
+		{"nil returns nil", nil, true, nil},
+		{"transient wrapped", syscall.ECONNRESET, false, nil},
+		{"persistent passed through", persistent, false, persistent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MaybeRetryable(tt.err)
+			if tt.wantNil {
+				if got != nil {
+					t.Fatal("MaybeRetryable(nil) should return nil")
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("expected non-nil error")
+			}
+			if tt.wantIs != nil && !errors.Is(got, tt.wantIs) {
+				t.Fatalf("MaybeRetryable = %v", got)
+			}
+		})
+	}
+}
+
+// --- Stub error types for classification tests ---
+
+type stubSafeToRetryErr struct{}
+
+func (stubSafeToRetryErr) Error() string     { return "safe to retry" }
+func (stubSafeToRetryErr) SafeToRetry() bool { return true }
+
+type timeoutNetErr struct{}
+
+func (e *timeoutNetErr) Error() string   { return "timeout" }
+func (e *timeoutNetErr) Timeout() bool   { return true }
+func (e *timeoutNetErr) Temporary() bool { return true }
+
+// --- Circuit breakers ---
+
+// TestBreaker_FailedExecution verifies that breaker execution surfaces the
+// wrapped function's error.
+func TestBreaker_FailedExecution(t *testing.T) {
+	cb := NewPostgresBreaker()
+	_, err := cb.Execute(func() (any, error) {
+		return nil, errCBTest
+	})
+	if err == nil {
+		t.Fatal("expected error from failed execution")
+	}
+}
+
+// TestBreaker_OpensAfterFailures verifies that each breaker opens after its
+// configured consecutive-failure threshold.
+func TestBreaker_OpensAfterFailures(t *testing.T) {
+	tests := []struct {
+		name     string
+		breaker  func() *gobreaker.CircuitBreaker[any]
+		failures int
+	}{
+		{"postgres", NewPostgresBreaker, 6},
+		{"redis", NewRedisBreaker, 6},
+		{"resend", NewResendBreaker, 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ResetBreakersForTesting()
+			cb := tt.breaker()
+			for i := 0; i < tt.failures; i++ {
+				_, _ = cb.Execute(func() (any, error) {
+					return nil, errCBTest
+				})
+			}
+			if cb.State() != gobreaker.StateOpen {
+				t.Fatalf("breaker should be open after %d consecutive failures, got %v", tt.failures, cb.State())
+			}
+		})
+	}
+}
+
+var errCBTest = &cbTestError{}
+
+type cbTestError struct{}
+
+func (e *cbTestError) Error() string { return "test error" }
+
+

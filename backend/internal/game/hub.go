@@ -60,7 +60,6 @@ type Hub struct {
 	codeGen           *domain.RoomCodeGenerator
 	wsLimiter         *WSLimiter
 	cleanupInterval   time.Duration // 0 = use config.CleanupInterval; >0 for tests
-
 }
 
 // SetGenerateRoomCodeHook overrides room code generation for this Hub and returns a restore func.
@@ -154,7 +153,6 @@ func (h *Hub) getRoom(code string) *Room {
 	return room
 }
 
-// CheckRoom 检查房间是否存在
 func (h *Hub) CheckRoom(code string) (*RoomInfo, error) {
 	room := h.getRoom(code)
 	if room == nil {
@@ -184,15 +182,6 @@ type roomCodeConflictError struct{}
 
 func (e *roomCodeConflictError) Error() string { return "room code conflict after 10 retries" }
 
-// ─── WebSocket Connection Limiter ────────────────────────────────────
-
-// ErrWSConnectionLimit 全局 WebSocket 连接数已达上限
-var ErrWSConnectionLimit = &wsConnectionLimitError{}
-
-type wsConnectionLimitError struct{}
-
-func (e *wsConnectionLimitError) Error() string { return "websocket connection limit reached" }
-
 // WSLimiter manages the global WebSocket connection count and enforces the
 // configured maximum (bulkhead pattern). Extracted from Hub to reduce the
 // God-object surface: Hub delegates all WS connection accounting here.
@@ -206,7 +195,6 @@ func NewWSLimiter(maxWSConnections int) *WSLimiter {
 	return &WSLimiter{maxWSConnections: maxWSConnections}
 }
 
-// CanAcceptWSConnection 检查是否可以接受新的 WebSocket 连接
 func (w *WSLimiter) CanAcceptWSConnection() bool {
 	return atomic.LoadInt64(&w.wsConnCount) < int64(w.maxWSConnections)
 }
@@ -259,34 +247,26 @@ func (w *WSLimiter) MaxWSConnections() int {
 	return w.maxWSConnections
 }
 
-// ─── Hub delegating methods (preserve public API) ─────────────────────
-
-// CanAcceptWSConnection delegates to WSLimiter.
 func (h *Hub) CanAcceptWSConnection() bool {
 	return h.wsLimiter.CanAcceptWSConnection()
 }
 
-// TryReserveWSConnection delegates to WSLimiter.
 func (h *Hub) TryReserveWSConnection() bool {
 	return h.wsLimiter.TryReserveWSConnection()
 }
 
-// IncrementWSConnection delegates to WSLimiter.
 func (h *Hub) IncrementWSConnection() {
 	h.wsLimiter.IncrementWSConnection()
 }
 
-// DecrementWSConnection delegates to WSLimiter.
 func (h *Hub) DecrementWSConnection() {
 	h.wsLimiter.DecrementWSConnection()
 }
 
-// WSConnCount delegates to WSLimiter.
 func (h *Hub) WSConnCount() int64 {
 	return h.wsLimiter.WSConnCount()
 }
 
-// MaxWSConnections delegates to WSLimiter.
 func (h *Hub) MaxWSConnections() int {
 	return h.wsLimiter.MaxWSConnections()
 }
@@ -294,4 +274,83 @@ func (h *Hub) MaxWSConnections() int {
 // MaxPlayersPerRoom returns the configured per-room player limit.
 func (h *Hub) MaxPlayersPerRoom() int {
 	return h.maxPlayersPerRoom
+}
+
+// GameObserver receives notifications about game domain events for
+// cross-cutting concerns (metrics, audit) without coupling the game
+// package to those infrastructure packages.
+//
+// The game package calls these methods at specific domain events.
+// The production implementation (in the server package) translates
+// them into Prometheus metric updates and audit log entries.
+// Tests use NoopGameObserver (the default) to avoid infrastructure deps.
+type GameObserver interface {
+	SetActiveRooms(count int)
+	IncGameSessions()
+
+	RecordRoomLockHold(reason string, d time.Duration)
+	RecordGameTick(d time.Duration)
+	RecordWSMessage(msgName string, d time.Duration)
+
+	SetOutboundQueueDepth(lobbyCode string, depth int)
+	IncWSMessageDropped(lobbyCode string)
+	IncPersistDropped()
+
+	SetPersistLag(code string, d time.Duration)
+	IncGameResultMarshalFailures()
+
+	IncNicknameConfirm(accepted bool)
+
+	AuditRoomCreate(ctx context.Context, code string, maxPlayers int)
+	AuditRoomDelete(ctx context.Context, code string)
+}
+
+// NoopGameObserver implements GameObserver with no-op methods.
+// It is the zero-value default for Hub.observer.
+type NoopGameObserver struct{}
+
+func (NoopGameObserver) SetActiveRooms(int) {}
+
+func (NoopGameObserver) IncGameSessions() {}
+
+func (NoopGameObserver) RecordRoomLockHold(string, time.Duration) {}
+
+func (NoopGameObserver) RecordGameTick(time.Duration) {}
+
+func (NoopGameObserver) RecordWSMessage(string, time.Duration) {}
+
+func (NoopGameObserver) SetOutboundQueueDepth(string, int) {}
+
+func (NoopGameObserver) IncWSMessageDropped(string) {}
+
+func (NoopGameObserver) IncPersistDropped() {}
+
+func (NoopGameObserver) SetPersistLag(string, time.Duration) {}
+
+func (NoopGameObserver) IncGameResultMarshalFailures() {}
+
+func (NoopGameObserver) IncNicknameConfirm(bool) {}
+
+func (NoopGameObserver) AuditRoomCreate(context.Context, string, int) {}
+
+func (NoopGameObserver) AuditRoomDelete(context.Context, string) {}
+
+// Observer returns the game observer. Returns NoopGameObserver when unset.
+func (h *Hub) Observer() GameObserver {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.observer == nil {
+		return NoopGameObserver{}
+	}
+	return h.observer
+}
+
+// SetObserver replaces the game observer. nil is ignored.
+func (h *Hub) SetObserver(o GameObserver) {
+	if o == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.observer = o
 }

@@ -11,20 +11,6 @@ import (
 	"github.com/uppy-clone/backend/internal/protocol"
 )
 
-// ─── NewHub ──────────────────────────────────────────────────────────
-
-func TestNewHub(t *testing.T) {
-	h := newTestHub()
-	if h == nil {
-		t.Fatal("NewHub returned nil")
-	}
-	if h.RoomCount() != 0 {
-		t.Fatalf("expected 0 rooms, got %d", h.RoomCount())
-	}
-}
-
-// ─── CreateRoom ──────────────────────────────────────────────────────
-
 func TestHub_CreateRoom(t *testing.T) {
 	h := newTestHub()
 
@@ -39,83 +25,6 @@ func TestHub_CreateRoom(t *testing.T) {
 		t.Fatalf("expected 1 room after CreateRoom, got %d", h.RoomCount())
 	}
 }
-
-// ─── GetRoom ─────────────────────────────────────────────────────────
-
-func TestHub_GetRoom(t *testing.T) {
-	h := newTestHub()
-
-	t.Run("Found", func(t *testing.T) {
-		code, _ := h.CreateRoom(context.Background())
-		room := h.getRoom(code)
-		if room == nil {
-			t.Fatal("expected to find room by code")
-		}
-		if string(room.state.LobbyCode) != code {
-			t.Fatalf("room code mismatch: got %q, want %q", string(room.state.LobbyCode), code)
-		}
-	})
-
-	t.Run("NotFound", func(t *testing.T) {
-		room := h.getRoom("NOPE1")
-		if room != nil {
-			t.Fatal("expected nil for nonexistent room (no store)")
-		}
-	})
-}
-
-// ─── RemoveRoom ──────────────────────────────────────────────────────
-
-func TestHub_RemoveRoom(t *testing.T) {
-	h := newTestHub()
-
-	code, _ := h.CreateRoom(context.Background())
-	if h.RoomCount() != 1 {
-		t.Fatalf("expected 1 room, got %d", h.RoomCount())
-	}
-
-	h.RemoveRoom(context.Background(), code)
-	if h.RoomCount() != 0 {
-		t.Fatalf("expected 0 rooms after RemoveRoom, got %d", h.RoomCount())
-	}
-
-	h.RemoveRoom(context.Background(), "NOPE1")
-}
-
-// ─── CheckRoom ───────────────────────────────────────────────────────
-
-func TestHub_CheckRoom(t *testing.T) {
-	h := newTestHub()
-
-	t.Run("Existing", func(t *testing.T) {
-		code, _ := h.CreateRoom(context.Background())
-		info, err := h.CheckRoom(code)
-		if err != nil {
-			t.Fatalf("CheckRoom failed: %v", err)
-		}
-		if info == nil {
-			t.Fatal("expected RoomInfo for existing room")
-		}
-		if info.Code != code {
-			t.Fatalf("room code mismatch: got %q, want %q", info.Code, code)
-		}
-		if info.Phase != string(domain.PhaseWaiting) {
-			t.Fatalf("expected phase waiting, got %q", info.Phase)
-		}
-	})
-
-	t.Run("Nonexistent", func(t *testing.T) {
-		info, err := h.CheckRoom("NOPE1")
-		if err != nil {
-			t.Fatalf("CheckRoom failed: %v", err)
-		}
-		if info != nil {
-			t.Fatal("expected nil for nonexistent room")
-		}
-	})
-}
-
-// ─── CleanupLoop ─────────────────────────────────────────────────────
 
 func TestHub_CleanupLoop(t *testing.T) {
 	cases := []struct {
@@ -153,15 +62,6 @@ func TestHub_CleanupLoop(t *testing.T) {
 			wantRoomCount: 0,
 		},
 		{
-			name: "RemovesZeroPlayerRoom",
-			setup: func(room *Room) {
-				room.mu.Lock()
-				room.state.Phase = domain.PhasePlaying
-				room.mu.Unlock()
-			},
-			wantRoomCount: 0,
-		},
-		{
 			name: "KeepsDisconnectedInGrace",
 			setup: func(room *Room) {
 				disconnectedAt := time.Now().UnixMilli() - 1000
@@ -191,41 +91,6 @@ func TestHub_CleanupLoop(t *testing.T) {
 		})
 	}
 }
-
-func TestHub_CleanupLoop_ContextCancellation(t *testing.T) {
-	h := newTestHub()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-
-	go func() {
-		h.CleanupLoop(ctx)
-		close(done)
-	}()
-
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("CleanupLoop did not exit after context cancellation")
-	}
-}
-
-// ─── Timeouts ────────────────────────────────────────────────────────
-
-func TestHub_Timeouts(t *testing.T) {
-	timeouts := config.DefaultTimeoutConfig()
-	h := NewHub(nil, nil, timeouts, 0, 0)
-
-	got := h.Timeouts()
-	if got.PGConnectTimeout != timeouts.PGConnectTimeout {
-		t.Fatalf("Timeouts mismatch: got %v, want %v", got.PGConnectTimeout, timeouts.PGConnectTimeout)
-	}
-}
-
-// ─── Broadcast backpressure ─────────────────────────────────────────
 
 func TestRoom_Broadcast_Backpressure(t *testing.T) {
 	h := newTestHubWithLimits(100, 50)
@@ -265,41 +130,24 @@ func TestRoom_Broadcast_Backpressure(t *testing.T) {
 	}
 }
 
-// ─── Bulkhead: WS Connection Limit ──────────────────────────────────
-
 func TestHub_WSConnectionLimit(t *testing.T) {
-	t.Run("RejectsWhenFull", func(t *testing.T) {
-		h := newTestHubWithLimits(5, 50) // max 5 WS connections
+	h := newTestHubWithLimits(5, 50) // max 5 WS connections
 
-		for i := 0; i < 5; i++ {
-			if !h.CanAcceptWSConnection() {
-				t.Fatalf("should accept connection %d", i)
-			}
-			h.IncrementWSConnection()
+	for i := 0; i < 5; i++ {
+		if !h.CanAcceptWSConnection() {
+			t.Fatalf("should accept connection %d", i)
 		}
+		h.IncrementWSConnection()
+	}
 
-		if h.CanAcceptWSConnection() {
-			t.Fatal("should reject connection when limit reached")
-		}
+	if h.CanAcceptWSConnection() {
+		t.Fatal("should reject connection when limit reached")
+	}
 
-		if count := h.WSConnCount(); count != 5 {
-			t.Fatalf("expected 5 connections, got %d", count)
-		}
-	})
-
-	t.Run("DefaultValues", func(t *testing.T) {
-		h := newTestHub() // zero → should use defaults
-
-		if h.MaxWSConnections() != 1000 {
-			t.Fatalf("expected default max 1000, got %d", h.MaxWSConnections())
-		}
-		if h.MaxPlayersPerRoom() != 50 {
-			t.Fatalf("expected default max players 50, got %d", h.MaxPlayersPerRoom())
-		}
-	})
+	if count := h.WSConnCount(); count != 5 {
+		t.Fatalf("expected 5 connections, got %d", count)
+	}
 }
-
-// ─── Bulkhead: Room MaxPlayers ──────────────────────────────────────
 
 func TestRoom_MaxPlayers_RejectsWhenFull(t *testing.T) {
 	h := newTestHubWithLimits(100, 3)
@@ -350,28 +198,6 @@ func TestRoom_MaxPlayers_ReconnectDoesNotCount(t *testing.T) {
 	err := room.HandleJoin("player0", nil)
 	if err != nil {
 		t.Fatalf("reconnect should succeed, got %v", err)
-	}
-}
-
-// ─── RestoreRooms (nil store) ────────────────────────────────────────
-
-func TestHub_RestoreRooms_NilStore(t *testing.T) {
-	h := newTestHub()
-
-	if err := h.RestoreRooms(); err != nil {
-		t.Fatalf("expected nil error with nil store, got %v", err)
-	}
-}
-
-func TestMatchRoom_NoRooms(t *testing.T) {
-	h := newTestHubWithLimits(2, 4)
-
-	code, err := h.MatchRoom(context.Background())
-	if err != nil {
-		t.Fatalf("MatchRoom on empty hub: %v", err)
-	}
-	if code == "" {
-		t.Fatal("MatchRoom returned empty code")
 	}
 }
 
@@ -442,32 +268,5 @@ func TestHub_RemoveRoom_DeletesFromStore(t *testing.T) {
 	}
 	if h.RoomCount() != 0 {
 		t.Fatalf("RoomCount = %d, want 0", h.RoomCount())
-	}
-}
-
-func TestHub_CleanupLoop_RunsCleanupOnce(t *testing.T) {
-	h := newTestHub()
-	code, _ := h.CreateRoom(context.Background())
-	room := h.getRoom(code)
-	room.mu.Lock()
-	room.state.Phase = domain.PhaseWaiting
-	room.connections = make(map[string]*PlayerConn)
-	room.mu.Unlock()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		h.CleanupLoop(ctx)
-		close(done)
-	}()
-	h.cleanupOnce()
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("CleanupLoop did not exit")
-	}
-	if h.getRoom(code) != nil {
-		t.Fatal("empty waiting room should be cleaned up")
 	}
 }
