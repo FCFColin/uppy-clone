@@ -161,15 +161,20 @@ resource "google_service_account" "balloon_game_server" {
   display_name = "Balloon Game WebSocket/Game server GSA"
 }
 
-# Secret Manager access granted to the GKE Workload Identity GSA (not Cloud Run).
-resource "google_secret_manager_secret_iam_member" "secret_accessor" {
-  for_each = toset([
+# App secret IDs shared by both the legacy umbrella GSA and the dedicated server GSA.
+locals {
+  app_secret_ids = toset([
     google_secret_manager_secret.jwt_secret.secret_id,
     google_secret_manager_secret.database_url.secret_id,
     google_secret_manager_secret.redis_url.secret_id,
     google_secret_manager_secret.resend_api_key.secret_id,
     google_secret_manager_secret.admin_password.secret_id,
   ])
+}
+
+# Secret Manager access granted to the GKE Workload Identity GSA (not Cloud Run).
+resource "google_secret_manager_secret_iam_member" "secret_accessor" {
+  for_each = local.app_secret_ids
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.balloon_game.email}"
@@ -198,13 +203,7 @@ resource "google_project_iam_member" "server_cloudsql_client" {
 
 # Server GSA 读所有应用 Secret（与遗留 umbrella SA 一致，便于逐步迁移）。
 resource "google_secret_manager_secret_iam_member" "server_secret_accessor" {
-  for_each = toset([
-    google_secret_manager_secret.jwt_secret.secret_id,
-    google_secret_manager_secret.database_url.secret_id,
-    google_secret_manager_secret.redis_url.secret_id,
-    google_secret_manager_secret.resend_api_key.secret_id,
-    google_secret_manager_secret.admin_password.secret_id,
-  ])
+  for_each = local.app_secret_ids
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.balloon_game_server.email}"

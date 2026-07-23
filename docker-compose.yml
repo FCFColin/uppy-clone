@@ -20,7 +20,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgres://uppy:uppy@postgres:5432/uppy?sslmode=disable}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-dev-redis-secret}@redis:6379
       - REDIS_EPHEMERAL_URL=redis://:${REDIS_EPHEMERAL_PASSWORD:-dev-redis-secret}@redis-ephemeral:6379
-      - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY:?JWT_PRIVATE_KEY required}
+      - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY:-}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-noreply@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD required}
