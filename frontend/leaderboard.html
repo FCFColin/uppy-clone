@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;">
-  <title>Uppy - 排行榜</title>
+  <title data-i18n="leaderboard_page.title">Uppy - 排行榜</title>
   <meta name="description" content="Uppy 合作气球游戏排行榜 — 团队最高分排行。">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -25,13 +25,13 @@
         <span class="logo-text">Uppy</span>
       </div>
       <div class="nav-links">
-        <a href="/index.html" class="nav-link">首页</a>
-        <a href="/leaderboard.html" class="nav-link active">排行榜</a>
+        <a href="/index.html" class="nav-link" data-i18n="common.home">首页</a>
+        <a href="/leaderboard.html" class="nav-link active" data-i18n="common.leaderboard">排行榜</a>
       </div>
       <div class="nav-actions">
-        <button class="btn-nav-icon" data-icon="globe" title="切换语言" aria-label="切换语言"></button>
-        <button class="btn-nav-icon" data-icon="gamepad" title="控制器设置" aria-label="控制器设置"></button>
-        <button class="btn-nav-icon btn-nav-menu" data-icon="menu" title="菜单" aria-label="菜单"></button>
+        <button class="btn-nav-icon" data-icon="globe" title="切换语言" aria-label="切换语言" data-i18n-title="common.switch_lang" data-i18n-aria="common.switch_lang"></button>
+        <button class="btn-nav-icon" data-icon="gamepad" title="控制器设置" aria-label="控制器设置" data-i18n-title="common.controller_settings" data-i18n-aria="common.controller_settings"></button>
+        <button class="btn-nav-icon btn-nav-menu" data-icon="menu" title="菜单" aria-label="菜单" data-i18n-title="common.menu" data-i18n-aria="common.menu"></button>
       </div>
     </div>
   </nav>
@@ -40,10 +40,10 @@
     <section class="lb-header-section">
       <div class="lb-eyebrow-badge hero-badge">
         <span class="lb-eyebrow-icon"></span>
-        <span>全球排行</span>
+        <span data-i18n="leaderboard_page.global_rank">全球排行</span>
       </div>
-      <h1 class="lb-page-title">排行榜</h1>
-      <p class="lb-page-subtitle">与全球玩家一较高下，看看谁是气球守护大师</p>
+      <h1 class="lb-page-title" data-i18n="leaderboard_page.heading">排行榜</h1>
+      <p class="lb-page-subtitle" data-i18n="leaderboard_page.subtitle">与全球玩家一较高下，看看谁是气球守护大师</p>
     </section>
 
     <!-- Shared leaderboard (tabs + table + footer) renders here via leaderboard/shared.ts -->
@@ -72,12 +72,12 @@
             </span>
             <span class="logo-text">Uppy</span>
           </div>
-          <p class="footer-tagline">多人实时合作气球游戏，考验团队协作与策略的生存挑战。</p>
+          <p class="footer-tagline" data-i18n="index.footer_tagline">多人实时合作气球游戏，考验团队协作与策略的生存挑战。</p>
         </div>
         <div class="footer-col">
-          <h4>游戏</h4>
-          <a href="/index.html">快速开始</a>
-          <a href="/leaderboard.html">排行榜</a>
+          <h4 data-i18n="index.footer_game">游戏</h4>
+          <a href="/index.html" data-i18n="index.quick_start">快速开始</a>
+          <a href="/leaderboard.html" data-i18n="common.leaderboard">排行榜</a>
         </div>
       </div>
       <div class="footer-bottom">
