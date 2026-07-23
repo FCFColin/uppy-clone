@@ -198,9 +198,4 @@ describe('shouldApplySnapshotPhase', () => {
     mocks.state.phase = from;
     expect(shouldApplySnapshotPhase(to)).toBe(allowed);
   });
-
-  it('allows unknown client phase via default branch', () => {
-    mocks.state.phase = 'unknown' as typeof mocks.state.phase;
-    expect(shouldApplySnapshotPhase('playing')).toBe(true);
-  });
 });

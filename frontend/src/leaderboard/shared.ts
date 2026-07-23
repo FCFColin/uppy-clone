@@ -1,10 +1,9 @@
-import { fetchLeaderboard, type LeaderboardEntry, type Scope } from '../shared/ui/leaderboard_utils.js';
+﻿import { fetchLeaderboard, type LeaderboardEntry, type Scope } from '../shared/ui/ui.js';
 import { Trophy, Award } from '../icons.js';
+import { t } from '../i18n/t.js';
 
 export interface LeaderboardOptions {
-  /** Whether to render the「返回大厅」button (page scenario true, overlay false). */
   showBackToLobby: boolean;
-  /** Overlay close callback (overlay scenario); page scenario omits it. */
   onClose?: () => void;
 }
 
@@ -70,18 +69,10 @@ function initRankBadges(listEl: HTMLElement): void {
   });
 }
 
-/**
- * Render the leaderboard (tabs + table + empty/error states) into `container`.
- *
- * Shared between the standalone leaderboard page and the in-game overlay so
- * the data fetch, sort, and rendering logic exists in exactly one place.
- */
 export async function renderLeaderboard(
   container: HTMLElement,
   options: LeaderboardOptions,
 ): Promise<void> {
-  // Build the inner DOM fresh on each call so the same shared module can drive
-  // both the page mount and repeated overlay opens.
   container.textContent = '';
 
   const tabs = document.createElement('div');
@@ -90,12 +81,12 @@ export async function renderLeaderboard(
   const tabGlobal = document.createElement('button');
   tabGlobal.className = 'btn-tab active';
   tabGlobal.type = 'button';
-  tabGlobal.textContent = '总榜';
+  tabGlobal.textContent = t('index.total_tab');
 
   const tabWeekly = document.createElement('button');
   tabWeekly.className = 'btn-tab';
   tabWeekly.type = 'button';
-  tabWeekly.textContent = '周榜';
+  tabWeekly.textContent = t('index.weekly_tab');
 
   tabs.append(tabGlobal, tabWeekly);
 
@@ -107,11 +98,11 @@ export async function renderLeaderboard(
 
   const emptyEl = document.createElement('p');
   emptyEl.className = 'hint hidden';
-  emptyEl.textContent = '暂无记录，快去开一局吧！';
+  emptyEl.textContent = t('leaderboard_page.no_records');
 
   const errorEl = document.createElement('p');
   errorEl.className = 'hint hidden';
-  errorEl.textContent = '加载失败';
+  errorEl.textContent = t('leaderboard_page.load_failed');
 
   tableCard.append(listEl, emptyEl, errorEl);
 
@@ -122,7 +113,7 @@ export async function renderLeaderboard(
     backToHall.href = '/index.html';
     backToHall.className = 'btn-cta-primary lb-action-btn';
     backToHall.innerHTML =
-      '<span class="btn-text">返回大厅</span><span class="btn-icon-trailing"></span>';
+      `<span class="btn-text">${t('common.back_lobby')}</span><span class="btn-icon-trailing"></span>`;
     footer.append(backToHall);
   }
 
@@ -145,7 +136,7 @@ export async function renderLeaderboard(
       }
       initRankBadges(listEl);
     } catch {
-      errorEl.textContent = '加载失败，请确认后端已启动并刷新页面';
+      errorEl.textContent = t('leaderboard_page.load_failed_hint');
       errorEl.classList.remove('hidden');
     }
   }

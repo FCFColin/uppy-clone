@@ -147,6 +147,16 @@ export const Wind = (props?: IconProps): string =>
     props
   );
 
+export const Key = (props?: IconProps): string =>
+  createSvg(
+    [
+      '<circle cx="7.5" cy="15.5" r="5.5"/>',
+      '<path d="m21 2-9.6 9.6"/>',
+      '<path d="m15.5 7.5 3 3L22 7l-3-3.5Z"/>',
+    ],
+    props
+  );
+
 export const ChevronLeft = (props?: IconProps): string =>
   createSvg(['<path d="m15 18-6-6 6-6"/>'], props);
 
@@ -277,6 +287,7 @@ export const icons = {
   Volume2,
   VolumeX,
   Wind,
+  Key,
   ChevronLeft,
   ChevronRight,
   Mail,
@@ -292,9 +303,3 @@ export const icons = {
   Discord,
   Youtube,
 } as const;
-
-export type IconName = keyof typeof icons;
-
-export function getIcon(name: IconName, props?: IconProps): string {
-  return icons[name](props);
-}

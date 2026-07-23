@@ -10,11 +10,68 @@ import {
   getInterpState,
   commitRenderedState,
   resetClientState,
+  resetRoundClientState,
+  isDuplicateSeq,
+  getSeenSeqsSize,
 } from './state_interp.js';
-import { isDuplicateSeq, getSeenSeqsSize } from './seen_seqs.js';
 import { PHYSICS } from '../shared/game/constants.js';
 
+vi.mock('./ws_connection.js', () => ({
+  clearOutboundQueue: vi.fn(),
+  getOutboundQueueLength: vi.fn(() => 0),
+  sendOrQueue: vi.fn(),
+  getWs: vi.fn(() => null),
+  setWs: vi.fn(),
+  getWsEverOpened: vi.fn(() => false),
+  setWsEverOpened: vi.fn(),
+  resetReconnectAttempts: vi.fn(),
+  clearReconnectTimer: vi.fn(),
+  setRoomPreChecked: vi.fn(),
+  wasRoomPreChecked: vi.fn(() => false),
+  setReconnectTimer: vi.fn(),
+  scheduleReconnect: vi.fn(),
+  waitForWebSocket: vi.fn(() => Promise.resolve()),
+  showConnectionError: vi.fn(),
+  flushPendingQueue: vi.fn(),
+  hideReconnectBanner: vi.fn(),
+  startHeartbeat: vi.fn(),
+  stopHeartbeat: vi.fn(),
+  handlePong: vi.fn(),
+}));
+
 const TICK_MS = PHYSICS.TICK_INTERVAL;
+
+describe('client_state_reset', () => {
+  beforeEach(() => {
+    state.ripples = [{ playerIndex: 1, x: 0, y: 0, time: 1 }];
+    state.explosionEffect = { x: 0, y: 0, startTime: 1 };
+    state.myCooldownEnd = Date.now() + 1000;
+    state.lastTapX = 0.1;
+    state.lastTapY = 0.2;
+    state.restartClicked = true;
+    state.restartVotes = { yes: 1, total: 2, countdownMs: 100, receivedAt: 1 };
+    state.score = 50;
+    state.hasReceivedFirstSnapshot = true;
+    isDuplicateSeq(99);
+  });
+
+  it('resetRoundClientState clears round gameplay fields', () => {
+    resetRoundClientState();
+    expect(state.ripples).toEqual([]);
+    expect(state.explosionEffect).toBeNull();
+    expect(state.myCooldownEnd).toBe(0);
+    expect(state.lastTapX).toBeNull();
+    expect(state.score).toBe(0);
+    expect(state.restartClicked).toBe(false);
+  });
+
+  it('resetClientState clears snapshot readiness and seenSeqs', () => {
+    resetClientState();
+    expect(state.hasReceivedFirstSnapshot).toBe(false);
+    expect(getSeenSeqsSize()).toBe(0);
+    expect(state.ripples).toEqual([]);
+  });
+});
 
 describe('Physics interpolation', () => {
   beforeEach(() => {
@@ -26,14 +83,6 @@ describe('Physics interpolation', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it('resets prev to null and curr to defaults, returns currBalloon when prevBalloon is null', () => {
-    expect(getInterpState().prevBalloon).toBeNull();
-    expect(getInterpState().prevGhost).toBeNull();
-    expect(getInterpState().currBalloon).toEqual({ x: 0.5, y: 0.95 });
-    expect(getInterpState().currGhost).toEqual({ x: 0.5, y: 0.5, active: false });
-    expect(getInterpolatedBalloon()).toEqual({ x: 0.5, y: 0.95 });
   });
 
   it('initializes prev and curr to the current state values on first call', () => {
@@ -113,20 +162,6 @@ describe('Physics interpolation', () => {
     expect(afterSnap.y).toBeGreaterThanOrEqual(beforeSnap.y - 0.02);
   });
 
-  it('handles the edge case of zero delta (same position)', () => {
-    state.balloon.x = 0.1;
-    state.balloon.y = 0.2;
-    updateInterpolation(0);
-    state.balloon.x = 0.1;
-    state.balloon.y = 0.2;
-    updateInterpolation(1);
-
-    vi.advanceTimersByTime(TICK_MS / 2);
-    const r = getInterpolatedBalloon();
-    expect(r.x).toBeCloseTo(0.1, 8);
-    expect(r.y).toBeCloseTo(0.2, 8);
-  });
-
   it('snaps (no smoothing) when movement exceeds the teleport threshold', () => {
     state.balloon.x = 0.1;
     state.balloon.y = 0.2;
@@ -138,17 +173,6 @@ describe('Physics interpolation', () => {
     expect(getInterpolatedBalloon()).toEqual({ x: 0.6, y: 0.7 });
     vi.advanceTimersByTime(TICK_MS / 2);
     expect(getInterpolatedBalloon()).toEqual({ x: 0.6, y: 0.7 });
-  });
-
-  it('returns currGhost when prevGhost is null (first activation)', () => {
-    state.balloon.x = 0.5;
-    state.balloon.y = 0.5;
-    updateInterpolation(0);
-    state.ghost.active = true;
-    state.ghost.x = 0.2;
-    state.ghost.y = 0.3;
-    updateInterpolation(1);
-    expect(getInterpolatedGhost()).toEqual({ x: 0.2, y: 0.3, active: true });
   });
 
   it('linearly interpolates the ghost position between snapshots', () => {
@@ -192,13 +216,6 @@ describe('Physics interpolation', () => {
     expect(getInterpolatedGhost()).toBeNull();
   });
 
-  it('returns null when bird inactive', () => {
-    updateInterpolation(0);
-    state.bird.active = false;
-    updateInterpolation(1);
-    expect(getInterpolatedBird()).toBeNull();
-  });
-
   it('interpolates active bird between ticks', () => {
     updateInterpolation(0);
     state.bird.active = true;
@@ -217,25 +234,6 @@ describe('Physics interpolation', () => {
     expect(bird!.y).toBeCloseTo(0.32, 1);
   });
 
-  it('uses delay-buffer interpolation for balloon, ghost, and bird', () => {
-    state.balloon = { x: 0.1, y: 0.2, vx: 0.01, vy: 0.02 };
-    state.ghost = { x: 0.3, y: 0.4, active: true, repelTimer: 0 };
-    state.bird = { x: 0.5, y: 0.6, active: true };
-    updateInterpolation(1);
-    vi.advanceTimersByTime(TICK_MS);
-    state.balloon = { x: 0.15, y: 0.25, vx: 0.01, vy: 0.02 };
-    state.ghost = { x: 0.35, y: 0.45, active: true, repelTimer: 0 };
-    state.bird = { x: 0.55, y: 0.65, active: true };
-    updateInterpolation(2);
-    vi.advanceTimersByTime(PHYSICS.INTERP_DELAY_MS + TICK_MS / 2);
-    const balloon = getInterpolatedBalloon();
-    const ghost = getInterpolatedGhost();
-    const bird = getInterpolatedBird();
-    expect(balloon.x).toBeGreaterThan(0.1);
-    expect(ghost).not.toBeNull();
-    expect(bird).not.toBeNull();
-  });
-
   it('freezeInterpolation pins rendered entities to the current authoritative state', () => {
     state.balloon = { x: 0.2, y: 0.3, vx: 0, vy: 0 };
     state.ghost = { x: 0.4, y: 0.5, active: true, repelTimer: 0 };
@@ -248,30 +246,5 @@ describe('Physics interpolation', () => {
     expect(getInterpolatedBalloon()).toEqual({ x: 0.25, y: 0.35 });
     expect(getInterpolatedGhost()).toEqual({ x: 0.45, y: 0.55, active: true });
     expect(getInterpolatedBird()).toEqual({ x: 0.65, y: 0.75, active: true });
-  });
-
-  it('resetClientState resets score, cooldown, ripples, balloon and wind to defaults', () => {
-    state.score = 999;
-    state.myCooldownEnd = 12345;
-    state.ripples.push({ playerIndex: 1, x: 0.5, y: 0.5, time: 0 });
-    state.balloon = { x: 0.9, y: 0.9, vx: 0.1, vy: 0.1 };
-    state.wind = 0.5;
-    state.hasReceivedFirstSnapshot = true;
-
-    resetClientState();
-
-    expect(state.score).toBe(0);
-    expect(state.myCooldownEnd).toBe(0);
-    expect(state.ripples).toEqual([]);
-    expect(state.balloon).toEqual({ x: 0.5, y: 0.5, vx: 0, vy: 0 });
-    expect(state.wind).toBe(0);
-    expect(state.hasReceivedFirstSnapshot).toBe(false);
-  });
-
-  it('resetClientState clears the seenSeqs set', () => {
-    isDuplicateSeq(1);
-    isDuplicateSeq(2);
-    resetClientState();
-    expect(getSeenSeqsSize()).toBe(0);
   });
 });

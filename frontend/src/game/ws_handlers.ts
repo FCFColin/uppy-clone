@@ -1,3 +1,4 @@
+import { t } from '../i18n/t.js';
 import { MSG_TYPE, NICKNAME_REJECT_REASON } from '../shared/game/constants.js';
 import { handlePong } from './ws_connection.js';
 import { dispatch, getState } from './state.js';
@@ -6,14 +7,11 @@ import { codeToPhase, applySnapshot, decodeSnapshot } from './message_codec.js';
 import { applyPhaseChange, shouldApplySnapshotPhase } from './phase_sync.js';
 import { updateUI, updateScoresOnly } from './ui_update.js';
 import { updateWindIndicator } from './ui_common.js';
-import { playGameOverSound, vibrate } from '../shared/ui/audio.js';
+import { playGameOverSound, vibrate } from '../shared/ui/ui.js';
 import { updateBestScore, fetchUserBestScore } from '../shared/data/cookies.js';
 import { syncRestartVoteUI } from './restart_vote_ui.js';
-import { updateInterpolation, freezeInterpolation } from './state_interp.js';
-import { isDuplicateSeq } from './seen_seqs.js';
+import { updateInterpolation, freezeInterpolation, isDuplicateSeq } from './state_interp.js';
 import { revertEntryStepToNickname, clearStartCountdown, setNicknameStatus } from './entry_flow.js';
-
-// ─── Binary Message Dispatcher ───────────────────────────────────────
 
 export function handleBinaryMessage(buffer: ArrayBuffer): void {
   if (buffer.byteLength < 1) {
@@ -52,8 +50,6 @@ export function handleBinaryMessage(buffer: ArrayBuffer): void {
       console.warn('Unknown message type:', msgType);
   }
 }
-
-// ─── Snapshot ────────────────────────────────────────────────────────
 
 export function handleSnapshot(view: DataView): void {
   try {
@@ -106,8 +102,6 @@ export function handleSnapshot(view: DataView): void {
   }
 }
 
-// ─── Phase Change / Restart Status ───────────────────────────────────
-
 export function handleGameStateChange(view: DataView): void {
   if (view.byteLength < 2) {
     console.warn('[ws] GAME_STATE_CHANGE too short, ignoring');
@@ -144,10 +138,10 @@ async function updateEndScreenRecords(): Promise<void> {
     const serverBest = await fetchUserBestScore();
     if (serverBest > best) best = serverBest;
   } catch {
-    /* use cookie */
+    // ignore — non-critical operation
   }
-  const parts = [`本局 ${score}`, `个人最佳 ${Math.max(best, score)}`];
-  if (cookieBest.isNewRecord || score > best) parts.push('新纪录！');
+  const parts = [t('game.tap_score', { score }), t('game.personal_best', { best: Math.max(best, score) })];
+  if (cookieBest.isNewRecord || score > best) parts.push(t('game.new_record'));
   bestEl.textContent = parts.join(' · ');
   updateUI({ force: true });
 }
@@ -169,8 +163,6 @@ export function handleRestartStatus(view: DataView): void {
   syncRestartVoteUI();
   updateUI({ force: true });
 }
-
-// ─── Tap Events ──────────────────────────────────────────────────────
 
 export function handleTapAccepted(view: DataView): void {
   if (view.byteLength < 15) {
@@ -211,12 +203,10 @@ export function handleTapRejected(): void {
       time: Date.now(),
       rejected: true,
     });
-    pushFloatingText(lastTapX, lastTapY, '太远了');
+    pushFloatingText(lastTapX, lastTapY, t('game.too_far'));
   }
   dispatch({ type: 'SET_STATE', partial: { myCooldownEnd: 0, ripples: remaining } });
 }
-
-// ─── Nickname Rejected ───────────────────────────────────────────────
 
 export function handleNicknameRejected(view: DataView): void {
   if (view.byteLength < 2) {
@@ -238,14 +228,14 @@ export function handleNicknameRejected(view: DataView): void {
 function nicknameRejectMessage(reasonCode: number): string {
   switch (reasonCode) {
     case NICKNAME_REJECT_REASON.EMPTY:
-      return '昵称不能为空';
+      return t('error.nickname_empty');
     case NICKNAME_REJECT_REASON.DUPLICATE:
-      return '昵称已被占用';
+      return t('error.nickname_taken');
     case NICKNAME_REJECT_REASON.COOLDOWN:
-      return '昵称冷却中，请稍后';
+      return t('error.nickname_cooldown');
     case NICKNAME_REJECT_REASON.DECODE_ERROR:
-      return '昵称格式无效';
+      return t('error.nickname_invalid');
     default:
-      return '昵称被拒绝，请重试';
+      return t('error.nickname_rejected');
   }
 }

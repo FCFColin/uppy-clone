@@ -1,9 +1,10 @@
+﻿import { t } from '../i18n/t.js';
 import { markTutorialDone, shouldShowTutorial } from '../shared/data/cookies.js';
 
-const STEPS = [
-  '在气球附近点击，把它往上推（点太远无效）',
-  '底部冷却条转绿才能再点；人越多冷却越长',
-  '躲开鸟和幽灵；靠近幽灵点击可推开；留意风向',
+const STEPS = () => [
+  t('tutorial.step1'),
+  t('tutorial.step2'),
+  t('tutorial.step3'),
 ];
 
 let currentStep = 0;
@@ -31,8 +32,8 @@ function renderStep(): void {
   if (!el) return;
   const textEl = el.querySelector('.tutorial-text');
   const stepEl = el.querySelector('.tutorial-step');
-  if (textEl) textEl.textContent = STEPS[currentStep] ?? '';
-  if (stepEl) stepEl.textContent = `${currentStep + 1} / ${STEPS.length}`;
+  if (textEl) textEl.textContent = STEPS()[currentStep] ?? '';
+  if (stepEl) stepEl.textContent = `${currentStep + 1} / ${STEPS().length}`;
 
   showRangeCircle = currentStep === 0;
   if (showRangeCircle) rangeCircleUntil = Date.now() + 5000;
@@ -57,13 +58,12 @@ function bindButtonsOnce(): void {
     nextBtn.dataset.bound = '1';
     nextBtn.addEventListener('click', () => {
       currentStep++;
-      if (currentStep >= STEPS.length) finishTutorial();
+      if (currentStep >= STEPS().length) finishTutorial();
       else renderStep();
     });
   }
 }
 
-/** Resolves when tutorial is skipped or completed. No-op if already done. */
 export function runTutorialIfNeeded(): Promise<void> {
   bindButtonsOnce();
   return new Promise((resolve) => {
@@ -81,7 +81,6 @@ export function runTutorialIfNeeded(): Promise<void> {
   });
 }
 
-/** Reset all tutorial state for a new game session. */
 export function resetTutorial(): void {
   hideOverlay();
   resolveWait?.();

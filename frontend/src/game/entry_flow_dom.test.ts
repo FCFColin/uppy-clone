@@ -26,13 +26,11 @@ vi.mock('./lobby_match.js', () => ({
 
 import {
   resetEntryFlowForTest,
-  setNicknameStatus,
   nicknameReadyStatus,
   setWaitingInlineError,
   showLoadingOverlay,
   updateWaitingStatusLine,
   syncEntryOverlays,
-  setLobbyCodeDisplay,
   renderEntryFullScreenError,
 } from './entry_flow.js';
 import type { EntryOverlayContext } from './entry_flow.js';
@@ -42,13 +40,6 @@ describe('entry_flow_dom', () => {
     resetEntryMocks();
     mockState.lobbyCode = 'ABC12';
     resetEntryFlowForTest();
-  });
-
-  it('updates the nickname connect status text', () => {
-    const el = document.getElementById('nickname-connect-status')!;
-    el.textContent = '';
-    setNicknameStatus('test status');
-    expect(el.textContent).toBe('test status');
   });
 
   it.each([
@@ -102,14 +93,6 @@ describe('entry_flow_dom', () => {
     };
     updateWaitingStatusLine(ctx);
     expect(document.getElementById('waiting-title')!.textContent).toBe(expected);
-  });
-
-  it('setLobbyCodeDisplay updates both lobby code elements', () => {
-    document.getElementById('lobby-code')!.textContent = '';
-    document.getElementById('hud-code')!.textContent = '';
-    setLobbyCodeDisplay('ROOMX');
-    expect(document.getElementById('lobby-code')!.textContent).toBe('ROOMX');
-    expect(document.getElementById('hud-code')!.textContent).toBe('ROOMX');
   });
 
   describe('renderEntryFullScreenError', () => {

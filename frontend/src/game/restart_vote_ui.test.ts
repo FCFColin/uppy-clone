@@ -8,7 +8,7 @@ vi.mock('./state.js', () => ({
   getState: () => mockState,
 }));
 
-import { syncRestartVoteProgress, syncRestartVoteUI, clearRestartCountdownTimer } from './restart_vote_ui.js';
+import { syncRestartVoteProgress, clearRestartCountdownTimer } from './restart_vote_ui.js';
 
 describe('restart_vote_ui', () => {
   beforeEach(() => {
@@ -42,14 +42,6 @@ describe('restart_vote_ui', () => {
       mockState.restartVotes = { yes, total, countdownMs: 0, receivedAt: 0 };
       syncRestartVoteProgress();
       expect(document.getElementById('restart-progress')!.textContent).toBe(expected);
-    });
-  });
-
-  describe('syncRestartVoteUI', () => {
-    it('delegates to progress and countdown sync', () => {
-      mockState.restartVotes = { yes: 1, total: 2, countdownMs: 0, receivedAt: 0 };
-      syncRestartVoteUI();
-      expect(document.getElementById('restart-progress')!.textContent).toContain('已投票');
     });
   });
 

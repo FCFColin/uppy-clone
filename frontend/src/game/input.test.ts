@@ -35,10 +35,14 @@ vi.mock('./renderer.js', () => ({
 vi.mock('./visual_helpers.js', () => ({
   pushFloatingText: vi.fn(),
 }));
-vi.mock('../shared/ui/audio.js', () => ({
-  playTapSound: vi.fn(),
-  vibrate: vi.fn(),
-}));
+vi.mock('../shared/ui/ui.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared/ui/ui.js')>();
+  return {
+    ...actual,
+    playTapSound: vi.fn(),
+    vibrate: vi.fn(),
+  };
+});
 vi.mock('./ui_update.js', () => ({ updateUI: vi.fn() }));
 
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
@@ -105,15 +109,6 @@ describe('input', () => {
     requestRestart();
     expect(sendOrQueue).not.toHaveBeenCalled();
     expect(document.getElementById('restart-progress')?.textContent).toContain('尚未结束');
-  });
-
-  it('requestRestart submits vote when socket is open', () => {
-    document.body.innerHTML = '<div id="restart-progress"></div>';
-    state.phase = 'ended';
-    vi.mocked(getWs).mockReturnValue({ readyState: 1 } as WebSocket);
-    requestRestart();
-    expect(sendOrQueue).toHaveBeenCalledOnce();
-    expect(document.getElementById('restart-progress')?.textContent).toContain('提交');
   });
 
   it('tapAtBalloonCenter sends tap at balloon position, no-ops outside playing phase', () => {

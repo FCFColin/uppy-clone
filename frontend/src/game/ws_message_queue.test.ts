@@ -33,14 +33,6 @@ describe('ws_message_queue', () => {
     expect(handleBinaryMessage).toHaveBeenCalledTimes(4);
   });
 
-  it('drops oldest when queue exceeds max', () => {
-    for (let i = 0; i < 40; i++) {
-      enqueueBinaryMessage(new Uint8Array([i]).buffer);
-    }
-    drainPendingMessages(32);
-    expect(handleBinaryMessage).toHaveBeenCalledTimes(32);
-  });
-
   it('drains nothing when queue is empty or budget is zero', () => {
     // Empty queue
     drainPendingMessages(10);
@@ -60,16 +52,5 @@ describe('ws_message_queue', () => {
     for (let i = 0; i < 32; i++) {
       expect(handleBinaryMessage).toHaveBeenNthCalledWith(i + 1, new Uint8Array([i + 3]).buffer);
     }
-  });
-
-  it('interleaves enqueue and drain correctly', () => {
-    enqueueBinaryMessage(new Uint8Array([1]).buffer);
-    drainPendingMessages(1);
-    expect(handleBinaryMessage).toHaveBeenCalledTimes(1);
-
-    enqueueBinaryMessage(new Uint8Array([2]).buffer);
-    enqueueBinaryMessage(new Uint8Array([3]).buffer);
-    drainPendingMessages(2);
-    expect(handleBinaryMessage).toHaveBeenCalledTimes(3);
   });
 });

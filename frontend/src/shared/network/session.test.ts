@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { normalizeAuthHost, establishGameSession, sessionErrorMessage } from './session.js';
+import { normalizeAuthHost, establishGameSession, sessionErrorMessage } from './network.js';
 
 describe('normalizeAuthHost', () => {
   it.each([

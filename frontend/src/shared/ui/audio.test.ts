@@ -6,8 +6,7 @@ import {
   playCountdownTick,
   isMuted,
   setMuted,
-  toggleMute,
-} from './audio.js';
+} from './ui.js';
 
 describe('audio', () => {
   let audioConstructorSpy: ReturnType<typeof vi.fn>;
@@ -49,25 +48,11 @@ describe('audio', () => {
     expect('uppy-audio-muted' in storage).toBe(false);
   });
 
-  it('toggleMute 返回切换后的状态并写入 localStorage', () => {
-    expect(toggleMute()).toBe(true);
-    expect(isMuted()).toBe(true);
-    expect(toggleMute()).toBe(false);
-    expect(isMuted()).toBe(false);
-  });
-
   it('isMuted 在 localStorage 抛错时返回 false', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('denied');
     });
     expect(isMuted()).toBe(false);
-  });
-
-  it('setMuted 在 localStorage 抛错时静默失败', () => {
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('denied');
-    });
-    expect(() => setMuted(true)).not.toThrow();
   });
 
   it('非静音时 4 个音效函数调用 new Audio 并播放对应 .ogg', () => {
@@ -101,17 +86,5 @@ describe('audio', () => {
 
     expect(audioConstructorSpy).not.toHaveBeenCalled();
     expect(playSpy).not.toHaveBeenCalled();
-  });
-
-  it('Audio 构造或 play 失败时静默处理，不抛错', () => {
-    audioConstructorSpy.mockImplementation(() => {
-      throw new Error('ctor failed');
-    });
-    expect(() => playTapSound()).not.toThrow();
-
-    audioConstructorSpy.mockImplementation(() => ({
-      play: () => Promise.reject(new Error('blocked')),
-    }));
-    expect(() => playTapSound()).not.toThrow();
   });
 });

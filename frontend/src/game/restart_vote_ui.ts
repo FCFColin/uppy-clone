@@ -1,3 +1,4 @@
+import { t } from '../i18n/t.js';
 import { getState } from './state.js';
 
 export function syncRestartVoteProgress(): void {
@@ -14,10 +15,10 @@ export function syncRestartVoteProgress(): void {
     return;
   }
   if (yes >= total) {
-    $restartProgress.textContent = '正在重启游戏...';
+    $restartProgress.textContent = t('game.restarting');
   } else {
     const need = total - yes;
-    $restartProgress.textContent = `${yes}/${total} 人已投票，还差 ${need} 人`;
+    $restartProgress.textContent = t('game.votes', { yes, total, need });
   }
 }
 
@@ -53,7 +54,7 @@ export function syncRestartVoteCountdown(): void {
     const remaining: number = Math.max(0, getState().restartVotes.countdownMs - elapsed);
     const $restartCountdown: HTMLElement | null = document.getElementById('restart-countdown');
     if ($restartCountdown && remaining > 0) {
-      $restartCountdown.textContent = `${Math.ceil(remaining / 1000)} 秒后自动重启`;
+      $restartCountdown.textContent = t('game.auto_restart', { seconds: Math.ceil(remaining / 1000) });
     } else if ($restartCountdown) {
       $restartCountdown.textContent = '';
       clearInterval(restartCountdownTimer!);

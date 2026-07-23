@@ -120,11 +120,6 @@
   box-shadow: 0 4px 16px rgba(205, 127, 50, 0.1);
 }
 
-.lb-full-list .lb-item.lb-me {
-  border-color: var(--accent-pink);
-  background: rgba(233, 69, 96, 0.08);
-}
-
 .lb-rank {
   width: 2.5rem;
   text-align: center;

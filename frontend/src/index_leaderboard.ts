@@ -2,7 +2,8 @@ import {
   fetchLeaderboard,
   type Scope,
   type LeaderboardEntry,
-} from './shared/ui/leaderboard_utils.js';
+} from './shared/ui/ui.js';
+import { t } from './i18n/t.js';
 
 type Entry = LeaderboardEntry;
 
@@ -77,7 +78,7 @@ async function loadPreview(): Promise<void> {
     }
   } catch {
     if (errorEl) {
-      errorEl.textContent = '排行榜加载失败，请确认后端已启动并刷新页面';
+      errorEl.textContent = t('leaderboard_page.load_failed_hint');
       errorEl.classList.remove('hidden');
     }
   }

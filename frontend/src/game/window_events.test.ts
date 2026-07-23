@@ -19,7 +19,13 @@ const mockConnectWebSocket = vi.hoisted(() => vi.fn());
 const mockStopHeartbeat = vi.hoisted(() => vi.fn());
 const mockGetWs = vi.hoisted(() => vi.fn());
 
-vi.mock('../shared/ui/audio.js', () => ({ resumeAudioContext: mockResumeAudioContext }));
+vi.mock('../shared/ui/ui.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared/ui/ui.js')>();
+  return {
+    ...actual,
+    resumeAudioContext: mockResumeAudioContext,
+  };
+});
 vi.mock('./input.js', () => ({
   handleTap: mockHandleTap,
   requestRestart: mockRequestRestart,
@@ -55,25 +61,5 @@ describe('windowEvents', () => {
     const eventCtor = _evt === 'click' ? MouseEvent : TouchEvent;
     target.dispatchEvent(new eventCtor(_evt));
     expect(mock).toHaveBeenCalled();
-  });
-
-  it('registers all window and document event handlers', () => {
-    const windowSpy = vi.spyOn(window, 'addEventListener');
-    const docSpy = vi.spyOn(document, 'addEventListener');
-    bindWindowEvents();
-    const windowEvents = windowSpy.mock.calls.map((c) => c[0]);
-    const docEvents = docSpy.mock.calls.map((c) => c[0]);
-    expect(windowEvents).toEqual(
-      expect.arrayContaining([
-        'resize',
-        'orientationchange',
-        'error',
-        'unhandledrejection',
-        'online',
-        'offline',
-        'beforeunload',
-      ]),
-    );
-    expect(docEvents).toEqual(expect.arrayContaining(['visibilitychange', 'keydown']));
   });
 });

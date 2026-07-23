@@ -1,4 +1,5 @@
-import { apiFetch } from '../shared/network/api_fetch.js';
+import { t } from '../i18n/t.js';
+import { apiFetch } from '../shared/network/network.js';
 
 export type RoomValidateResult =
   { ok: true } | { ok: false; reason: 'not_found' } | { ok: true; degraded: true };
@@ -16,7 +17,6 @@ export function getLobbyCodeFromUrl(): string | null {
 }
 
 // RO-042: apiFetch wraps fetchWithRefresh + createFetchTimeout.
-// 401 refresh+retry is internal to apiFetch; retries=0 + timeoutMs=8000 preserved.
 export async function matchNewRoomCode(): Promise<string | null> {
   try {
     const res = await apiFetch('/api/v1/registry/match', {
@@ -26,8 +26,6 @@ export async function matchNewRoomCode(): Promise<string | null> {
       retries: 0,
     });
     if (!res.ok) return null;
-    // Clone before reading body so the original Response stays usable
-    // (prevents "Body has already been read" when callers retry with the same Response).
     const data = (await res.clone().json()) as { lobbyCode: string };
     return data.lobbyCode ?? null;
   } catch (e: unknown) {
@@ -36,7 +34,6 @@ export async function matchNewRoomCode(): Promise<string | null> {
   }
 }
 
-// Delegates to matchNewRoomCode so /registry/match has one call site.
 export async function resolveLobbyCode(): Promise<string | null> {
   const fromUrl = new URLSearchParams(window.location.search).get('code');
   if (fromUrl) return fromUrl;
@@ -70,6 +67,6 @@ export async function validateRoomCode(code: string): Promise<RoomValidateResult
   }
 }
 
-export function roomErrorMessage(reason: 'not_found'): string {
-  return '房间不存在或已关闭';
+export function roomErrorMessage(_reason: 'not_found'): string {
+  return t('error.room_not_found');
 }

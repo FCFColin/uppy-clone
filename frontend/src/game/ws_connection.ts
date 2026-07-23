@@ -1,3 +1,4 @@
+import { t } from '../i18n/t.js';
 import { CLIENT_MSG } from '../shared/game/constants.js';
 import {
   MAX_RECONNECT_ATTEMPTS,
@@ -13,9 +14,9 @@ import {
   type ConnectionErrorOptions,
 } from './ui_common.js';
 import { getState, dispatch } from './state.js';
-import { resetInterpolation } from './state_interp.js';
-import { clearSeenSeqs } from './seen_seqs.js';
-import { establishGameSession, sessionErrorMessage } from '../shared/network/session.js';
+import { resetInterpolation, clearSeenSeqs } from './state_interp.js';
+import { registerResetFn } from './reset_registry.js';
+import { establishGameSession, sessionErrorMessage } from '../shared/network/network.js';
 import { onLobbyCodeReady, onWebSocketOpen, onWebSocketClosed, getEntryStep } from './entry_flow.js';
 import { clearWaitingInlineError } from './entry_flow.js';
 import {
@@ -25,33 +26,66 @@ import {
   roomErrorMessage,
   ROOM_CODE_RE,
 } from './lobby_match.js';
-import { registerResetFn } from './reset_registry.js';
-import { safeGetItem } from '../shared/ui/utils.js';
-import {
-  clearOutboundQueue,
-  enqueueBinaryMessage,
-  pushToOutbound,
-  shiftOutbound,
-  hasOutboundMessages,
-  requeueOutboundFront,
-} from './ws_message_queue.js';
+import { safeGetItem } from '../shared/ui/ui.js';
+import { handleBinaryMessage } from './ws_handlers.js';
 
-// Re-export queue functions for downstream consumers importing from './ws_connection.js'
-export {
-  clearOutboundQueue,
-  getOutboundQueueLength,
-  enqueueBinaryMessage,
-  drainPendingMessages,
-} from './ws_message_queue.js';
+const outboundMessageQueue: ArrayBuffer[] = [];
 
-// --- Connection State ---
-/**
- * 单一连接状态对象（v2-R-47）
- *
- * 收敛原先 8 个模块级 `let` 变量（ws/reconnectAttempts/reconnectTimer/
- * wsEverOpened/roomPreChecked/heartbeatInterval/heartbeatTimeout/lastPingTime），
- * 状态集中管理便于追踪与测试。外部 setter/getter API 保持不变。
- */
+export function clearOutboundQueue(): void {
+  outboundMessageQueue.length = 0;
+}
+
+export function getOutboundQueueLength(): number {
+  return outboundMessageQueue.length;
+}
+
+function shiftOutbound(): ArrayBuffer | undefined {
+  return outboundMessageQueue.shift();
+}
+
+function pushToOutbound(msg: ArrayBuffer, maxQueue: number): void {
+  outboundMessageQueue.push(msg);
+  if (outboundMessageQueue.length > maxQueue) {
+    outboundMessageQueue.shift();
+  }
+}
+
+function hasOutboundMessages(): boolean {
+  return outboundMessageQueue.length > 0;
+}
+
+function requeueOutboundFront(msg: ArrayBuffer): void {
+  outboundMessageQueue.unshift(msg);
+}
+
+const pendingBinaryMessages: ArrayBuffer[] = [];
+const MAX_PENDING_BINARY = 32;
+
+export function enqueueBinaryMessage(data: ArrayBuffer): void {
+  pendingBinaryMessages.push(data);
+  if (pendingBinaryMessages.length > MAX_PENDING_BINARY) {
+    const dropped = pendingBinaryMessages.shift();
+    if (dropped) {
+      console.warn(`[ws] message queue full (${MAX_PENDING_BINARY}), dropping oldest message`);
+    }
+  }
+}
+
+export function drainPendingMessages(budget: number): void {
+  let processed = 0;
+  while (pendingBinaryMessages.length > 0 && processed < budget) {
+    const data = pendingBinaryMessages.shift();
+    if (data) {
+      try {
+        handleBinaryMessage(data);
+      } catch (err: unknown) {
+        console.error('[ws] message:', err);
+      }
+    }
+    processed++;
+  }
+}
+
 interface ConnectionState {
   ws: WebSocket | null;
   reconnectAttempts: number;
@@ -182,7 +216,7 @@ export function scheduleReconnect(): void {
   clearReconnectTimer();
   if (connectionState.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     const s = getState();
-    showConnectionError(s.wasEverConnected ? '对局连接已中断，请检查网络后重试' : '连接失败，请检查网络后重试', {
+    showConnectionError(s.wasEverConnected ? t('error.conn_interrupted') : t('error.conn_failed'), {
       showActions: true,
       midGameDisconnect: s.wasEverConnected,
     });
@@ -218,7 +252,6 @@ export function waitForWebSocket(maxWaitMs = 5000): Promise<boolean> {
     }, maxWaitMs);
   });
 }
-// --- WebSocket Connect Logic ---
 
 function shouldSkipConnect(lobbyCode: string): boolean {
   const ws = getWs();
@@ -238,7 +271,7 @@ async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
       if (!check.ok) {
         showConnectionError(roomErrorMessage(check.reason), {
           showActions: true,
-          title: '无法进入房间',
+          title: t('error.room_not_exist'),
         });
         return null;
       }
@@ -249,7 +282,7 @@ async function resolveRoomCode(urlCode: string | null): Promise<string | null> {
 
   const matched = await resolveLobbyCode();
   if (!matched) {
-    showConnectionError('无法连接到游戏服务器，请稍后重试', { showActions: true });
+    showConnectionError(t('error.cannot_connect_server'), { showActions: true });
     return null;
   }
   onLobbyCodeReady(matched);
@@ -292,12 +325,12 @@ function setupSocketHandlers(socket: WebSocket): void {
       let message: string;
       if (wasRoomPreChecked()) {
         const code = event?.code;
-        if (code === 1006) message = '连接中断，请检查网络后重试';
-        else if (code === 1008) message = '认证失败，请刷新页面重试';
-        else if (code === 1011) message = '服务器内部错误，请稍后重试';
-        else message = '无法连接房间，请稍后重试';
+        if (code === 1006) message = t('error.conn_interrupted');
+        else if (code === 1008) message = t('error.auth_failed');
+        else if (code === 1011) message = t('error.server_error');
+        else message = t('error.cannot_connect_room');
       } else {
-        message = '连接失败，请检查网络后重试';
+        message = t('error.conn_failed');
       }
       showConnectionError(message, { showActions: true });
       return;
@@ -318,7 +351,7 @@ function openGameSocket(wsCode: string): void {
   }
 
   if (!ROOM_CODE_RE.test(wsCode)) {
-    showConnectionError('无效的房间码', { showActions: true });
+    showConnectionError(t('error.invalid_room_code'), { showActions: true });
     return;
   }
 
@@ -353,9 +386,6 @@ export async function connectWebSocket(): Promise<void> {
     lobbyCode = resolvedCode;
     if (!lobbyCode) return;
 
-    // 推迟 onLobbyCodeReady 到 establishGameSession/resolveRoomCode 都成功：
-    // 失败时 entryStep 保持 'connecting'，showConnectionError 才能正确显示错误面板
-    // 而不被 nickname-setup-screen 的 entry-overlay-active 盖住。
     if (urlCode && getEntryStep() === 'connecting') {
       onLobbyCodeReady(lobbyCode);
     }
@@ -370,7 +400,6 @@ export async function connectWebSocket(): Promise<void> {
   }
 }
 
-/** Reset ws_connect module-level state for a new game session. */
 export function resetWsConnectState(): void {
   dispatch({ type: 'SET_STATE', partial: { wsConnectInFlight: false, connectedLobbyCode: null } });
 }

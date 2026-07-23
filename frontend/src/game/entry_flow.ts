@@ -1,18 +1,230 @@
+﻿import { t } from '../i18n/t.js';
 import type { GamePhase } from './state.js';
 import { dispatch, getState } from './state.js';
-import type { EntryStep, EntryOverlayContext, EntryFullScreenErrorOptions } from './entry_ui.js';
-import {
-  setNicknameStatus,
-  setWaitingInlineError,
-  setLobbyCodeDisplay,
-  syncEntryOverlays,
-  renderEntryFullScreenError,
-  renderStartCountdownTitle,
-  updateWaitingStatusLine,
-  nicknameReadyStatus,
-  resetEntryDomState,
-} from './entry_ui.js';
+import { $lobbyCode, $hudCode } from './ui_common.js';
+import { $canvas } from './renderer.js';
+import { matchNewRoomCode } from './lobby_match.js';
 import { runTutorialIfNeeded } from './tutorial.js';
+
+export type EntryStep = 'connecting' | 'nickname' | 'waiting' | 'handoff' | 'error';
+
+export interface EntryFullScreenErrorOptions {
+  showActions?: boolean;
+  title?: string;
+  midGameDisconnect?: boolean;
+}
+
+export interface EntryOverlayContext {
+  entryStep: EntryStep;
+  wsConnected: boolean;
+  lobbyCode: string;
+  phase: GamePhase;
+  getWaitingTitleText: () => string;
+}
+
+const $loadingOverlay = document.getElementById('loading-overlay');
+const $waitingTitle = document.getElementById('waiting-title');
+const $loadingErrorPanel = document.getElementById('loading-error-panel');
+const $loadingErrorText = document.getElementById('loading-error-text');
+const $loadingErrorTitle = document.getElementById('loading-error-title');
+const $loadingErrorActions = document.getElementById('loading-error-actions');
+const $loadingSpinner = $loadingOverlay?.querySelector('.loading-spinner');
+const $loadingText = $loadingOverlay?.querySelector('.loading-text');
+
+let errorActionsBound = false;
+
+export function setNicknameStatus(text: string): void {
+  const el = document.getElementById('nickname-connect-status');
+  if (el) el.textContent = text;
+}
+
+export function nicknameReadyStatus(lobbyCode: string, wsConnected: boolean): void {
+  const code = lobbyCode || '-----';
+  if (wsConnected) {
+    setNicknameStatus(t('error.lobby_connected', { code }));
+  } else {
+    setNicknameStatus(t('error.lobby_ready', { code }));
+  }
+}
+
+export function setWaitingInlineError(text: string): void {
+  const el = document.getElementById('waiting-connect-error');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('hidden', !text);
+}
+
+export function clearWaitingInlineError(): void {
+  setWaitingInlineError('');
+}
+
+export function showLoadingOverlay(message = t('play.connecting')): void {
+  if (!$loadingOverlay) return;
+  $loadingOverlay.classList.remove('hidden');
+  $loadingOverlay.style.display = '';
+  delete $loadingOverlay.dataset.error;
+  $loadingSpinner?.classList.remove('hidden');
+  $loadingText?.classList.remove('hidden');
+  if ($loadingText) $loadingText.textContent = message;
+  $loadingErrorPanel?.classList.add('hidden');
+}
+
+function hideLoadingOverlay(): void {
+  if (!$loadingOverlay) return;
+  $loadingOverlay.style.pointerEvents = 'none';
+  $loadingOverlay.classList.add('hidden');
+}
+
+export function updateWaitingStatusLine(ctx: EntryOverlayContext): void {
+  if (!$waitingTitle) return;
+  if (!ctx.wsConnected) {
+    $waitingTitle.textContent = t('error.lobby_connecting');
+    return;
+  }
+  $waitingTitle.textContent = ctx.getWaitingTitleText();
+}
+
+function syncCanvasPointerEvents(entryStep: EntryStep, phase: GamePhase): void {
+  $canvas.style.pointerEvents = entryStep === 'handoff' && phase === 'playing' ? 'auto' : 'none';
+}
+
+function isEntryStepLoading(entryStep: EntryStep): boolean {
+  return entryStep === 'connecting' || entryStep === 'error';
+}
+
+function ensureEntryOverlayOnTop(entryStep: EntryStep): void {
+  if ($loadingOverlay && !isEntryStepLoading(entryStep)) {
+    $loadingOverlay.style.pointerEvents = 'none';
+  }
+  if (entryStep === 'error') {
+    document.getElementById('nickname-setup-screen')?.classList.remove('entry-overlay-active');
+    document.getElementById('waiting-screen')?.classList.remove('entry-overlay-active');
+    return;
+  }
+  const inEntry = entryStep === 'nickname' || entryStep === 'waiting';
+  document.getElementById('nickname-setup-screen')?.classList.toggle('entry-overlay-active', inEntry);
+  document.getElementById('waiting-screen')?.classList.toggle('entry-overlay-active', inEntry);
+}
+
+export function syncEntryOverlays(ctx: EntryOverlayContext): void {
+  const nickname = document.getElementById('nickname-setup-screen');
+  const waiting = document.getElementById('waiting-screen');
+
+  const showLoading = isEntryStepLoading(ctx.entryStep);
+  const showNickname = ctx.entryStep === 'nickname';
+  const showWaiting = ctx.entryStep === 'waiting';
+  const isHandoff = ctx.entryStep === 'handoff';
+
+  if ($loadingOverlay) {
+    if (showLoading && ctx.entryStep === 'connecting') {
+      showLoadingOverlay();
+    } else if (!showLoading) {
+      hideLoadingOverlay();
+    }
+  }
+
+  nickname?.classList.toggle('hidden', !showNickname || isHandoff);
+  waiting?.classList.toggle('hidden', !showWaiting || isHandoff);
+  if (isHandoff) {
+    nickname?.classList.remove('entry-overlay-active');
+    waiting?.classList.remove('entry-overlay-active');
+  }
+
+  syncCanvasPointerEvents(ctx.entryStep, ctx.phase);
+  ensureEntryOverlayOnTop(ctx.entryStep);
+
+  if (showNickname) {
+    nicknameReadyStatus(ctx.lobbyCode, ctx.wsConnected);
+  }
+
+  if (showWaiting) {
+    updateWaitingStatusLine(ctx);
+  }
+}
+
+export function setLobbyCodeDisplay(lobbyCode: string): void {
+  $lobbyCode.textContent = lobbyCode;
+  $hudCode.textContent = lobbyCode;
+}
+
+const ERROR_TITLES: Array<[string[], string]> = [
+  [['已结束'], t('error.room_ended')],
+  [['不存在'], t('error.room_not_exist')],
+  [['超时', '网络', '连接'], t('error.connection_failed')],
+];
+
+function errorTitleForMessage(message: string, midGameDisconnect?: boolean): string {
+  if (midGameDisconnect) return t('error.conn_interrupted');
+  for (const [keywords, title] of ERROR_TITLES) {
+    if (keywords.some((k) => message.includes(k))) return title;
+  }
+  return t('error.room_not_exist');
+}
+
+export function renderEntryFullScreenError(message: string, options?: EntryFullScreenErrorOptions): void {
+  document.getElementById('nickname-setup-screen')?.classList.remove('entry-overlay-active');
+  document.getElementById('waiting-screen')?.classList.remove('entry-overlay-active');
+  if (!$loadingOverlay) return;
+  $loadingOverlay.classList.remove('hidden');
+  $loadingOverlay.dataset.error = 'true';
+  $loadingOverlay.style.display = 'flex';
+  $loadingOverlay.style.pointerEvents = 'auto';
+
+  $loadingSpinner?.classList.add('hidden');
+  $loadingText?.classList.add('hidden');
+
+  if ($loadingErrorTitle) {
+    $loadingErrorTitle.textContent = options?.title ?? errorTitleForMessage(message, options?.midGameDisconnect);
+  }
+  if ($loadingErrorText) $loadingErrorText.textContent = message;
+  $loadingErrorPanel?.classList.remove('hidden');
+  if ($loadingErrorActions) {
+    $loadingErrorActions.classList.toggle('hidden', !options?.showActions);
+  }
+
+  bindEntryErrorPanelActions();
+  document.getElementById('reconnect-banner')?.classList.add('hidden');
+}
+
+function bindEntryErrorPanelActions(): void {
+  if (errorActionsBound) return;
+  errorActionsBound = true;
+
+  document.getElementById('loading-back-btn')?.addEventListener('click', () => {
+    window.location.href = '/';
+  });
+
+  const matchBtn = document.getElementById('loading-match-btn');
+  if (matchBtn) {
+    matchBtn.addEventListener('click', () => {
+      void (async () => {
+        matchBtn.setAttribute('disabled', 'true');
+        const code = await matchNewRoomCode();
+        if (code) {
+          window.location.href = `/play.html?code=${code}`;
+          return;
+        }
+        matchBtn.removeAttribute('disabled');
+        if ($loadingErrorText) {
+          $loadingErrorText.textContent = t('error.match_failed');
+        }
+      })();
+    });
+  }
+}
+
+export function renderStartCountdownTitle(remaining: number): void {
+  if (!$waitingTitle) return;
+  if (remaining <= 0) {
+    $waitingTitle.textContent = t('error.starting');
+    return;
+  }
+  $waitingTitle.textContent = t('error.countdown_tick', { remaining });
+}
+
+export function resetEntryDomState(): void {
+  errorActionsBound = false;
+}
 
 let entryUiBound = false;
 
@@ -44,7 +256,6 @@ function syncOverlays(): void {
   syncEntryOverlays(overlayContext());
 }
 
-/** Full-screen loading overlay error panel (connecting / error / mid-game disconnect). */
 export function showEntryFullScreenError(message: string, options?: EntryFullScreenErrorOptions): void {
   applyEntryStep('error');
   renderEntryFullScreenError(message, options);
@@ -65,20 +276,12 @@ export function applyEntryStep(next: EntryStep): void {
   }
 }
 
-/**
- * Force-revert entry step to 'nickname'. Used by the NICKNAME_REJECTED handler
- * to let the user retry nickname submission. Bypasses the canAdvanceTo guard
- * because this is an explicit server-driven recovery action, not a forward
- * progression. Only reverts when the current step is 'waiting' (i.e. the user
- * is stuck after submitting a nickname); other states are left untouched.
- */
 export function revertEntryStepToNickname(): void {
   if (getState().entryStep !== 'waiting') return;
   dispatch({ type: 'SET_STATE', partial: { entryStep: 'nickname' } });
   syncOverlays();
 }
 
-/** First lobby code resolved — idempotent after waiting/handoff. */
 export function onLobbyCodeReady(lobbyCode: string): void {
   const s = getState();
   if (s.entryStep === 'waiting' || s.entryStep === 'handoff') return;
@@ -89,7 +292,6 @@ export function onLobbyCodeReady(lobbyCode: string): void {
   applyEntryStep('nickname');
 }
 
-/** User clicked「进入游戏」. */
 export function onNicknameSubmit(): void {
   if (getState().entryStep !== 'nickname') return;
   dispatch({ type: 'SET_STATE', partial: { nicknameSubmitted: true, lobbyPublished: true } });
@@ -98,14 +300,13 @@ export function onNicknameSubmit(): void {
   startWaitingTimeout();
 }
 
-/** Start a timeout that shows an error if the server doesn't respond while in 'waiting'. */
 function startWaitingTimeout(): void {
   clearWaitingTimeout();
   waitingTimeoutTimer = setTimeout(() => {
     waitingTimeoutTimer = null;
     if (getState().entryStep !== 'waiting') return;
     clearStartCountdown();
-    routeConnectionError('未收到服务器响应，请重试', { showActions: true });
+    routeConnectionError(t('error.no_response'), { showActions: true });
   }, 15000);
 }
 
@@ -126,6 +327,7 @@ function startStartCountdown(): void {
     renderStartCountdownTitle(remaining);
     if (remaining <= 0) {
       clearStartCountdown();
+      updateWaitingStatusLine(overlayContext());
       return;
     }
     remaining--;
@@ -141,7 +343,6 @@ export function clearStartCountdown(): void {
   }
 }
 
-/** Bind nickname form submit — single entry point for enter-game UI. */
 export function bindEntryUI(onSubmit: () => void): void {
   if (entryUiBound) return;
   entryUiBound = true;
@@ -150,9 +351,6 @@ export function bindEntryUI(onSubmit: () => void): void {
   form?.addEventListener('submit', (e: Event) => {
     e.preventDefault();
     if (getState().entryStep !== 'nickname') return;
-    // Tutorial is a pre-condition for nickname submission: new players see it
-    // before SET_NICKNAME is sent; returning players (cookie set) skip it
-    // inside runTutorialIfNeeded and resolve immediately.
     void runTutorialIfNeeded().then(() => {
       if (getState().entryStep !== 'nickname') return;
       onSubmit();
@@ -160,7 +358,6 @@ export function bindEntryUI(onSubmit: () => void): void {
   });
 }
 
-/** WebSocket connected — update waiting status only, never regress step. */
 export function onWebSocketOpen(): void {
   dispatch({ type: 'SET_STATE', partial: { wsConnected: true } });
   const s = getState();
@@ -180,11 +377,10 @@ export function onWebSocketClosed(): void {
     updateWaitingStatusLine(overlayContext());
   } else if (s.entryStep === 'nickname') {
     const code = s.lobbyCode || '-----';
-    setNicknameStatus(`连接已断开 · 房间 ${code} · 仍可点击「进入游戏」（将自动重连）`);
+    setNicknameStatus(t('error.disconnected', { code }));
   }
 }
 
-/** Enter handoff when server phase moves into active gameplay or ended room. */
 export function tryEntryHandoff(phase: GamePhase): void {
   if (!getState().nicknameSubmitted) return;
   if (phase === 'countdown' || phase === 'playing' || phase === 'ended') {
@@ -193,7 +389,6 @@ export function tryEntryHandoff(phase: GamePhase): void {
   }
 }
 
-/** Inline or full-screen connection error depending on entry step. */
 export function routeConnectionError(message: string, options?: EntryFullScreenErrorOptions): void {
   const showFull =
     options?.showActions ||
@@ -224,14 +419,6 @@ export function initEntryFlow(): void {
   syncOverlays();
 }
 
-/**
- * Test-only reset of entry-flow module state.
- * Production code should use {@link resetEntryFlowState} instead — this
- * variant additionally dispatches a SET_STATE to roll entryStep back to
- * 'connecting', which only makes sense in test setup.
- *
- * @internal Test-only — exported solely for entry_flow*.test.ts; do not call from production.
- */
 export function resetEntryFlowForTest(): void {
   clearStartCountdown();
   dispatch({ type: 'SET_STATE', partial: { entryStep: 'connecting', lobbyPublished: false, wsConnected: false } });
@@ -239,11 +426,6 @@ export function resetEntryFlowForTest(): void {
   resetEntryDomState();
 }
 
-/**
- * Production reset of entry-flow module-level state.
- * Called by resetClientState() — store fields (lobbyPublished, wsConnected)
- * are reset by RESET_ALL; this handles remaining module-local state.
- */
 export function resetEntryFlowState(): void {
   clearStartCountdown();
   clearWaitingTimeout();
@@ -251,27 +433,9 @@ export function resetEntryFlowState(): void {
   resetEntryDomState();
 }
 
-// Re-export types for downstream consumers importing from './entry_flow.js'
-export type { EntryStep, EntryOverlayContext, EntryFullScreenErrorOptions } from './entry_ui.js';
-
-// Re-export DOM helpers for downstream consumers importing from './entry_flow.js'
-export {
-  setNicknameStatus,
-  nicknameReadyStatus,
-  setWaitingInlineError,
-  clearWaitingInlineError,
-  showLoadingOverlay,
-  updateWaitingStatusLine,
-  syncEntryOverlays,
-  setLobbyCodeDisplay,
-  renderEntryFullScreenError,
-  renderStartCountdownTitle,
-  resetEntryDomState,
-} from './entry_ui.js';
-
 export function getWaitingTitleText(): string {
   if (getState().players.length > 1) {
-    return '等待其他玩家确认昵称…';
+    return t('error.waiting_others');
   }
-  return '即将开始…';
+  return t('error.about_to_start');
 }

@@ -1,4 +1,4 @@
-import { apiFetch } from '../network/api_fetch.js';
+import { apiFetch } from '../network/network.js';
 
 const MAX_AGE_SEC = 31536000;
 const BEST_SCORE_COOKIE = 'uppy-best-score';
@@ -60,7 +60,7 @@ export async function shouldShowTutorial(): Promise<boolean> {
       if (data.hasHistory) return false;
     }
   } catch {
-    // Anonymous or offline — show tutorial with skip option.
+    // ignore — non-critical operation
   }
   return true;
 }

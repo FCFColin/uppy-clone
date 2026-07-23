@@ -1,4 +1,4 @@
-import { resumeAudioContext } from '../shared/ui/audio.js';
+import { resumeAudioContext } from '../shared/ui/ui.js';
 import { handleTap, requestRestart, tapAtBalloonCenter } from './input.js';
 import { getState, dispatch } from './state.js';
 import { resizeCanvas, startGameLoop, setRenderActive, renderOnce, $canvas } from './renderer.js';
@@ -127,7 +127,6 @@ export function bindWindowEvents(): void {
   });
 }
 
-/** Reset window_events module-level state for a new game session. */
 export function resetWindowEventState(): void {
   if (resizeTimer !== null) {
     clearTimeout(resizeTimer);

@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getCookieBestScore, setCookieBestScore, fetchUserBestScore, updateBestScore } from './cookies.js';
+import {
+  getCookieBestScore,
+  fetchUserBestScore,
+  updateBestScore,
+  isTutorialDone,
+  markTutorialDone,
+  shouldShowTutorial,
+} from './cookies.js';
 
 describe('bestScoreCookie', () => {
   beforeEach(() => {
@@ -15,11 +22,6 @@ describe('bestScoreCookie', () => {
     expect(getCookieBestScore()).toBe(expected);
   });
 
-  it('writes score to cookie', () => {
-    setCookieBestScore(100);
-    expect(document.cookie).toContain('uppy-best-score=100');
-  });
-
   it('updateBestScore only saves higher score', () => {
     document.cookie = 'uppy-best-score=50';
     const r1 = updateBestScore(30);
@@ -29,11 +31,6 @@ describe('bestScoreCookie', () => {
     const r2 = updateBestScore(70);
     expect(r2).toEqual({ best: 70, isNewRecord: true });
     expect(document.cookie).toContain('uppy-best-score=70');
-  });
-
-  it('updateBestScore marks new record when no prior cookie', () => {
-    const r = updateBestScore(10);
-    expect(r).toEqual({ best: 10, isNewRecord: true });
   });
 
   it.each([
@@ -69,5 +66,37 @@ describe('bestScoreCookie', () => {
     const score = await fetchUserBestScore();
     expect(score).toBe(expectedScore);
     if (expectedCookie) expect(document.cookie).toContain(expectedCookie);
+  });
+});
+
+describe('tutorialCookie', () => {
+  beforeEach(() => {
+    document.cookie = 'uppy-tutorial=; max-age=0; path=/';
+  });
+
+  it('isTutorialDone returns false initially, true after marking done, sets cookie', () => {
+    expect(isTutorialDone()).toBe(false);
+    markTutorialDone();
+    expect(isTutorialDone()).toBe(true);
+    expect(document.cookie).toContain('uppy-tutorial=done');
+  });
+
+  it.each([
+    ['cookie done', true, null, false],
+    ['not done and API fails', false, 'reject', true],
+    ['API reports hasHistory', false, { hasHistory: true }, false],
+    ['API reports no history', false, { hasHistory: false }, true],
+  ] as const)('shouldShowTutorial returns %s when %s', async (_label, cookieDone, apiResponse, expected) => {
+    if (cookieDone) markTutorialDone();
+    if (apiResponse === 'reject') {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'));
+    } else if (apiResponse) {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(apiResponse),
+      } as Response);
+    }
+    const result = await shouldShowTutorial();
+    expect(result).toBe(expected);
   });
 });

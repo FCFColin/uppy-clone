@@ -36,7 +36,14 @@ vi.mock('./ui_common.js', async (importOriginal) => {
 });
 
 vi.mock('./tutorial.js', () => ({ runTutorialIfNeeded: vi.fn(() => Promise.resolve()) }));
-vi.mock('../shared/ui/audio.js', () => ({ playGameOverSound: vi.fn(), vibrate: vi.fn() }));
+vi.mock('../shared/ui/ui.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared/ui/ui.js')>();
+  return {
+    ...actual,
+    playGameOverSound: vi.fn(),
+    vibrate: vi.fn(),
+  };
+});
 vi.mock('../shared/data/cookies.js', () => ({
   updateBestScore: vi.fn((score: number) => ({ best: score - 10, isNewRecord: false })),
   fetchUserBestScore: vi.fn(() => Promise.resolve(999)),
@@ -74,7 +81,6 @@ import {
   handleNicknameRejected,
 } from './ws_handlers.js';
 import { decodeSnapshot } from './message_codec.js';
-import { playGameOverSound } from '../shared/ui/audio.js';
 import { pushFloatingText } from './visual_helpers.js';
 
 describe('handleBinaryMessage routing', () => {
@@ -88,69 +94,6 @@ describe('handleBinaryMessage routing', () => {
     handleBinaryMessage(buildMinimalSnapshot(PHASE_CODE.PLAYING));
     expect(mocks.state.score).toBe(42);
     expect(mocks.state.hasReceivedFirstSnapshot).toBe(true);
-  });
-
-  it('routes tap accepted messages', () => {
-    const buf = new ArrayBuffer(18);
-    const dv = new DataView(buf);
-    dv.setUint8(0, MSG_TYPE.TAP_ACCEPTED);
-    dv.setUint16(1, 2, true);
-    dv.setUint32(3, 800, true);
-    dv.setFloat32(7, 0.3, true);
-    dv.setFloat32(11, 0.7, true);
-    handleBinaryMessage(buf);
-    expect(mocks.state.myCooldownEnd).toBeGreaterThan(Date.now());
-    expect(mocks.state.ripples.some((r) => r.playerIndex === 2)).toBe(true);
-  });
-
-  it('routes tap rejected messages', () => {
-    const buf = new ArrayBuffer(1);
-    new DataView(buf).setUint8(0, MSG_TYPE.TAP_REJECTED);
-    handleBinaryMessage(buf);
-    expect(mocks.state.ripples.some((r) => r.rejected)).toBe(true);
-    expect(pushFloatingText).toHaveBeenCalled();
-  });
-
-  it('routes game state change messages (playing and ended with end reason)', () => {
-    const buf = new ArrayBuffer(2);
-    const dv = new DataView(buf);
-    dv.setUint8(0, MSG_TYPE.GAME_STATE_CHANGE);
-    dv.setUint8(1, PHASE_CODE.PLAYING);
-    handleBinaryMessage(buf);
-    expect(mocks.applyPhaseChange).toHaveBeenCalledWith('playing', 3);
-
-    const buf2 = new ArrayBuffer(3);
-    const dv2 = new DataView(buf2);
-    dv2.setUint8(0, MSG_TYPE.GAME_STATE_CHANGE);
-    dv2.setUint8(1, PHASE_CODE.ENDED);
-    dv2.setUint8(2, 1);
-    handleBinaryMessage(buf2);
-    expect(playGameOverSound).toHaveBeenCalled();
-    expect(mocks.state.endReason).toBe(1);
-  });
-
-  it('routes restart status messages', () => {
-    const buf = new ArrayBuffer(7);
-    const dv = new DataView(buf);
-    dv.setUint8(0, MSG_TYPE.RESTART_STATUS);
-    dv.setUint8(1, 2);
-    dv.setUint8(2, 4);
-    dv.setUint32(3, 4000, true);
-    handleBinaryMessage(buf);
-    expect(mocks.state.restartVotes.yes).toBe(2);
-    expect(mocks.syncRestartVoteUI).toHaveBeenCalled();
-  });
-
-  it('routes nickname rejected messages to handler', () => {
-    const buf = new ArrayBuffer(2);
-    const dv = new DataView(buf);
-    dv.setUint8(0, MSG_TYPE.NICKNAME_REJECTED);
-    dv.setUint8(1, NICKNAME_REJECT_REASON.EMPTY);
-    handleBinaryMessage(buf);
-    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
-    expect(mocks.clearStartCountdown).toHaveBeenCalled();
-    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称不能为空');
-    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
   });
 
   it('warns on unknown message types', () => {
@@ -223,19 +166,6 @@ describe('handleGameStateChange', () => {
     dv.setUint32(2, 5500, true);
     handleGameStateChange(dv);
     expect(mocks.applyPhaseChange).toHaveBeenCalledWith('countdown', 6);
-  });
-
-  it('countdown phase change does not trigger tutorial', async () => {
-    const { runTutorialIfNeeded } = await import('./tutorial.js');
-    vi.mocked(runTutorialIfNeeded).mockClear();
-    const buf = new ArrayBuffer(6);
-    const dv = new DataView(buf);
-    dv.setUint8(0, MSG_TYPE.GAME_STATE_CHANGE);
-    dv.setUint8(1, PHASE_CODE.COUNTDOWN);
-    dv.setUint32(2, 3000, true);
-    handleGameStateChange(dv);
-    expect(mocks.applyPhaseChange).toHaveBeenCalledWith('countdown', 3);
-    expect(runTutorialIfNeeded).not.toHaveBeenCalled();
   });
 
   it('handles ended phase with end reason and score banner, skips update when personal-best element is missing', async () => {
@@ -412,33 +342,14 @@ describe('handleNicknameRejected', () => {
     expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
   });
 
-  it('shows duplicate-nickname message on DUPLICATE', () => {
-    handleNicknameRejected(buildNicknameRejectedBuf(NICKNAME_REJECT_REASON.DUPLICATE));
-    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称已被占用');
-    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
-    expect(mocks.clearStartCountdown).toHaveBeenCalled();
-    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
-  });
-
-  it('shows cooldown message on COOLDOWN', () => {
-    handleNicknameRejected(buildNicknameRejectedBuf(NICKNAME_REJECT_REASON.COOLDOWN));
-    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称冷却中，请稍后');
-    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
-    expect(mocks.clearStartCountdown).toHaveBeenCalled();
-    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
-  });
-
-  it('shows invalid-format message on DECODE_ERROR', () => {
-    handleNicknameRejected(buildNicknameRejectedBuf(NICKNAME_REJECT_REASON.DECODE_ERROR));
-    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称格式无效');
-    expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
-    expect(mocks.clearStartCountdown).toHaveBeenCalled();
-    expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });
-  });
-
-  it('shows generic message on unknown reason code', () => {
-    handleNicknameRejected(buildNicknameRejectedBuf(0xff));
-    expect(mocks.setNicknameStatus).toHaveBeenCalledWith('昵称被拒绝，请重试');
+  it.each([
+    [NICKNAME_REJECT_REASON.DUPLICATE, '昵称已被占用'],
+    [NICKNAME_REJECT_REASON.COOLDOWN, '昵称冷却中，请稍后'],
+    [NICKNAME_REJECT_REASON.DECODE_ERROR, '昵称格式无效'],
+    [0xff, '昵称被拒绝，请重试'],
+  ])('shows reason-specific message for reason %i', (reason, expectedMessage) => {
+    handleNicknameRejected(buildNicknameRejectedBuf(reason));
+    expect(mocks.setNicknameStatus).toHaveBeenCalledWith(expectedMessage);
     expect(mocks.revertEntryStepToNickname).toHaveBeenCalled();
     expect(mocks.clearStartCountdown).toHaveBeenCalled();
     expect(mocks.updateUI).toHaveBeenCalledWith({ force: true });

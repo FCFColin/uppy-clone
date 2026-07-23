@@ -12,7 +12,7 @@ import {
   tryBalloonFromDelayBuffer,
   tryEntityFromDelayBuffer,
   INTERP_DELAY_MS,
-} from './interp_buffers.js';
+} from './state_interp.js';
 
 describe('interp_buffers', () => {
   beforeEach(() => {

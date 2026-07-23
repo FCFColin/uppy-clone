@@ -1,15 +1,18 @@
 export {};
 
-import { apiFetch } from './shared/network/api_fetch.js';
-import { establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/network/session.js';
+import { apiFetch, establishGameSession, normalizeAuthHost, sessionErrorMessage } from './shared/network/network.js';
 import { initCollapsibleLeaderboard } from './index_leaderboard.js';
 import { ROOM_CODE_RE } from './game/lobby_match.js';
 import { initBgParticles } from './bg_particles.js';
 import { initHomepageStats } from './homepage_stats.js';
-import { initNavigation } from './shared/ui/nav.js';
-import { Zap, ArrowRight, Gamepad2, Trophy, MousePointer, Timer, Users } from './icons.js';
+import { initNavigation } from './shared/ui/ui.js';
+import { Zap, ArrowRight, Trophy, MousePointer, Timer, Users } from './icons.js';
+import { t } from './i18n/t.js';
+import { applyTranslations, initLanguageSwitcher } from './i18n/index.js';
 
 normalizeAuthHost();
+applyTranslations();
+initLanguageSwitcher();
 initNavigation();
 initCollapsibleLeaderboard();
 initBgParticles();
@@ -107,12 +110,6 @@ function initHeroIcons(): void {
     if (trailing) trailing.innerHTML = ArrowRight({ size: 18, color: 'white', strokeWidth: 2.5 });
   }
 
-  const createRoomBtn = document.querySelector<HTMLButtonElement>('.btn-cta-secondary');
-  if (createRoomBtn) {
-    const leading = createRoomBtn.querySelector('.btn-icon-leading');
-    if (leading) leading.innerHTML = Gamepad2({ size: 18, strokeWidth: 2 });
-  }
-
   const bestPillIcon = document.querySelector('.stat-best .pill-icon');
   if (bestPillIcon) {
     bestPillIcon.innerHTML = Trophy({ size: 16, color: '#fbbf24', strokeWidth: 2 });
@@ -143,12 +140,12 @@ function resetButton(btn: HTMLButtonElement, text: string): void {
 async function quickPlay(): Promise<void> {
   if (!quickplayBtn) return;
   quickplayBtn.disabled = true;
-  setButtonText(quickplayBtn, '加入中...');
+  setButtonText(quickplayBtn, t('index.joining'));
   try {
     const session = await establishGameSession();
     if (!session.ok) {
       showError(sessionErrorMessage(session));
-      resetButton(quickplayBtn, '快速开始');
+      resetButton(quickplayBtn, t('index.quick_start'));
       return;
     }
     const matchRes: Response = await apiFetch('/api/v1/registry/match', {
@@ -156,26 +153,26 @@ async function quickPlay(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
     });
     if (!matchRes.ok) {
-      let msg = '匹配房间失败，请重试';
-      if (matchRes.status === 401) msg = '登录已过期，请刷新页面重试';
-      else if (matchRes.status === 404) msg = '匹配服务暂不可用，请稍后重试';
-      else if (matchRes.status >= 500) msg = '服务器繁忙，请稍后重试';
+      let msg = t('error.match_room');
+      if (matchRes.status === 401) msg = t('error.login_expired');
+      else if (matchRes.status === 404) msg = t('error.match_unavailable');
+      else if (matchRes.status >= 500) msg = t('error.server_busy');
       showError(msg);
-      resetButton(quickplayBtn, '快速开始');
+      resetButton(quickplayBtn, t('index.quick_start'));
       return;
     }
     const matchData: { lobbyCode?: string } = await matchRes.json();
     if (!matchData.lobbyCode) {
-      showError('匹配房间失败，请重试');
-      resetButton(quickplayBtn, '快速开始');
+      showError(t('error.match_room'));
+      resetButton(quickplayBtn, t('index.quick_start'));
       return;
     }
     sessionStorage.setItem('uppy-auth-ready', '1');
     sessionStorage.setItem('uppy-fresh-match', matchData.lobbyCode);
     window.location.href = `/play.html?code=${encodeURIComponent(matchData.lobbyCode)}`;
   } catch {
-    showError('网络错误，请检查网络连接');
-    resetButton(quickplayBtn, '快速开始');
+    showError(t('error.network_check'));
+    resetButton(quickplayBtn, t('index.quick_start'));
   }
 }
 
@@ -185,28 +182,28 @@ async function joinByCode(): Promise<void> {
   if (!inputEl || !errorEl || !joinCodeBtn) return;
   const code: string = inputEl.value.trim().toUpperCase();
   if (!ROOM_CODE_RE.test(code)) {
-    errorEl.textContent = '房间号为 5 位字母数字';
+    errorEl.textContent = t('error.room_invalid_code');
     errorEl.classList.remove('hidden');
     return;
   }
   errorEl.classList.add('hidden');
   joinCodeBtn.disabled = true;
-  setButtonText(joinCodeBtn, '加入中...');
+  setButtonText(joinCodeBtn, t('index.joining'));
   try {
     const res: Response = await apiFetch(`/api/v1/registry/check/${code}`);
     if (res.status === 404) {
-      errorEl.textContent = '房间不存在或已关闭';
+      errorEl.textContent = t('error.room_not_found');
       errorEl.classList.remove('hidden');
       return;
     }
     if (!res.ok) {
-      errorEl.textContent = '服务器错误，请重试';
+      errorEl.textContent = t('error.server_retry');
       errorEl.classList.remove('hidden');
       return;
     }
     const data: { full?: boolean } = await res.json();
     if (data.full) {
-      errorEl.textContent = '房间已满';
+      errorEl.textContent = t('error.room_full');
       errorEl.classList.remove('hidden');
       return;
     }
@@ -220,11 +217,11 @@ async function joinByCode(): Promise<void> {
     sessionStorage.setItem('uppy-fresh-match', code);
     window.location.href = `/play.html?code=${code}`;
   } catch {
-    errorEl.textContent = '网络错误，请重试';
+    errorEl.textContent = t('error.network_retry');
     errorEl.classList.remove('hidden');
   } finally {
     joinCodeBtn.disabled = false;
-    setButtonText(joinCodeBtn, '加入');
+    setButtonText(joinCodeBtn, t('index.join'));
   }
 }
 

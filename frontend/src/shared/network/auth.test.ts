@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { refreshAccessToken, logout } from './auth.js';
+import { refreshAccessToken, logout } from './network.js';
 
 describe('auth token refresh', () => {
   beforeEach(() => {

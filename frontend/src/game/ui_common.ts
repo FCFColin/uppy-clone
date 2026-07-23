@@ -1,13 +1,16 @@
+﻿import { t } from '../i18n/t.js';
 import { dispatch, getState } from './state.js';
-import { showToast } from '../shared/ui/utils.js';
-import { playCountdownTick, playReadySound, vibrate } from '../shared/ui/audio.js';
+import { showToast, playCountdownTick, playReadySound, vibrate, isMuted, initMuteToggle } from '../shared/ui/ui.js';
 import { calculateCooldown } from './message_codec.js';
 import { isTutorialDone } from '../shared/data/cookies.js';
 import { PHYSICS } from '../shared/game/constants.js';
 import { routeConnectionError, type EntryFullScreenErrorOptions } from './entry_flow.js';
 import { icons } from '../icons.js';
+import { initLeaderboardOverlay } from './leaderboard_overlay.js';
 
 import { NICKNAME_ADJECTIVES, NICKNAME_CATEGORIES } from '../shared/assets/nickname_pools_gen.js';
+import { getLanguage } from '../i18n/index.js';
+import { NICKNAME_ADJECTIVES_EN, NICKNAME_CATEGORIES_EN } from '../shared/assets/nickname_pools_en.js';
 
 export const $waitingScreen: HTMLElement = document.getElementById('waiting-screen')!;
 export const $endedScreen: HTMLElement = document.getElementById('ended-screen')!;
@@ -36,13 +39,14 @@ let gameStartTime: number | null = null;
 let hudBound = false;
 
 export function pickRandomNickname(): string {
-  const adj: string = NICKNAME_ADJECTIVES[Math.floor(Math.random() * NICKNAME_ADJECTIVES.length)]!;
-  const category: readonly string[] = NICKNAME_CATEGORIES[Math.floor(Math.random() * NICKNAME_CATEGORIES.length)]!;
+  const isEn = getLanguage() === 'en';
+  const adjPool = isEn ? NICKNAME_ADJECTIVES_EN : NICKNAME_ADJECTIVES;
+  const catPool = isEn ? NICKNAME_CATEGORIES_EN : NICKNAME_CATEGORIES;
+  const adj: string = adjPool[Math.floor(Math.random() * adjPool.length)]!;
+  const category: readonly string[] = catPool[Math.floor(Math.random() * catPool.length)]!;
   const noun: string = category[Math.floor(Math.random() * category.length)]!;
   return adj + noun;
 }
-
-// ===== Countdown (from ui_utils) =====
 
 export function startCountdownTimer(seconds: number): void {
   if (seconds <= 0) {
@@ -94,15 +98,13 @@ export function showCountdownOverlay(): void {
   document.getElementById('countdown-overlay')?.classList.remove('hidden');
 }
 
-// ===== Nickname / copy / layout / fallback (from ui_utils) =====
-
 export async function copyCode(): Promise<void> {
   const url: string = `${window.location.origin}/play.html?code=${getState().lobbyCode}`;
   try {
     await navigator.clipboard.writeText(url);
-    showToast('已复制邀请链接');
+    showToast(t('error.copy_success'));
   } catch {
-    showToast('复制失败，请手动复制房间码');
+    showToast(t('error.copy_failed'));
   }
 }
 
@@ -115,7 +117,7 @@ export function showFallbackErrorScreen(message: string): void {
 
   const h2: HTMLHeadingElement = document.createElement('h2');
   h2.style.marginBottom = '1rem';
-  h2.textContent = '\u{1F635} 出错了';
+  h2.textContent = '\u{1F635} ' + t('error.error_title');
 
   const p: HTMLParagraphElement = document.createElement('p');
   p.style.cssText = 'margin-bottom:1.5rem;color:#ccc;';
@@ -124,7 +126,7 @@ export function showFallbackErrorScreen(message: string): void {
   const btn: HTMLButtonElement = document.createElement('button');
   btn.style.cssText =
     'padding:0.8rem 2rem;font-size:1rem;cursor:pointer;border:none;border-radius:8px;background:#0f3460;color:#fff;';
-  btn.textContent = '刷新页面';
+  btn.textContent = t('error.refresh_page');
   btn.onclick = () => location.reload();
 
   overlay.appendChild(h2);
@@ -132,8 +134,6 @@ export function showFallbackErrorScreen(message: string): void {
   overlay.appendChild(btn);
   document.body.appendChild(overlay);
 }
-
-// ===== Cooldown bar (from ui_cooldown) =====
 
 let cooldownTimer: ReturnType<typeof setInterval> | null = null;
 let wasReady = false;
@@ -168,7 +168,7 @@ export function updateCooldownBar(): void {
   } else {
     $cooldownBar.style.width = '0%';
     $cooldownBar.classList.add('ready');
-    $cooldownText.textContent = '点击！';
+    $cooldownText.textContent = t('play.tap');
     if (!wasReady) {
       wasReady = true;
       playReadySound();
@@ -176,8 +176,6 @@ export function updateCooldownBar(): void {
     }
   }
 }
-
-// ===== Wind indicator (from ui_wind) =====
 
 const WIND_CLAMP = PHYSICS.WIND_CLAMP;
 const STRONG_WIND_THRESHOLD = 0.55;
@@ -229,7 +227,7 @@ export function updateWindIndicator(wind: number): void {
   applyWindMeterStyle($windMeterFill, clamped, magnitude, isCalm);
 
   const dirLabel = windDirLabel(clamped, isCalm);
-  $windIndicator.title = `风向 ${dirLabel} · 风力 ${pct}%`;
+  $windIndicator.title = t('wind.title', { dir: dirLabel, pct });
 
   if (!windHintShown && !isTutorialDone() && $windFirstHint) {
     windHintShown = true;
@@ -244,8 +242,8 @@ function windDirArrow(clamped: number, isCalm: boolean): string {
 }
 
 function windDirLabel(clamped: number, isCalm: boolean): string {
-  if (isCalm) return '无';
-  return clamped >= 0 ? '东' : '西';
+  if (isCalm) return t('wind.calm');
+  return clamped >= 0 ? t('wind.east') : t('wind.west');
 }
 
 function applyWindMeterStyle(el: HTMLElement, clamped: number, magnitude: number, isCalm: boolean): void {
@@ -272,8 +270,6 @@ export function hideWindIndicator(): void {
 export function resetWindHint(): void {
   windHintShown = false;
 }
-
-// ===== Connection UI (from connection_ui) =====
 
 export type ConnectionErrorOptions = EntryFullScreenErrorOptions;
 
@@ -302,8 +298,6 @@ export function bindReconnectRetry(retryFn: () => void): void {
   btn?.addEventListener('click', () => retryFn());
 }
 
-// ===== Waiting tips (from waiting_tips) =====
-
 export function initWaitingTips(): () => void {
   const toggle = document.getElementById('waiting-tips-toggle');
   const body = document.getElementById('waiting-tips-body');
@@ -319,13 +313,11 @@ export function initWaitingTips(): () => void {
     if (getState().phase !== 'waiting' || !summary) return;
     const n = Math.max(1, getState().players.length);
     const cd = (calculateCooldown(n) / 1000).toFixed(1);
-    summary.textContent = `当前 ${n} 人 · 冷却约 ${cd} 秒`;
+    summary.textContent = t('play.player_count', { count: n, cd });
   }, 500);
 
   return () => clearInterval(intervalId);
 }
-
-// ===== HUD Icons & Timer =====
 
 function formatGameTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -364,6 +356,9 @@ function injectHudIcons(): void {
   const playersIcon = document.querySelector('.hud-icon-users');
   if (playersIcon) playersIcon.innerHTML = icons.Users({ size: 18 });
 
+  const roomCodeIcon = document.querySelector('.hud-icon-key');
+  if (roomCodeIcon) roomCodeIcon.innerHTML = icons.Key({ size: 18, color: '#22d3ee' });
+
   if ($hudCopyBtn) $hudCopyBtn.innerHTML = icons.Copy({ size: 18 });
   if ($leaveGameBtn) $leaveGameBtn.innerHTML = icons.LogOut({ size: 18 });
   if ($copyCodeBtn && !$copyCodeBtn.innerHTML.trim()) {
@@ -380,13 +375,15 @@ function injectHudIcons(): void {
   if (homeBtnIcon) homeBtnIcon.innerHTML = icons.Home({ size: 20 });
 
   const muteBtn = document.getElementById('mute-toggle');
-  if (muteBtn) muteBtn.innerHTML = icons.Volume2({ size: 18 });
+  if (muteBtn) {
+    muteBtn.innerHTML = isMuted() ? icons.VolumeX({ size: 18 }) : icons.Volume2({ size: 18 });
+  }
 
   const leaderboardBtn = document.getElementById('view-leaderboard-btn');
   if (leaderboardBtn) leaderboardBtn.innerHTML = icons.Trophy({ size: 18, color: '#a78bfa' });
 
   const menuBtn = document.getElementById('hud-menu-btn');
-  if (menuBtn && !menuBtn.innerHTML.trim()) {
+  if (menuBtn) {
     menuBtn.innerHTML = icons.Menu({ size: 18 });
   }
 }
@@ -400,15 +397,19 @@ function bindHudEvents(): void {
       window.location.href = '/';
     });
   }
+
+  initMuteToggle();
+  initLeaderboardOverlay();
+
+  const menuBtn = document.getElementById('hud-menu-btn');
+  if (menuBtn) {
+    menuBtn.addEventListener('click', () => {
+    });
+  }
 }
 
 export function initHud(): void {
   injectHudIcons();
   bindHudEvents();
   gameStartTime = null;
-}
-
-export function resetHudState(): void {
-  gameStartTime = null;
-  hudBound = false;
 }

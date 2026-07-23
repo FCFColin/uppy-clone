@@ -1,4 +1,4 @@
-import { apiFetch } from './shared/network/api_fetch.js';
+import { apiFetch } from './shared/network/network.js';
 
 interface PublicStats {
   onlinePlayers: number;

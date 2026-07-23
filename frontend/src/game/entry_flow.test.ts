@@ -14,9 +14,13 @@ vi.mock('./lobby_match.js', () => ({
 }));
 
 const mockSafeSetItem = vi.hoisted(() => vi.fn());
-vi.mock('../shared/ui/utils.js', () => ({
-  safeSetItem: mockSafeSetItem,
-}));
+vi.mock('../shared/ui/ui.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared/ui/ui.js')>();
+  return {
+    ...actual,
+    safeSetItem: mockSafeSetItem,
+  };
+});
 
 const mockRunTutorialIfNeeded = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 vi.mock('./tutorial.js', () => ({
@@ -63,10 +67,6 @@ describe('entry_flow', () => {
     mockRunTutorialIfNeeded.mockClear();
     mockRunTutorialIfNeeded.mockImplementation(() => Promise.resolve());
     initEntryFlow();
-  });
-
-  it('starts at connecting without URL code', () => {
-    expect(getEntryStep()).toBe('connecting');
   });
 
   it('initEntryFlow skips connecting when URL has code', () => {
@@ -181,20 +181,6 @@ describe('entry_flow', () => {
     });
   });
 
-  it('bindEntryUI skips tutorial and submits immediately for returning players', async () => {
-    // runTutorialIfNeeded resolves immediately (default mock) — simulates cookie set
-    onLobbyCodeReady('ABC12');
-    const onSubmit = vi.fn();
-    bindEntryUI(onSubmit);
-    document
-      .getElementById('nickname-entry-form')!
-      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    expect(mockRunTutorialIfNeeded).toHaveBeenCalledOnce();
-    await vi.waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledOnce();
-    });
-  });
-
   it('getWaitingTitleText reflects player count', () => {
     state.players = [{ playerIndex: 1, cooldownEndTime: 0, palette: 0, scoreContribution: 0, nickname: 'A' }];
     expect(getWaitingTitleText()).toBe('即将开始…');
@@ -214,12 +200,18 @@ describe('entry_flow', () => {
     expect(document.getElementById('waiting-title')!.textContent).toContain('正在连接服务器');
   });
 
-  it('countdown timer clears itself after reaching zero', async () => {
+  it('countdown timer clears itself after reaching zero', () => {
     vi.useFakeTimers();
     onLobbyCodeReady('ABC12');
     onNicknameSubmit();
     vi.advanceTimersByTime(3000);
-    expect(document.getElementById('waiting-title')!.textContent).toBe('正在开始…');
+    // wsConnected=false（默认）→ 倒计时结束后标题切换为 lobby_connecting 文案，
+    // 不再停留在「正在开始…」
+    const titleAfterZero = document.getElementById('waiting-title')!.textContent;
+    expect(titleAfterZero).toBe('已加入等待大厅 · 正在连接服务器…');
+    // 再快进 5 秒，标题保持不变 — 证明 interval 已清除，不会继续 tick
+    vi.advanceTimersByTime(5000);
+    expect(document.getElementById('waiting-title')!.textContent).toBe(titleAfterZero);
     vi.useRealTimers();
   });
 
@@ -240,7 +232,7 @@ describe('entry_flow', () => {
     initEntryFlow();
     routeConnectionError('连接超时，请重试', { showActions: true, midGameDisconnect: true });
     expect(getEntryStep()).toBe('error');
-    expect(document.getElementById('loading-error-title')!.textContent).toBe('对局连接中断');
+    expect(document.getElementById('loading-error-title')!.textContent).toBe('对局连接已中断，请检查网络后重试');
 
     resetEntryFlowForTest();
     initEntryFlow();

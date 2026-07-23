@@ -1,16 +1,16 @@
+﻿import { t } from '../i18n/t.js';
 import { encodeSetNickname } from './message_codec.js';
 import { dispatch } from './state.js';
-import { normalizeAuthHost } from '../shared/network/session.js';
-import { showToast } from '../shared/ui/utils.js';
+import { normalizeAuthHost } from '../shared/network/network.js';
+import { showToast, safeGetItem, safeSetItem, initMuteToggle } from '../shared/ui/ui.js';
 import { resizeCanvas, startGameLoop, renderOnce } from './renderer.js';
 import { updateUI } from './ui_update.js';
 import { pickRandomNickname, $setupNicknameInput } from './ui_common.js';
 import { initWaitingTips, bindReconnectRetry, initHud } from './ui_common.js';
 import { connectWebSocket, showConnectionError } from './ws_connection.js';
 import { sendOrQueue } from './ws_connection.js';
-import { initEntryFlow, bindEntryUI, onNicknameSubmit, onWebSocketOpen, getEntryStep, routeConnectionError, clearStartCountdown } from './entry_flow.js';
-import { safeGetItem, safeSetItem } from '../shared/ui/utils.js';
-import { initMuteToggle } from '../shared/ui/mute_toggle.js';
+import { initEntryFlow, bindEntryUI, onNicknameSubmit, onWebSocketOpen, getEntryStep } from './entry_flow.js';
+import { applyTranslations, initLanguageSwitcher } from '../i18n/index.js';
 
 function submitSetupNickname(): void {
   const input: HTMLInputElement | null = document.getElementById('setup-nickname-input') as HTMLInputElement | null;
@@ -26,7 +26,7 @@ function submitSetupNickname(): void {
   sendOrQueue(msg);
 
   updateUI({ force: true });
-  showToast(`欢迎，${nickname}！`);
+  showToast(t('game.welcome', { nickname }));
 }
 
 function initNickname(): void {
@@ -43,13 +43,12 @@ function initConnection(): void {
   connectWebSocket();
   setTimeout(() => {
     if (getEntryStep() !== 'connecting') return;
-    showConnectionError('连接超时，请检查网络或稍后重试', { showActions: true });
+    showConnectionError(t('error.connect_timeout'), { showActions: true });
   }, 8000);
 }
 
 let bootBound = false;
 
-/** Reset boot guard (test use only). */
 export function resetBootBound(): void {
   bootBound = false;
 }
@@ -59,6 +58,8 @@ export function boot(): void {
   bootBound = true;
 
   normalizeAuthHost();
+  applyTranslations();
+  initLanguageSwitcher();
   initNickname();
 
   initEntryFlow();

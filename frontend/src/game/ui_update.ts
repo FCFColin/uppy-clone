@@ -1,4 +1,4 @@
-import { PALETTE_COLORS } from '../shared/game/constants.js';
+﻿import { PALETTE_COLORS } from '../shared/game/constants.js';
 import { endReasonLabel } from './constants.js';
 import { truncateNickname } from './message_codec.js';
 import type { GamePhase } from './state.js';
@@ -24,7 +24,7 @@ import { isLowHeightDanger } from './visual_helpers.js';
 import { isEntryHandoff } from './entry_flow.js';
 import { getWaitingTitleText } from './entry_flow.js';
 import { syncRestartVoteProgress } from './restart_vote_ui.js';
-import { safeGetItem } from '../shared/ui/utils.js';
+import { safeGetItem } from '../shared/ui/ui.js';
 
 let lastPhase: GamePhase | null = null;
 let lastPlayerListKey = '';
@@ -105,8 +105,6 @@ function displayNickname(p: { playerIndex: number; nickname: string }): string {
       ? pending
       : p.nickname || 'P' + p.playerIndex;
   // game-022: Truncate nickname for display to prevent layout overflow.
-  // The backend also truncates, but the pending nickname (being typed) may
-  // temporarily exceed the limit before the SET_NICKNAME message is sent.
   const name = truncateNickname(raw);
   if (isCurrentPlayer(p)) return `${name}（你）`;
   return name;
@@ -223,7 +221,6 @@ export function updateScoresOnly(): void {
   }
 }
 
-/** Reset UI update cache for a new game session. */
 export function resetUIUpdateCache(): void {
   lastPhase = null;
   lastPlayerListKey = '';

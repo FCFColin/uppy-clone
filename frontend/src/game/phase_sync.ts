@@ -1,8 +1,6 @@
 import type { GamePhase } from './state.js';
 import { dispatch, getState } from './state.js';
-import { resetInterpolation, freezeInterpolation } from './state_interp.js';
-import { clearSeenSeqs } from './seen_seqs.js';
-import { resetRoundClientState } from './state_interp.js';
+import { resetInterpolation, freezeInterpolation, resetRoundClientState, clearSeenSeqs } from './state_interp.js';
 import { updateUI } from './ui_update.js';
 import {
   startCountdownTimer,
@@ -13,18 +11,10 @@ import {
 } from './ui_common.js';
 import { clearRestartCountdownTimer as clearVoteCountdownTimer } from './restart_vote_ui.js';
 import { tryEntryHandoff } from './entry_flow.js';
-/**
- * Whether a snapshot phase transition is allowed from the current client phase.
- *
- * After a server restart the client may be stuck in a stale phase (e.g. 'playing')
- * while the server has already moved to 'waiting' or started a new 'countdown'.
- * We must allow every forward/backward transition so the client can re-sync.
- */
-export function shouldApplySnapshotPhase(snapshotPhase: GamePhase): boolean {
+export function shouldApplySnapshotPhase(_snapshotPhase: GamePhase): boolean {
   return true;
 }
 
-/** Hide nickname UI once the round begins — nickname belongs to setup only. */
 function hideNicknameUI(): void {
   const setup: HTMLElement | null = document.getElementById('nickname-setup-screen');
   const inline: HTMLElement | null = document.getElementById('nickname-inline');
@@ -85,15 +75,10 @@ const phaseEnterHooks: Record<GamePhase, (countdownSeconds: number) => void> = {
   waiting: () => onEnterWaiting(),
 };
 
-/**
- * Apply side effects when game phase changes (from GAME_STATE_CHANGE or snapshot).
- * Returns true when the phase actually changed.
- */
 export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): boolean {
   const prevPhase = getState().phase;
   if (nextPhase === prevPhase) return false;
 
-  // Don't enter gameplay (or ended) until the player clicked「进入游戏」.
   if (
     !getState().nicknameSubmitted &&
     prevPhase === 'waiting' &&
@@ -104,7 +89,6 @@ export function applyPhaseChange(nextPhase: GamePhase, countdownSeconds = 3): bo
 
   dispatch({ type: 'SET_STATE', partial: { phase: nextPhase } });
   // shared-016: Only expose debug global in dev mode to avoid leaking
-  // internal state in production builds.
   if (import.meta.env.DEV) {
     window.__gamePhase = nextPhase;
   }

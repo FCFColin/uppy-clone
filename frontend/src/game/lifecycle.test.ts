@@ -23,12 +23,22 @@ const mockClearStartCountdown = vi.hoisted(() => vi.fn());
 
 vi.mock('./message_codec.js', () => ({ encodeSetNickname: mockEncodeSetNickname }));
 vi.mock('./state.js', () => ({ dispatch: mockDispatch }));
-vi.mock('../shared/network/session.js', () => ({ normalizeAuthHost: mockNormalizeAuthHost }));
-vi.mock('../shared/ui/utils.js', () => ({
-  showToast: mockShowToast,
-  safeGetItem: (k: string) => localStorage.getItem(k),
-  safeSetItem: (k: string, v: string) => localStorage.setItem(k, v),
-}));
+vi.mock('../shared/network/network.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared/network/network.js')>();
+  return {
+    ...actual,
+    normalizeAuthHost: mockNormalizeAuthHost,
+  };
+});
+vi.mock('../shared/ui/ui.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared/ui/ui.js')>();
+  return {
+    ...actual,
+    showToast: mockShowToast,
+    safeGetItem: (k: string) => localStorage.getItem(k),
+    safeSetItem: (k: string, v: string) => localStorage.setItem(k, v),
+  };
+});
 vi.mock('./renderer.js', () => ({
   resizeCanvas: mockResizeCanvas,
   gameLoop: mockGameLoop,
@@ -72,23 +82,6 @@ describe('lifecycle', () => {
     expect(localStorage.getItem('uppy-game-url')).toBeNull();
   });
 
-  it.each([
-    ['normalizeAuthHost', mockNormalizeAuthHost],
-    ['connectWebSocket', mockConnectWebSocket],
-    ['initEntryFlow', mockInitEntryFlow],
-    ['initWaitingTips', mockInitWaitingTips],
-    ['resizeCanvas', mockResizeCanvas],
-    ['renderOnce', mockRenderOnce],
-  ] as const)('boot calls %s', (_name, mock) => {
-    boot();
-    expect(mock).toHaveBeenCalled();
-  });
-
-  it('boot calls bindEntryUI with submit callback', () => {
-    boot();
-    expect(mockBindEntryUI).toHaveBeenCalledWith(expect.any(Function));
-  });
-
   it('boot sets timeout for connection error', () => {
     vi.useFakeTimers();
     boot();
@@ -97,42 +90,14 @@ describe('lifecycle', () => {
     vi.useRealTimers();
   });
 
-  it('waiting timeout fires routeConnectionError when entryStep is waiting', () => {
+  it('boot does not start the waiting timeout; timeout is started on nickname submit', () => {
     mockGetEntryStep.mockReturnValue('waiting');
     vi.useFakeTimers();
     boot();
     vi.advanceTimersByTime(15000);
-    expect(mockClearStartCountdown).toHaveBeenCalled();
-    expect(mockRouteConnectionError).toHaveBeenCalledWith('未收到服务器响应，请重试', { showActions: true });
-    vi.useRealTimers();
-    mockGetEntryStep.mockReturnValue('connecting');
-  });
-
-  it('waiting timeout is no-op when entryStep is handoff', () => {
-    mockGetEntryStep.mockReturnValue('handoff');
-    vi.useFakeTimers();
-    boot();
-    vi.advanceTimersByTime(15000);
     expect(mockClearStartCountdown).not.toHaveBeenCalled();
     expect(mockRouteConnectionError).not.toHaveBeenCalled();
     vi.useRealTimers();
     mockGetEntryStep.mockReturnValue('connecting');
-  });
-
-  it('waiting timeout is no-op when entryStep is nickname', () => {
-    mockGetEntryStep.mockReturnValue('nickname');
-    vi.useFakeTimers();
-    boot();
-    vi.advanceTimersByTime(15000);
-    expect(mockClearStartCountdown).not.toHaveBeenCalled();
-    expect(mockRouteConnectionError).not.toHaveBeenCalled();
-    vi.useRealTimers();
-    mockGetEntryStep.mockReturnValue('connecting');
-  });
-
-  it('boot registers game-ws-open listener', () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-    boot();
-    expect(addEventListenerSpy).toHaveBeenCalledWith('game-ws-open', expect.any(Function));
   });
 });

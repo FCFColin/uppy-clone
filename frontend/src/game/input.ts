@@ -1,10 +1,11 @@
-﻿import { CLIENT_MSG } from '../shared/game/constants.js';
+import { CLIENT_MSG } from '../shared/game/constants.js';
 import { calculateCooldown } from './message_codec.js';
 import { dispatch, getState } from './state.js';
 import { sendOrQueue, getWs } from './ws_connection.js';
 import { $canvas, clientToNormalized } from './renderer.js';
-import { playTapSound } from '../shared/ui/audio.js';
+import { playTapSound } from '../shared/ui/ui.js';
 import { updateUI } from './ui_update.js';
+import { t } from '../i18n/t.js';
 
 const PLAYER_INDEX_REJECTED = -1;
 const PLAYER_INDEX_OPTIMISTIC = -2;
@@ -53,18 +54,18 @@ export function tapAtBalloonCenter(): void {
 export function requestRestart(): void {
   const $restartProgress: HTMLElement | null = document.getElementById('restart-progress');
   if (getState().phase !== 'ended') {
-    if ($restartProgress) $restartProgress.textContent = '游戏尚未结束';
+    if ($restartProgress) $restartProgress.textContent = t('game.not_ended');
     return;
   }
   const ws = getWs();
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     dispatch({ type: 'SET_STATE', partial: { restartClicked: true } });
-    if ($restartProgress) $restartProgress.textContent = '连接已断开，正在重连…';
+    if ($restartProgress) $restartProgress.textContent = t('game.reconnecting');
     return;
   }
   dispatch({ type: 'SET_STATE', partial: { restartClicked: true } });
   if ($restartProgress) {
-    $restartProgress.textContent = '正在提交重启投票...';
+    $restartProgress.textContent = t('game.submitting_restart');
   }
   const buf: ArrayBuffer = new ArrayBuffer(1);
   new DataView(buf).setUint8(0, CLIENT_MSG.RESTART_VOTE);

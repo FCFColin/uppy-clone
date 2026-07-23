@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock leaderboard_utils so renderLeaderboard's initial load() doesn't hit the
-// network. fetchLeaderboard is the only export the shared module consumes.
 const mockFetchLeaderboard = vi.hoisted(() => vi.fn());
-vi.mock('./shared/ui/leaderboard_utils.js', () => ({
-  fetchLeaderboard: mockFetchLeaderboard,
-}));
+vi.mock('./shared/ui/ui.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./shared/ui/ui.js')>();
+  return {
+    ...actual,
+    fetchLeaderboard: mockFetchLeaderboard,
+  };
+});
 
 import { renderLeaderboard } from './leaderboard/shared.js';
 

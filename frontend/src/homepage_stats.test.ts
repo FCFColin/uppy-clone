@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock api_fetch. vi.mock is hoisted, so the mock applies to dynamic imports
-// performed inside beforeEach as well.
-vi.mock('./shared/network/api_fetch.js', () => ({
+vi.mock('./shared/network/network.js', () => ({
   apiFetch: vi.fn(),
 }));
 
@@ -20,26 +18,16 @@ describe('initHomepageStats', () => {
   let apiFetch: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
-    // Reset module registry so homepage_stats.ts re-executes and its
-    // module-level `timer` variable is re-initialized to null on every test.
-    // Without this, the first test that calls initHomepageStats() flips
-    // `timer` to non-null and subsequent tests' start() early-returns,
-    // skipping setInterval registration.
     vi.resetModules();
-    // Explicitly list timers to fake — vitest 4's default toFake set
-    // does not always include setInterval in this environment.
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
     });
     setDom();
-    // jsdom defines `hidden` as a getter on Document.prototype and defaults
-    // to true. The setInterval callback inside start() early-returns when
-    // hidden is true, so mock the getter to false for polling tests.
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
 
     const mod = await import('./homepage_stats.js');
     initHomepageStats = mod.initHomepageStats;
-    const apiMod = await import('./shared/network/api_fetch.js');
+    const apiMod = await import('./shared/network/network.js');
     apiFetch = apiMod.apiFetch as ReturnType<typeof vi.fn>;
     apiFetch.mockClear();
   });

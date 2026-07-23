@@ -1,4 +1,4 @@
-import type { GamePhase } from './state.js';
+﻿import type { GamePhase } from './state.js';
 import { PHASE_CODE } from '../shared/game/constants.js';
 import { COOLDOWN } from '../shared/game/constants.js';
 import { CLIENT_MSG } from '../shared/game/constants.js';
@@ -45,8 +45,6 @@ export function encodeSetNickname(nickname: string): ArrayBuffer {
   new Uint8Array(buf, 2).set(nickBytes);
   return buf;
 }
-
-// ── Snapshot decoding ────────────────────────────────────────────
 
 export interface DecodedPlayer {
   playerIndex: number;
